@@ -15,7 +15,7 @@ use tauri::{Emitter, Manager, WindowEvent};
 
 /// 应用 identifier，必须与 tauri.conf.json 中的 identifier 一致
 /// 用于在 Tauri Builder 启动前估算 app_data_dir（提前判断锁、投递 md 等）
-const IDENTIFIER: &str = "com.agilefr.kb";
+const IDENTIFIER: &str = "edu.bit.inb";
 /// .md 文件投递文件名（默认实例的轮询 watcher 监听此文件）
 const DELIVER_FILE: &str = "deliver-md.txt";
 /// 「允许多开实例」flag 文件名。
@@ -108,8 +108,8 @@ fn parse_instance_arg() -> Option<u32> {
 
 /// 当前进程使用的 app_data 子目录名。
 ///
-/// - prod: `com.agilefr.kb`（与 Tauri 默认一致）
-/// - dev:  `com.agilefr.kb-dev`（整目录隔离，方便用户备份/清理 dev 数据；
+/// - prod: `edu.bit.inb`（与 Tauri 默认一致）
+/// - dev:  `edu.bit.inb-dev`（整目录隔离，方便用户备份/清理 dev 数据；
 ///         比"同目录加 dev- 文件前缀"更直观）
 ///
 /// 注意：Tauri 内置的 `app.path().app_data_dir()` 永远返回 prod 名（因为它读

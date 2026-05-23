@@ -11,7 +11,7 @@ members = ["kb-core", "mcp"]
 name = "knowledge_base"
 version = "1.8.0"
 description = "本地知识库桌面应用 - 全文搜索、双向链接、知识图谱"
-authors = ["抓蛙师"]
+authors = ["wenjq"]
 edition = "2021"
 license = "AGPL-3.0-or-later"
 

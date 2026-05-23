@@ -55,9 +55,9 @@ pnpm build:mcp:debug     # debug 模式（编译快）
 
 | 平台 | 路径 |
 |---|---|
-| Windows | `%APPDATA%\com.agilefr.kb\app.db` |
-| macOS | `~/Library/Application Support/com.agilefr.kb/app.db` |
-| Linux | `~/.local/share/com.agilefr.kb/app.db` |
+| Windows | `%APPDATA%\edu.bit.inb\app.db` |
+| macOS | `~/Library/Application Support/edu.bit.inb/app.db` |
+| Linux | `~/.local/share/edu.bit.inb/app.db` |
 
 > 多开实例：默认实例在 `app.db`；第 N 个实例在 `instance-N/app.db`。
 
@@ -72,7 +72,7 @@ pnpm build:mcp:debug     # debug 模式（编译快）
       "command": "C:\\full\\path\\to\\kb-mcp.exe",
       "args": [
         "--db-path",
-        "C:\\Users\\YOUR_NAME\\AppData\\Roaming\\com.agilefr.kb\\app.db"
+        "C:\\Users\\YOUR_NAME\\AppData\\Roaming\\edu.bit.inb\\app.db"
       ]
     }
   }
@@ -95,7 +95,7 @@ pnpm build:mcp:debug     # debug 模式（编译快）
   "mcpServers": {
     "knowledge-base": {
       "command": "C:/full/path/to/kb-mcp.exe",
-      "args": ["--db-path", "C:/Users/YOUR_NAME/AppData/Roaming/com.agilefr.kb/app.db"]
+      "args": ["--db-path", "C:/Users/YOUR_NAME/AppData/Roaming/edu.bit.inb/app.db"]
     }
   }
 }
@@ -171,7 +171,7 @@ stdio + 直连 SQLite，单次 search_notes 在 1 万条笔记规模下 < 50ms�
 
 ### 4. 路径含空格无须转义
 
-macOS db 路径形如 `/Users/you/Library/Application Support/com.agilefr.kb/app.db`（含空格）。MCP client 配置 JSON 的 `args: ["--db-path", "<上面的路径>"]` 是数组，每个元素一个 arg，不会按空格切分。不用 quote、不用转义。
+macOS db 路径形如 `/Users/you/Library/Application Support/edu.bit.inb/app.db`（含空格）。MCP client 配置 JSON 的 `args: ["--db-path", "<上面的路径>"]` 是数组，每个元素一个 arg，不会按空格切分。不用 quote、不用转义。
 
 ### 5. Sidecar binary 可执行权限
 

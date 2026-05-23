@@ -2,7 +2,7 @@
 name = "kb-mcp"
 version = "0.1.0"
 description = "Knowledge Base MCP Server - 把本地知识库以 MCP 协议暴露给 Claude Desktop / Cursor / Cherry Studio 等 LLM 客户端"
-authors = ["抓蛙师"]
+authors = ["wenjq"]
 edition = "2021"
 license = "AGPL-3.0-or-later"
 

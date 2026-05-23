@@ -133,7 +133,7 @@ def main():
         "total_with_subs": sum(1 + len(r.get("_subreplies", [])) for r in all_main),
         "main_replies": [slim(r) for r in all_main],
     }
-    out_path = "E:/my/桌面软件tauri/knowledge_base/docs/tasks/_bilibili_comments.json"
+    out_path = "D:/AI/knowledge-base/docs/tasks/_bilibili_comments.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
     print(f"\nDONE: 主评论 {len(all_main)} 条, 含楼中楼合计 {output['total_with_subs']} 条", file=sys.stderr)

@@ -4,7 +4,7 @@
 set -e
 
 BIN="$(dirname "$0")/../target/debug/kb-mcp.exe"
-DB="C:/Users/yecha/AppData/Roaming/com.agilefr.kb/app.db"
+DB="C:/Users/yecha/AppData/Roaming/edu.bit.inb/app.db"
 
 # 一次性把所有请求喂到 stdin（每行一个 JSON-RPC 帧），收集 stdout
 {

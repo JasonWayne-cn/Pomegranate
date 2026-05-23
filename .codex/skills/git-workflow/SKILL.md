@@ -25,8 +25,8 @@ Tauri Desktop App 的 Git 工作流与版本管理技能，规范分支命名、
 
 | remote | 角色 | 定位 |
 |--------|------|------|
-| **`origin`** | **Gitee (`gitee.com/bkywksj/knowledge-base`)** | 国内主仓 |
-| **`github`** | **GitHub (`github.com/bkywksj/knowledge-base`)** | CI 构建源 + 海外开源镜像 |
+| **`origin`** | **Gitee (`gitee.com/kadywen/knowledge-base`)** | 国内主仓 |
+| **`github`** | **GitHub (`github.com/kadywen/knowledge-base`)** | CI 构建源 + 海外开源镜像 |
 | `upstream` | 原 tauri 框架模板 | 极少用，仅在同步模板时拉取 |
 
 ### 历史已对齐（v1.3.0 起）

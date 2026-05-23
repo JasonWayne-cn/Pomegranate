@@ -67,7 +67,7 @@
    - UI 框架: Ant Design 5 + TailwindCSS 4
    - 状态管理: Zustand + React Router v7
    - 数据库: SQLite (rusqlite)
-   - 应用标识: com.agilefr.kb
+   - 应用标识: edu.bit.inb
 
    ## 最近动态
    [最近提交信息]

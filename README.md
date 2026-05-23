@@ -1,8 +1,8 @@
-# Knowledge Base
+# Intelligent Portable NoteBook
 
-本地知识库桌面应用 - 全文搜索、双向链接、知识图谱、md文件保存
+本地知识库桌面应用 - 全文搜索、双向链接、知识图谱、md文件保存、支持Plugin
 
-基于 bkywksj的 knowledge-base 修改的知识管理系统。
+基于 knowledge-base 修改的智能随身笔记软件。
 
 ## 开发
 

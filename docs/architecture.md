@@ -57,7 +57,7 @@
 | AI 请求 | `reqwest` (Rust) | latest | 调用 OpenAI/Claude/Ollama API |
 | AI 流式响应 | SSE 解析 | — | Rust 侧流式读取 → Tauri Event 推送前端 |
 | AI 模型 | OpenAI / Claude / Ollama | — | 多模型切换，本地 Ollama 优先 |
-| 应用标识 | com.agilefr.kb | — | Tauri identifier |
+| 应用标识 | edu.bit.inb | — | Tauri identifier |
 
 ### 编辑器选型：Tiptap
 

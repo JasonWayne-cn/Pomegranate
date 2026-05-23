@@ -2,7 +2,7 @@
 # 验证新加的 3 个工具
 set -e
 BIN="$(dirname "$0")/../target/debug/kb-mcp.exe"
-DB="C:/Users/yecha/AppData/Roaming/com.agilefr.kb/app.db"
+DB="C:/Users/yecha/AppData/Roaming/edu.bit.inb/app.db"
 
 {
   echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"0.1"}}}'

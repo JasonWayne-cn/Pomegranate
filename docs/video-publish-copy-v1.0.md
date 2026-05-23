@@ -61,7 +61,7 @@
 08:30 收尾 · 下载地址
 
 💾 下载地址：https://kb.ruoyi.plus
-📦 GitHub：https://github.com/bkywksj/knowledge-base
+📦 GitHub：https://github.com/kadywen/knowledge-base
 🐛 有想加的功能评论区告诉我！
 
 完全免费，永不收费。求三连 + 关注，后面还会更新新功能视频～
@@ -269,7 +269,7 @@ All data stays on your computer. No cloud. No subscription. Forever.
 
 🔗 Links
 - Download: https://kb.ruoyi.plus
-- GitHub: https://github.com/bkywksj/knowledge-base
+- GitHub: https://github.com/kadywen/knowledge-base
 - My other projects: ...
 
 #Obsidian #Notion #KnowledgeManagement #Tauri #Rust #OpenSource #LocalFirst #PKM #ZettelKasten
@@ -305,7 +305,7 @@ Obsidian 插件化但同步付费 + 全家桶体验分裂；
 相关文章稍后我也会同步到知乎专栏。
 
 下载：https://kb.ruoyi.plus
-GitHub：https://github.com/bkywksj/knowledge-base
+GitHub：https://github.com/kadywen/knowledge-base
 ```
 
 ---

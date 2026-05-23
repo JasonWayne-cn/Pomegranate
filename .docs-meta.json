@@ -69,7 +69,7 @@
         "CONTRIBUTING.md",
         ".github/CLA.md"
       ],
-      "note": "源码仓 bkywksj/knowledge-base 于 2026-04-23 正式开源（AGPL-3.0 + 商业授权双许可），恢复文档站 navbar 右上角指向源码仓的 GitHub 图标（revert 13c2704）。主项目同步变更：添加 AGPL-3.0 LICENSE、COMMERCIAL-LICENSE.md 商业授权说明、CONTRIBUTING.md 贡献指南（含 CLA）、.github/CLA.md 完整协议、PR/Issue 模板、CLA Assistant 配置。"
+      "note": "源码仓 kadywen/knowledge-base 于 2026-04-23 正式开源（AGPL-3.0 + 商业授权双许可），恢复文档站 navbar 右上角指向源码仓的 GitHub 图标（revert 13c2704）。主项目同步变更：添加 AGPL-3.0 LICENSE、COMMERCIAL-LICENSE.md 商业授权说明、CONTRIBUTING.md 贡献指南（含 CLA）、.github/CLA.md 完整协议、PR/Issue 模板、CLA Assistant 配置。"
     },
     {
       "commit": "9fa269e",

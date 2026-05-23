@@ -217,6 +217,7 @@ const MODEL_PRESETS: Record<string, { value: string; label: string }[]> = {
  * - sticky top: 16，跟随主区滚动；不依赖 Antd Anchor，省一份组件依赖
  */
 const SETTINGS_NAV_ITEMS: { id: string; label: string }[] = [
+  { id: "settings-daily-md-path", label: "日记文件路径" },
   { id: "settings-update", label: "软件更新" },
   { id: "settings-startup", label: "启动设置" },
   { id: "settings-features", label: "功能模块" },
@@ -224,7 +225,6 @@ const SETTINGS_NAV_ITEMS: { id: string; label: string }[] = [
   { id: "settings-shortcuts", label: "全局快捷键" },
   { id: "settings-editor", label: "编辑器外观" },
   { id: "settings-task-reminder", label: "待办提醒" },
-  { id: "settings-daily-md-path", label: "日记文件路径" },
   { id: "settings-import", label: "导入笔记" },
   { id: "settings-export", label: "导出 Markdown" },
   { id: "settings-ai-models", label: "AI 模型" },
@@ -1106,6 +1106,56 @@ function DesktopSettingsPage() {
           <Text type="secondary">应用配置与 AI 模型管理</Text>
         </div>
 
+      <Card
+        id="settings-daily-md-path"
+        title={
+          <span className="flex items-center gap-2">
+            <FolderOpen size={16} />
+            日记文件存储路径
+          </span>
+        }
+      >
+        <Alert
+          type="info"
+          showIcon
+          className="mb-3"
+          message="当前笔记仍按现有数据库方式保存"
+          description="这里仅保存一个用于日记 Markdown 文件输出的目录配置，不会改变当前笔记正文写入数据库的实现。"
+        />
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
+          后续生成或同步日记 .md 文件时，可读取此路径作为保存目录。
+        </Typography.Paragraph>
+        <Space.Compact style={{ width: "100%" }}>
+          <Input
+            allowClear
+            value={dailyNoteMdPathDraft}
+            placeholder="请选择或输入日记 Markdown 文件保存目录"
+            onChange={(e) => setDailyNoteMdPathDraft(e.target.value)}
+          />
+          <Button icon={<FolderOpen size={14} />} onClick={handlePickDailyNoteMdPath}>
+            选择目录
+          </Button>
+          <Button
+            type="primary"
+            loading={dailyNoteMdPathSaving}
+            disabled={dailyNoteMdPathDraft.trim() === dailyNoteMdPath}
+            onClick={() => saveDailyNoteMdPath(dailyNoteMdPathDraft)}
+          >
+            保存
+          </Button>
+        </Space.Compact>
+        {dailyNoteMdPath && (
+          <div className="mt-2">
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              当前已保存：
+            </Text>
+            <Text code copyable style={{ fontSize: 12, wordBreak: "break-all" }}>
+              {dailyNoteMdPath}
+            </Text>
+          </div>
+        )}
+      </Card>
+
       <Card id="settings-update" title="软件更新">
         <Space wrap>
           <Button
@@ -1119,9 +1169,9 @@ function DesktopSettingsPage() {
           <Button
             type="link"
             size="small"
-            onClick={() => openUrl("https://kb.ruoyi.plus/")}
+            onClick={() => openUrl("https://me.bit.edu.cn/")}
           >
-            官网 https://kb.ruoyi.plus/
+            官网 https://me.bit.edu.cn/
           </Button>
         </Space>
       </Card>
@@ -1352,56 +1402,6 @@ function DesktopSettingsPage() {
           </div>
         </Card>
       </div>
-
-      <Card
-        id="settings-daily-md-path"
-        title={
-          <span className="flex items-center gap-2">
-            <FolderOpen size={16} />
-            日记文件存储路径
-          </span>
-        }
-      >
-        <Alert
-          type="info"
-          showIcon
-          className="mb-3"
-          message="当前笔记仍按现有数据库方式保存"
-          description="这里仅保存一个用于日记 Markdown 文件输出的目录配置，不会改变当前笔记正文写入数据库的实现。"
-        />
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
-          后续生成或同步日记 .md 文件时，可读取此路径作为保存目录。
-        </Typography.Paragraph>
-        <Space.Compact style={{ width: "100%" }}>
-          <Input
-            allowClear
-            value={dailyNoteMdPathDraft}
-            placeholder="请选择或输入日记 Markdown 文件保存目录"
-            onChange={(e) => setDailyNoteMdPathDraft(e.target.value)}
-          />
-          <Button icon={<FolderOpen size={14} />} onClick={handlePickDailyNoteMdPath}>
-            选择目录
-          </Button>
-          <Button
-            type="primary"
-            loading={dailyNoteMdPathSaving}
-            disabled={dailyNoteMdPathDraft.trim() === dailyNoteMdPath}
-            onClick={() => saveDailyNoteMdPath(dailyNoteMdPathDraft)}
-          >
-            保存
-          </Button>
-        </Space.Compact>
-        {dailyNoteMdPath && (
-          <div className="mt-2">
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              当前已保存：
-            </Text>
-            <Text code copyable style={{ fontSize: 12, wordBreak: "break-all" }}>
-              {dailyNoteMdPath}
-            </Text>
-          </div>
-        )}
-      </Card>
 
       {/* 导入笔记（Markdown / PDF / Word） */}
       <Card

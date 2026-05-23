@@ -218,7 +218,7 @@ Grep pattern: "invoke\(" path: src/pages/ glob: "*.tsx" output_mode: count
 #### 应用配置
 | 配置项 | 值 |
 |--------|-----|
-| 应用标识 | com.agilefr.kb |
+| 应用标识 | edu.bit.inb |
 | 应用名称 | [从 tauri.conf.json 读取] |
 | 开发端口 | 1420 |
 | 窗口数量 | X 个 |

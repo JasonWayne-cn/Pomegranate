@@ -1,4 +1,4 @@
-package com.agilefr.kb
+package edu.bit.inb
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

@@ -3,7 +3,7 @@
   "productName": "Knowledge Base",
   "mainBinaryName": "KnowledgeBase",
   "version": "1.8.0",
-  "identifier": "com.agilefr.kb",
+  "identifier": "edu.bit.inb",
   "build": {
     "beforeDevCommand": "pnpm dev:clean",
     "devUrl": "http://localhost:1421",
@@ -36,9 +36,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://pub-9d9e6c0cb6934fb0a0c505e3c64f39b2.r2.dev/knowledge-base/update.json",
-        "https://gitee.com/kadywen/knowledge-base-release/raw/master/update.json",
-        "https://github.com/kadywen/knowledge-base-release/raw/main/update.json"
+        "https://gitee.com/kadywen/knowledge-base-release/raw/master/update.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY3REE4REFFNjQ2NDlFQkUKUldTK25tUmtybzNhWjkvOEZBbXJZOHgwQlJJZExnY0VTempSc2gzSUhvS3Q3YjE5dU5LZDRqZmQK"
     }
@@ -66,8 +64,8 @@
     ],
     "copyright": "Copyright (c) 2026 AgileFR",
     "category": "Productivity",
-    "shortDescription": "本地知识库桌面应用",
-    "longDescription": "基于 Tauri 构建的本地知识库管理工具，支持 Markdown 编辑、全文搜索、双向链接、知识图谱、AI 问答等功能。",
+    "shortDescription": "智能桌面随手笔记应用",
+    "longDescription": "基于 Tauri 构建的本地笔记工具，支持 Markdown 编辑、全文搜索、双向链接、知识图谱、AI 问答等功能。",
     "windows": {
       "nsis": {
         "displayLanguageSelector": true,

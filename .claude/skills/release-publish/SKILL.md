@@ -36,11 +36,11 @@ CI：构建 Windows + macOS + Linux 安装包 → 上传到 GitHub Release（草
 
 | 用途 | 平台 | 角色 | 原因 |
 |------|------|------|------|
-| **源码托管** | GitHub 私有 `bkywksj/knowledge-base` | — | 代码管理 + CI 构建 |
+| **源码托管** | GitHub 私有 `kadywen/knowledge-base` | — | 代码管理 + CI 构建 |
 | **CI 构建** | GitHub Actions | — | 跨平台构建 + 签名 |
 | **安装包下载 + 自动更新（主）** | Cloudflare R2 CDN | **主源** | 国内快，零流量费，全球 CDN |
-| **自动更新备源 + 海外存档** | GitHub 公开 `bkywksj/knowledge-base-release` | **备源 1** | R2 不通时兜底，含签名产物 |
-| **自动更新兜底 + 国内镜像** | Gitee 公开 `bkywksj/knowledge-base-release` | **备源 2** | 国内免代理访问，raw URL 作为 update.json 发现兜底 |
+| **自动更新备源 + 海外存档** | GitHub 公开 `kadywen/knowledge-base-release` | **备源 1** | R2 不通时兜底，含签名产物 |
+| **自动更新兜底 + 国内镜像** | Gitee 公开 `kadywen/knowledge-base-release` | **备源 2** | 国内免代理访问，raw URL 作为 update.json 发现兜底 |
 
 > **Gitee 仓库的 update.json 与 GitHub 版内容完全一致**（url 都指向 GitHub raw）。
 > Gitee endpoint 主要作用是"读取 update.json"时的兜底（在 R2 和 GitHub 都挂的场景下至少能发现新版本）。
@@ -61,15 +61,15 @@ GitHub Actions 在美国服务器运行，推送二进制产物到国内通常�
 | **签名私钥** | GitHub Secrets `TAURI_SIGNING_PRIVATE_KEY`（已配置）|
 | **签名公钥** | `src-tauri/tauri.conf.json` → `plugins.updater.pubkey` |
 | **更新端点 1（R2 主）** | `https://pub-9d9e6c0cb6934fb0a0c505e3c64f39b2.r2.dev/knowledge-base/update.json` |
-| **更新端点 2（GitHub raw 备）** | `https://github.com/bkywksj/knowledge-base-release/raw/main/update.json` |
-| **更新端点 3（Gitee raw 兜底）** | `https://gitee.com/bkywksj/knowledge-base-release/raw/master/update.json` |
+| **更新端点 2（GitHub raw 备）** | `https://github.com/kadywen/knowledge-base-release/raw/main/update.json` |
+| **更新端点 3（Gitee raw 兜底）** | `https://gitee.com/kadywen/knowledge-base-release/raw/master/update.json` |
 | **R2 CDN 公开地址** | `https://pub-9d9e6c0cb6934fb0a0c505e3c64f39b2.r2.dev/knowledge-base` |
 | **R2 rclone remote** | `r2:downloads/knowledge-base/`（`~/.config/rclone/rclone.conf`）|
 | **R2 rclone 程序** | `~/bin/rclone.exe` |
 | **源码仓库本地路径** | `E:/my/桌面软件tauri/knowledge_base` |
 | **源码仓库分支** | `master`（GitHub remote 名为 `github`，Gitee remote 名为 `origin`）|
-| **Release 仓库（GitHub 公开）** | `https://github.com/bkywksj/knowledge-base-release`（remote: `origin`）|
-| **Release 仓库（Gitee 公开）** | `https://gitee.com/bkywksj/knowledge-base-release`（remote: `gitee`）|
+| **Release 仓库（GitHub 公开）** | `https://github.com/kadywen/knowledge-base-release`（remote: `origin`）|
+| **Release 仓库（Gitee 公开）** | `https://gitee.com/kadywen/knowledge-base-release`（remote: `gitee`）|
 | **本地 Release 仓库路径** | `E:/my/桌面软件tauri/knowledge-base-release` |
 | **Release 仓库分支** | 本地 `main`；GitHub 远端 `main`；**Gitee 远端 `master`**（推 Gitee 时用 refspec `main:master`）|
 | **默认下载目录** | `D:/download/download/`（浏览器下载保存位置）|
@@ -161,8 +161,8 @@ git push github "vx.y.z"
 ### 步骤 6：等待 CI 构建完成（15-30 分钟）
 
 向用户提示：
-- CI 进度：https://github.com/bkywksj/knowledge-base/actions
-- 构建完成后去 Releases 草稿下载产物：https://github.com/bkywksj/knowledge-base/releases
+- CI 进度：https://github.com/kadywen/knowledge-base/actions
+- 构建完成后去 Releases 草稿下载产物：https://github.com/kadywen/knowledge-base/releases
 
 **要下载的 13 个文件**（CI 产物前缀 Windows/macOS 为 `Knowledge.Base_`，Linux 为 `knowledge-base_`，具体前缀首次 Linux CI 后按实际产物名校正）：
 
@@ -249,7 +249,7 @@ from datetime import datetime, timezone
 
 VERSION = 'x.y.z'
 NOTES = '<更新说明>'
-GITHUB_BASE = f'https://github.com/bkywksj/knowledge-base-release/raw/main/releases/v{VERSION}'
+GITHUB_BASE = f'https://github.com/kadywen/knowledge-base-release/raw/main/releases/v{VERSION}'
 R2_BASE = f'https://pub-9d9e6c0cb6934fb0a0c505e3c64f39b2.r2.dev/knowledge-base/v{VERSION}'
 RELEASE_DIR = f'releases/v{VERSION}'
 
@@ -372,7 +372,7 @@ git push gitee main:master     # Gitee（远端分支 master；本地 main → �
 
 ### 步骤 11：发布 GitHub Release（从 draft → published）
 
-用 GitHub API patch bkywksj token，找到 vX.Y.Z 的 draft Release 并发布：
+用 GitHub API patch kadywen token，找到 vX.Y.Z 的 draft Release 并发布：
 
 ```python
 import urllib.request, json, subprocess
@@ -380,7 +380,7 @@ proc = subprocess.run(['git', 'credential', 'fill'],
     input='protocol=https\nhost=github.com\n', capture_output=True, text=True)
 token = next(l.split('=',1)[1] for l in proc.stdout.splitlines() if l.startswith('password='))
 
-req = urllib.request.Request('https://api.github.com/repos/bkywksj/knowledge-base/releases')
+req = urllib.request.Request('https://api.github.com/repos/kadywen/knowledge-base/releases')
 req.add_header('Authorization', f'Bearer {token}')
 releases = json.loads(urllib.request.urlopen(req).read())
 target = next((r for r in releases if r['tag_name'] == 'vX.Y.Z'), None)
@@ -390,7 +390,7 @@ if target and target['draft']:
         'name': f'Knowledge Base vX.Y.Z',
         'body': '<更新说明>\n\n自动更新：R2 CDN（主）+ GitHub raw（备）'
     }).encode()
-    r = urllib.request.Request(f'https://api.github.com/repos/bkywksj/knowledge-base/releases/{target["id"]}',
+    r = urllib.request.Request(f'https://api.github.com/repos/kadywen/knowledge-base/releases/{target["id"]}',
         data=body, method='PATCH')
     r.add_header('Authorization', f'Bearer {token}')
     r.add_header('Accept', 'application/vnd.github+json')
@@ -443,7 +443,7 @@ R2 versions.json，新版本会作为构建时快照嵌入到 `download.html`。
 | 源码 commit | <hash> (master) |
 | Tag | vX.Y.Z |
 | CI 状态 | ✅ 成功（Windows + macOS ARM + macOS Intel + Linux x64）|
-| GitHub Release | https://github.com/bkywksj/knowledge-base/releases/tag/vX.Y.Z |
+| GitHub Release | https://github.com/kadywen/knowledge-base/releases/tag/vX.Y.Z |
 | Release 仓库 | <hash> (main) — 13 个产物 + 2 个 update.json |
 | R2 CDN | ✅ 13 个产物 + update.json + versions.json 已上传 |
 | 文档站（knowledge-base-docs） | ✅ 已推 .last-release.json 触发 EdgeOne Pages 重建，下载页将同步最新版本 |

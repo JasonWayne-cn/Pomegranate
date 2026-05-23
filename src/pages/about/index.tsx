@@ -195,7 +195,7 @@ export default function AboutPage() {
         <div className="flex items-start gap-3 flex-wrap" style={{ marginBottom: 12 }}>
           <div className="flex-1 min-w-[260px]">
             <div className="flex items-center gap-2 flex-wrap" style={{ marginBottom: 6 }}>
-              <Text strong style={{ fontSize: 14 }}>抓蛙师</Text>
+              <Text strong style={{ fontSize: 14 }}>wenjq</Text>
               <Tag color="geekblue" style={{ marginInlineEnd: 0 }}>Java 全栈 AI 架构师</Tag>
               <Tag color="purple" style={{ marginInlineEnd: 0 }}>Agent 架构师</Tag>
             </div>

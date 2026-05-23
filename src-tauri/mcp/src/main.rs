@@ -22,7 +22,7 @@ use rmcp::{transport::stdio, ServiceExt};
 )]
 struct Cli {
     /// 知识库 SQLite 文件路径（必填）。通常是主应用的 app.db。
-    /// 例：Windows 下 C:\Users\<name>\AppData\Roaming\com.agilefr.kb\app.db
+    /// 例：Windows 下 C:\Users\<name>\AppData\Roaming\edu.bit.inb\app.db
     #[arg(long, env = "KB_MCP_DB_PATH")]
     db_path: PathBuf,
 

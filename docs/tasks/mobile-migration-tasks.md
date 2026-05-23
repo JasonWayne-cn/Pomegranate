@@ -192,7 +192,7 @@
 - **子任务**：
   - [ ] 在 Mac 上 `pnpm tauri ios init` → 生成 `src-tauri/gen/apple/`
   - [ ] commit `gen/apple/` 进 master（CI 后续 build 依赖）
-  - [ ] 配置 iOS Bundle ID（建议 `com.agilefr.kb.mobile`）
+  - [ ] 配置 iOS Bundle ID（建议 `edu.bit.inb.mobile`）
   - [ ] `tauri.conf.json` 增加 `bundle.iOS.minimumSystemVersion`（建议 16+）
 
 ---

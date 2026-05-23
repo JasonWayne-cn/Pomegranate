@@ -97,7 +97,7 @@ export function MobileMe() {
             🦊
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold">抓蛙师</h2>
+            <h2 className="text-xl font-bold">wenjq</h2>
             <p className="mt-0.5 text-sm text-blue-100">
               知识库 · 共 {stats?.total_notes ?? 0} 篇
             </p>

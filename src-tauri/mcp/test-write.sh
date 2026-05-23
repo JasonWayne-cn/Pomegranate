@@ -2,7 +2,7 @@
 # 端到端写工具测试：先在 readonly 模式下确认拒绝，再 --writable 真创建
 set -e
 BIN="$(dirname "$0")/../target/debug/kb-mcp.exe"
-DB="C:/Users/yecha/AppData/Roaming/com.agilefr.kb/app.db"
+DB="C:/Users/yecha/AppData/Roaming/edu.bit.inb/app.db"
 
 echo "=== 1) readonly 模式下尝试 create_note，应被拒绝 ==="
 {

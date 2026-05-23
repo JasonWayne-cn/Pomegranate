@@ -29,7 +29,7 @@
 ### 默认配置（硬编码）
 - **默认本地路径**：`E:/my/桌面软件tauri/tauri`
 - **默认远程 URL**：`https://gitcode.com/zhuawashi/tauri`（gitcode 主仓）
-- **备用远程**：`https://gitee.com/bkywksj/tauri.git`（gitee 镜像）
+- **备用远程**：`https://gitee.com/kadywen/tauri.git`（gitee 镜像）
 
 ### 选择顺序
 1. 若 `.claude/.local/framework-path.txt` 缓存存在且路径有效（`test -d <path>/.git && test -d <path>/.claude/skills`） → 用本地

@@ -32,7 +32,7 @@
 | **数据库** | SQLite（rusqlite，Rust 直接操作） |
 | **错误处理** | thiserror（Rust）+ ErrorBoundary（React） |
 | **安全模型** | Capabilities 细粒度权限声明 |
-| **应用标识** | `com.agilefr.kb` |
+| **应用标识** | `edu.bit.inb` |
 
 ### 双进程架构
 

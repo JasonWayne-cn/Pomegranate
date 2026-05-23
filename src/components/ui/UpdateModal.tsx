@@ -15,12 +15,12 @@ const { Text, Paragraph } = Typography;
 const FALLBACK_DOWNLOAD_PAGES = [
   {
     label: "Gitee Releases（国内推荐）",
-    url: "https://gitee.com/bkywksj/knowledge-base-release/releases",
+    url: "https://gitee.com/kadywen/knowledge-base-release/releases",
   },
-  {
-    label: "GitHub Releases（海外）",
-    url: "https://github.com/bkywksj/knowledge-base-release/releases",
-  },
+  // {
+  //   label: "GitHub Releases（海外）",
+  //   url: "https://github.com/kadywen/knowledge-base-release/releases",
+  // },
 ];
 
 type UpdateStatus = "found" | "downloading" | "downloaded";

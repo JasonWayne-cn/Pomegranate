@@ -2,9 +2,9 @@
 
 **Version 1.0 — 2026-04-23**
 
-Thank you for your interest in contributing to **Knowledge Base / 灵动桌面应用开发框架** (the "Project"), maintained by **湛江市麻章区湖光镇若依科技工作室 / 抓蛙师** (the "Licensor").
+Thank you for your interest in contributing to **Knowledge Base / 灵动桌面应用开发框架** (the "Project"), maintained by **湛江市麻章区湖光镇若依科技工作室 / wenjq** (the "Licensor").
 
-感谢你有兴趣为 **Knowledge Base / 灵动桌面应用开发框架**（以下简称"本项目"）做出贡献。本项目由 **湛江市麻章区湖光镇若依科技工作室 / 抓蛙师**（以下简称"授权方"）维护。
+感谢你有兴趣为 **Knowledge Base / 灵动桌面应用开发框架**（以下简称"本项目"）做出贡献。本项目由 **湛江市麻章区湖光镇若依科技工作室 / wenjq**（以下简称"授权方"）维护。
 
 This Contributor License Agreement ("Agreement") documents the rights granted by contributors to the Licensor. By submitting a Pull Request, opening a patch, or otherwise contributing code, documentation, or any other materials ("Contributions") to this Project, you agree to the following terms.
 
@@ -117,5 +117,5 @@ By submitting a Pull Request that references this Agreement (e.g., via CLA Assis
 ---
 
 *Project / 项目: Knowledge Base / 灵动桌面应用开发框架*
-*Maintainer / 维护者: 湛江市麻章区湖光镇若依科技工作室 / 抓蛙师*
+*Maintainer / 维护者: 湛江市麻章区湖光镇若依科技工作室 / wenjq*
 *Contact / 联系: QQ / WeChat 770492966*
