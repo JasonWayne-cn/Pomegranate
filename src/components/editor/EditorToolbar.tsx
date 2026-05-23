@@ -7,9 +7,8 @@ import {
   Italic,
   Underline,
   Strikethrough,
-  Highlighter,
-  Code,
-  Superscript as SuperscriptIcon,
+   Search,
+  Superscript as SuperscriptIcon, 
   Subscript as SubscriptIcon,
   IndentIncrease,
   IndentDecrease,
@@ -49,9 +48,10 @@ import { attachmentApi, imageApi, videoApi } from "@/lib/api";
 import { MicButton } from "@/components/MicButton";
 import { insertVideoTimestamp } from "./VideoTimestamp";
 import { EmojiPicker } from "./EmojiPicker";
-import { AnnotationButton } from "./AnnotationButton";
 import { parseEmbedUrl, SUPPORTED_PROVIDERS } from "./embedVideoProviders";
 import { useFormatPainter } from "./useFormatPainter";
+import { CompareClipboardButton } from "./CompareClipboardButton";
+import { CompareNotesButton } from "./CompareNotesButton";
 
 interface ToolbarProps {
   editor: Editor;
@@ -352,20 +352,61 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
   }, [editor, linkUrl]);
 
   const groups: ToolItem[][] = [
-    // 撤销/重做
+    // 输入辅助
     [
       {
-        icon: <Undo2 size={15} />,
-        title: "撤销",
-        action: () => editor.chain().focus().undo().run(),
-      },
-      {
-        icon: <Redo2 size={15} />,
-        title: "重做",
-        action: () => editor.chain().focus().redo().run(),
+        icon: null,
+        title: "语音输入",
+        customRender: () => (
+          <MicButton
+            onTranscribed={(text) =>
+              editor.chain().focus().insertContent(text).run()
+            }
+          />
+        ),
       },
     ],
-    // 标题（H1–H6 + 正文）下拉
+    // 撤销 / 重做
+    [
+      {
+        icon: (
+          <span className="inline-flex items-center gap-0.5">
+            <Undo2 size={15} />
+            <ChevronDown size={11} style={{ opacity: 0.6 }} />
+          </span>
+        ),
+        title: "撤销 / 重做",
+        dropdownItems: [
+          {
+            key: "undo",
+            icon: <Undo2 size={14} />,
+            label: "撤销",
+            onClick: () => editor.chain().focus().undo().run(),
+          },
+          {
+            key: "redo",
+            icon: <Redo2 size={14} />,
+            label: "重做",
+            onClick: () => editor.chain().focus().redo().run(),
+          },
+          { type: "divider" } as const,
+          {
+            key: "format-painter",
+            icon: <Paintbrush size={14} />,
+            label: "格式刷",
+            onClick: () => formatPainter.pickOnce(),
+          },
+          {
+            key: "clear-format",
+            icon: <Eraser size={14} />,
+            label: "清除格式",
+            onClick: () =>
+              editor.chain().focus().unsetAllMarks().clearNodes().run(),
+          },
+        ],
+      },
+    ],
+    // 段落 / 字号 / 行高 / 格式
     [
       {
         icon: null,
@@ -399,145 +440,6 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
               </span>
             </Button>
           </Dropdown>
-        ),
-      },
-    ],
-    // 文本格式
-    [
-      {
-        icon: <Bold size={15} />,
-        title: "粗体",
-        action: () => editor.chain().focus().toggleBold().run(),
-        isActive: () => editor.isActive("bold"),
-      },
-      {
-        icon: <Italic size={15} />,
-        title: "斜体",
-        action: () => editor.chain().focus().toggleItalic().run(),
-        isActive: () => editor.isActive("italic"),
-      },
-      {
-        icon: <Underline size={15} />,
-        title: "下划线",
-        action: () => editor.chain().focus().toggleUnderline().run(),
-        isActive: () => editor.isActive("underline"),
-      },
-      {
-        icon: <Strikethrough size={15} />,
-        title: "删除线",
-        action: () => editor.chain().focus().toggleStrike().run(),
-        isActive: () => editor.isActive("strike"),
-      },
-      {
-        icon: <Highlighter size={15} />,
-        title: "高亮",
-        action: () => editor.chain().focus().toggleHighlight().run(),
-        isActive: () => editor.isActive("highlight"),
-      },
-      {
-        // 批注按钮：自带 Modal + 全局快捷键监听 + 右键菜单事件接收
-        icon: null,
-        title: "批注",
-        customRender: () => <AnnotationButton editor={editor} />,
-      },
-      {
-        icon: <Code size={15} />,
-        title: "行内代码",
-        action: () => editor.chain().focus().toggleCode().run(),
-        isActive: () => editor.isActive("code"),
-      },
-      {
-        icon: <SuperscriptIcon size={15} />,
-        title: "上标",
-        action: () => editor.chain().focus().toggleSuperscript().run(),
-        isActive: () => editor.isActive("superscript"),
-      },
-      {
-        icon: <SubscriptIcon size={15} />,
-        title: "下标",
-        action: () => editor.chain().focus().toggleSubscript().run(),
-        isActive: () => editor.isActive("subscript"),
-      },
-    ],
-    // 输入辅助（单独成组，与文本格式 / 颜色字号区分；后续可在此追加 AI 续写等）
-    [
-      {
-        icon: null,
-        title: "语音输入",
-        customRender: () => (
-          <MicButton
-            onTranscribed={(text) =>
-              editor.chain().focus().insertContent(text).run()
-            }
-          />
-        ),
-      },
-    ],
-    // 颜色 / 字号 / 行高
-    [
-      {
-        icon: null,
-        title: "字体颜色",
-        customRender: () => (
-          <Tooltip title="字体颜色" mouseEnterDelay={0.5}>
-            <ColorPicker
-              size="small"
-              value={(editor.getAttributes("textStyle").color as string) || "#000000"}
-              onChange={(c) => {
-                const hex = c.toHexString();
-                editor.chain().focus().setColor(hex).run();
-              }}
-              presets={[
-                {
-                  label: "常用",
-                  colors: [
-                    "#000000", "#595959", "#8c8c8c", "#bfbfbf", "#ffffff",
-                    "#ff4d4f", "#fa8c16", "#fadb14", "#52c41a", "#1677ff",
-                    "#722ed1", "#eb2f96",
-                  ],
-                },
-              ]}
-            >
-              <Button
-                type="text"
-                size="small"
-                icon={<Baseline size={15} />}
-                style={{ minWidth: 28, height: 28, padding: 0 }}
-              />
-            </ColorPicker>
-          </Tooltip>
-        ),
-      },
-      {
-        icon: null,
-        title: "背景颜色",
-        customRender: () => (
-          <Tooltip title="背景颜色" mouseEnterDelay={0.5}>
-            <ColorPicker
-              size="small"
-              value={(editor.getAttributes("highlight").color as string) || "#ffe58f"}
-              onChange={(c) => {
-                const hex = c.toHexString();
-                editor.chain().focus().toggleHighlight({ color: hex }).run();
-              }}
-              presets={[
-                {
-                  label: "常用",
-                  colors: [
-                    "#ffe58f", "#ffadd2", "#b7eb8f", "#91d5ff", "#ffd6e7",
-                    "#fff1b8", "#d9f7be", "#bae7ff", "#f0f5ff", "#fff7e6",
-                  ],
-                },
-              ]}
-            >
-              <Button
-                type="text"
-                size="small"
-                icon={<PaintBucket size={15} />}
-                style={{ minWidth: 28, height: 28, padding: 0 }}
-              />
-            </ColorPicker>
-          </Tooltip>
         ),
       },
       {
@@ -613,32 +515,209 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
           );
         },
       },
+      {
+        icon: (
+          <span className="inline-flex items-center gap-0.5">
+            <Bold size={15} />
+            <ChevronDown size={11} style={{ opacity: 0.6 }} />
+          </span>
+        ),
+        title: "文本修饰",
+        isActive: () =>
+          editor.isActive("bold") ||
+          editor.isActive("italic") ||
+          editor.isActive("underline") ||
+          editor.isActive("strike") ||
+          editor.isActive("superscript") ||
+          editor.isActive("subscript"),
+        dropdownItems: [
+          {
+            key: "bold",
+            icon: <Bold size={14} />,
+            label: "粗体",
+            onClick: () => editor.chain().focus().toggleBold().run(),
+          },
+          {
+            key: "italic",
+            icon: <Italic size={14} />,
+            label: "斜体",
+            onClick: () => editor.chain().focus().toggleItalic().run(),
+          },
+          {
+            key: "underline",
+            icon: <Underline size={14} />,
+            label: "下划线",
+            onClick: () => editor.chain().focus().toggleUnderline().run(),
+          },
+          {
+            key: "strikethrough",
+            icon: <Strikethrough size={14} />,
+            label: "删除线",
+            onClick: () => editor.chain().focus().toggleStrike().run(),
+          },
+          {
+            key: "superscript",
+            icon: <SuperscriptIcon size={14} />,
+            label: "上标",
+            onClick: () => editor.chain().focus().toggleSuperscript().run(),
+          },
+          {
+            key: "subscript",
+            icon: <SubscriptIcon size={14} />,
+            label: "下标",
+            onClick: () => editor.chain().focus().toggleSubscript().run(),
+          },
+        ],
+      },
+    ],
+    // 字体颜色
+    [
+      {
+        icon: null,
+        title: "字体颜色",
+        customRender: () => (
+          <Tooltip title="字体颜色" mouseEnterDelay={0.5}>
+            <ColorPicker
+              size="small"
+              value={(editor.getAttributes("textStyle").color as string) || "#000000"}
+              onChange={(c) => {
+                const hex = c.toHexString();
+                editor.chain().focus().setColor(hex).run();
+              }}
+              presets={[
+                {
+                  label: "常用",
+                  colors: [
+                    "#000000", "#595959", "#8c8c8c", "#bfbfbf", "#ffffff",
+                    "#ff4d4f", "#fa8c16", "#fadb14", "#52c41a", "#1677ff",
+                    "#722ed1", "#eb2f96",
+                  ],
+                },
+              ]}
+            >
+              <Button
+                type="text"
+                size="small"
+                icon={<Baseline size={15} />}
+                style={{ minWidth: 28, height: 28, padding: 0 }}
+              />
+            </ColorPicker>
+          </Tooltip>
+        ),
+      },
+      {
+        icon: null,
+        title: "背景颜色",
+        customRender: () => (
+          <Tooltip title="背景颜色" mouseEnterDelay={0.5}>
+            <ColorPicker
+              size="small"
+              value={(editor.getAttributes("highlight").color as string) || "#ffe58f"}
+              onChange={(c) => {
+                const hex = c.toHexString();
+                editor.chain().focus().toggleHighlight({ color: hex }).run();
+              }}
+              presets={[
+                {
+                  label: "常用",
+                  colors: [
+                    "#ffe58f", "#ffadd2", "#b7eb8f", "#91d5ff", "#ffd6e7",
+                    "#fff1b8", "#d9f7be", "#bae7ff", "#f0f5ff", "#fff7e6",
+                  ],
+                },
+              ]}
+            >
+              <Button
+                type="text"
+                size="small"
+                icon={<PaintBucket size={15} />}
+                style={{ minWidth: 28, height: 28, padding: 0 }}
+              />
+            </ColorPicker>
+          </Tooltip>
+        ),
+      },
+    ],
+    // 对齐
+    [
+      {
+        icon: (
+          <span className="inline-flex items-center gap-0.5">
+            <AlignLeft size={15} />
+            <ChevronDown size={11} style={{ opacity: 0.6 }} />
+          </span>
+        ),
+        title: "对齐",
+        isActive: () =>
+          editor.isActive({ textAlign: "left" }) ||
+          editor.isActive({ textAlign: "center" }) ||
+          editor.isActive({ textAlign: "right" }),
+        dropdownItems: [
+          {
+            key: "left",
+            icon: <AlignLeft size={14} />,
+            label: "左对齐",
+            onClick: () => editor.chain().focus().setTextAlign("left").run(),
+          },
+          {
+            key: "center",
+            icon: <AlignCenter size={14} />,
+            label: "居中",
+            onClick: () => editor.chain().focus().setTextAlign("center").run(),
+          },
+          {
+            key: "right",
+            icon: <AlignRight size={14} />,
+            label: "右对齐",
+            onClick: () => editor.chain().focus().setTextAlign("right").run(),
+          },
+          { type: "divider" } as const,
+          {
+            key: "outdent",
+            icon: <IndentDecrease size={14} />,
+            label: "减少缩进",
+            onClick: () => editor.chain().focus().outdent().run(),
+          },
+          {
+            key: "indent",
+            icon: <IndentIncrease size={14} />,
+            label: "增加缩进",
+            onClick: () => editor.chain().focus().indent().run(),
+          },
+        ],
+      },
     ],
     // 列表 & 引用
     [
       {
-        icon: <List size={15} />,
-        title: "无序列表",
-        action: () => editor.chain().focus().toggleBulletList().run(),
-        isActive: () => editor.isActive("bulletList"),
-      },
-      {
-        icon: <ListOrdered size={15} />,
-        title: "有序列表",
-        action: () => editor.chain().focus().toggleOrderedList().run(),
-        isActive: () => editor.isActive("orderedList"),
-      },
-      {
-        icon: <ListTodo size={15} />,
-        title: "任务列表",
-        action: () => editor.chain().focus().toggleTaskList().run(),
-        isActive: () => editor.isActive("taskList"),
-      },
-      {
-        icon: <Quote size={15} />,
-        title: "引用",
-        action: () => editor.chain().focus().toggleBlockquote().run(),
-        isActive: () => editor.isActive("blockquote"),
+        icon: (
+          <span className="inline-flex items-center gap-0.5">
+            <List size={15} />
+            <ChevronDown size={11} style={{ opacity: 0.6 }} />
+          </span>
+        ),
+        title: "列表",
+        isActive: () => editor.isActive("bulletList") || editor.isActive("orderedList") || editor.isActive("taskList"),
+        dropdownItems: [
+          {
+            key: "bullet",
+            icon: <List size={14} />,
+            label: "无序列表",
+            onClick: () => editor.chain().focus().toggleBulletList().run(),
+          },
+          {
+            key: "ordered",
+            icon: <ListOrdered size={14} />,
+            label: "有序列表",
+            onClick: () => editor.chain().focus().toggleOrderedList().run(),
+          },
+          {
+            key: "task",
+            icon: <ListTodo size={14} />,
+            label: "任务列表",
+            onClick: () => editor.chain().focus().toggleTaskList().run(),
+          },
+        ],
       },
       {
         icon: (
@@ -647,9 +726,16 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
             <ChevronDown size={11} style={{ opacity: 0.6 }} />
           </span>
         ),
-        title: "Callout 提示框",
-        isActive: () => editor.isActive("callout"),
+        title: "引用 / Callout",
+        isActive: () => editor.isActive("blockquote") || editor.isActive("callout"),
         dropdownItems: [
+          {
+            key: "blockquote",
+            icon: <Quote size={14} />,
+            label: "引用",
+            onClick: () => editor.chain().focus().toggleBlockquote().run(),
+          },
+          { type: "divider" } as const,
           {
             key: "callout-info",
             label: <span><span style={{ marginRight: 6 }}>ℹ️</span>信息</span>,
@@ -671,16 +757,6 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
             onClick: () => editor.chain().focus().toggleCallout("danger").run(),
           },
         ],
-      },
-      {
-        icon: <ChevronsUpDown size={15} />,
-        title: "折叠块",
-        action: () => editor.chain().focus().setToggle().run(),
-      },
-      {
-        icon: null,
-        title: "插入 Emoji",
-        customRender: () => <EmojiPicker editor={editor} />,
       },
       {
         icon: (
@@ -718,28 +794,20 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
                 })
                 .run(),
           },
+          { type: "divider" } as const,
+          {
+            key: "toggle",
+            icon: <ChevronsUpDown size={14} />,
+            label: "折叠块",
+            onClick: () => editor.chain().focus().setToggle().run(),
+          },
+          {
+            key: "hr",
+            icon: <Minus size={14} />,
+            label: "分割线",
+            onClick: () => editor.chain().focus().setHorizontalRule().run(),
+          },
         ],
-      },
-    ],
-    // 对齐
-    [
-      {
-        icon: <AlignLeft size={15} />,
-        title: "左对齐",
-        action: () => editor.chain().focus().setTextAlign("left").run(),
-        isActive: () => editor.isActive({ textAlign: "left" }),
-      },
-      {
-        icon: <AlignCenter size={15} />,
-        title: "居中",
-        action: () => editor.chain().focus().setTextAlign("center").run(),
-        isActive: () => editor.isActive({ textAlign: "center" }),
-      },
-      {
-        icon: <AlignRight size={15} />,
-        title: "右对齐",
-        action: () => editor.chain().focus().setTextAlign("right").run(),
-        isActive: () => editor.isActive({ textAlign: "right" }),
       },
     ],
     // 表格 — T-017 全部命令折叠到 Dropdown 菜单，避免工具栏过挤
@@ -834,97 +902,141 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
     // 链接 & 媒体
     [
       {
-        icon: <LinkIcon size={15} />,
-        title: "插入链接（在选中链接上点击 → 弹窗留空确定可移除）",
-        action: openLinkModal,
-        isActive: () => editor.isActive("link"),
+        icon: (
+          <span className="inline-flex items-center gap-0.5">
+            <LinkIcon size={15} />
+            <ChevronDown size={11} style={{ opacity: 0.6 }} />
+          </span>
+        ),
+        title: "插入",
+        isActive: () => editor.isActive("link") || editor.isActive("imageResize"),
+        dropdownItems: [
+          {
+            key: "link",
+            icon: <LinkIcon size={14} />,
+            label: "插入链接",
+            onClick: openLinkModal,
+          },
+          {
+            key: "image",
+            icon: <ImagePlus size={14} />,
+            label: "插入图片",
+            onClick: insertImage,
+          },
+          {
+            key: "caption",
+            icon: <Captions size={14} />,
+            label: "图注 / Alt",
+            onClick: openCaptionModal,
+          },
+          {
+            key: "video",
+            icon: <Film size={14} />,
+            label: "插入视频",
+            onClick: insertVideo,
+          },
+          {
+            key: "embed",
+            icon: <Globe size={14} />,
+            label: "嵌入网络视频",
+            onClick: () => {
+              setEmbedUrlInput("");
+              setEmbedModalOpen(true);
+            },
+          },
+          {
+            key: "timestamp",
+            icon: <MapPin size={14} />,
+            label: "插入视频时间戳",
+            onClick: openTimestampModal,
+          },
+          {
+            key: "attachment",
+            icon: <Paperclip size={14} />,
+            label: "插入附件",
+            onClick: insertAttachment,
+          },
+        ],
       },
       {
-        icon: <ImagePlus size={15} />,
-        title: "插入图片",
-        action: insertImage,
+        icon: (
+          <span className="inline-flex items-center gap-0.5">
+            <Columns3 size={15} />
+            <ChevronDown size={11} style={{ opacity: 0.6 }} />
+          </span>
+        ),
+        title: "分栏布局",
+        dropdownItems: [
+          {
+            key: "cols-2",
+            icon: <Columns3 size={14} />,
+            label: "两栏",
+            onClick: () =>
+              editor.chain().focus().insertContent(
+                '<div class="kb-columns-2" style="display:flex;gap:1.5em"><div><p></p></div><div><p></p></div></div>'
+              ).run(),
+          },
+          {
+            key: "cols-3",
+            icon: <Columns3 size={14} />,
+            label: "三栏",
+            onClick: () =>
+              editor.chain().focus().insertContent(
+                '<div class="kb-columns-3" style="display:flex;gap:1em"><div><p></p></div><div><p></p></div><div><p></p></div></div>'
+              ).run(),
+          },
+          {
+            key: "cols-2-1",
+            icon: <Columns3 size={14} />,
+            label: "左窄右宽",
+            onClick: () =>
+              editor.chain().focus().insertContent(
+                '<div class="kb-columns-2-1" style="display:flex;gap:1.5em"><div style="flex:1"><p></p></div><div style="flex:2"><p></p></div></div>'
+              ).run(),
+          },
+          {
+            key: "cols-1-2",
+            icon: <Columns3 size={14} />,
+            label: "左宽右窄",
+            onClick: () =>
+              editor.chain().focus().insertContent(
+                '<div class="kb-columns-1-2" style="display:flex;gap:1.5em"><div style="flex:2"><p></p></div><div style="flex:1"><p></p></div></div>'
+              ).run(),
+          },
+        ],
       },
       {
-        icon: <Captions size={15} />,
-        title: "图注 / Alt（先选中图片）",
-        action: openCaptionModal,
-        isActive: () => editor.isActive("imageResize"),
-      },
-      {
-        icon: <Film size={15} />,
-        title: "插入视频",
-        action: insertVideo,
-      },
-      {
-        icon: <Globe size={15} />,
-        title: "嵌入网络视频（B站 / YouTube / 腾讯 / 优酷）",
-        action: () => {
-          setEmbedUrlInput("");
-          setEmbedModalOpen(true);
-        },
-      },
-      {
-        icon: <MapPin size={15} />,
-        title: "插入视频时间戳",
-        action: openTimestampModal,
-      },
-      {
-        icon: <Paperclip size={15} />,
-        title: "插入附件（PDF/Office/ZIP 等）",
-        action: insertAttachment,
-      },
-      {
-        icon: <Minus size={15} />,
-        title: "分割线",
-        action: () => editor.chain().focus().setHorizontalRule().run(),
-      },
-    ],
-    // 缩进 + 格式刷 + 清除格式
-    [
-      {
-        icon: <IndentDecrease size={15} />,
-        title: "减少缩进",
-        action: () => editor.chain().focus().outdent().run(),
-      },
-      {
-        icon: <IndentIncrease size={15} />,
-        title: "增加缩进",
-        action: () => editor.chain().focus().indent().run(),
+        icon: <span className="text-base">💬</span>,
+        title: "批注",
+        action: () => editor.chain().focus().insertContent("【批注：】").run(),
       },
       {
         icon: null,
-        title: "格式刷",
-        // customRender:格式刷需要 onClick(once) + onDoubleClick(persist) 两个事件,
-        // 走通用 ToolItem.action 路径覆盖不了。Tooltip 标题随 mode 变化提示用户当前态。
-        customRender: () => {
-          const tip =
-            formatPainter.mode === "persist"
-              ? "格式刷已锁定（连续应用，按 Esc 或再次单击退出）"
-              : formatPainter.mode === "once"
-                ? "格式刷已激活（选中目标文本应用一次）"
-                : "格式刷：单击吸取格式应用一次，双击进入连续模式（Esc 退出）";
-          return (
-            <Tooltip title={tip} mouseEnterDelay={0.5}>
-              <Button
-                type="text"
-                size="small"
-                icon={<Paintbrush size={15} />}
-                onClick={formatPainter.pickOnce}
-                onDoubleClick={formatPainter.pickPersist}
-                className={
-                  formatPainter.mode !== "idle" ? "toolbar-btn-active" : ""
-                }
-                style={{ minWidth: 26, height: 26, padding: 0 }}
-              />
-            </Tooltip>
-          );
+        title: "插入 Emoji",
+        customRender: () => <EmojiPicker editor={editor} />,
+      },
+    ],
+    // 查找 & 对比
+    [
+      {
+        icon: <Search size={15} />,
+        title: "查找替换",
+        action: () => {
+          const sel = window.getSelection()?.toString() || "";
+          document.dispatchEvent(new CustomEvent("kb:find-replace", { detail: { searchText: sel } }));
         },
       },
       {
-        icon: <Eraser size={15} />,
-        title: "清除格式",
-        action: () =>
-          editor.chain().focus().unsetAllMarks().clearNodes().run(),
+        // 与剪贴板对比 / 合并（左=剪贴板，右=当前笔记 markdown，可编辑）
+        icon: null,
+        title: "对比剪贴板",
+        customRender: () => <CompareClipboardButton editor={editor} />,
+      },
+      {
+        // 与其他笔记对比 / 合并
+        icon: null,
+        title: "对比其他笔记",
+        customRender: () => <CompareNotesButton editor={editor} noteId={noteId} />,
       },
     ],
   ];
