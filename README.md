@@ -72,7 +72,7 @@ pnpm tauri build
 
 不想赞赏也完全没问题，下面这些事一样能帮到作者：
 
-- ⭐ 在 [Gitee](https://gitee.com/kadywen/knowledge-base) 给项目点 Star
+- ⭐ 在 [Gitee](https://gitee.com/kadywen/Intelligent-NoteBook) 给项目点 Star
 - 🎬 在 B 站关注作者主页
 - 📣 推荐给身边需要的朋友
 - 📋 提 Issue 反馈 Bug / 功能建议
