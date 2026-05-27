@@ -19,6 +19,7 @@ import TasksPage from "@/pages/tasks";
 import CardsPage from "@/pages/cards";
 import PromptsPage from "@/pages/prompts";
 import PluginsPage from "@/pages/plugins";
+import PluginViewPage from "@/pages/plugin-view";
 import HiddenPage from "@/pages/hidden";
 import QuickCreatePage from "@/pages/quick-create";
 import QuickCapturePage from "@/pages/quick-capture";
@@ -84,6 +85,7 @@ const router = createHashRouter([
       { path: "ai", element: <AiChatPage /> },
       { path: "prompts", element: <PromptsPage /> },
       { path: "plugins", element: <PluginsPage /> },
+      { path: "plugin-view/:pluginId/:viewId", element: <PluginViewPage /> },
       { path: "tasks", element: <TasksPage /> },
       { path: "cards", element: <CardsPage /> },
       { path: "settings", element: <SettingsPage /> },

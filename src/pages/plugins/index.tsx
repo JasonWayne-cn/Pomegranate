@@ -25,6 +25,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { pluginApi } from "@/lib/api";
+import { useAppStore } from "@/store";
 import type { PluginInfo } from "@/types";
 
 const { Text, Paragraph } = Typography;
@@ -67,6 +68,7 @@ export default function PluginsPage() {
   const [loading, setLoading] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [selected, setSelected] = useState<PluginInfo | null>(null);
+  const bumpPluginSidebarRefresh = useAppStore((s) => s.bumpPluginSidebarRefresh);
 
   useEffect(() => {
     void scanPlugins();
@@ -135,6 +137,8 @@ export default function PluginsPage() {
       if (selected?.id === plugin.id) {
         setSelected({ ...selected, enabled });
       }
+      // 通知 ActivityBar 刷新插件侧栏视图
+      bumpPluginSidebarRefresh();
     } catch (e) {
       message.error(`切换失败：${e}`);
     }

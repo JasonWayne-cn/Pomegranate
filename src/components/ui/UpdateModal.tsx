@@ -15,11 +15,11 @@ const { Text, Paragraph } = Typography;
 const FALLBACK_DOWNLOAD_PAGES = [
   {
     label: "Gitee Releases（国内推荐）",
-    url: "https://gitee.com/kadywen/knowledge-base-release/releases",
+    url: "https://gitee.com/kadywen/Intelligent-NoteBook-release/releases",
   },
   // {
   //   label: "GitHub Releases（海外）",
-  //   url: "https://github.com/kadywen/knowledge-base-release/releases",
+  //   url: "https://github.com/kadywen/Intelligent-NoteBook-release/releases",
   // },
 ];
 

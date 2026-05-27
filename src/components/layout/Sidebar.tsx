@@ -35,6 +35,7 @@ import {
   FolderInput,
   Folder as FolderIcon,
   Sparkles,
+  Plug,
   EyeOff,
   Globe,
 } from "lucide-react";
@@ -42,7 +43,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FolderOutlined } from "@ant-design/icons";
 import type { DataNode } from "antd/es/tree";
 import { useAppStore } from "@/store";
-import { folderApi, importApi } from "@/lib/api";
+import { folderApi, importApi, pluginApi } from "@/lib/api";
 import type { Folder, ScannedFile } from "@/types";
 import { NewNoteButton } from "@/components/NewNoteButton";
 import { DraftNoteModal } from "@/components/ai/DraftNoteModal";
@@ -61,6 +62,7 @@ const navItems = [
   { key: "/graph", icon: <GitBranch size={16} />, label: "知识图谱" },
   { key: "/ai", icon: <Bot size={16} />, label: "AI 问答" },
   { key: "/prompts", icon: <Sparkles size={16} />, label: "提示词" },
+  { key: "/plugins", icon: <Plug size={16} />, label: "插件" },
   { key: "/about", icon: <Info size={16} />, label: "关于" },
 ];
 
@@ -124,32 +126,80 @@ export function Sidebar() {
   const foldersRefreshTick = useAppStore((s) => s.foldersRefreshTick);
   const { token } = antdTheme.useToken();
 
+  // ─── 已启用的插件侧栏视图 ───────────────
+  const [pluginSidebarViews, setPluginSidebarViews] = useState<
+    Array<{ pluginId: string; viewId: string; title: string }>
+  >([]);
+
+  // 在 mount 时及每次路由切换时获取已启用插件的 sidebarViews 贡献
+  useEffect(() => {
+    loadPluginSidebarViews();
+  }, [location.pathname]);
+
+  async function loadPluginSidebarViews() {
+    try {
+      const plugins = await pluginApi.list();
+      console.info("[Sidebar] list_plugins 返回:", plugins.length, "个插件",
+        plugins.map(p => `${p.id}(enabled=${p.enabled}, views=${p.manifest.contributes.sidebarViews.length})`));
+      const views = plugins
+        .filter((p) => p.enabled && p.manifest.contributes.sidebarViews.length > 0)
+        .flatMap((p) =>
+          p.manifest.contributes.sidebarViews.map((v) => ({
+            pluginId: p.id,
+            viewId: v.id,
+            title: v.title,
+          })),
+        );
+      console.info("[Sidebar] pluginSidebarViews:", views);
+      setPluginSidebarViews(views);
+    } catch (e) {
+      console.warn("[Sidebar] loadPluginSidebarViews 失败:", e);
+    }
+  }
+
   // 应用启动时拉一次紧急任务数，后续由任务页在变更后触发 refreshTaskStats
   useEffect(() => {
     refreshTaskStats();
   }, [refreshTaskStats]);
 
   // 在导航项"待办"上叠加红色 Badge（紧急数=0 时自动隐藏，不占空间）
+  // 已启用插件的 sidebarViews 贡献点渲染为独立导航项，跟在"插件"后面
   const menuItems = useMemo(
-    () =>
-      navItems.map((item) => {
-        if (item.key !== "/tasks") return item;
-        return {
-          ...item,
-          label: (
-            <span className="flex items-center justify-between gap-2">
-              <span>{item.label}</span>
-              <Badge
-                count={urgentTodoCount}
-                size="small"
-                overflowCount={99}
-                style={{ marginRight: 4 }}
-              />
-            </span>
-          ),
-        };
-      }),
-    [urgentTodoCount],
+    () => {
+      const items: (typeof navItems)[number][] & any[] = [];
+      for (const item of navItems) {
+        if (item.key === "/tasks") {
+          items.push({
+            ...item,
+            label: (
+              <span className="flex items-center justify-between gap-2">
+                <span>{item.label}</span>
+                <Badge
+                  count={urgentTodoCount}
+                  size="small"
+                  overflowCount={99}
+                  style={{ marginRight: 4 }}
+                />
+              </span>
+            ),
+          });
+        } else {
+          items.push(item);
+        }
+        // "插件"之后注入已启用插件的侧栏视图项
+        if (item.key === "/plugins") {
+          for (const v of pluginSidebarViews) {
+            items.push({
+              key: `/plugin-view/${v.pluginId}/${v.viewId}`,
+              icon: <Plug size={14} />,
+              label: v.title,
+            });
+          }
+        }
+      }
+      return items;
+    },
+    [urgentTodoCount, pluginSidebarViews],
   );
 
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -686,12 +736,13 @@ export function Sidebar() {
     );
   }
 
-  /** 当前路径匹配 */
-  const selectedNav = navItems.find((item) =>
-    item.key === "/"
-      ? location.pathname === "/"
-      : location.pathname.startsWith(item.key),
-  );
+  /** 当前路径匹配（含插件视图路由 → 映射到"插件"项） */
+  const selectedNav = navItems.find((item) => {
+    if (item.key === "/") return location.pathname === "/";
+    // /plugin-view/* → 高亮"插件"
+    if (location.pathname.startsWith("/plugin-view")) return item.key === "/plugins";
+    return location.pathname.startsWith(item.key);
+  });
 
   // ─── 折叠态视图 ───────────────────────────
 

@@ -25,6 +25,10 @@ import { useAsrStore } from "@/store/asr";
 
 type Status = "idle" | "recording" | "transcribing";
 
+// 用于惰性初始化：是否已确认 ASR 已启用（本进程只向后端查一次）
+let _checkedInit = false;
+let _initEnabled = false;
+
 export function AsrToggleController() {
   const { message } = AntdApp.useApp();
   const [status, setStatus] = useState<Status>("idle");
@@ -34,10 +38,10 @@ export function AsrToggleController() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  // 锁定快捷键按下瞬间的焦点元素，避免转写过程中用户切走焦点导致注入到错地方
   const targetRef = useRef<Element | null>(null);
-  // 取消标记：Esc 按下时置 true，handleStop 检测到则跳过转写 + 注入
   const cancelledRef = useRef<boolean>(false);
+  // 快捷键监听是否已激活
+  const [listenerReady, setListenerReady] = useState(false);
 
   const { level } = useAudioLevel(activeStream, status === "recording", 3);
   useSilenceAutoStop(level, status === "recording", () => stopRecording());
@@ -168,9 +172,33 @@ export function AsrToggleController() {
     // transcribing：在转写中再按一次没意义，直接吞掉
   }, [startRecording]);
 
-  // 监听窗口内 keydown：Ctrl/Cmd+Shift+Space → toggle。
-  // capture 阶段拦截，确保比 antd / TipTap 的内部处理更早跑（编辑器有时会吞按键）
+  // 启动时惰性检查 ASR 配置：只有用户已启用语音识别才激活快捷键监听。
+  // 不阻塞首屏渲染：首帧 render 时 listenerReady=false → onKeyHandler 不注册，
+  // 后台检查完再决定是否挂载监听器。整个生命周期只查一次后端。
   useEffect(() => {
+    if (_checkedInit) {
+      if (_initEnabled) setListenerReady(true);
+      return;
+    }
+    _checkedInit = true;
+    void (async () => {
+      try {
+        const cfg = await asrApi.getConfig();
+        if (cfg.enabled && cfg.apiKey.trim()) {
+          _initEnabled = true;
+          setListenerReady(true);
+        }
+      } catch {
+        // 后端不可读 / ASR 未配置 → 跳过，快捷键不激活
+      }
+    })();
+  }, []);
+
+  // 监听窗口内 keydown：Ctrl/Cmd+Shift+Space → toggle。
+  // 只有在 listenerReady=true（用户已启用 ASR）时才挂载。
+  // capture 阶段拦截，确保比 antd / TipTap 的内部处理更早跑。
+  useEffect(() => {
+    if (!listenerReady) return;
     function onKey(e: KeyboardEvent) {
       const isToggleAccel =
         (e.ctrlKey || e.metaKey) &&
@@ -184,7 +212,7 @@ export function AsrToggleController() {
     }
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [handleToggle]);
+  }, [handleToggle, listenerReady]);
 
   // 录音中按 Esc 取消：在 capture 阶段拦截，确保比 antd Modal / Drawer 的 Esc 早跑
   useEffect(() => {

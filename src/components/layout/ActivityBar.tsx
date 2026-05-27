@@ -1,7 +1,7 @@
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Tooltip, Badge, theme as antdTheme, message } from "antd";
-import { hiddenPinApi } from "@/lib/api";
+import { hiddenPinApi, pluginApi } from "@/lib/api";
 import { HiddenPinUnlockModal } from "@/components/hidden/HiddenPinUnlockModal";
 import {
   Home,
@@ -45,6 +45,12 @@ interface ActivityItem {
    * 关闭笔记/搜索/回收站等核心入口会让应用变残废，所以不允许关。
    */
   core?: boolean;
+  /**
+   * 标记为插件贡献的侧栏视图项。点击行为与普通视图不同：
+   * - 不设置 activeView（保持"plugins"高亮）
+   * - 直接 navigate 到插件视图路由
+   */
+  isPlugin?: true;
 }
 
 /**
@@ -99,6 +105,7 @@ const ROUTE_TO_VIEW: Array<[string, ActiveView]> = [
   ["/ai", "ai"],
   ["/prompts", "prompts"],
   ["/plugins", "plugins"],
+  ["/plugin-view", "plugins"],
   ["/hidden", "hidden"],
   ["/trash", "trash"],
   ["/about", "about"],
@@ -128,7 +135,51 @@ export function ActivityBar() {
   const refreshTaskStats = useAppStore((s) => s.refreshTaskStats);
   const isHiddenUnlocked = useAppStore((s) => s.isHiddenUnlocked);
   const enabledViews = useAppStore((s) => s.enabledViews);
+  const pluginSidebarRefreshTick = useAppStore((s) => s.pluginSidebarRefreshTick);
   const [unlockOpen, setUnlockOpen] = useState(false);
+
+  // ─── 已启用的插件侧栏视图 ───────────────
+  const [pluginSidebarViews, setPluginSidebarViews] = useState<
+    Array<{ pluginId: string; viewId: string; title: string }>
+  >([]);
+
+  useEffect(() => {
+    loadPluginSidebarViews();
+  }, [location.pathname, pluginSidebarRefreshTick]);
+
+  async function loadPluginSidebarViews() {
+    try {
+      const plugins = await pluginApi.list();
+      console.info("[ActivityBar] list_plugins 返回:", plugins.length, "个插件",
+        plugins.map(p => `${p.id}(enabled=${p.enabled}, views=${p.manifest.contributes.sidebarViews.length})`));
+      const views = plugins
+        .filter((p) => p.enabled && p.manifest.contributes.sidebarViews.length > 0)
+        .flatMap((p) =>
+          p.manifest.contributes.sidebarViews.map((v) => ({
+            pluginId: p.id,
+            viewId: v.id,
+            title: v.title,
+          })),
+        );
+      console.info("[ActivityBar] pluginItems 数量:", views.length, views);
+      setPluginSidebarViews(views);
+    } catch (e) {
+      console.warn("[ActivityBar] loadPluginSidebarViews 失败:", e);
+    }
+  }
+
+  /** 工具函数：获取插件侧栏视图的友好标签（格式："插件名 - 视图标题"） */
+  const pluginItems: ActivityItem[] = useMemo(
+    () =>
+      pluginSidebarViews.map((v) => ({
+        view: "plugins" as ActiveView,
+        route: `/plugin-view/${v.pluginId}/${v.viewId}`,
+        label: v.title,
+        icon: <Plug size={18} />,
+        isPlugin: true as const,
+      })),
+    [pluginSidebarViews],
+  );
 
   /** 是否显示某项：核心永远显示；可选项看用户是否在设置里启用 */
   const isVisible = (item: ActivityItem) =>
@@ -161,6 +212,12 @@ export function ActivityBar() {
   }
 
   function handleClick(item: ActivityItem) {
+    // 插件贡献的侧栏视图项：直接导航到插件视图路由
+    if (item.isPlugin) {
+      navigate(item.route);
+      return;
+    }
+
     // VS Code 行为：点当前已高亮的图标 = 翻转 SidePanel 可见性
     // 注意：必须用 URL 真相判断"是否在该视图"，而非 highlightView。
     // highlightView 在无匹配路由时（如 /settings）会回退到 store.activeView，
@@ -194,7 +251,9 @@ export function ActivityBar() {
   }
 
   function renderItem(item: ActivityItem) {
-    const isActive = highlightView === item.view;
+    const isActive = item.isPlugin
+      ? location.pathname.startsWith(item.route)
+      : highlightView === item.view;
     const iconNode =
       item.view === "tasks" ? (
         <Badge
@@ -210,7 +269,7 @@ export function ActivityBar() {
       );
 
     return (
-      <Tooltip key={item.view} title={item.label} placement="right" mouseEnterDelay={0.15}>
+      <Tooltip key={item.isPlugin ? item.route : item.view} title={item.label} placement="right" mouseEnterDelay={0.15}>
         <button
           type="button"
           onClick={() => handleClick(item)}
@@ -290,6 +349,17 @@ export function ActivityBar() {
       }}
     >
       {MAIN_GROUPS.flat().filter(isVisible).map(renderItem)}
+      {pluginItems.length > 0 && (
+        <div
+          style={{
+            width: 40,
+            height: 1,
+            margin: "4px 0",
+            background: token.colorBorderSecondary,
+          }}
+        />
+      )}
+      {pluginItems.map(renderItem)}
       <div style={{ flex: 1 }} />
       {BOTTOM_ITEMS.filter(isVisible).map(renderItem)}
       <HiddenPinUnlockModal

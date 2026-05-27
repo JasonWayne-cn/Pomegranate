@@ -119,6 +119,8 @@ interface AppStore {
   /** 任务列表刷新触发器：提醒弹窗内动作 / 后台 reminder 触发 advance 后递增，
    * 任务列表页订阅它自动重拉，避免列表显示陈旧状态 */
   tasksListRefreshTick: number;
+  /** 插件侧栏视图刷新触发器：插件 enable/disable 后递增，ActivityBar 自动重拉 */
+  pluginSidebarRefreshTick: number;
   /** 未完成 + 紧急的任务数（用于侧边栏红色 Badge） */
   urgentTodoCount: number;
   /** 窗口置顶状态（UI 真相源；托盘 CheckMenuItem 通过事件同步） */
@@ -223,6 +225,8 @@ interface AppStore {
   bumpTagsRefresh: () => void;
   /** 触发任务列表页 / 看板 / 四象限重拉（提醒弹窗操作完任务后调用） */
   bumpTasksListRefresh: () => void;
+  /** 触发 ActivityBar 重拉插件侧栏视图（插件 enable/disable 后调用） */
+  bumpPluginSidebarRefresh: () => void;
   /** 重新拉取任务统计（任务变更后调用，用于刷新侧边栏 Badge） */
   refreshTaskStats: () => Promise<void>;
   /**
@@ -381,6 +385,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   foldersRefreshTick: 0,
   tagsRefreshTick: 0,
   tasksListRefreshTick: 0,
+  pluginSidebarRefreshTick: 0,
   urgentTodoCount: 0,
   alwaysOnTop: false,
   activeView: "notes",
@@ -427,6 +432,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   bumpTagsRefresh: () => set((s) => ({ tagsRefreshTick: s.tagsRefreshTick + 1 })),
   bumpTasksListRefresh: () =>
     set((s) => ({ tasksListRefreshTick: s.tasksListRefreshTick + 1 })),
+  bumpPluginSidebarRefresh: () =>
+    set((s) => ({ pluginSidebarRefreshTick: s.pluginSidebarRefreshTick + 1 })),
   refreshTaskStats: async () => {
     try {
       const stats = await taskApi.stats();
