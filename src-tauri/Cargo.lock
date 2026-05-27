@@ -2834,7 +2834,7 @@ dependencies = [
 
 [[package]]
 name = "intelligent_notebook"
-version = "1.8.0"
+version = "1.8.2"
 dependencies = [
  "aes-gcm",
  "argon2",
