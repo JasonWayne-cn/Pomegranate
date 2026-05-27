@@ -105,7 +105,6 @@ const ROUTE_TO_VIEW: Array<[string, ActiveView]> = [
   ["/ai", "ai"],
   ["/prompts", "prompts"],
   ["/plugins", "plugins"],
-  ["/plugin-view", "plugins"],
   ["/hidden", "hidden"],
   ["/trash", "trash"],
   ["/about", "about"],
@@ -150,8 +149,6 @@ export function ActivityBar() {
   async function loadPluginSidebarViews() {
     try {
       const plugins = await pluginApi.list();
-      console.info("[ActivityBar] list_plugins 返回:", plugins.length, "个插件",
-        plugins.map(p => `${p.id}(enabled=${p.enabled}, views=${p.manifest.contributes.sidebarViews.length})`));
       const views = plugins
         .filter((p) => p.enabled && p.manifest.contributes.sidebarViews.length > 0)
         .flatMap((p) =>
@@ -161,10 +158,9 @@ export function ActivityBar() {
             title: v.title,
           })),
         );
-      console.info("[ActivityBar] pluginItems 数量:", views.length, views);
       setPluginSidebarViews(views);
-    } catch (e) {
-      console.warn("[ActivityBar] loadPluginSidebarViews 失败:", e);
+    } catch {
+      // 插件列表不是关键路径，失败时保持现有侧栏视图
     }
   }
 
@@ -191,11 +187,15 @@ export function ActivityBar() {
     refreshTaskStats();
   }, [refreshTaskStats]);
 
-  // 以 URL 为准反推当前高亮（避免 store.activeView 与 URL 漂移时 UI 不一致）
-  const highlightView: ActiveView | null = useMemo(
-    () => deriveActiveViewFromPath(location.pathname) ?? activeView,
-    [location.pathname, activeView],
-  );
+  // 以 URL 为准反推当前高亮（避免 store.activeView 与 URL 漂移时 UI 不一致）。
+  // 插件视图页只高亮具体插件按钮，不回退到 activeView="plugins"，
+  // 否则会导致“插件管理”和当前插件按钮同时高亮。
+  const highlightView: ActiveView | null = useMemo(() => {
+    const routeView = deriveActiveViewFromPath(location.pathname);
+    if (routeView) return routeView;
+    if (location.pathname.startsWith("/plugin-view")) return null;
+    return activeView;
+  }, [location.pathname, activeView]);
 
   /** 实际跳转视图（被 handleClick 与 PIN 解锁回调共用）
    *
@@ -212,8 +212,10 @@ export function ActivityBar() {
   }
 
   function handleClick(item: ActivityItem) {
-    // 插件贡献的侧栏视图项：直接导航到插件视图路由
+    // 插件贡献的侧栏视图项：直接导航到插件视图路由，
+    // 并把 activeView 保持为 plugins，供 AppLayout 识别这是插件域页面。
     if (item.isPlugin) {
+      setActiveView("plugins");
       navigate(item.route);
       return;
     }
@@ -251,9 +253,12 @@ export function ActivityBar() {
   }
 
   function renderItem(item: ActivityItem) {
+    const isPluginManager = item.view === "plugins" && item.route === "/plugins" && !item.isPlugin;
     const isActive = item.isPlugin
-      ? location.pathname.startsWith(item.route)
-      : highlightView === item.view;
+      ? location.pathname === item.route
+      : isPluginManager
+        ? location.pathname === "/plugins" || location.pathname.startsWith("/plugins/")
+        : highlightView === item.view;
     const iconNode =
       item.view === "tasks" ? (
         <Badge

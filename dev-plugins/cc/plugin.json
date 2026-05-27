@@ -1,15 +1,15 @@
 {
   "id": "cc",
-  "name": "CC 快捷导航",
+  "name": "Plugin-Sample",
   "version": "1.0.0",
-  "description": "在侧边栏添加 CC 按钮，点击打开 AI 问答风格的面板视图",
+  "description": "在侧边栏添加 Plugin-Sample 按钮，点击打开 AI 问答风格的面板视图",
   "author": "Jason Wayne",
   "main": "main.js",
   "permissions": [],
   "contributes": {
     "commands": [],
     "sidebarViews": [
-      { "id": "cc-sidebar-btn", "title": "CC" }
+      { "id": "cc-sidebar-btn", "title": "Plugin-Sample" }
     ],
     "settings": false
   }

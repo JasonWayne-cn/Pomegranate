@@ -1,54 +1,41 @@
 /**
- * CC 插件 —— 复刻 AI 问答界面布局（左侧列表 + 右侧详情 + 底部输入）。
+ * Plugin-Sample 插件 —— AI 智能问答示例。
  *
- * 安装方式：
- *   1. 侧边栏「插件」→ 点击「安装本地插件」
- *   2. 选择 dev-plugins/cc/ 目录
- *   3. 启用开关，侧边栏会出现 CC 按钮
+ * 通过宿主提供的 ctx.ai 受控能力复用应用内 AI 模型、会话与流式事件，
+ * 插件本身不保存 API Key，也不直接访问外部网络。
  */
 
-var DEMO_CATEGORIES = [
-  { id: "1", name: "工作项目", color: "#1677ff", count: 12 },
-  { id: "2", name: "学习笔记", color: "#52c41a", count: 8 },
-  { id: "3", name: "个人日记", color: "#fa8c16", count: 5 },
-  { id: "4", name: "技术文档", color: "#722ed1", count: 15 },
-  { id: "5", name: "灵感碎片", color: "#eb2f96", count: 3 },
-  { id: "6", name: "阅读摘录", color: "#13c2c2", count: 7 },
+var TOPICS = [
+  { id: "general", name: "智能问答", color: "#1677ff", desc: "通用 AI 对话，支持连续追问" },
+  { id: "notes", name: "知识库问答", color: "#52c41a", desc: "开启智能模式，优先检索你的笔记" },
+  { id: "writing", name: "写作助手", color: "#722ed1", desc: "润色、扩写、总结和改写" },
 ];
 
-var DEMO_MESSAGES = {
-  "1": [
-    { id: 1, role: "user", text: "今天要完成哪些工作？" },
-    { id: 2, role: "ai", text: "根据你的任务列表，今天有 **3 项紧急任务**：\n\n1. 完成 Q2 报告终稿\n2. 审核前端代码 PR\n3. 回复客户邮件\n\n建议先从 Q2 报告开始。" },
-    { id: 3, role: "user", text: "帮我整理一下项目进度的要点" },
-    { id: 4, role: "ai", text: "| 模块 | 进度 | 状态 |\n|------|------|------|\n| 用户管理 | 100% | ✅ 完成 |\n| 数据导入 | 85% | 🔄 进行中 |\n| 报表导出 | 60% | 🔄 进行中 |\n\n**阻塞项**：报表导出等待后端 API 对接。" },
-  ],
-  "2": [
-    { id: 1, role: "user", text: "今天学了什么新知识？" },
-    { id: 2, role: "ai", text: "你今天的笔记记录了 **React 19 的 3 个新特性**：\n1. **Actions** — 替代 useEffect 处理异步\n2. **useOptimistic** — 乐观更新 UI\n3. **useFormStatus** — 表单状态管理" },
-  ],
-  "3": [
-    { id: 1, role: "user", text: "写一篇今日日记" },
-    { id: 2, role: "ai", text: "📅 **2026 年 5 月 24 日**\n\n今天天气不错，上午完成了项目报告的主要部分，中午和同事一起吃了顿饭，下午读了一本关于时间管理的书。\n\n晚间计划：整理一下下周的工作安排。" },
-  ],
-  "4": [
-    { id: 1, role: "user", text: "解释一下 Tauri IPC 的原理" },
-    { id: 2, role: "ai", text: "## Tauri IPC 通信原理\n\nTauri 的 IPC 是前端（WebView）和后端（Rust）之间的桥梁：\n\n```\ninvoke(\"command_name\", { args })\n  → JSON 序列化\n  → 通过 WebView IPC 传至 Rust\n  → Rust Command 处理\n  → JSON 返回前端\n```\n\n关键点：\n- 所有通信经过 JSON 序列化\n- Rust Command 返回 `Result<T, String>`\n- 前端用 `try-catch` 处理错误" },
-  ],
+var state = {
+  activeTopicId: "general",
+  conversations: {},
+  messages: {},
+  streaming: false,
+  streamingConversationId: null,
+  streamingText: "",
+  useSkills: true,
+  ctx: null,
+  els: {},
 };
 
 module.exports = {
   onLoad: function (ctx) {
     ctx.registerPanelView({
-      id: "cc-chat",
+      id: "cc-sidebar-btn",
       pluginId: "cc",
-      title: "CC 问答",
-      render: function (container) { renderChatLayout(container); },
-      unmount: function (container) { container.innerHTML = ""; },
-    });
-    ctx.registerSidebarItem({
-      id: "cc-open-chat", label: "CC", icon: "puzzle", group: "ai",
-      onClick: function () { window.location.hash = "#/plugin-view/cc-chat"; },
+      title: "Plugin-Sample",
+      render: function (container) {
+        state.ctx = ctx;
+        renderChatLayout(container);
+      },
+      unmount: function (container) {
+        container.innerHTML = "";
+      },
     });
   },
   onUnload: function () {},
@@ -56,76 +43,331 @@ module.exports = {
 
 function renderChatLayout(container) {
   container.innerHTML = "";
-  container.style.cssText = "height:100%;display:flex;overflow:hidden;background:#f5f5f5;font-family:system-ui,sans-serif";
-  var cp = "#1677ff", bc = "#e8e8e8";
+  container.style.cssText = "height:100%;display:flex;overflow:hidden;background:#f5f5f5;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
 
-  var sidebar = ce("div", {style:"width:240px;height:100%;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid "+bc+";background:#fff"});
+  if (!state.ctx || !state.ctx.ai) {
+    container.appendChild(emptyBox("宿主未提供 AI 能力，请更新应用后重试。"));
+    return;
+  }
+
+  var cp = "#1677ff";
+  var bc = "#e8e8e8";
+
+  var sidebar = ce("div", { style: "width:248px;height:100%;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid " + bc + ";background:#fff" });
   container.appendChild(sidebar);
-  var stb = ce("div", {style:"padding:12px;border-bottom:1px solid "+bc});
-  stb.appendChild(ce("button",{textContent:"+ 新建标签",style:bs(cp,"#fff",true)+";flex:1",
-    onclick:function(){var n=prompt("标签名称：");if(n&&n.trim()){DEMO_CATEGORIES.push({id:String(Date.now()),name:n.trim(),color:rc(),count:0});refresh();}}}));
-  sidebar.appendChild(stb);
-  var catList=ce("div",{style:"flex:1;overflow:auto;padding:4px"});
-  sidebar.appendChild(catList);
 
-  var main=ce("div",{style:"flex:1;display:flex;flex-direction:column;height:100%;min-width:0;background:#fff"});
+  var sideHeader = ce("div", { style: "padding:14px 14px 10px;border-bottom:1px solid " + bc });
+  sideHeader.appendChild(ce("div", { textContent: "Plugin-Sample", style: "font-size:16px;font-weight:700;color:#1f1f1f;margin-bottom:4px" }));
+  sideHeader.appendChild(ce("div", { textContent: "AI 智能问答插件示例", style: "font-size:12px;color:#888" }));
+  sidebar.appendChild(sideHeader);
+
+  var topicList = ce("div", { style: "flex:1;overflow:auto;padding:8px" });
+  sidebar.appendChild(topicList);
+
+  var sideFooter = ce("div", { style: "padding:10px 12px;border-top:1px solid " + bc + ";font-size:12px;color:#888;display:flex;align-items:center;justify-content:space-between;gap:8px" });
+  var skillLabel = ce("label", { style: "display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none" });
+  var skillSwitch = ce("input", {
+    type: "checkbox",
+    checked: state.useSkills,
+    onchange: function () { state.useSkills = !!this.checked; },
+  });
+  skillLabel.appendChild(skillSwitch);
+  skillLabel.appendChild(ce("span", { textContent: "智能模式" }));
+  sideFooter.appendChild(skillLabel);
+  sidebar.appendChild(sideFooter);
+
+  var main = ce("div", { style: "flex:1;display:flex;flex-direction:column;height:100%;min-width:0;background:#fff" });
   container.appendChild(main);
-  var hdr=ce("div",{id:"cc-header",style:"padding:8px 16px;border-bottom:1px solid "+bc+";display:flex;align-items:center;gap:8px;height:44px"});
-  main.appendChild(hdr);
-  var msgList=ce("div",{id:"cc-msg-list",style:"flex:1;overflow:auto;padding:16px"});
+
+  var header = ce("div", { style: "height:52px;padding:8px 16px;border-bottom:1px solid " + bc + ";display:flex;align-items:center;justify-content:space-between;gap:12px" });
+  main.appendChild(header);
+
+  var msgList = ce("div", { style: "flex:1;overflow:auto;padding:18px;background:linear-gradient(180deg,#fafafa 0%,#fff 100%)" });
   main.appendChild(msgList);
-  var inp=ce("div",{style:"padding:12px 16px;border-top:1px solid "+bc+";display:flex;gap:8px;align-items:flex-end"});
-  main.appendChild(inp);
-  var ta=ce("textarea",{placeholder:"输入消息… (Ctrl+Enter 发送)",style:"flex:1;resize:none;border:1px solid #d9d9d9;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;outline:none;min-height:36px;max-height:120px;line-height:1.5",rows:1,
-    oninput:function(){this.style.height="auto";this.style.height=Math.min(this.scrollHeight,120)+"px";s.disabled=!this.value.trim();},
-    onkeydown:function(e){if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();s.click();}}});
-  inp.appendChild(ta);
-  var s=ce("button",{textContent:"发送",disabled:true,style:bs(cp,"#fff",false)+";width:64px;height:36px",
-    onclick:function(){var t=ta.value.trim();if(!t)return;var id=ta.__aid;if(!id)return;addMsg(id,"user",t);ta.value="";ta.style.height="auto";s.disabled=true;simulate(id,msgList,s,ta);}});
-  inp.appendChild(s);
 
-  function refresh(){catList.innerHTML="";var aid=ta.__aid;DEMO_CATEGORIES.forEach(function(c){var a=c.id===aid;var it=ce("div",{style:"padding:10px 12px;margin-bottom:2px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px"+(a?";background:"+cp+"14;color:"+cp+";font-weight:500":""),
-    onmouseenter:function(){if(!a)this.style.background="#f0f0f0"},onmouseleave:function(){if(!a)this.style.background=""},
-    onclick:function(){select(c.id)}});
-    it.appendChild(ce("span",{style:"width:8px;height:8px;border-radius:50%;flex-shrink:0;background:"+c.color}));
-    var inf=ce("div",{style:"min-width:0;flex:1"});
-    inf.appendChild(ce("div",{textContent:c.name,style:"overflow:hidden;text-overflow:ellipsis;white-space:nowrap"}));
-    inf.appendChild(ce("div",{textContent:c.count+" 条对话",style:"font-size:11px;color:#999;margin-top:1px"}));
-    it.appendChild(inf);catList.appendChild(it);});
-    hdr.innerHTML="";var cat=aid?DEMO_CATEGORIES.find(function(c){return c.id===aid}):null;
-    if(cat){hdr.appendChild(ce("span",{style:"width:10px;height:10px;border-radius:50%;background:"+cat.color}));hdr.appendChild(ce("span",{textContent:cat.name,style:"font-size:15px;font-weight:600"}));hdr.appendChild(ce("span",{textContent:cat.count+" 条对话",style:"font-size:12px;color:#999"}));}
-    else{hdr.appendChild(ce("span",{textContent:"选择左侧标签开始对话",style:"font-size:13px;color:#999"}));}
-    renderMsgs(msgList,aid);}
+  var inputBar = ce("div", { style: "padding:12px 16px;border-top:1px solid " + bc + ";display:flex;gap:8px;align-items:flex-end;background:#fff" });
+  main.appendChild(inputBar);
 
-  function select(id){ta.__aid=id;refresh();}
-  select("1");
+  var textarea = ce("textarea", {
+    placeholder: "输入问题，Enter 发送，Shift+Enter 换行…",
+    rows: 1,
+    style: "flex:1;resize:none;border:1px solid #d9d9d9;border-radius:10px;padding:9px 12px;font-size:13px;font-family:inherit;outline:none;min-height:38px;max-height:140px;line-height:1.5;background:#fff",
+    oninput: function () {
+      this.style.height = "auto";
+      this.style.height = Math.min(this.scrollHeight, 140) + "px";
+      sendBtn.disabled = !this.value.trim() || state.streaming;
+    },
+    onkeydown: function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendBtn.click();
+      }
+    },
+  });
+  inputBar.appendChild(textarea);
+
+  var sendBtn = ce("button", {
+    textContent: "发送",
+    disabled: true,
+    style: buttonStyle(cp, "#fff") + ";width:72px;height:38px",
+    onclick: function () { sendCurrentMessage(textarea, sendBtn, msgList); },
+  });
+  inputBar.appendChild(sendBtn);
+
+  state.els = { topicList: topicList, header: header, msgList: msgList, textarea: textarea, sendBtn: sendBtn };
+
+  state.ctx.ai.on("ai:token", function (token) {
+    if (!state.streaming) return;
+    state.streamingText += String(token || "");
+    renderMessages(msgList);
+  });
+  state.ctx.ai.on("ai:done", function () {
+    if (!state.streaming) return;
+    var convId = state.streamingConversationId;
+    state.streaming = false;
+    state.streamingConversationId = null;
+    state.streamingText = "";
+    sendBtn.disabled = !textarea.value.trim();
+    if (convId) {
+      state.ctx.ai.listMessages(convId).then(function (messages) {
+        var topicId = topicIdByConversation(convId) || state.activeTopicId;
+        state.messages[topicId] = normalizeMessages(messages);
+        renderTopics();
+        renderMessages(msgList);
+      }).catch(function () { renderMessages(msgList); });
+    } else {
+      renderMessages(msgList);
+    }
+  });
+  state.ctx.ai.on("ai:error", function (error) {
+    state.streaming = false;
+    state.streamingConversationId = null;
+    state.streamingText = "";
+    sendBtn.disabled = !textarea.value.trim();
+    var topicId = state.activeTopicId;
+    if (!state.messages[topicId]) state.messages[topicId] = [];
+    state.messages[topicId].push({ role: "assistant", content: "AI 请求失败：" + String(error || "未知错误"), error: true });
+    renderMessages(msgList);
+  });
+
+  renderTopics();
+  selectTopic("general");
+
+  function renderTopics() {
+    topicList.innerHTML = "";
+    TOPICS.forEach(function (topic) {
+      var active = topic.id === state.activeTopicId;
+      var count = (state.messages[topic.id] || []).filter(function (m) { return m.role !== "system"; }).length;
+      var item = ce("div", {
+        style: "padding:10px 12px;margin-bottom:4px;border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;" + (active ? "background:" + cp + "14;color:" + cp + ";font-weight:600" : "color:#333"),
+        onmouseenter: function () { if (!active) this.style.background = "#f5f5f5"; },
+        onmouseleave: function () { if (!active) this.style.background = ""; },
+        onclick: function () { selectTopic(topic.id); },
+      });
+      item.appendChild(ce("span", { style: "width:9px;height:9px;border-radius:50%;flex-shrink:0;background:" + topic.color }));
+      var info = ce("div", { style: "min-width:0;flex:1" });
+      info.appendChild(ce("div", { textContent: topic.name, style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }));
+      info.appendChild(ce("div", { textContent: count ? count + " 条消息" : topic.desc, style: "font-size:11px;color:#999;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }));
+      item.appendChild(info);
+      topicList.appendChild(item);
+    });
+  }
+
+  function selectTopic(topicId) {
+    state.activeTopicId = topicId;
+    var topic = currentTopic();
+    header.innerHTML = "";
+    var left = ce("div", { style: "min-width:0;display:flex;align-items:center;gap:10px" });
+    left.appendChild(ce("span", { style: "width:10px;height:10px;border-radius:50%;background:" + topic.color }));
+    var title = ce("div", { style: "min-width:0" });
+    title.appendChild(ce("div", { textContent: topic.name, style: "font-size:15px;font-weight:700;color:#1f1f1f" }));
+    title.appendChild(ce("div", { textContent: topic.desc, style: "font-size:12px;color:#999;margin-top:1px" }));
+    left.appendChild(title);
+    header.appendChild(left);
+
+    var newBtn = ce("button", {
+      textContent: "新对话",
+      style: buttonStyle("#fff", "#1677ff") + ";border:1px solid #91caff;height:32px",
+      onclick: function () {
+        state.conversations[topicId] = null;
+        state.messages[topicId] = [];
+        renderTopics();
+        renderMessages(msgList);
+      },
+    });
+    header.appendChild(newBtn);
+
+    renderTopics();
+    ensureConversation(topicId).then(function () {
+      renderTopics();
+      renderMessages(msgList);
+    }).catch(function (error) {
+      state.messages[topicId] = [{ role: "assistant", content: "无法创建 AI 对话：" + String(error), error: true }];
+      renderMessages(msgList);
+    });
+    renderMessages(msgList);
+  }
 }
 
-function renderMsgs(el,catId){el.innerHTML="";var msgs=DEMO_MESSAGES[catId]||[];if(msgs.length===0){el.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%"><div style="text-align:center;color:#999;font-size:13px">💬 选择左侧标签开始对话</div></div>';return;}
-  msgs.forEach(function(m){el.appendChild(bubble(m));});el.scrollTop=el.scrollHeight;}
+function ensureConversation(topicId) {
+  if (state.conversations[topicId]) return Promise.resolve(state.conversations[topicId]);
+  var topic = topicById(topicId);
+  return state.ctx.ai.createConversation("Plugin-Sample · " + topic.name).then(function (conv) {
+    state.conversations[topicId] = conv.id;
+    return state.ctx.ai.listMessages(conv.id).then(function (messages) {
+      state.messages[topicId] = normalizeMessages(messages);
+      return conv.id;
+    }).catch(function () { return conv.id; });
+  });
+}
 
-function bubble(msg){var u=msg.role==="user";var w=ce("div",{style:"display:flex;gap:10px;margin-bottom:16px;"+(u?"flex-direction:row-reverse":"")});
-  w.appendChild(ce("div",{textContent:u?"我":"AI",style:"width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;"+(u?"background:#1677ff;color:#fff":"background:#e6f4ff;color:#1677ff")}));
-  var b=ce("div",{style:"max-width:75%;min-width:0;padding:8px 14px;border-radius:10px;font-size:13px;line-height:1.6;word-break:break-word;"+(u?"background:#1677ff;color:#fff;border-bottom-right-radius:3px":"background:#fff;color:#333;border:1px solid #e8e8e8;border-bottom-left-radius:3px")});
-  if(u)b.textContent=msg.text;else b.innerHTML=md(msg.text);w.appendChild(b);return w;}
+function sendCurrentMessage(textarea, sendBtn, msgList) {
+  if (state.streaming) return;
+  var text = textarea.value.trim();
+  if (!text) return;
+  var topicId = state.activeTopicId;
+  var topic = topicById(topicId);
+  ensureConversation(topicId).then(function (convId) {
+    var finalText = buildPrompt(topic, text);
+    textarea.value = "";
+    textarea.style.height = "auto";
+    sendBtn.disabled = true;
+    if (!state.messages[topicId]) state.messages[topicId] = [];
+    state.messages[topicId].push({ role: "user", content: text, createdAt: new Date().toISOString() });
+    state.streaming = true;
+    state.streamingConversationId = convId;
+    state.streamingText = "";
+    renderMessages(msgList);
+    return state.ctx.ai.sendMessage(convId, finalText, { useRag: true, useSkills: state.useSkills });
+  }).catch(function (error) {
+    state.streaming = false;
+    state.streamingConversationId = null;
+    sendBtn.disabled = !textarea.value.trim();
+    if (!state.messages[topicId]) state.messages[topicId] = [];
+    state.messages[topicId].push({ role: "assistant", content: "发送失败：" + String(error), error: true });
+    renderMessages(msgList);
+  });
+}
 
-function md(t){var h=t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  h=h.replace(/```(\w*)\n([\s\S]*?)```/g,function(_,l,c){return'<pre style="background:#f5f5f5;border-radius:6px;padding:10px;overflow:auto;font-size:12px;font-family:monospace;margin:8px 0">'+c.replace(/&/g,"&amp;").replace(/</g,"&lt;")+"</pre>";});
-  h=h.replace(/`([^`]+)`/g,'<code style="background:#f0f0f0;padding:1px 4px;border-radius:3px;font-family:monospace;font-size:12px">$1</code>');
-  h=h.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>");h=h.replace(/^### (.+)$/gm,'<h4 style="margin:12px 0 4px;font-size:14px">$1</h4>');
-  h=h.replace(/\[(.+?)\]\((.+?)\)/g,'<a href="$2" target="_blank" style="color:#1677ff">$1</a>');h=h.replace(/\n/g,"<br>");return h;}
+function buildPrompt(topic, text) {
+  if (topic.id === "notes") {
+    return "请优先结合我的知识库笔记回答。如果需要，请用要点列出依据。\n\n问题：" + text;
+  }
+  if (topic.id === "writing") {
+    return "你是写作助手，请根据用户目标提供清晰、可直接使用的文本建议。\n\n需求：" + text;
+  }
+  return text;
+}
 
-function simulate(catId,msgList,s,ta){var td=ce("div",{style:"display:flex;gap:10px;margin-bottom:16px"});
-  td.appendChild(ce("div",{textContent:"AI",style:"width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:#e6f4ff;color:#1677ff"}));
-  td.appendChild(ce("div",{style:"max-width:75%;padding:8px 14px;border-radius:10px;font-size:13px;background:#fff;border:1px solid #e8e8e8;border-bottom-left-radius:3px"}));
-  if(!document.getElementById("cc-blink-style")){var st=document.createElement("style");st.id="cc-blink-style";st.textContent="@keyframes cc-blink{0%,80%,100%{opacity:0.2}40%{opacity:1}}";document.head.appendChild(st);}
-  td.lastChild.innerHTML='<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#1677ff;animation:cc-blink 1.4s infinite"></span>&nbsp;<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#1677ff;animation:cc-blink 1.4s 0.2s infinite"></span>&nbsp;<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#1677ff;animation:cc-blink 1.4s 0.4s infinite"></span>';
-  msgList.appendChild(td);msgList.scrollTop=msgList.scrollHeight;s.disabled=true;
-  setTimeout(function(){td.remove();var r=["好的，我理解了你的需求。\n\n根据当前标签分类下的内容，这里有几个关键点需要注意：\n\n- 保持信息结构清晰\n- 使用 **分类标签** 组织内容\n- 定期回顾和整理","这是一个好问题！\n\n让我帮你梳理一下：\n\n### 要点\n1. 先明确目标\n2. 再拆解步骤\n3. 最后执行并反馈","收到！我已经记录了你的信息。当前分类共有 "+(DEMO_CATEGORIES.find(function(c){return c.id===catId}).count)+" 条相关对话，你可以继续追问细节。"];
-    var reply=r[Math.floor(Math.random()*r.length)];addMsg(catId,"ai",reply);renderMsgs(msgList,catId);msgList.scrollTop=msgList.scrollHeight;s.disabled=!ta.value.trim();
-    var ct=DEMO_CATEGORIES.find(function(c){return c.id===catId});if(ct)ct.count+=1;},1500+Math.random()*1500);}
+function renderMessages(msgList) {
+  var topicId = state.activeTopicId;
+  var messages = state.messages[topicId] || [];
+  msgList.innerHTML = "";
+  if (messages.length === 0 && !state.streaming) {
+    msgList.appendChild(emptyBox("选择一个分类，然后输入问题开始 AI 智能问答。"));
+    return;
+  }
+  messages.forEach(function (msg) {
+    msgList.appendChild(bubble(msg));
+  });
+  if (state.streaming) {
+    msgList.appendChild(bubble({ role: "assistant", content: state.streamingText || "正在思考…", streaming: true }));
+  }
+  msgList.scrollTop = msgList.scrollHeight;
+}
 
-function addMsg(catId,role,text){if(!DEMO_MESSAGES[catId])DEMO_MESSAGES[catId]=[];DEMO_MESSAGES[catId].push({id:DEMO_MESSAGES[catId].length+1,role:role,text:text});}
-function ce(tag,opts){var e=document.createElement(tag);if(!opts)return e;Object.keys(opts).forEach(function(k){if(k==="style")e.style.cssText=opts.style;else if(k.startsWith("on"))e.addEventListener(k.slice(2).toLowerCase(),opts[k]);else e[k]=opts[k];});return e;}
-function bs(bg,color,full){return "padding:6px 16px;border:none;border-radius:8px;font-size:13px;cursor:pointer;background:"+bg+";color:"+color+";font-weight:500;transition:opacity .15s;white-space:nowrap;"+(full?"flex:1":"");}
-function rc(){var c=["#1677ff","#52c41a","#fa8c16","#722ed1","#eb2f96","#13c2c2","#faad14","#f5222d"];return c[Math.floor(Math.random()*c.length)];}
+function bubble(msg) {
+  var isUser = msg.role === "user";
+  var wrap = ce("div", { style: "display:flex;gap:10px;margin-bottom:16px;" + (isUser ? "flex-direction:row-reverse" : "") });
+  wrap.appendChild(ce("div", {
+    textContent: isUser ? "我" : "AI",
+    style: "width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;" + (isUser ? "background:#1677ff;color:#fff" : "background:#e6f4ff;color:#1677ff"),
+  }));
+  var content = ce("div", {
+    style: "max-width:78%;min-width:0;padding:9px 14px;border-radius:12px;font-size:13px;line-height:1.65;word-break:break-word;box-shadow:0 1px 2px rgba(0,0,0,.03);" + (isUser ? "background:#1677ff;color:#fff;border-bottom-right-radius:4px" : (msg.error ? "background:#fff2f0;color:#a8071a;border:1px solid #ffccc7" : "background:#fff;color:#333;border:1px solid #e8e8e8;border-bottom-left-radius:4px")),
+  });
+  if (isUser) content.textContent = msg.content || "";
+  else content.innerHTML = md(msg.content || "");
+  if (msg.streaming) {
+    var cursor = ce("span", { textContent: "▍", style: "color:#1677ff;animation:cc-blink 1s infinite" });
+    content.appendChild(cursor);
+  }
+  wrap.appendChild(content);
+  return wrap;
+}
+
+function normalizeMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages.map(function (m) {
+    return {
+      role: m.role,
+      content: stripPluginPrefix(m.content || ""),
+      createdAt: m.created_at || m.createdAt,
+    };
+  });
+}
+
+function stripPluginPrefix(content) {
+  return String(content)
+    .replace(/^请优先结合我的知识库笔记回答。如果需要，请用要点列出依据。\n\n问题：/, "")
+    .replace(/^你是写作助手，请根据用户目标提供清晰、可直接使用的文本建议。\n\n需求：/, "");
+}
+
+function topicById(id) {
+  return TOPICS.find(function (t) { return t.id === id; }) || TOPICS[0];
+}
+
+function currentTopic() {
+  return topicById(state.activeTopicId);
+}
+
+function topicIdByConversation(convId) {
+  var keys = Object.keys(state.conversations);
+  for (var i = 0; i < keys.length; i++) {
+    if (state.conversations[keys[i]] === convId) return keys[i];
+  }
+  return null;
+}
+
+function emptyBox(text) {
+  return ce("div", {
+    style: "height:100%;display:flex;align-items:center;justify-content:center;text-align:center;color:#999;font-size:13px;padding:24px",
+    textContent: text,
+  });
+}
+
+function md(text) {
+  var h = String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, function (_, lang, code) {
+    return '<pre style="background:#f5f5f5;border-radius:8px;padding:10px;overflow:auto;font-size:12px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;margin:8px 0">' + code.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</pre>";
+  });
+  h = h.replace(/`([^`]+)`/g, '<code style="background:#f0f0f0;padding:1px 4px;border-radius:4px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px">$1</code>');
+  h = h.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  h = h.replace(/^### (.+)$/gm, '<h4 style="margin:12px 0 4px;font-size:14px">$1</h4>');
+  h = h.replace(/^## (.+)$/gm, '<h3 style="margin:14px 0 6px;font-size:15px">$1</h3>');
+  h = h.replace(/\n/g, "<br>");
+  return h;
+}
+
+function ce(tag, opts) {
+  var el = document.createElement(tag);
+  if (!opts) return el;
+  Object.keys(opts).forEach(function (key) {
+    if (key === "style") el.style.cssText = opts[key];
+    else if (key === "textContent") el.textContent = opts[key];
+    else if (key.startsWith("on")) el.addEventListener(key.slice(2).toLowerCase(), opts[key]);
+    else el[key] = opts[key];
+  });
+  return el;
+}
+
+function buttonStyle(bg, color) {
+  return "padding:6px 14px;border:none;border-radius:9px;font-size:13px;cursor:pointer;background:" + bg + ";color:" + color + ";font-weight:600;white-space:nowrap";
+}
+
+if (!document.getElementById("cc-plugin-style")) {
+  var style = document.createElement("style");
+  style.id = "cc-plugin-style";
+  style.textContent = "@keyframes cc-blink{0%,60%,100%{opacity:.25}30%{opacity:1}} button:disabled{opacity:.55;cursor:not-allowed}";
+  document.head.appendChild(style);
+}

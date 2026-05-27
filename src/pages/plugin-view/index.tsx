@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { Alert, Button, Empty, Spin, Typography, theme as antdTheme } from "antd";
-import { ArrowLeft, Plug } from "lucide-react";
-import { pluginApi } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { Alert, Empty, Spin, Typography, theme as antdTheme } from "antd";
+import { Plug } from "lucide-react";
+import { aiChatApi, pluginApi } from "@/lib/api";
 import type { PluginInfo } from "@/types";
 
 const { Text } = Typography;
@@ -61,6 +62,50 @@ function buildPluginFrameHtml(
       var panels = [];
       var pluginApi = null;
       var mountedPanel = null;
+      var requestSeq = 1;
+      var pendingRequests = {};
+      var hostListeners = {};
+
+      function requestHost(type, payload) {
+        return new Promise(function (resolve, reject) {
+          var requestId = pluginId + ":" + Date.now() + ":" + requestSeq++;
+          pendingRequests[requestId] = { resolve: resolve, reject: reject };
+          window.parent && window.parent.postMessage({
+            source: "inb-plugin",
+            pluginId: pluginId,
+            requestId: requestId,
+            type: type,
+            payload: payload
+          }, "*");
+        });
+      }
+
+      function onHostEvent(type, handler) {
+        if (!hostListeners[type]) hostListeners[type] = [];
+        hostListeners[type].push(handler);
+        return function () {
+          hostListeners[type] = (hostListeners[type] || []).filter(function (fn) { return fn !== handler; });
+        };
+      }
+
+      function emitHostEvent(type, payload) {
+        (hostListeners[type] || []).slice().forEach(function (handler) {
+          try { handler(payload); } catch (error) { console.warn("[plugin-runtime] host event handler failed", error); }
+        });
+      }
+
+      window.addEventListener("message", function (event) {
+        var data = event.data || {};
+        if (data.source !== "inb-host") return;
+        if (data.requestId && pendingRequests[data.requestId]) {
+          var pending = pendingRequests[data.requestId];
+          delete pendingRequests[data.requestId];
+          if (data.ok) pending.resolve(data.payload);
+          else pending.reject(new Error(data.error || "宿主调用失败"));
+          return;
+        }
+        if (data.type) emitHostEvent(data.type, data.payload);
+      });
 
       function renderError(error) {
         var message = error && (error.stack || error.message) ? (error.stack || error.message) : String(error);
@@ -101,6 +146,29 @@ function buildPluginFrameHtml(
         registerCommand: function () {},
         getSettings: function () { return {}; },
         setSettings: function () {},
+        requestHost: requestHost,
+        onHostEvent: onHostEvent,
+        ai: {
+          createConversation: function (title) {
+            return requestHost("ai:createConversation", { title: title });
+          },
+          listMessages: function (conversationId) {
+            return requestHost("ai:listMessages", { conversationId: conversationId });
+          },
+          sendMessage: function (conversationId, message, options) {
+            options = options || {};
+            return requestHost("ai:sendMessage", {
+              conversationId: conversationId,
+              message: message,
+              useRag: options.useRag !== false,
+              useSkills: options.useSkills !== false
+            });
+          },
+          cancelGeneration: function (conversationId) {
+            return requestHost("ai:cancelGeneration", { conversationId: conversationId });
+          },
+          on: onHostEvent
+        },
         postMessage: function (type, payload) {
           window.parent && window.parent.postMessage({
             source: "inb-plugin",
@@ -159,12 +227,46 @@ function buildPluginFrameHtml(
 
 export default function PluginViewPage() {
   const { pluginId, viewId } = useParams<{ pluginId: string; viewId: string }>();
-  const navigate = useNavigate();
   const { token } = antdTheme.useToken();
   const [plugin, setPlugin] = useState<PluginInfo | null>(null);
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+
+  function postToFrame(type: string, payload: unknown) {
+    frameRef.current?.contentWindow?.postMessage({
+      source: "inb-host",
+      type,
+      payload,
+    }, "*");
+  }
+
+  async function handlePluginRequest(type: string, payload: Record<string, unknown>) {
+    switch (type) {
+      case "ai:createConversation":
+        return aiChatApi.createConversation(
+          typeof payload.title === "string" && payload.title.trim()
+            ? payload.title.trim()
+            : "Plugin-Sample 问答",
+        );
+      case "ai:listMessages":
+        return aiChatApi.listMessages(Number(payload.conversationId));
+      case "ai:sendMessage":
+        await aiChatApi.sendMessage(
+          Number(payload.conversationId),
+          String(payload.message ?? ""),
+          payload.useRag !== false,
+          payload.useSkills !== false,
+        );
+        return true;
+      case "ai:cancelGeneration":
+        await aiChatApi.cancelGeneration(Number(payload.conversationId));
+        return true;
+      default:
+        throw new Error(`未知插件宿主请求: ${type}`);
+    }
+  }
 
   useEffect(() => {
     if (!pluginId || !viewId) return;
@@ -217,6 +319,73 @@ export default function PluginViewPage() {
     };
   }, [pluginId, viewId]);
 
+  useEffect(() => {
+    if (!frameSrc) return;
+
+    function respond(source: MessageEventSource | null, requestId: string, ok: boolean, payload?: unknown, error?: string) {
+      source?.postMessage({
+        source: "inb-host",
+        requestId,
+        ok,
+        payload,
+        error,
+      }, { targetOrigin: "*" });
+    }
+
+    function onMessage(event: MessageEvent) {
+      const data = event.data || {};
+      if (data.source !== "inb-plugin") return;
+      if (pluginId && data.pluginId !== pluginId) return;
+      if (!data.requestId || typeof data.type !== "string") return;
+
+      void (async () => {
+        try {
+          const result = await handlePluginRequest(data.type, data.payload || {});
+          respond(event.source, data.requestId, true, result);
+        } catch (e) {
+          respond(event.source, data.requestId, false, null, String(e));
+        }
+      })();
+    }
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [frameSrc, pluginId]);
+
+  useEffect(() => {
+    if (!frameSrc) return;
+    let cancelled = false;
+    let unlistens: UnlistenFn[] = [];
+
+    (async () => {
+      const tokenUnlisten = await listen<string>("ai:token", (event) => {
+        postToFrame("ai:token", event.payload);
+      });
+      const doneUnlisten = await listen<number | string>("ai:done", (event) => {
+        postToFrame("ai:done", event.payload);
+      });
+      const errorUnlisten = await listen<string>("ai:error", (event) => {
+        postToFrame("ai:error", event.payload);
+      });
+      const toolUnlisten = await listen("ai:tool_call", (event) => {
+        postToFrame("ai:tool_call", event.payload);
+      });
+      if (cancelled) {
+        tokenUnlisten();
+        doneUnlisten();
+        errorUnlisten();
+        toolUnlisten();
+        return;
+      }
+      unlistens = [tokenUnlisten, doneUnlisten, errorUnlisten, toolUnlisten];
+    })();
+
+    return () => {
+      cancelled = true;
+      unlistens.forEach((fn) => fn());
+    };
+  }, [frameSrc]);
+
   const view = plugin?.manifest.contributes.sidebarViews.find((v) => v.id === viewId);
 
   return (
@@ -229,16 +398,11 @@ export default function PluginViewPage() {
         gap: 12,
       }}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <Plug size={18} />
-          <Text strong ellipsis>
-            {plugin ? view?.title || plugin.name : "插件界面"}
-          </Text>
-        </div>
-        <Button icon={<ArrowLeft size={14} />} onClick={() => navigate("/plugins")}>
-          返回插件管理
-        </Button>
+      <div className="flex items-center gap-2 min-w-0">
+        <Plug size={18} />
+        <Text strong ellipsis>
+          {plugin ? view?.title || plugin.name : "插件界面"}
+        </Text>
       </div>
 
       {loading && (
@@ -249,9 +413,7 @@ export default function PluginViewPage() {
 
       {!loading && error && (
         <div className="flex flex-1 items-center justify-center">
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<Text type="danger">{error}</Text>}>
-            <Button onClick={() => navigate("/plugins")}>返回插件管理</Button>
-          </Empty>
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<Text type="danger">{error}</Text>} />
         </div>
       )}
 
@@ -265,6 +427,7 @@ export default function PluginViewPage() {
 
       {!loading && !error && frameSrc && (
         <iframe
+          ref={frameRef}
           title={plugin ? `${plugin.name} - ${view?.title || viewId}` : "插件界面"}
           src={frameSrc}
           sandbox="allow-scripts allow-modals"
