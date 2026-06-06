@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::{watch, Notify};
 
 use crate::database::Database;
+use crate::services::plugin_token::PluginTokenRegistry;
 use crate::services::vault::VaultState;
 
 /// In-memory MCP client：通过 tokio::io::duplex 与同进程内的 KbServer 通信。
@@ -43,6 +44,8 @@ pub struct AppState {
     pub mcp_external: Arc<crate::services::mcp_client::McpClientManager>,
     /// 实例锁文件句柄（保持存活以维持独占锁，进程退出时自动释放）
     _lock_file: Option<File>,
+    /// 插件运行时令牌注册表（T1: 内存存储，进程退出自动清空）
+    pub plugin_tokens: PluginTokenRegistry,
 }
 
 impl AppState {
@@ -66,6 +69,7 @@ impl AppState {
             #[cfg(desktop)]
             mcp_external: Arc::new(crate::services::mcp_client::McpClientManager::new()),
             _lock_file: lock_file,
+            plugin_tokens: PluginTokenRegistry::default(),
         }
     }
 }

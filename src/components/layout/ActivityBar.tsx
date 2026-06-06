@@ -18,9 +18,12 @@ import {
   Trash2,
   Info,
   EyeOff,
+  Puzzle,
 } from "lucide-react";
 import { useAppStore } from "@/store";
 import type { ActiveView } from "@/store";
+import { pluginManager } from "@/services/pluginManager";
+import type { PluginSidebarItemDef } from "@/types";
 
 /**
  * ActivityBar —— 方案 C 侧边栏的左侧 48px 窄图标栏。
@@ -193,6 +196,110 @@ export function ActivityBar() {
     navigateToView(item);
   }
 
+  // ─── 插件侧边栏项 ──────────────────────────────────
+  const [pluginSidebarItems, setPluginSidebarItems] = useState<
+    PluginSidebarItemDef[]
+  >([]);
+
+  useEffect(() => {
+    const refresh = () => {
+      setPluginSidebarItems(pluginManager.getRegisteredSidebarItems());
+    };
+    refresh(); // 初始拉一次
+    const unsubscribe = pluginManager.subscribe("sidebar", refresh);
+    return unsubscribe;
+  }, []);
+
+  /** 根据 icon 名字符串找对应 Lucide 图标组件 */
+  function resolvePluginIcon(iconName: string): React.ReactNode {
+    const size = 18;
+    const map: Record<string, React.ReactNode> = {
+      plug: <Plug size={size} />,
+      puzzle: <Puzzle size={size} />,
+      sparkles: <Sparkles size={size} />,
+      bot: <Bot size={size} />,
+      calendar: <Calendar size={size} />,
+      layers: <Layers size={size} />,
+      tags: <Tags size={size} />,
+      search: <Search size={size} />,
+      home: <Home size={size} />,
+      notebooktext: <NotebookText size={size} />,
+      checksquare: <CheckSquare size={size} />,
+      gitbranch: <GitBranch size={size} />,
+      trash2: <Trash2 size={size} />,
+      info: <Info size={size} />,
+      eyeoff: <EyeOff size={size} />,
+    };
+    return map[iconName.toLowerCase()] ?? <Puzzle size={size} />;
+  }
+
+  function handlePluginItemClick(item: PluginSidebarItemDef) {
+    // 优先 onClick；否则按 viewId 导航到面板视图页
+    if (typeof item.onClick === "function") {
+      try {
+        item.onClick();
+      } catch (e) {
+        console.error(`[ActivityBar] 插件 sidebar item ${item.id} onClick 失败:`, e);
+      }
+      return;
+    }
+    if (item.viewId) {
+      startTransition(() => {
+        if (!sidePanelVisible) setSidePanelVisible(true);
+        navigate(`/plugin-view/${item.viewId}`);
+      });
+      return;
+    }
+    console.warn(
+      `[ActivityBar] 插件 sidebar item ${item.id} 既无 onClick 也无 viewId，点击无效`,
+    );
+  }
+
+  function renderPluginSidebarItem(item: PluginSidebarItemDef) {
+    return (
+      <Tooltip key={item.id} title={item.label} placement="right" mouseEnterDelay={0.15}>
+        <button
+          type="button"
+          onClick={() => handlePluginItemClick(item)}
+          aria-label={item.label}
+          className="activity-item"
+          style={{
+            width: 56,
+            height: 52,
+            borderRadius: 8,
+            border: "none",
+            cursor: "pointer",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 2,
+            padding: "4px 2px",
+            background: "transparent",
+            color: token.colorTextSecondary,
+            position: "relative",
+            transition: "background .15s, color .15s",
+          }}
+        >
+          {resolvePluginIcon(item.icon)}
+          <span
+            style={{
+              fontSize: 10,
+              lineHeight: 1.1,
+              fontWeight: 400,
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {item.label}
+          </span>
+        </button>
+      </Tooltip>
+    );
+  }
+
   function renderItem(item: ActivityItem) {
     const isActive = highlightView === item.view;
     const iconNode =
@@ -290,6 +397,8 @@ export function ActivityBar() {
       }}
     >
       {MAIN_GROUPS.flat().filter(isVisible).map(renderItem)}
+      {/* 插件注入的侧边栏项（按 group 分组） */}
+      {pluginSidebarItems.map(renderPluginSidebarItem)}
       <div style={{ flex: 1 }} />
       {BOTTOM_ITEMS.filter(isVisible).map(renderItem)}
       <HiddenPinUnlockModal

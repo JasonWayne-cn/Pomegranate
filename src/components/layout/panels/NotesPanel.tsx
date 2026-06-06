@@ -42,6 +42,7 @@ import { folderApi, importApi, noteApi, trashApi } from "@/lib/api";
 import type { Folder, Note, ScannedFile } from "@/types";
 import { parseEmojiPrefix } from "@/lib/treeIcons";
 import { NewNoteButton } from "@/components/NewNoteButton";
+import { OpenFileButton } from "@/components/OpenFileButton";
 import { FileTypeIcon } from "@/components/FileTypeIcon";
 import { TemplatePickerModal } from "@/components/TemplatePickerModal";
 import {
@@ -548,28 +549,6 @@ export function NotesPanel() {
       console.error("加载文件夹失败:", e);
     } finally {
       setInitialLoading(false);
-    }
-  }
-
-  /** 打开本机 .md / .txt 文件 → 导入/复用笔记 → 跳转 */
-  async function handleOpenMarkdown() {
-    try {
-      const picked = await openDialog({
-        multiple: false,
-        filters: [
-          { name: "文本", extensions: ["md", "markdown", "txt"] },
-        ],
-      });
-      const path = Array.isArray(picked) ? picked[0] : picked;
-      if (!path) return;
-      const result = await importApi.openMarkdownFile(path);
-      if (result.wasSynced) {
-        message.info("已根据最新 md 文件同步笔记内容");
-      }
-      useAppStore.getState().bumpNotesRefresh();
-      navigate(`/notes/${result.noteId}`);
-    } catch (e) {
-      message.error(`打开失败: ${e}`);
     }
   }
 
@@ -1600,11 +1579,7 @@ export function NotesPanel() {
         <div style={{ flex: 1, display: "flex" }}>
           <NewNoteButton block />
         </div>
-        <Button
-          icon={<FolderOpen size={14} />}
-          onClick={handleOpenMarkdown}
-          title="打开本机 .md 文件"
-        />
+        <OpenFileButton />
       </div>
 
       {/* 文件夹小节 —— 兼任 OS 文件拖入区（.md/.txt → 新建笔记） */}

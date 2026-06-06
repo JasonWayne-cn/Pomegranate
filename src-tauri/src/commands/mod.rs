@@ -15,6 +15,8 @@ pub mod mcp;
 pub mod notes;
 pub mod orphan;
 pub mod pdf;
+pub mod plugin_proxy;
+pub mod plugin_runtime;
 pub mod plugins;
 pub mod prompt;
 pub mod search;

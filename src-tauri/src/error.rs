@@ -21,6 +21,12 @@ pub enum AppError {
     #[error("参数无效: {0}")]
     InvalidInput(String),
 
+    #[error("插件权限拒绝: plugin={plugin_id:?} required={required_permission:?}")]
+    PluginPermissionDenied {
+        plugin_id: Option<String>,
+        required_permission: Option<String>,
+    },
+
     #[error("{0}")]
     Custom(String),
 }

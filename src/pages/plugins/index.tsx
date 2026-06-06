@@ -20,12 +20,14 @@ import {
   FolderPlus,
   Plug,
   RefreshCw,
+  RotateCw,
   ShieldCheck,
   ShieldOff,
   Trash2,
 } from "lucide-react";
 import { pluginApi } from "@/lib/api";
 import type { PluginInfo } from "@/types";
+import { pluginManager } from "@/services/pluginManager";
 
 const { Text, Paragraph } = Typography;
 
@@ -126,7 +128,21 @@ export default function PluginsPage() {
     try {
       if (enabled) {
         await pluginApi.enable(plugin.id);
+        // 启用的同时激活插件运行时
+        const updated = { ...plugin, enabled: true };
+        try {
+          await pluginManager.activatePlugin(updated);
+        } catch (e) {
+          console.error(`[PluginsPage] 插件 ${plugin.id} 运行时激活失败:`, e);
+          message.warning(`插件「${plugin.name}」已启用，但运行时启动失败：${e}`);
+        }
       } else {
+        // 先停用运行时，再写数据库
+        try {
+          await pluginManager.deactivatePlugin(plugin.id);
+        } catch (e) {
+          console.warn(`[PluginsPage] 停用插件 ${plugin.id} 运行时失败:`, e);
+        }
         await pluginApi.disable(plugin.id);
       }
       setPlugins((prev) =>
@@ -149,6 +165,12 @@ export default function PluginsPage() {
       cancelText: "取消",
       async onOk() {
         try {
+          // 先停用运行时
+          try {
+            await pluginManager.deactivatePlugin(plugin.id);
+          } catch (e) {
+            console.warn(`[PluginsPage] 停用插件 ${plugin.id} 运行时失败:`, e);
+          }
           await pluginApi.uninstall(plugin.id);
           message.success("已卸载");
           if (selected?.id === plugin.id) setSelected(null);
@@ -192,7 +214,7 @@ export default function PluginsPage() {
         title: "插件",
         dataIndex: "name",
         render: (_, record) => (
-          <Space direction="vertical" size={0}>
+          <Space orientation="vertical" size={0}>
             <Space size={6}>
               <Text strong>{record.name}</Text>
               <Tag color="geekblue">v{record.version}</Tag>
@@ -252,12 +274,29 @@ export default function PluginsPage() {
       },
       {
         title: "操作",
-        width: 180,
+        width: 220,
         render: (_, record) => (
           <Space>
             <Button size="small" onClick={() => setSelected(record)}>
               详情
             </Button>
+            {record.enabled && pluginManager.isActive(record.id) && (
+              <Tooltip title="重新加载插件">
+                <Button
+                  size="small"
+                  icon={<RotateCw size={14} />}
+                  loading={false}
+                  onClick={async () => {
+                    try {
+                      await pluginManager.reloadPlugin(record.id);
+                      message.success("插件已重新加载");
+                    } catch (e) {
+                      message.error(`重载失败：${e}`);
+                    }
+                  }}
+                />
+              </Tooltip>
+            )}
             <Button
               size="small"
               danger
@@ -302,8 +341,8 @@ export default function PluginsPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="当前是插件系统 MVP"
-          description="已支持插件 manifest 扫描、安装、启用状态、权限授权与设置存储；第三方 JS 运行时会在沙箱能力完成后再开放。"
+          title="当前是插件系统 MVP"
+          description="已支持插件运行时加载、侧边栏 UI 注入、面板视图、权限授权与设置存储。"
         />
 
         <Table
@@ -354,7 +393,7 @@ export default function PluginsPage() {
         onCancel={() => setSelected(null)}
       >
         {selected && (
-          <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Space orientation="vertical" style={{ width: "100%" }} size="middle">
             <Descriptions column={1} bordered size="small">
               <Descriptions.Item label="ID">{selected.id}</Descriptions.Item>
               <Descriptions.Item label="版本">{selected.version}</Descriptions.Item>

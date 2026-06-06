@@ -20,7 +20,10 @@ import {
   CheckSquare,
   AlertTriangle,
   Check,
+  Puzzle,
+  Plug,
 } from "lucide-react";
+import { pluginManager } from "@/services/pluginManager";
 
 /** 快速导航页面 */
 const pages = [
@@ -80,10 +83,21 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
       )
     : pages;
 
-  // 总条目数（页面 → 待办 → 笔记 顺序展示，索引也按此累计）
-  const totalItems = filteredPages.length + taskResults.length + results.length;
-  const taskOffset = filteredPages.length;
-  const noteOffset = filteredPages.length + taskResults.length;
+  // 插件注册的命令
+  const pluginCommands = pluginManager.getRegisteredCommands();
+  const filteredPluginCommands = kw
+    ? pluginCommands.filter((c) => c.name.toLowerCase().includes(kw))
+    : pluginCommands;
+
+  // 总条目数（页面 → 插件命令 → 待办 → 笔记 顺序展示）
+  const totalItems =
+    filteredPages.length +
+    filteredPluginCommands.length +
+    taskResults.length +
+    results.length;
+  const pluginOffset = filteredPages.length;
+  const taskOffset = filteredPages.length + filteredPluginCommands.length;
+  const noteOffset = taskOffset + taskResults.length;
 
   // 键盘导航
   const handleKeyDown = useCallback(
@@ -98,7 +112,7 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
         setSelectedIndex((prev) => (prev - 1 + totalItems) % totalItems);
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (selectedIndex < taskOffset) {
+        if (selectedIndex < pluginOffset) {
           const page = filteredPages[selectedIndex];
           if (!page) return;
           if (page.path === "#shortcuts") {
@@ -107,6 +121,12 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
             return;
           }
           navigate(page.path);
+        } else if (selectedIndex < taskOffset) {
+          const cmd = filteredPluginCommands[selectedIndex - pluginOffset];
+          if (cmd) {
+            onClose();
+            cmd.callback();
+          }
         } else if (selectedIndex < noteOffset) {
           const task = taskResults[selectedIndex - taskOffset];
           if (task) navigate(`/tasks?taskId=${task.id}`);
@@ -119,10 +139,12 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
     },
     [
       totalItems,
+      pluginOffset,
       taskOffset,
       noteOffset,
       selectedIndex,
       filteredPages,
+      filteredPluginCommands,
       taskResults,
       results,
       navigate,
@@ -237,6 +259,54 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
                 )}
               </div>
             ))}
+          </>
+        )}
+
+        {/* 插件命令 */}
+        {filteredPluginCommands.length > 0 && (
+          <>
+            <div
+              className="px-2 py-1 mt-1 text-xs font-medium"
+              style={{ color: token.colorTextQuaternary }}
+            >
+              插件
+            </div>
+            {filteredPluginCommands.map((cmd, i) => {
+              const idx = pluginOffset + i;
+              return (
+                <div
+                  key={cmd.id}
+                  data-index={idx}
+                  onClick={() => {
+                    onClose();
+                    cmd.callback();
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer"
+                  style={{
+                    background:
+                      selectedIndex === idx ? token.colorBgTextHover : "transparent",
+                    color: token.colorText,
+                  }}
+                  onMouseEnter={() => setSelectedIndex(idx)}
+                >
+                  <Puzzle
+                    size={14}
+                    style={{ color: token.colorTextSecondary, flexShrink: 0 }}
+                  />
+                  <span className="flex-1 text-sm">{cmd.name}</span>
+                  <Plug
+                    size={12}
+                    style={{ color: token.colorTextQuaternary, flexShrink: 0 }}
+                  />
+                  {selectedIndex === idx && (
+                    <CornerDownLeft
+                      size={12}
+                      style={{ color: token.colorTextQuaternary }}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </>
         )}
 
@@ -383,7 +453,8 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
           keyword.trim() &&
           results.length === 0 &&
           taskResults.length === 0 &&
-          filteredPages.length === 0 && (
+          filteredPages.length === 0 &&
+          filteredPluginCommands.length === 0 && (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description="未找到匹配结果"

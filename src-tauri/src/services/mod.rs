@@ -38,6 +38,7 @@ pub mod mcp_client;
 pub mod note;
 pub mod orphan_scan;
 pub mod pdf;
+pub mod plugin_token;
 // 插件系统：元数据管理、manifest 校验、安装/卸载
 pub mod plugins;
 // 笔记 pop-out 窗口仅桌面端（移动端改 Modal）

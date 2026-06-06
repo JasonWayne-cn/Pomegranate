@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { ConfigProvider, theme, App as AntdApp, message } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { listen } from "@tauri-apps/api/event";
@@ -8,6 +8,7 @@ import { useAppStore } from "@/store";
 import { AppRouter } from "@/Router";
 import { getAntdTokens } from "@/theme/tokens";
 import { TaskReminderListener } from "@/components/tasks/TaskReminderListener";
+import { pluginManager } from "@/services/pluginManager";
 
 // 紧急提醒窗口 / 迁移 splash 等子窗口共用同一个 React bundle，
 // 但只有 main 窗口才需要挂全局提醒监听器，否则子窗口也会响应 task:reminder
@@ -78,6 +79,25 @@ function App() {
     });
     return () => {
       unlisten?.();
+    };
+  }, []);
+
+  // 插件运行时初始化（仅主窗口）。
+  // 非阻塞：init 在后台异步执行，不延迟首屏渲染。
+  // beforeunload 时调用 deactivateAll 清理（应用关闭 / 刷新时）。
+  const pluginInitStarted = useRef(false);
+  useEffect(() => {
+    if (!IS_MAIN_WINDOW || pluginInitStarted.current) return;
+    pluginInitStarted.current = true;
+
+    void pluginManager.init();
+
+    const handleBeforeUnload = () => {
+      void pluginManager.deactivateAll();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, []);
 

@@ -280,4 +280,188 @@ impl Database {
         tx.commit()?;
         Ok(())
     }
+
+    /// 检查插件是否已获得指定权限（T2: plugin_proxy 权限校验用）
+    pub fn has_plugin_permission(&self, plugin_id: &str, perm: &str) -> Result<bool, AppError> {
+        let conn = self.conn_lock()?;
+        let granted: Option<i32> = conn
+            .query_row(
+                "SELECT granted FROM plugin_permissions
+                 WHERE plugin_id = ?1 AND permission = ?2",
+                params![plugin_id, perm],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(granted.unwrap_or(0) != 0)
+    }
+
+    /// 查询单个插件设置（T2: plugin_proxy_settings_get 用）
+    pub fn get_plugin_setting(
+        &self,
+        plugin_id: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, AppError> {
+        let conn = self.conn_lock()?;
+        let value: Option<String> = conn
+            .query_row(
+                "SELECT value FROM plugin_settings
+                 WHERE plugin_id = ?1 AND key = ?2",
+                params![plugin_id, key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match value {
+            Some(v) => Ok(Some(
+                serde_json::from_str(&v).unwrap_or(serde_json::Value::String(v)),
+            )),
+            None => Ok(None),
+        }
+    }
+
+    /// Upsert 单个插件设置（T2: plugin_proxy_settings_set 用）
+    pub fn set_plugin_setting(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), AppError> {
+        let conn = self.conn_lock()?;
+        let value_str = serde_json::to_string(value)?;
+        conn.execute(
+            "INSERT INTO plugin_settings (plugin_id, key, value, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now','localtime'))
+             ON CONFLICT(plugin_id, key) DO UPDATE SET
+                 value = excluded.value,
+                 updated_at = excluded.updated_at",
+            params![plugin_id, key, value_str],
+        )?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::database::Database;
+
+    /// 创建测试用 Database（:memory: 模式，不走文件系统）
+    fn setup_test_db() -> Database {
+        Database::init(":memory:").expect("创建内存数据库失败")
+    }
+
+    /// 向测试数据库插入一个测试插件
+    fn insert_test_plugin(db: &Database, id: &str, enabled: bool, status: &str) {
+        let conn = db.conn_lock().unwrap();
+        conn.execute(
+            "INSERT INTO plugins (id, name, version, description, author, path, main, manifest_json, enabled, status)
+             VALUES (?1, ?2, '1.0', '', '', '/tmp', 'main.js', '{}', ?3, ?4)",
+            params![id, id, enabled as i32, status],
+        )
+        .unwrap();
+    }
+
+    /// 向测试数据库插入一条权限授权记录
+    fn grant_permission(db: &Database, plugin_id: &str, permission: &str) {
+        let conn = db.conn_lock().unwrap();
+        conn.execute(
+            "INSERT INTO plugin_permissions (plugin_id, permission, granted)
+             VALUES (?1, ?2, 1)",
+            params![plugin_id, permission],
+        )
+        .unwrap();
+    }
+
+    // ─── §10.15 越权测试用例（针对 Database 层的 has_plugin_permission） ───
+
+    /// 用例 5：有效令牌 + 缺 notes:read → has_plugin_permission 返回 false
+    #[test]
+    fn case_5_missing_notes_read() {
+        let db = setup_test_db();
+        insert_test_plugin(&db, "cc", true, "installed");
+        let has = db.has_plugin_permission("cc", "notes:read").unwrap();
+        assert!(!has, "未授权 notes:read 应返回 false");
+    }
+
+    /// 用例 6：有效令牌 + 缺 notes:write（仅授 notes:read）→ false
+    #[test]
+    fn case_6_missing_notes_write() {
+        let db = setup_test_db();
+        insert_test_plugin(&db, "cc", true, "installed");
+        grant_permission(&db, "cc", "notes:read");
+        let has = db.has_plugin_permission("cc", "notes:write").unwrap();
+        assert!(!has, "缺 notes:write 应返回 false");
+    }
+
+    /// 用例 7：有效令牌 + 完整权限 → has_plugin_permission 返回 true
+    #[test]
+    fn case_7_full_permissions() {
+        let db = setup_test_db();
+        insert_test_plugin(&db, "cc", true, "installed");
+        grant_permission(&db, "cc", "notes:read");
+        let has = db.has_plugin_permission("cc", "notes:read").unwrap();
+        assert!(has, "已授权 notes:read 应返回 true");
+    }
+
+    /// 不存在的插件查询权限 → 返回 false（不 panic）
+    #[test]
+    fn case_nonexistent_plugin_permission_false() {
+        let db = setup_test_db();
+        let has = db.has_plugin_permission("nonexistent", "notes:read").unwrap();
+        assert!(!has, "不存在的插件应返回 false");
+    }
+
+    /// 用例 8：跨插件设置隔离
+    /// A 插件的 settings_get_all 应只返回 A 的设置，不返回 B 的
+    #[test]
+    fn case_8_plugin_settings_isolation() {
+        let db = setup_test_db();
+        insert_test_plugin(&db, "plugin-a", true, "installed");
+        insert_test_plugin(&db, "plugin-b", true, "installed");
+
+        db.set_plugin_setting(
+            "plugin-a",
+            "keyA",
+            &serde_json::Value::String("valueA".into()),
+        )
+        .unwrap();
+        db.set_plugin_setting(
+            "plugin-b",
+            "keyB",
+            &serde_json::Value::String("valueB".into()),
+        )
+        .unwrap();
+
+        let a_settings = db.get_plugin_settings("plugin-a").unwrap();
+        assert_eq!(a_settings.get("keyA").unwrap(), "valueA");
+        assert!(!a_settings.contains_key("keyB"), "A 不应看到 B 的设置");
+
+        let b_settings = db.get_plugin_settings("plugin-b").unwrap();
+        assert_eq!(b_settings.get("keyB").unwrap(), "valueB");
+        assert!(!b_settings.contains_key("keyA"), "B 不应看到 A 的设置");
+    }
+
+    /// 设置持久化和再次读取的一致性（Upsert 覆盖）
+    #[test]
+    fn case_settings_upsert_consistency() {
+        let db = setup_test_db();
+        insert_test_plugin(&db, "cc", true, "installed");
+
+        db.set_plugin_setting(
+            "cc",
+            "theme",
+            &serde_json::Value::String("dark".into()),
+        )
+        .unwrap();
+        let v1 = db.get_plugin_setting("cc", "theme").unwrap();
+        assert_eq!(v1.unwrap(), "dark");
+
+        db.set_plugin_setting(
+            "cc",
+            "theme",
+            &serde_json::Value::String("light".into()),
+        )
+        .unwrap();
+        let v2 = db.get_plugin_setting("cc", "theme").unwrap();
+        assert_eq!(v2.unwrap(), "light");
+    }
 }

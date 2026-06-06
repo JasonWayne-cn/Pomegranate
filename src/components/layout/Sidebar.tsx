@@ -45,6 +45,7 @@ import { useAppStore } from "@/store";
 import { folderApi, importApi } from "@/lib/api";
 import type { Folder, ScannedFile } from "@/types";
 import { NewNoteButton } from "@/components/NewNoteButton";
+import { OpenFileButton } from "@/components/OpenFileButton";
 import { DraftNoteModal } from "@/components/ai/DraftNoteModal";
 import { ClipUrlModal } from "@/components/ClipUrlModal";
 import { createBlankAndOpen } from "@/lib/noteCreator";
@@ -213,26 +214,6 @@ export function Sidebar() {
       setFolders(list);
     } catch (e) {
       console.error("加载文件夹失败:", e);
-    }
-  }
-
-  /** 打开本机 .md 文件 → 导入/复用笔记 → 跳转 */
-  async function handleOpenMarkdown() {
-    try {
-      const picked = await openDialog({
-        multiple: false,
-        filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
-      });
-      const path = Array.isArray(picked) ? picked[0] : picked;
-      if (!path) return;
-      const result = await importApi.openMarkdownFile(path);
-      if (result.wasSynced) {
-        message.info("已根据最新 md 文件同步笔记内容");
-      }
-      useAppStore.getState().bumpNotesRefresh();
-      navigate(`/notes/${result.noteId}`);
-    } catch (e) {
-      message.error(`打开失败: ${e}`);
     }
   }
 
@@ -761,11 +742,7 @@ export function Sidebar() {
           onClick={() => setShowClipModal(true)}
           title="剪藏网页（T-014）"
         />
-        <Button
-          icon={<FolderOpen size={collapsed ? 16 : 14} />}
-          onClick={handleOpenMarkdown}
-          title="打开本机 .md 文件"
-        />
+        <OpenFileButton collapsed={collapsed} />
       </div>
 
       <DraftNoteModal

@@ -859,6 +859,19 @@ pub fn run() {
             commands::plugins::get_plugin_settings,
             commands::plugins::set_plugin_settings,
             commands::plugins::read_plugin_asset,
+            // 插件运行时（AppAPI 1.0.0 — 令牌生命周期）
+            commands::plugin_runtime::plugin_acquire_token,
+            commands::plugin_runtime::plugin_revoke_token,
+            // 插件 proxy（AppAPI 1.0.0 — 受控 IPC）
+            commands::plugin_proxy::plugin_proxy_notes_list,
+            commands::plugin_proxy::plugin_proxy_notes_get,
+            commands::plugin_proxy::plugin_proxy_notes_search,
+            commands::plugin_proxy::plugin_proxy_notes_create,
+            commands::plugin_proxy::plugin_proxy_notes_update,
+            commands::plugin_proxy::plugin_proxy_notes_delete,
+            commands::plugin_proxy::plugin_proxy_settings_get,
+            commands::plugin_proxy::plugin_proxy_settings_set,
+            commands::plugin_proxy::plugin_proxy_settings_get_all,
             // 笔记模块
             commands::notes::create_note,
             commands::notes::update_note,

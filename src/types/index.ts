@@ -54,6 +54,162 @@ export interface PluginInfo {
   updatedAt: string;
 }
 
+// ═══════════════════════════════════════════════════════
+// 插件运行时 — AppAPI v1.0.0（T11: TypeScript 类型草案）
+// ═══════════════════════════════════════════════════════
+
+/** AppAPI 版本号（与 Rust 侧固定字符串保持一致） */
+export const PLUGIN_API_VERSION = "1.0.0" as const;
+
+/** 插件暴露的模块约定：module.exports = { onLoad, onUnload } */
+export interface PluginModule {
+  onLoad?: (ctx: PluginContext) => void | Promise<void>;
+  onUnload?: (ctx: PluginContext) => void | Promise<void>;
+}
+
+/**
+ * 插件 onLoad / onUnload 回调的上下文
+ *
+ * v1.0.0: 移除顶层 register* 方法，统一通过 ctx.app.* 子 API 操作。
+ */
+export interface PluginContext {
+  app: PluginAppAPI;
+  meta: Readonly<PluginMeta>;
+}
+
+/** 插件元信息（精简版） */
+export interface PluginMeta {
+  id: string;
+  name: string;
+  version: string;
+  dir: string;
+}
+
+/** 插件命令面板项 */
+export interface PluginCommandDef {
+  /** 命令 ID（不含 pluginId 前缀，PluginManager 自动加） */
+  id: string;
+  name: string;
+  group?: string;
+  hotkey?: string;
+  callback: () => void | Promise<void>;
+}
+
+/** 插件侧边栏条目 */
+export interface PluginSidebarItemDef {
+  id: string;
+  icon: string;
+  label: string;
+  viewId?: string;
+  onClick?: () => void;
+  group?: "ai" | "workflow" | "search" | "bottom";
+  /** PluginManager 填充，插件不应设置 */
+  pluginId?: string;
+}
+
+/** 插件面板视图 */
+export interface PluginPanelViewDef {
+  id: string;
+  title: string;
+  /** 返回 cleanup 函数（可选） */
+  render: (container: HTMLElement) => void | (() => void);
+  /** PluginManager 填充，插件不应设置 */
+  pluginId?: string;
+}
+
+// ─── 子 API 接口 ─────────────────────────────────
+
+/** 命令注册子 API */
+export interface PluginCommandsAPI {
+  addCommand(def: PluginCommandDef): void;
+  removeCommand(id: string): void;
+  executeCommand(fullId: string): void | Promise<void>;
+}
+
+/** 侧边栏注册子 API */
+export interface PluginSidebarAPI {
+  addItem(def: PluginSidebarItemDef): void;
+  removeItem(id: string): void;
+}
+
+/** 面板视图注册子 API */
+export interface PluginPanelViewsAPI {
+  register(def: PluginPanelViewDef): void;
+  unregister(id: string): void;
+}
+
+/** 插件事件类型清单 */
+export interface PluginEvents {
+  "workspace:active-note-changed": { noteId: number | null };
+  "workspace:editor-saved": { noteId: number };
+  "settings:changed": { key: string };
+}
+
+/** 插件事件总线 */
+export interface PluginEventBus {
+  on<K extends keyof PluginEvents>(
+    event: K,
+    handler: (data: PluginEvents[K]) => void,
+  ): () => void;
+  emit<K extends keyof PluginEvents>(event: K, data: PluginEvents[K]): void;
+}
+
+/** 工作区子 API */
+export interface PluginWorkspaceAPI {
+  getActiveNoteId(): number | null;
+  getActiveNote(): Promise<Note | null>;
+}
+
+/** 通知子 API */
+export interface PluginNoticesAPI {
+  show(message: string, duration?: number): void;
+  error(message: string): void;
+}
+
+/** 设置子 API */
+export interface PluginSettingsAPI {
+  get<T = unknown>(key: string): Promise<T | undefined>;
+  set(key: string, value: unknown): Promise<void>;
+  getAll(): Promise<Record<string, unknown>>;
+}
+
+/** 笔记子 API */
+export interface PluginNotesAPI {
+  list(query?: NoteQuery): Promise<Note[]>;
+  get(id: number): Promise<Note | null>;
+  search(keyword: string, limit?: number): Promise<SearchResult[]>;
+  create(input: NoteInput): Promise<Note>;
+  update(id: number, input: NoteInput): Promise<Note>;
+  delete(id: number): Promise<void>;
+}
+
+/** AppAPI v1.0.0 */
+export interface PluginAppAPI {
+  readonly version: typeof PLUGIN_API_VERSION;
+  workspace: PluginWorkspaceAPI;
+  notes: PluginNotesAPI;
+  settings: PluginSettingsAPI;
+  notices: PluginNoticesAPI;
+  commands: PluginCommandsAPI;
+  sidebar: PluginSidebarAPI;
+  panelViews: PluginPanelViewsAPI;
+  events: PluginEventBus;
+}
+
+// ═══════════════════════════════════════════════════════
+// 旧版兼容类型（T4 完成后可移除）
+// ═══════════════════════════════════════════════════════
+
+/** @deprecated 使用 PluginContext（无 register* 方法） */
+export interface PluginContextLegacy {
+  app: PluginAppAPI;
+  meta: Readonly<PluginMeta>;
+  registerCommand?: (cmd: PluginCommandDef) => void;
+  registerSidebarItem?: (item: PluginSidebarItemDef) => void;
+  registerPanelView?: (def: PluginPanelViewDef) => void;
+  registerSettings?: (render: () => void) => void;
+}
+
 /** 全局快捷键绑定（仅 global scope，由 Rust 侧 global-shortcut 插件管理） */
 export interface ShortcutBinding {
   /** 内部唯一 ID（如 'global.quickCapture'） */
