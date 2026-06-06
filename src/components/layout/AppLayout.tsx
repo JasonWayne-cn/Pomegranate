@@ -20,6 +20,7 @@ import { SidePanel, viewHasPanel } from "./SidePanel";
 import { TabBar } from "./TabBar";
 import { WindowControls } from "./WindowControls";
 import { InstanceBadge } from "./InstanceBadge";
+import { RibbonBar } from "./RibbonBar";
 import { CommandPalette } from "@/components/ui/CommandPalette";
 import { QuickCaptureAsrModal } from "@/components/QuickCaptureAsrModal";
 import { AsrToggleController } from "@/components/AsrToggleController";
@@ -565,6 +566,7 @@ export function AppLayout() {
           <DragRegion />
           <div style={{ display: "flex", alignItems: "center" }}>
             <UpdateBadge update={update} onClick={openModal} />
+            <RibbonBar />
             <Tooltip title="搜索 (Ctrl+K)">
               <Button
                 type="text"

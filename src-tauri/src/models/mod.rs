@@ -79,6 +79,19 @@ pub struct PluginInfo {
     pub manifest: PluginManifest,
     pub installed_at: String,
     pub updated_at: String,
+    /// T26: main.js 的 SHA-256 哈希，用于完整性校验
+    pub content_hash: String,
+}
+
+/// T25: 插件审计日志条目
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAuditLogEntry {
+    pub id: i64,
+    pub plugin_id: String,
+    pub operation: String,
+    pub target: Option<String>,
+    pub timestamp: String,
 }
 
 /// 全局快捷键绑定信息（返回给前端的视图模型）

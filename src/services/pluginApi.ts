@@ -21,8 +21,12 @@ import type {
   PluginSidebarAPI,
   PluginPanelViewsAPI,
   PluginEventBus,
+  PluginRibbonAPI,
+  PluginEditorAPI,
 } from "@/types";
 import { PluginManager } from "@/services/pluginManager";
+import { getActiveSelectionText } from "@/services/editorBridge";
+import { createSettingsForm } from "@/components/plugin/SettingsFormRenderer";
 
 /** 错误转译表 */
 function translateError(raw: string): string {
@@ -130,6 +134,13 @@ export function createAppAPI(
         throw new Error(translateError(String(e)));
       }
     },
+    registerTab: (def) => manager._registerSettingsTab(pluginId, def),
+    unregisterTab: (id) => manager._unregisterSettingsTab(pluginId, id),
+    createForm: (container, schema) =>
+      createSettingsForm(container, schema, {
+        get: (key) => settings.get(key),
+        set: (key, value) => settings.set(key, value),
+      }),
   };
 
   // ─── commands 子 API ────────────────────────
@@ -149,6 +160,21 @@ export function createAppAPI(
   const panelViews: PluginPanelViewsAPI = {
     register: (def) => manager._registerPanelView(pluginId, def),
     unregister: (id) => manager._unregisterPanelView(pluginId, id),
+  };
+
+  // ─── ribbon 子 API ──────────────────────────
+  const ribbon: PluginRibbonAPI = {
+    addItem: (def) => manager._addRibbonItem(pluginId, def),
+    removeItem: (id) => manager._removeRibbonItem(pluginId, id),
+  };
+
+  // ─── editor 子 API ──────────────────────────
+  const editor: PluginEditorAPI = {
+    addContextMenuItem: (def) => manager._addEditorMenuItem(pluginId, def),
+    removeContextMenuItem: (id) => manager._removeEditorMenuItem(pluginId, id),
+    addToolbarButton: (def) => manager._addEditorToolbarButton(pluginId, def),
+    removeToolbarButton: (id) => manager._removeEditorToolbarButton(pluginId, id),
+    getCurrentSelection: () => getActiveSelectionText(),
   };
 
   // ─── workspace 子 API ───────────────────────
@@ -218,5 +244,7 @@ export function createAppAPI(
     sidebar,
     panelViews,
     events,
+    ribbon,
+    editor,
   };
 }

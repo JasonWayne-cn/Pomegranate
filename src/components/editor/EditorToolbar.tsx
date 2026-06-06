@@ -52,6 +52,7 @@ import { parseEmbedUrl, SUPPORTED_PROVIDERS } from "./embedVideoProviders";
 import { useFormatPainter } from "./useFormatPainter";
 import { CompareClipboardButton } from "./CompareClipboardButton";
 import { CompareNotesButton } from "./CompareNotesButton";
+import { PluginToolbarButtons } from "./PluginToolbarButtons";
 
 interface ToolbarProps {
   editor: Editor;
@@ -1117,6 +1118,7 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
             })}
           </span>
         ))}
+        <PluginToolbarButtons editor={editor} noteId={noteId} />
       </div>
 
       <Modal

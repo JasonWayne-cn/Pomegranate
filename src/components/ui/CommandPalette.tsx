@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Modal, Input, Empty, Spin, theme as antdTheme } from "antd";
+import { Modal, Input, Empty, Spin, message, theme as antdTheme } from "antd";
 import { useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import { highlightText, highlightSnippet } from "@/lib/highlight";
 import { MicButton } from "@/components/MicButton";
@@ -24,6 +24,7 @@ import {
   Plug,
 } from "lucide-react";
 import { pluginManager } from "@/services/pluginManager";
+import type { PluginCommandDef } from "@/types";
 
 /** 快速导航页面 */
 const pages = [
@@ -60,6 +61,28 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
     { taskLimit: 10 },
   );
 
+  // 订阅插件命令注册表，确保插件激活/停用后命令面板实时刷新
+  type CmdEntry = PluginCommandDef & { pluginId: string };
+  const [pluginCommands, setPluginCommands] = useState<CmdEntry[]>(
+    () => pluginManager.getRegisteredCommands(),
+  );
+  useEffect(() => {
+    const refresh = () => setPluginCommands(pluginManager.getRegisteredCommands());
+    refresh();
+    return pluginManager.subscribe("commands", refresh);
+  }, []);
+
+  // 安全执行插件命令：错误隔离 + 用户反馈
+  const runPluginCommand = useCallback(async (cmd: CmdEntry) => {
+    try {
+      await cmd.callback();
+    } catch (e) {
+      console.error(`[CommandPalette] 插件命令 ${cmd.pluginId}:${cmd.id} 抛错:`, e);
+      pluginManager._logError(cmd.pluginId, "command:callback", String(e));
+      message.error(`命令"${cmd.name}"执行失败：${e}`);
+    }
+  }, []);
+
   // 关键词变化时重置选中
   useEffect(() => {
     setSelectedIndex(0);
@@ -83,11 +106,18 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
       )
     : pages;
 
-  // 插件注册的命令
-  const pluginCommands = pluginManager.getRegisteredCommands();
-  const filteredPluginCommands = kw
-    ? pluginCommands.filter((c) => c.name.toLowerCase().includes(kw))
-    : pluginCommands;
+  // 插件注册的命令（已由上方 useState + subscribe 维护）
+  const filteredPluginCommands = useMemo(
+    () =>
+      kw
+        ? pluginCommands.filter(
+            (c) =>
+              c.name.toLowerCase().includes(kw) ||
+              (c.group?.toLowerCase().includes(kw) ?? false),
+          )
+        : pluginCommands,
+    [pluginCommands, kw],
+  );
 
   // 总条目数（页面 → 插件命令 → 待办 → 笔记 顺序展示）
   const totalItems =
@@ -125,7 +155,7 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
           const cmd = filteredPluginCommands[selectedIndex - pluginOffset];
           if (cmd) {
             onClose();
-            cmd.callback();
+            void runPluginCommand(cmd);
           }
         } else if (selectedIndex < noteOffset) {
           const task = taskResults[selectedIndex - taskOffset];
@@ -150,6 +180,7 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
       navigate,
       onClose,
       onOpenShortcuts,
+      runPluginCommand,
     ],
   );
 
@@ -273,13 +304,14 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
             </div>
             {filteredPluginCommands.map((cmd, i) => {
               const idx = pluginOffset + i;
+              const subtitle = [cmd.group, cmd.pluginId].filter(Boolean).join(" · ");
               return (
                 <div
-                  key={cmd.id}
+                  key={`${cmd.pluginId}:${cmd.id}`}
                   data-index={idx}
                   onClick={() => {
                     onClose();
-                    cmd.callback();
+                    void runPluginCommand(cmd);
                   }}
                   className="flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer"
                   style={{
@@ -293,7 +325,29 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
                     size={14}
                     style={{ color: token.colorTextSecondary, flexShrink: 0 }}
                   />
-                  <span className="flex-1 text-sm">{cmd.name}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm truncate">{cmd.name}</div>
+                    {subtitle && (
+                      <div
+                        className="truncate text-xs"
+                        style={{ color: token.colorTextDescription }}
+                      >
+                        {subtitle}
+                      </div>
+                    )}
+                  </div>
+                  {cmd.hotkey && (
+                    <kbd
+                      className="px-1 py-0.5 rounded text-xs"
+                      style={{
+                        background: token.colorBgTextHover,
+                        color: token.colorTextSecondary,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {cmd.hotkey}
+                    </kbd>
+                  )}
                   <Plug
                     size={12}
                     style={{ color: token.colorTextQuaternary, flexShrink: 0 }}

@@ -60,7 +60,9 @@ fn row_to_plugin(conn: &Connection, row: &rusqlite::Row<'_>) -> Result<PluginInf
         granted_permissions,
         manifest,
         installed_at: row.get(12)?,
+
         updated_at: row.get(13)?,
+	    content_hash: row.get(14).unwrap_or_default(),
     })
 }
 
@@ -95,15 +97,17 @@ impl Database {
         &self,
         manifest: &PluginManifest,
         plugin_path: &str,
+        content_hash: &str,
     ) -> Result<PluginInfo, AppError> {
         let manifest_json = serde_json::to_string(manifest)?;
         let conn = self.conn_lock()?;
         conn.execute(
             "INSERT INTO plugins
                 (id, name, version, description, author, path, main, styles,
-                 min_app_version, manifest_json, enabled, status, installed_at, updated_at)
+                 min_app_version, manifest_json, enabled, status,
+                 content_hash, installed_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 'installed',
-                     datetime('now','localtime'), datetime('now','localtime'))
+                     ?11, datetime('now','localtime'), datetime('now','localtime'))
              ON CONFLICT(id) DO UPDATE SET
                  name = excluded.name,
                  version = excluded.version,
@@ -114,6 +118,7 @@ impl Database {
                  styles = excluded.styles,
                  min_app_version = excluded.min_app_version,
                  manifest_json = excluded.manifest_json,
+                 content_hash = excluded.content_hash,
                  status = 'installed',
                  updated_at = excluded.updated_at",
             params![
@@ -127,6 +132,7 @@ impl Database {
                 manifest.styles,
                 manifest.min_app_version,
                 manifest_json,
+                content_hash,
             ],
         )?;
 
@@ -336,6 +342,59 @@ impl Database {
             params![plugin_id, key, value_str],
         )?;
         Ok(())
+    }
+
+    /// T25: 写入插件审计日志
+    pub fn write_audit_log(
+        &self,
+        plugin_id: &str,
+        operation: &str,
+        target: Option<&str>,
+    ) -> Result<(), AppError> {
+        let conn = self.conn_lock()?;
+        conn.execute(
+            "INSERT INTO plugin_audit_log (plugin_id, operation, target, timestamp)
+             VALUES (?1, ?2, ?3, datetime('now','localtime'))",
+            params![plugin_id, operation, target],
+        )?;
+        Ok(())
+    }
+
+    /// T25: 查询某插件的审计日志（最近 N 条）
+    pub fn get_plugin_audit_log(
+        &self,
+        plugin_id: &str,
+        limit: u32,
+    ) -> Result<Vec<(i64, String, String, Option<String>, String)>, AppError> {
+        let conn = self.conn_lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, plugin_id, operation, target, timestamp
+             FROM plugin_audit_log
+             WHERE plugin_id = ?1
+             ORDER BY id DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![plugin_id, limit], |row| {
+                Ok((
+                    row.get(0)?, // id
+                    row.get(1)?, // plugin_id
+                    row.get(2)?, // operation
+                    row.get(3)?, // target
+                    row.get(4)?, // timestamp
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+    /// T26: 查询插件的 content_hash
+    pub fn get_plugin_content_hash(&self, plugin_id: &str) -> Result<Option<String>, AppError> {
+        let conn = self.conn_lock()?;
+        Ok(conn.query_row(
+            "SELECT content_hash FROM plugins WHERE id = ?1",
+            [plugin_id],
+            |row| row.get(0),
+        ).optional()?)
     }
 }
 

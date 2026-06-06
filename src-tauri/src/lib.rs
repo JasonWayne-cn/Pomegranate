@@ -872,6 +872,8 @@ pub fn run() {
             commands::plugin_proxy::plugin_proxy_settings_get,
             commands::plugin_proxy::plugin_proxy_settings_set,
             commands::plugin_proxy::plugin_proxy_settings_get_all,
+            // 插件审计日志（T25）
+            commands::plugin_proxy::plugin_audit_log_list,
             // 笔记模块
             commands::notes::create_note,
             commands::notes::update_note,

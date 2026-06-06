@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -17,6 +17,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
+  AlertTriangle,
   FolderPlus,
   Plug,
   RefreshCw,
@@ -26,7 +27,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { pluginApi } from "@/lib/api";
-import type { PluginInfo } from "@/types";
+import type { PluginInfo, PluginAuditLogEntry } from "@/types";
 import { pluginManager } from "@/services/pluginManager";
 
 const { Text, Paragraph } = Typography;
@@ -46,6 +47,158 @@ const PERMISSION_LABELS: Record<string, string> = {
   "clipboard:read": "读取剪贴板",
   "clipboard:write": "写入剪贴板",
 };
+
+/** T25: 插件审计日志内联面板 */
+function PluginAuditLog({ pluginId }: { pluginId: string }) {
+  const [logs, setLogs] = useState<PluginAuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await pluginApi.getAuditLog(pluginId, 20);
+      setLogs(data);
+    } catch {
+      setLogs([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [pluginId]);
+
+  useEffect(() => {
+    if (expanded && logs.length === 0) void load();
+  }, [expanded]);
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <Button
+        size="small"
+        type="link"
+        onClick={() => setExpanded(!expanded)}
+        loading={loading}
+      >
+        {expanded ? "收起" : "展开"}
+      </Button>
+      {expanded && (
+        <div
+          style={{
+            maxHeight: 200,
+            overflowY: "auto",
+            marginTop: 4,
+            fontSize: 11,
+            color: "var(--ant-color-text-secondary)",
+          }}
+        >
+          {logs.length === 0 && !loading && (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              无审计记录
+            </Text>
+          )}
+          {logs.map((e) => (
+            <div
+              key={e.id}
+              style={{
+                padding: "2px 0",
+                borderBottom: "1px solid var(--ant-color-border-secondary)",
+              }}
+            >
+              <span style={{ opacity: 0.6 }}>{e.timestamp.slice(0, 19)}</span>
+              {" · "}
+              <span style={{ fontWeight: 500 }}>{e.operation}</span>
+              {e.target && (
+                <>
+                  {" → "}
+                  <code style={{ fontSize: 10 }}>{e.target}</code>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 插件错误日志面板：从 PluginManager 拉取，按插件分组、可折叠 */
+function PluginErrorLog() {
+  const [logs, setLogs] = useState<ReturnType<typeof pluginManager.getErrorLog>>([]);
+  const refresh = () => setLogs(pluginManager.getErrorLog());
+  useEffect(() => {
+    refresh();
+    const t = setInterval(refresh, 3000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (logs.length === 0) return null;
+
+  type LogEntry = { pluginId: string; time: string; kind: string; message: string };
+  const byPlugin = new Map<string, LogEntry[]>();
+  for (const e of logs) {
+    const bucket = byPlugin.get(e.pluginId);
+    if (bucket) {
+      bucket.push({ ...e });
+    } else {
+      byPlugin.set(e.pluginId, [{ ...e }]);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          marginBottom: 8,
+          color: "var(--ant-color-text-secondary)",
+          fontSize: 13,
+          fontWeight: 500,
+        }}
+      >
+        <AlertTriangle size={14} style={{ color: "var(--ant-color-warning)" }} />
+        错误日志（{logs.length} 条）
+        <Button size="small" type="text" onClick={refresh} style={{ marginLeft: "auto" }}>
+          <RefreshCw size={12} />
+        </Button>
+      </div>
+      {Array.from(byPlugin.entries()).map(([pluginId, entries]) => (
+        <div
+          key={pluginId}
+          style={{
+            marginBottom: 8,
+            padding: "8px 12px",
+            background: "var(--ant-color-bg-container)",
+            borderRadius: 6,
+            border: "1px solid var(--ant-color-border-secondary)",
+          }}
+        >
+          <Text strong style={{ fontSize: 12 }}>
+            {pluginManager.getPluginName(pluginId) ?? pluginId}
+          </Text>
+          {entries.slice(-10).map((e, i) => (
+            <div
+              key={i}
+              style={{
+                fontSize: 11,
+                color: "var(--ant-color-text-tertiary)",
+                marginTop: 4,
+                paddingLeft: 8,
+                borderLeft: "2px solid var(--ant-color-warning)",
+              }}
+            >
+              <span style={{ opacity: 0.6 }}>
+                {e.time.slice(11, 19)} {e.kind}
+              </span>
+              <br />
+              {e.message.slice(0, 200)}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function permissionLabel(permission: string) {
   return PERMISSION_LABELS[permission] ?? permission;
@@ -360,6 +513,9 @@ export default function PluginsPage() {
           }}
           pagination={false}
         />
+
+        {/* 错误日志（最近 100 条，按插件分组） */}
+        <PluginErrorLog />
       </Card>
 
       <Modal
@@ -447,6 +603,12 @@ export default function PluginsPage() {
                   {selected.manifest.contributes.settings && <Tag>设置面板</Tag>}
                 </Space>
               </div>
+            </div>
+
+            {/* 审计日志（T25） */}
+            <div>
+              <Text strong>审计日志（最近 20 条）</Text>
+              <PluginAuditLog pluginId={selected.id} />
             </div>
           </Space>
         )}

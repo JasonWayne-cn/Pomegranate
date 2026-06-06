@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 35;
+pub const SCHEMA_VERSION: i32 = 38;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -65,6 +65,9 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             32 => migrate_v32_to_v33(conn)?,
             33 => migrate_v33_to_v34(conn)?,
             34 => migrate_v34_to_v35(conn)?,
+            35 => migrate_v35_to_v36(conn)?,
+            36 => migrate_v36_to_v37(conn)?,
+            37 => migrate_v37_to_v38(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -1476,5 +1479,42 @@ fn migrate_v34_to_v35(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 35)?;
+    Ok(())
+}
+
+/// v35 → v36: 插件设置键名前缀隔离 — 给已有 key 加 plugin:<id>: 前缀
+fn migrate_v35_to_v36(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        "UPDATE plugin_settings
+           SET key = 'plugin:' || plugin_id || ':' || key
+         WHERE key NOT LIKE 'plugin:%';",
+    )?;
+    set_version(conn, 36)?;
+    Ok(())
+}
+
+/// v36 → v37: 插件审计日志表
+fn migrate_v36_to_v37(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS plugin_audit_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            plugin_id   TEXT NOT NULL,
+            operation   TEXT NOT NULL,
+            target      TEXT,
+            timestamp   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_plugin_audit_plugin_id ON plugin_audit_log(plugin_id);
+        CREATE INDEX IF NOT EXISTS idx_plugin_audit_ts ON plugin_audit_log(timestamp);",
+    )?;
+    set_version(conn, 37)?;
+    Ok(())
+}
+
+/// v37 → v38: 插件完整性校验 — plugins 表加 content_hash 列
+fn migrate_v37_to_v38(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        "ALTER TABLE plugins ADD COLUMN content_hash TEXT NOT NULL DEFAULT '';",
+    )?;
+    set_version(conn, 38)?;
     Ok(())
 }

@@ -54,12 +54,21 @@ export interface PluginInfo {
   updatedAt: string;
 }
 
+/** 插件审计日志（T25） */
+export interface PluginAuditLogEntry {
+  id: number;
+  pluginId: string;
+  operation: string;
+  target: string | null;
+  timestamp: string;
+}
+
 // ═══════════════════════════════════════════════════════
 // 插件运行时 — AppAPI v1.0.0（T11: TypeScript 类型草案）
 // ═══════════════════════════════════════════════════════
 
 /** AppAPI 版本号（与 Rust 侧固定字符串保持一致） */
-export const PLUGIN_API_VERSION = "1.0.0" as const;
+export const PLUGIN_API_VERSION = "1.1.0" as const;
 
 /** 插件暴露的模块约定：module.exports = { onLoad, onUnload } */
 export interface PluginModule {
@@ -117,6 +126,63 @@ export interface PluginPanelViewDef {
   pluginId?: string;
 }
 
+/**
+ * 插件功能区（Ribbon）按钮 — 1.1.0 新增
+ *
+ * 渲染在主窗 Header 右侧，常用于"全局快捷动作"（例如"快速捕获"、"导出当前笔记"）。
+ * 与 sidebar 的区别：Ribbon 是动作触发器（点完就走），不持有视图路由。
+ */
+export interface PluginRibbonItemDef {
+  id: string;
+  /** Lucide 图标名（不区分大小写、忽略 -_ 空格） */
+  icon: string;
+  tooltip: string;
+  onClick: () => void | Promise<void>;
+  /** PluginManager 填充，插件不应设置 */
+  pluginId?: string;
+}
+
+/**
+ * 编辑器右键菜单项 — 1.1.0 新增
+ *
+ * 触发：用户在 Tiptap 编辑器内右键时检查注册表，按 `when` 过滤后追加到菜单末尾。
+ *
+ * `when` 决定显示条件：
+ * - `"always"`        - 任何位置右键都显示（默认）
+ * - `"has-selection"` - 仅当有非空选区时显示
+ * - `"cursor"`        - 仅当光标无选区时显示
+ *
+ * 触发 callback 时会传入 EditorActionCtx，提供对当前编辑器的受控操作（不暴露 Tiptap editor 实例）。
+ */
+export interface PluginEditorContextMenuItemDef {
+  id: string;
+  label: string;
+  /** Lucide 图标名（可选） */
+  icon?: string;
+  when?: "always" | "has-selection" | "cursor";
+  callback: (ctx: EditorActionCtx) => void | Promise<void>;
+  /** PluginManager 填充，插件不应设置 */
+  pluginId?: string;
+}
+
+/**
+ * 编辑器动作上下文 — 1.1.0 新增
+ *
+ * 传给插件 callback 的受控接口。不暴露 Tiptap editor 实例，避免插件直接调内部命令。
+ */
+export interface EditorActionCtx {
+  /** 当前笔记 ID；新建笔记 / 未保存时为 null */
+  noteId: number | null;
+  /** 当前选中的纯文本（无选区时为空字符串） */
+  selection: string;
+  /** 用选中文本替换；无选区时插入到光标位置 */
+  replaceSelection(text: string): void;
+  /** 在光标位置插入文本（保留选区，不删除） */
+  insertText(text: string): void;
+  /** 取整篇内容为 markdown 文本（只读） */
+  getContent(): string;
+}
+
 // ─── 子 API 接口 ─────────────────────────────────
 
 /** 命令注册子 API */
@@ -136,6 +202,42 @@ export interface PluginSidebarAPI {
 export interface PluginPanelViewsAPI {
   register(def: PluginPanelViewDef): void;
   unregister(id: string): void;
+}
+
+/** Ribbon 功能区注册子 API — 1.1.0 新增 */
+export interface PluginRibbonAPI {
+  addItem(def: PluginRibbonItemDef): void;
+  removeItem(id: string): void;
+}
+
+/**
+ * 编辑器工具栏按钮 — 1.1.0 新增
+ *
+ * 渲染在编辑器顶部工具栏末尾，与内置按钮以细分隔线隔开。
+ * callback 收到 EditorActionCtx，与右键菜单项共用同一受控接口。
+ */
+export interface PluginEditorToolbarButtonDef {
+  id: string;
+  /** Lucide 图标名 */
+  icon: string;
+  tooltip: string;
+  callback: (ctx: EditorActionCtx) => void | Promise<void>;
+  /** PluginManager 填充，插件不应设置 */
+  pluginId?: string;
+}
+
+/** 编辑器扩展点子 API — 1.1.0 新增 */
+export interface PluginEditorAPI {
+  addContextMenuItem(def: PluginEditorContextMenuItemDef): void;
+  removeContextMenuItem(id: string): void;
+  addToolbarButton(def: PluginEditorToolbarButtonDef): void;
+  removeToolbarButton(id: string): void;
+  /**
+   * 同步查询当前激活编辑器的选区文本。
+   * 返回 null = 当前没有激活的编辑器（用户不在笔记页 / 编辑器未就绪）。
+   * 返回空字符串 = 编辑器存在但无选区。
+   */
+  getCurrentSelection(): string | null;
 }
 
 /** 插件事件类型清单 */
@@ -167,10 +269,63 @@ export interface PluginNoticesAPI {
 }
 
 /** 设置子 API */
+export interface PluginSettingsTabDef {
+  id: string;
+  title: string;
+  /** 返回 cleanup 函数（可选） */
+  render: (container: HTMLElement) => void | (() => void);
+  /** PluginManager 填充，插件不应设置 */
+  pluginId?: string;
+}
+
+/** 设置表单字段 schema（createForm 用） — 1.1.0 新增 */
+export type SettingsFormField =
+  | {
+      kind: "text";
+      key: string;
+      label: string;
+      default?: string;
+      placeholder?: string;
+    }
+  | {
+      kind: "number";
+      key: string;
+      label: string;
+      default?: number;
+      min?: number;
+      max?: number;
+    }
+  | {
+      kind: "boolean";
+      key: string;
+      label: string;
+      default?: boolean;
+    }
+  | {
+      kind: "select";
+      key: string;
+      label: string;
+      options: Array<{ value: string; label: string }>;
+      default?: string;
+    };
+
+export interface PluginSettingsFormSchema {
+  fields: SettingsFormField[];
+}
+
 export interface PluginSettingsAPI {
   get<T = unknown>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
   getAll(): Promise<Record<string, unknown>>;
+  /** 在应用设置页注册一个独立 Tab — 1.1.0 新增 */
+  registerTab(def: PluginSettingsTabDef): void;
+  unregisterTab(id: string): void;
+  /**
+   * 基于 schema 自动生成 antd Form，自动 get/set 到插件自身设置。
+   * 返回 cleanup 函数（调用即卸载 React 树 + 清理 DOM）。
+   * — 1.1.0 新增
+   */
+  createForm(container: HTMLElement, schema: PluginSettingsFormSchema): () => void;
 }
 
 /** 笔记子 API */
@@ -194,6 +349,10 @@ export interface PluginAppAPI {
   sidebar: PluginSidebarAPI;
   panelViews: PluginPanelViewsAPI;
   events: PluginEventBus;
+  /** Ribbon 功能区 — 1.1.0 新增 */
+  ribbon: PluginRibbonAPI;
+  /** 编辑器扩展点 — 1.1.0 新增 */
+  editor: PluginEditorAPI;
 }
 
 // ═══════════════════════════════════════════════════════

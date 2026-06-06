@@ -12,7 +12,7 @@ use serde_json::Value;
 use tauri::State;
 
 use crate::error::AppError;
-use crate::models::{Note, NoteInput, NoteQuery, SearchResult};
+use crate::models::{Note, NoteInput, NoteQuery, PluginAuditLogEntry, SearchResult};
 use crate::services::note::NoteService;
 use crate::services::search::SearchService;
 use crate::state::AppState;
@@ -48,6 +48,13 @@ fn verify(
             });
         }
     }
+
+    // 3. T25 审计日志（失败不阻业务）
+    let _ = state.db.write_audit_log(
+        &plugin_id,
+        required_permission.unwrap_or("settings"),
+        None,
+    );
 
     Ok(plugin_id)
 }
@@ -120,6 +127,14 @@ pub fn plugin_proxy_notes_delete(
 }
 
 // ─── settings 域 3 个 Command ──────────────────────────────
+//
+// T23: 键名纵深防御 — 所有 key 自动加 plugin:<id>: 前缀。
+// DB 层已有 plugin_id 列做隔离（主防线），前缀是第二道保险：
+// 即使 token 校验被绕过，跨插件 key 碰撞也不会泄漏数据。
+
+fn scoped_key(plugin_id: &str, key: &str) -> String {
+    format!("plugin:{}:{}", plugin_id, key)
+}
 
 #[tauri::command]
 pub fn plugin_proxy_settings_get(
@@ -128,9 +143,10 @@ pub fn plugin_proxy_settings_get(
     key: String,
 ) -> Result<Option<Value>, String> {
     let plugin_id = verify(&state, &token, None).map_err(|e| e.to_string())?;
+    let scoped = scoped_key(&plugin_id, &key);
     state
         .db
-        .get_plugin_setting(&plugin_id, &key)
+        .get_plugin_setting(&plugin_id, &scoped)
         .map_err(|e| e.to_string())
 }
 
@@ -142,9 +158,10 @@ pub fn plugin_proxy_settings_set(
     value: Value,
 ) -> Result<(), String> {
     let plugin_id = verify(&state, &token, None).map_err(|e| e.to_string())?;
+    let scoped = scoped_key(&plugin_id, &key);
     state
         .db
-        .set_plugin_setting(&plugin_id, &key, &value)
+        .set_plugin_setting(&plugin_id, &scoped, &value)
         .map_err(|e| e.to_string())
 }
 
@@ -154,8 +171,40 @@ pub fn plugin_proxy_settings_get_all(
     token: String,
 ) -> Result<HashMap<String, Value>, String> {
     let plugin_id = verify(&state, &token, None).map_err(|e| e.to_string())?;
-    state
+    let all = state
         .db
         .get_plugin_settings(&plugin_id)
+        .map_err(|e| e.to_string())?;
+    // 去掉前缀，插件视角 key 无感知
+    let prefix = format!("plugin:{}:", plugin_id);
+    Ok(all
+        .into_iter()
+        .filter_map(|(k, v)| k.strip_prefix(&prefix).map(|s| (s.to_string(), v)))
+        .collect())
+}
+
+// ─── audit 域（T25：管理 UI 调用，不走 token 校验）────────
+
+#[tauri::command]
+pub fn plugin_audit_log_list(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    limit: Option<u32>,
+) -> Result<Vec<PluginAuditLogEntry>, String> {
+    let limit = limit.unwrap_or(50).min(200);
+    state
+        .db
+        .get_plugin_audit_log(&plugin_id, limit)
+        .map(|rows| {
+            rows.into_iter()
+                .map(|(id, pid, op, target, ts)| PluginAuditLogEntry {
+                    id,
+                    plugin_id: pid,
+                    operation: op,
+                    target,
+                    timestamp: ts,
+                })
+                .collect()
+        })
         .map_err(|e| e.to_string())
 }

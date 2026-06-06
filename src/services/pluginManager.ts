@@ -28,6 +28,10 @@ import type {
   PluginCommandDef,
   PluginSidebarItemDef,
   PluginPanelViewDef,
+  PluginRibbonItemDef,
+  PluginEditorContextMenuItemDef,
+  PluginEditorToolbarButtonDef,
+  PluginSettingsTabDef,
 } from "@/types";
 
 // ───────── 类型 ─────────
@@ -94,7 +98,9 @@ function removeStyle(pluginId: string) {
 // ───────── PluginManager ─────────
 
 /** 注册表变化事件类型 */
-type RegistryEvent = "commands" | "sidebar" | "views";
+type RegistryEvent =
+  | "commands" | "sidebar" | "views" | "ribbon"
+  | "editor-menus" | "editor-toolbar" | "settings-tabs";
 
 export class PluginManager {
   // ─── 注册表（key = "<pluginId>:<id>"）───
@@ -102,6 +108,16 @@ export class PluginManager {
     commands: new Map<string, PluginCommandDef & { pluginId: string }>(),
     sidebar: new Map<string, PluginSidebarItemDef & { pluginId: string }>(),
     panelViews: new Map<string, PluginPanelViewDef>(),
+    ribbon: new Map<string, PluginRibbonItemDef & { pluginId: string }>(),
+    editorMenus: new Map<
+      string,
+      PluginEditorContextMenuItemDef & { pluginId: string }
+    >(),
+    editorToolbar: new Map<
+      string,
+      PluginEditorToolbarButtonDef & { pluginId: string }
+    >(),
+    settingsTabs: new Map<string, PluginSettingsTabDef & { pluginId: string }>(),
   };
 
   // ─── 注册表订阅者（简单回调列表，不用 EventTarget）───
@@ -111,6 +127,10 @@ export class PluginManager {
     commands: new Set(),
     sidebar: new Set(),
     views: new Set(),
+    ribbon: new Set(),
+    "editor-menus": new Set(),
+    "editor-toolbar": new Set(),
+    "settings-tabs": new Set(),
   };
 
   /** 订阅注册表变化；返回取消订阅函数 */
@@ -129,6 +149,37 @@ export class PluginManager {
         console.error(`[PluginManager] subscriber for ${event} threw:`, e);
       }
     }
+  }
+
+  // ─── 错误日志（环形缓冲，最多 100 条）──────────
+  private errorLog: Array<{
+    pluginId: string;
+    time: string;
+    kind: string;
+    message: string;
+  }> = [];
+
+  /** 写入一条插件运行时错误日志（供内部 try-catch 调用） */
+  _logError(pluginId: string, kind: string, message: string) {
+    this.errorLog.push({
+      pluginId,
+      time: new Date().toISOString(),
+      kind,
+      message,
+    });
+    if (this.errorLog.length > 100) {
+      this.errorLog = this.errorLog.slice(-100);
+    }
+  }
+
+  /** 获取错误日志副本（最近 100 条，按时间升序） */
+  getErrorLog(): ReadonlyArray<{
+    pluginId: string;
+    time: string;
+    kind: string;
+    message: string;
+  }> {
+    return [...this.errorLog];
   }
 
   // ─── 事件监听器订阅 ───
@@ -346,16 +397,31 @@ export class PluginManager {
     return this.active.has(pluginId);
   }
 
-  getRegisteredCommands(): PluginCommandDef[] {
+  getRegisteredCommands(): Array<PluginCommandDef & { pluginId: string }> {
     return Array.from(this.registry.commands.values());
   }
 
-  getRegisteredSidebarItems(): PluginSidebarItemDef[] {
+  getRegisteredSidebarItems(): Array<PluginSidebarItemDef & { pluginId: string }> {
     return Array.from(this.registry.sidebar.values());
   }
 
   getRegisteredPanelViews(): PluginPanelViewDef[] {
     return Array.from(this.registry.panelViews.values());
+  }
+
+  getRegisteredRibbonItems(): Array<PluginRibbonItemDef & { pluginId: string }> {
+    return Array.from(this.registry.ribbon.values());
+  }
+
+  getRegisteredEditorMenuItems(): Array<
+    PluginEditorContextMenuItemDef & { pluginId: string }
+  > {
+    return Array.from(this.registry.editorMenus.values());
+  }
+
+  /** 按 pluginId 查激活态插件的展示名（用于 tooltip 等场景） */
+  getPluginName(pluginId: string): string | null {
+    return this.active.get(pluginId)?.info.name ?? null;
   }
 
   getPanelView(viewId: string): PluginPanelViewDef | null {
@@ -412,6 +478,65 @@ export class PluginManager {
     this.emit("views");
   }
 
+  _addRibbonItem(pluginId: string, def: PluginRibbonItemDef) {
+    const key = `${pluginId}:${def.id}`;
+    this.registry.ribbon.set(key, { ...def, pluginId });
+    this.emit("ribbon");
+  }
+
+  _removeRibbonItem(pluginId: string, id: string) {
+    this.registry.ribbon.delete(`${pluginId}:${id}`);
+    this.emit("ribbon");
+  }
+
+  _addEditorMenuItem(pluginId: string, def: PluginEditorContextMenuItemDef) {
+    const key = `${pluginId}:${def.id}`;
+    this.registry.editorMenus.set(key, { ...def, pluginId });
+    this.emit("editor-menus");
+  }
+
+  _removeEditorMenuItem(pluginId: string, id: string) {
+    this.registry.editorMenus.delete(`${pluginId}:${id}`);
+    this.emit("editor-menus");
+  }
+
+  _addEditorToolbarButton(
+    pluginId: string,
+    def: PluginEditorToolbarButtonDef,
+  ) {
+    const key = `${pluginId}:${def.id}`;
+    this.registry.editorToolbar.set(key, { ...def, pluginId });
+    this.emit("editor-toolbar");
+  }
+
+  _removeEditorToolbarButton(pluginId: string, id: string) {
+    this.registry.editorToolbar.delete(`${pluginId}:${id}`);
+    this.emit("editor-toolbar");
+  }
+
+  getRegisteredEditorToolbarButtons(): Array<
+    PluginEditorToolbarButtonDef & { pluginId: string }
+  > {
+    return Array.from(this.registry.editorToolbar.values());
+  }
+
+  _registerSettingsTab(pluginId: string, def: PluginSettingsTabDef) {
+    const key = `${pluginId}:${def.id}`;
+    this.registry.settingsTabs.set(key, { ...def, pluginId });
+    this.emit("settings-tabs");
+  }
+
+  _unregisterSettingsTab(pluginId: string, id: string) {
+    this.registry.settingsTabs.delete(`${pluginId}:${id}`);
+    this.emit("settings-tabs");
+  }
+
+  getRegisteredSettingsTabs(): Array<
+    PluginSettingsTabDef & { pluginId: string }
+  > {
+    return Array.from(this.registry.settingsTabs.values());
+  }
+
   _addEventListener<K extends string>(
     pluginId: string,
     event: K,
@@ -446,12 +571,30 @@ export class PluginManager {
     for (const key of [...this.registry.panelViews.keys()]) {
       if (key.startsWith(prefix)) this.registry.panelViews.delete(key);
     }
+    for (const key of [...this.registry.ribbon.keys()]) {
+      if (key.startsWith(prefix)) this.registry.ribbon.delete(key);
+    }
+    for (const key of [...this.registry.editorMenus.keys()]) {
+      if (key.startsWith(prefix)) this.registry.editorMenus.delete(key);
+    }
+    for (const key of [...this.registry.editorToolbar.keys()]) {
+      if (key.startsWith(prefix)) this.registry.editorToolbar.delete(key);
+    }
+    for (const key of [...this.registry.settingsTabs.keys()]) {
+      if (key.startsWith(prefix)) this.registry.settingsTabs.delete(key);
+    }
     // 清理事件订阅
     this.eventSubscriptions.delete(pluginId);
+    // 清理错误日志
+    this.errorLog = this.errorLog.filter((e) => e.pluginId !== pluginId);
 
     this.emit("commands");
     this.emit("sidebar");
     this.emit("views");
+    this.emit("ribbon");
+    this.emit("editor-menus");
+    this.emit("editor-toolbar");
+    this.emit("settings-tabs");
   }
 }
 

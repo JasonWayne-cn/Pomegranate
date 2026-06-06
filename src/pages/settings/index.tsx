@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   Card,
   Typography,
@@ -51,7 +51,8 @@ import { HiddenPinSection } from "@/components/hidden/HiddenPinSection";
 import { ShortcutsSection } from "@/components/settings/ShortcutsSection";
 import { MCPServerSection } from "@/components/settings/MCPServerSection";
 import { TiptapEditor } from "@/components/editor";
-import type { Folder } from "@/types";
+import { pluginManager } from "@/services/pluginManager";
+import type { Folder, PluginSettingsTabDef } from "@/types";
 
 const { Title, Text } = Typography;
 
@@ -237,10 +238,22 @@ const SETTINGS_NAV_ITEMS: { id: string; label: string }[] = [
   { id: "settings-community", label: "作者 & 社区" },
 ];
 
-function SettingsAnchorNav() {
-  const [activeId, setActiveId] = useState<string>(SETTINGS_NAV_ITEMS[0].id);
+function SettingsAnchorNav(
+  props: { pluginTabs?: Array<PluginSettingsTabDef & { pluginId: string }> },
+) {
+  const { pluginTabs } = props;
+  const allItems = useMemo(() => {
+    if (!pluginTabs?.length) return SETTINGS_NAV_ITEMS;
+    return [
+      ...SETTINGS_NAV_ITEMS,
+      ...pluginTabs.map((t) => ({
+        id: `settings-plugin-${t.pluginId}:${t.id}`,
+        label: `🔌 ${t.title}`,
+      })),
+    ];
+  }, [pluginTabs]);
 
-  // 滚动监听：哪个 section 进入视口"顶部 1/3"区域 → 高亮对应导航项
+  const [activeId, setActiveId] = useState<string>(allItems[0].id);
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -268,7 +281,7 @@ function SettingsAnchorNav() {
   return (
     <aside className="anchor-page-nav">
       <ul>
-        {SETTINGS_NAV_ITEMS.map((item) => (
+        {allItems.map((item) => (
           <li
             key={item.id}
             data-active={activeId === item.id || undefined}
@@ -280,6 +293,26 @@ function SettingsAnchorNav() {
       </ul>
     </aside>
   );
+}
+
+/** 插件设置 Tab 的 DOM 挂载器（参考 PluginPanelViewPage 模式） */
+function PluginSettingsTabRenderer({
+  tab,
+}: {
+  tab: PluginSettingsTabDef & { pluginId: string };
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const container = containerRef.current;
+    container.innerHTML = "";
+    const cleanup = tab.render(container);
+    return () => {
+      if (typeof cleanup === "function") cleanup();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.pluginId, tab.id]);
+  return <div ref={containerRef} />;
 }
 
 function DesktopSettingsPage() {
@@ -298,6 +331,18 @@ function DesktopSettingsPage() {
   const watchedProvider = Form.useWatch("provider", form) || "ollama";
   /** 行内"测试"按钮 loading 锁：值为正在测试的 model.id；Modal 内的测试按钮锁用 -1 */
   const [testingModelId, setTestingModelId] = useState<number | null>(null);
+
+  // 插件设置 Tab 注册表订阅
+  type SettingsTabEntry = PluginSettingsTabDef & { pluginId: string };
+  const [pluginSettingsTabs, setPluginSettingsTabs] = useState<
+    SettingsTabEntry[]
+  >([]);
+  useEffect(() => {
+    const refresh = () =>
+      setPluginSettingsTabs(pluginManager.getRegisteredSettingsTabs());
+    refresh();
+    return pluginManager.subscribe("settings-tabs", refresh);
+  }, []);
 
   // 导入状态
   const [importing, setImporting] = useState(false);
@@ -1099,7 +1144,7 @@ function DesktopSettingsPage() {
 
   return (
     <div className="anchor-page-layout">
-      <SettingsAnchorNav />
+      <SettingsAnchorNav pluginTabs={pluginSettingsTabs} />
       <div className="anchor-page-content" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div>
           <Title level={3}>设置</Title>
@@ -2038,6 +2083,37 @@ function DesktopSettingsPage() {
         onClose={() => setUpdateModalOpen(false)}
         update={update}
       />
+
+      {/* 插件设置 Tab（注册表来源，按 pluginId 分块，每块一个独立 section） */}
+      {pluginSettingsTabs.map((tab) => {
+        const sectionId = `settings-plugin-${tab.pluginId}:${tab.id}`;
+        const pluginName =
+          pluginManager.getPluginName(tab.pluginId) ?? tab.pluginId;
+        return (
+          <Card
+            key={sectionId}
+            id={sectionId}
+            size="small"
+            title={
+              <span className="flex items-center gap-2">
+                <span style={{ fontSize: 12, opacity: 0.6 }}>🔌</span>
+                {tab.title}
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "var(--ant-color-text-quaternary)",
+                    fontWeight: "normal",
+                  }}
+                >
+                  ({pluginName})
+                </span>
+              </span>
+            }
+          >
+            <PluginSettingsTabRenderer tab={tab} />
+          </Card>
+        );
+      })}
       </div>
     </div>
   );

@@ -3,6 +3,17 @@
 //! 当前 MVP 只实现插件元数据管理：扫描 / 安装 / 启用 / 禁用 / 卸载 / 权限授权 / 设置读写。
 //! 第三方 JS 插件运行时暂不执行，避免在没有沙箱前扩大安全边界。
 
+use sha2::{Digest, Sha256};
+
+/// T26: 计算 main.js 文件的 SHA-256 哈希（hex 编码）
+fn compute_main_hash(plugin_dir: &std::path::Path, main: &str) -> Result<String, crate::error::AppError> {
+    let main_path = plugin_dir.join(main);
+    let bytes = std::fs::read(&main_path)
+        .map_err(|e| crate::error::AppError::Io(e))?;
+    let hash = Sha256::digest(&bytes);
+    Ok(format!("{:x}", hash))
+}
+
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -49,7 +60,8 @@ impl PluginService {
             match Self::read_valid_manifest(&dir).and_then(|manifest| {
                 ensure_declared_main_exists(&dir, &manifest)?;
                 let path = dir.to_string_lossy().to_string();
-                db.upsert_plugin(&manifest, &path)
+                let hash = compute_main_hash(&dir, &manifest.main)?;
+                db.upsert_plugin(&manifest, &path, &hash)
             }) {
                 Ok(_) => {}
                 Err(e) => {
@@ -86,7 +98,8 @@ impl PluginService {
         let installed_manifest = Self::read_valid_manifest(&dest)?;
         ensure_declared_main_exists(&dest, &installed_manifest)?;
         let installed_path = dest.to_string_lossy().to_string();
-        db.upsert_plugin(&installed_manifest, &installed_path)
+        let hash = compute_main_hash(&dest, &installed_manifest.main)?;
+        db.upsert_plugin(&installed_manifest, &installed_path, &hash)
     }
 
     /// 启用插件。当前阶段只记录状态，不执行第三方代码。

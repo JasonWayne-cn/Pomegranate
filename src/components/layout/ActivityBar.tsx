@@ -18,12 +18,12 @@ import {
   Trash2,
   Info,
   EyeOff,
-  Puzzle,
 } from "lucide-react";
 import { useAppStore } from "@/store";
 import type { ActiveView } from "@/store";
 import { pluginManager } from "@/services/pluginManager";
 import type { PluginSidebarItemDef } from "@/types";
+import { resolvePluginIconComponent } from "@/components/plugin/pluginIcons";
 
 /**
  * ActivityBar —— 方案 C 侧边栏的左侧 48px 窄图标栏。
@@ -197,9 +197,8 @@ export function ActivityBar() {
   }
 
   // ─── 插件侧边栏项 ──────────────────────────────────
-  const [pluginSidebarItems, setPluginSidebarItems] = useState<
-    PluginSidebarItemDef[]
-  >([]);
+  type SidebarEntry = PluginSidebarItemDef & { pluginId: string };
+  const [pluginSidebarItems, setPluginSidebarItems] = useState<SidebarEntry[]>([]);
 
   useEffect(() => {
     const refresh = () => {
@@ -210,36 +209,44 @@ export function ActivityBar() {
     return unsubscribe;
   }, []);
 
-  /** 根据 icon 名字符串找对应 Lucide 图标组件 */
+  /** 按 group 把插件项分桶；undefined 的归到 "other"，渲染顺序固定 */
+  const GROUP_ORDER: Array<NonNullable<PluginSidebarItemDef["group"]> | "other"> = [
+    "workflow",
+    "search",
+    "ai",
+    "other",
+    "bottom",
+  ];
+
+  const groupedPluginItems = useMemo(() => {
+    const buckets: Record<string, SidebarEntry[]> = {};
+    for (const item of pluginSidebarItems) {
+      const key = item.group ?? "other";
+      (buckets[key] ??= []).push(item);
+    }
+    // 按 GROUP_ORDER 输出非空桶；bottom 单独返回，由调用方决定渲染位置
+    const main = GROUP_ORDER.filter((g) => g !== "bottom" && buckets[g]?.length).map(
+      (g) => buckets[g],
+    );
+    const bottom = buckets.bottom ?? [];
+    return { main, bottom };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pluginSidebarItems]);
+
   function resolvePluginIcon(iconName: string): React.ReactNode {
-    const size = 18;
-    const map: Record<string, React.ReactNode> = {
-      plug: <Plug size={size} />,
-      puzzle: <Puzzle size={size} />,
-      sparkles: <Sparkles size={size} />,
-      bot: <Bot size={size} />,
-      calendar: <Calendar size={size} />,
-      layers: <Layers size={size} />,
-      tags: <Tags size={size} />,
-      search: <Search size={size} />,
-      home: <Home size={size} />,
-      notebooktext: <NotebookText size={size} />,
-      checksquare: <CheckSquare size={size} />,
-      gitbranch: <GitBranch size={size} />,
-      trash2: <Trash2 size={size} />,
-      info: <Info size={size} />,
-      eyeoff: <EyeOff size={size} />,
-    };
-    return map[iconName.toLowerCase()] ?? <Puzzle size={size} />;
+    const Comp = resolvePluginIconComponent(iconName);
+    return <Comp size={18} />;
   }
 
-  function handlePluginItemClick(item: PluginSidebarItemDef) {
+  function handlePluginItemClick(item: SidebarEntry) {
     // 优先 onClick；否则按 viewId 导航到面板视图页
     if (typeof item.onClick === "function") {
       try {
         item.onClick();
       } catch (e) {
-        console.error(`[ActivityBar] 插件 sidebar item ${item.id} onClick 失败:`, e);
+        console.error(`[ActivityBar] 插件 ${item.pluginId} sidebar item ${item.id} onClick 失败:`, e);
+        pluginManager._logError(item.pluginId, "sidebar:onClick", String(e));
+        message.error(`插件「${item.pluginId}」按钮执行失败：${e}`);
       }
       return;
     }
@@ -251,17 +258,31 @@ export function ActivityBar() {
       return;
     }
     console.warn(
-      `[ActivityBar] 插件 sidebar item ${item.id} 既无 onClick 也无 viewId，点击无效`,
+      `[ActivityBar] 插件 ${item.pluginId} sidebar item ${item.id} 既无 onClick 也无 viewId，点击无效`,
     );
   }
 
-  function renderPluginSidebarItem(item: PluginSidebarItemDef) {
+  function renderPluginSidebarItem(item: SidebarEntry) {
+    const pluginName = pluginManager.getPluginName(item.pluginId) ?? item.pluginId;
+    // tooltip 双行：插件名 · 按钮名，便于多插件并存时分辨来源
+    const tooltipTitle = (
+      <span>
+        <span style={{ opacity: 0.7, fontSize: 11 }}>{pluginName}</span>
+        <br />
+        {item.label}
+      </span>
+    );
     return (
-      <Tooltip key={item.id} title={item.label} placement="right" mouseEnterDelay={0.15}>
+      <Tooltip
+        key={`${item.pluginId}:${item.id}`}
+        title={tooltipTitle}
+        placement="right"
+        mouseEnterDelay={0.15}
+      >
         <button
           type="button"
           onClick={() => handlePluginItemClick(item)}
-          aria-label={item.label}
+          aria-label={`${pluginName}: ${item.label}`}
           className="activity-item"
           style={{
             width: 56,
@@ -297,6 +318,22 @@ export function ActivityBar() {
           </span>
         </button>
       </Tooltip>
+    );
+  }
+
+  /** 渲染插件分组之间的横向分隔线（视觉上区分内置导航 / 插件 / 不同插件分组） */
+  function renderPluginDivider(key: string) {
+    return (
+      <div
+        key={key}
+        aria-hidden
+        style={{
+          width: 28,
+          height: 1,
+          margin: "4px 0",
+          background: token.colorBorderSecondary,
+        }}
+      />
     );
   }
 
@@ -397,9 +434,27 @@ export function ActivityBar() {
       }}
     >
       {MAIN_GROUPS.flat().filter(isVisible).map(renderItem)}
-      {/* 插件注入的侧边栏项（按 group 分组） */}
-      {pluginSidebarItems.map(renderPluginSidebarItem)}
+
+      {/* 插件主区：按 group 分桶，桶之间用细分隔线区分；与内置导航之间也加一条 */}
+      {groupedPluginItems.main.length > 0 && renderPluginDivider("plugin-top-divider")}
+      {groupedPluginItems.main.flatMap((bucket, bi) => {
+        const nodes = bucket.map(renderPluginSidebarItem);
+        // 桶之间的细分隔线（最后一桶不加）
+        if (bi < groupedPluginItems.main.length - 1) {
+          nodes.push(renderPluginDivider(`plugin-group-divider-${bi}`));
+        }
+        return nodes;
+      })}
+
       <div style={{ flex: 1 }} />
+
+      {/* 插件底部区（group="bottom"）：跟内置 bottom 同组渲染 */}
+      {groupedPluginItems.bottom.length > 0 && (
+        <>
+          {groupedPluginItems.bottom.map(renderPluginSidebarItem)}
+          {renderPluginDivider("plugin-bottom-divider")}
+        </>
+      )}
       {BOTTOM_ITEMS.filter(isVisible).map(renderItem)}
       <HiddenPinUnlockModal
         open={unlockOpen}

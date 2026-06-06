@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Editor } from "@tiptap/react";
 import { useNavigate } from "react-router-dom";
 import { message } from "antd";
@@ -20,6 +20,13 @@ import { parseKbAsset } from "@/lib/assetUrl";
 import {
   type ContextMenuEntry,
 } from "@/components/ui/ContextMenuOverlay";
+import { pluginManager } from "@/services/pluginManager";
+import { setActiveEditor } from "@/services/editorBridge";
+import { resolvePluginIconComponent } from "@/components/plugin/pluginIcons";
+import type {
+  EditorActionCtx,
+  PluginEditorContextMenuItemDef,
+} from "@/types";
 
 /**
  * Tiptap 编辑器节点右键菜单 hook。
@@ -43,7 +50,9 @@ type EditorMenuPayload =
   | { kind: "image"; src: string; el: HTMLElement }
   | { kind: "video"; src: string; el: HTMLElement }
   | { kind: "file"; href: string; el: HTMLElement }
-  | { kind: "annotation"; comment: string; el: HTMLElement };
+  | { kind: "annotation"; comment: string; el: HTMLElement }
+  /** 普通文本上右键：仅当存在匹配的插件菜单项时才打开自定义菜单 */
+  | { kind: "selection"; el: HTMLElement };
 
 /**
  * Tiptap MutationObserver 渲染期会把 `kb-asset://` 替换成 Tauri 的 asset 协议 URL，
@@ -120,6 +129,28 @@ export function useEditorContextMenu(
   const navigate = useNavigate();
   // 设置里关闭"卡片复习"模块时，annotation 右键的"转为闪卡"项整条隐藏
   const cardsEnabled = useFeatureEnabled("cards");
+
+  // 把当前 editor 注册到全局桥，供插件 API (app.editor.getCurrentSelection 等) 同步访问。
+  // 笔记编辑器同时只激活一个，unmount / 切笔记时清空。
+  useEffect(() => {
+    setActiveEditor(editor, noteId ?? null);
+    return () => {
+      // 切笔记会先 mount 新 editor 再 unmount 旧 editor（React 18 严格模式下顺序更复杂），
+      // 这里只在当前桥仍指向自己时才清空，避免误清新 editor 的引用。
+      setActiveEditor(null, null);
+    };
+  }, [editor, noteId]);
+
+  // 订阅插件编辑器菜单注册表，插件激活/停用后立即生效
+  const [pluginMenuItems, setPluginMenuItems] = useState<
+    Array<PluginEditorContextMenuItemDef & { pluginId: string }>
+  >([]);
+  useEffect(() => {
+    const refresh = () =>
+      setPluginMenuItems(pluginManager.getRegisteredEditorMenuItems());
+    refresh();
+    return pluginManager.subscribe("editor-menus", refresh);
+  }, []);
 
   /** 删除指定 DOM 对应的节点（用于图片 / 视频右键的"删除"项） */
   const deleteNodeAtElement = useCallback(
@@ -237,9 +268,31 @@ export function useEditorContextMenu(
         }
       }
 
+      // 5. 普通文本位置：仅当有匹配的插件菜单项（按 when 过滤）时才打开自定义菜单。
+      //    无插件项 → 不 preventDefault，继续走浏览器原生剪切/复制/粘贴菜单。
+      //    判定时机：右键瞬时基于当前选区算 when，决定是否拦截。
+      if (pluginMenuItems.length > 0) {
+        const hasSelection = !editor.state.selection.empty;
+        const hasMatch = pluginMenuItems.some((m) => {
+          const when = m.when ?? "always";
+          if (when === "always") return true;
+          if (when === "has-selection") return hasSelection;
+          if (when === "cursor") return !hasSelection;
+          return true;
+        });
+        if (hasMatch) {
+          e.preventDefault();
+          ctx.open(
+            { clientX: e.clientX, clientY: e.clientY },
+            { kind: "selection", el: target },
+          );
+          return;
+        }
+      }
+
       // 其他位置（普通文本 / 列表 / 表格等）→ 不拦，走浏览器原生菜单
     },
-    [editor, ctx, getOriginalSrc],
+    [editor, ctx, getOriginalSrc, pluginMenuItems],
   );
 
   // 用 capture-phase 原生 listener，比 React 合成事件先触发
@@ -253,7 +306,7 @@ export function useEditorContextMenu(
   }, [editor, handleContextMenu]);
 
   // ─── 菜单项构造（按节点类型派发） ───────────────
-  const menuItems = useMemo<ContextMenuEntry[]>(() => {
+  const baseMenuItems = useMemo<ContextMenuEntry[]>(() => {
     const p = ctx.state.payload;
     if (!p) return [];
 
@@ -380,6 +433,9 @@ export function useEditorContextMenu(
         message.error(`打开失败：${err}`);
       }
     };
+
+    // selection kind = 普通文本上下文：基础菜单为空，全部由插件提供
+    if (p.kind === "selection") return [];
 
     if (p.kind === "wiki") {
       return [
@@ -615,5 +671,84 @@ export function useEditorContextMenu(
     ];
   }, [ctx, navigate, deleteNodeAtElement, editor, noteId, cardsEnabled]);
 
-  return { ctx, menuItems };
+  // ─── 在 baseMenuItems 末尾追加插件注册的菜单项 ───
+  // 1. 插件项按 when 过滤；
+  // 2. 若 baseMenuItems 非空 → 加一条分隔线再追加；
+  // 3. selection 场景下 baseMenuItems 为空，只渲染插件项；
+  // 4. callback 抛错 → message.error 兜底，不污染编辑器。
+  const menuItems = useMemo<ContextMenuEntry[]>(() => {
+    const p = ctx.state.payload;
+    if (!p) return baseMenuItems;
+    if (pluginMenuItems.length === 0) return baseMenuItems;
+
+    const hasSelection = editor ? !editor.state.selection.empty : false;
+    const filtered = pluginMenuItems.filter((m) => {
+      const when = m.when ?? "always";
+      if (when === "always") return true;
+      if (when === "has-selection") return hasSelection;
+      if (when === "cursor") return !hasSelection;
+      return true;
+    });
+    if (filtered.length === 0) return baseMenuItems;
+
+    const pluginEntries: ContextMenuEntry[] = filtered.map((m) => {
+      const Icon = m.icon ? resolvePluginIconComponent(m.icon) : null;
+      return {
+        key: `plugin:${m.pluginId}:${m.id}`,
+        label: m.label,
+        icon: Icon ? <Icon size={13} /> : undefined,
+        onClick: async () => {
+          ctx.close();
+          if (!editor) {
+            message.warning("编辑器尚未就绪");
+            return;
+          }
+          // 构造 EditorActionCtx：用闭包捕获 editor，把 Tiptap 接口收敛到 4 个安全方法
+          const sel = editor.state.selection;
+          const selText = sel.empty
+            ? ""
+            : editor.state.doc.textBetween(sel.from, sel.to, "\n");
+          const actionCtx: EditorActionCtx = {
+            noteId: noteId ?? null,
+            selection: selText,
+            replaceSelection: (text: string) => {
+              const s = editor.state.selection;
+              if (s.empty) {
+                editor.chain().focus().insertContent(text).run();
+              } else {
+                editor.chain().focus().deleteSelection().insertContent(text).run();
+              }
+            },
+            insertText: (text: string) => {
+              editor.chain().focus().insertContent(text).run();
+            },
+            getContent: () => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const md = (editor.storage as any).markdown?.getMarkdown?.();
+              return typeof md === "string" ? md : editor.getText();
+            },
+          };
+          try {
+            await m.callback(actionCtx);
+          } catch (e) {
+            console.error(
+              `[editor] 插件 ${m.pluginId} 菜单 ${m.id} 抛错:`,
+              e,
+            );
+            pluginManager._logError(m.pluginId, "editor:contextMenu", String(e));
+            message.error(`插件「${m.pluginId}」执行失败：${e}`);
+          }
+        },
+      };
+    });
+
+    if (baseMenuItems.length === 0) return pluginEntries;
+    return [
+      ...baseMenuItems,
+      { type: "divider" } as ContextMenuEntry,
+      ...pluginEntries,
+    ];
+  }, [baseMenuItems, pluginMenuItems, editor, noteId, ctx]);
+
+    return { ctx, menuItems };
 }

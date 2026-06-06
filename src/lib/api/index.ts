@@ -93,6 +93,7 @@ import type {
   AsrTestResult,
   PluginInfo,
   PluginManifest,
+  PluginAuditLogEntry,
 } from "@/types";
 
 /** 系统相关 API */
@@ -209,6 +210,12 @@ export const pluginApi = {
     invoke<void>("set_plugin_settings", { pluginId, settings }),
   readAsset: (pluginId: string, relativePath: string) =>
     invoke<string>("read_plugin_asset", { pluginId, relativePath }),
+  /** T25: 获取插件审计日志 */
+  getAuditLog: (pluginId: string, limit?: number) =>
+    invoke<PluginAuditLogEntry[]>("plugin_audit_log_list", {
+      pluginId,
+      limit: limit ?? 50,
+    }),
 };
 
 /** 笔记 API */
