@@ -94,6 +94,47 @@ pub struct PluginAuditLogEntry {
     pub timestamp: String,
 }
 
+/// 插件 AI 对话输入
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiChatInput {
+    pub messages: Vec<PluginAiMessage>,
+    pub request_id: String,
+    #[serde(default)]
+    pub model_id: Option<i64>,
+}
+
+/// 插件 AI 消息
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiMessage {
+    pub role: String,
+    pub content: String,
+}
+
+/// 插件 AI 流式 token 事件负载
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiTokenPayload {
+    pub token: String,
+    pub full_text: Option<String>,
+    pub done: bool,
+    pub error: Option<String>,
+}
+
+/// 插件可见的 AI 模型信息（不暴露 api_key）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginAiModelInfo {
+    pub id: i64,
+    pub name: String,
+    pub provider: String,
+    pub api_url: String,
+    pub model_id: String,
+    pub is_default: bool,
+    pub max_context: i64,
+}
+
 /// 全局快捷键绑定信息（返回给前端的视图模型）
 ///
 /// - `accel = ""` 表示「禁用」（用户主动关掉这条热键）
@@ -1654,4 +1695,91 @@ pub struct CardStats {
     pub new_cards: i64,
     /// 总卡数（不含已删除）
     pub total: i64,
+}
+
+// ─── 插件化待办（阶段 2）─────────────────────────
+
+/// 插件可见的任务过滤条件（精简版，不含内部字段）
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginTaskFilter {
+    pub category_id: Option<i64>,
+    pub status: Option<String>,
+    pub parent_task_id: Option<i64>,
+    pub due_before: Option<String>,
+    pub due_after: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+/// 插件可见的任务对象（脱敏，去掉 source_batch_id / reminded_at 等内部字段）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginTaskView {
+    pub id: i64,
+    pub title: String,
+    pub description: Option<String>,
+    pub status: String,
+    pub priority: i32,
+    pub important: bool,
+    pub due_at: Option<String>,
+    pub remind_before_minutes: Option<i32>,
+    pub category_id: Option<i64>,
+    pub parent_task_id: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<Task> for PluginTaskView {
+    fn from(t: Task) -> Self {
+        let status = match t.status {
+            0 => "pending",
+            1 => "completed",
+            _ => "archived",
+        };
+        PluginTaskView {
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            status: status.to_string(),
+            priority: t.priority,
+            important: t.important,
+            due_at: t.due_date,
+            remind_before_minutes: t.remind_before_minutes,
+            category_id: t.category_id,
+            parent_task_id: t.parent_task_id,
+            created_at: t.created_at,
+            updated_at: t.updated_at,
+        }
+    }
+}
+
+/// 插件可见的任务写入入参（脱敏版，不含内部字段）
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCreateTaskInput {
+    pub title: String,
+    pub description: Option<String>,
+    pub priority: Option<i32>,
+    pub important: Option<bool>,
+    pub due_at: Option<String>,
+    pub remind_before_minutes: Option<i32>,
+    pub category_id: Option<i64>,
+    pub parent_task_id: Option<i64>,
+}
+
+/// 插件可见的任务更新入参（脱敏版，不含内部字段）
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginUpdateTaskInput {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub priority: Option<i32>,
+    pub important: Option<bool>,
+    pub due_at: Option<String>,
+    pub remind_before_minutes: Option<i32>,
+    pub category_id: Option<i64>,
+    pub clear_due_at: Option<bool>,
+    pub clear_remind_before_minutes: Option<bool>,
+    pub clear_category_id: Option<bool>,
 }

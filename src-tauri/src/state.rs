@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::{watch, Notify};
 
 use crate::database::Database;
+use crate::services::plugin_rate_limit::PluginRateLimiter;
 use crate::services::plugin_token::PluginTokenRegistry;
 use crate::services::vault::VaultState;
 
@@ -24,6 +25,8 @@ pub struct AppState {
     pub instance_id: Option<u32>,
     /// AI 生成取消信号 (conversation_id -> sender)
     pub ai_cancel: Mutex<std::collections::HashMap<i64, watch::Sender<bool>>>,
+    /// 插件 AI 生成取消信号 (runtime token -> sender)
+    pub plugin_ai_cancel: Mutex<std::collections::HashMap<String, watch::Sender<bool>>>,
     /// 自动同步调度器唤醒信号：配置变更时 notify_one 重载
     pub sync_scheduler_notify: Arc<Notify>,
     /// 待办提醒调度器唤醒信号：用户增/改/删/snooze 任务时 notify_one，
@@ -46,6 +49,8 @@ pub struct AppState {
     _lock_file: Option<File>,
     /// 插件运行时令牌注册表（T1: 内存存储，进程退出自动清空）
     pub plugin_tokens: PluginTokenRegistry,
+    /// 插件写操作速率限制器（防爆库：每插件 ≤ 10 次/秒）
+    pub plugin_rate_limiter: PluginRateLimiter,
 }
 
 impl AppState {
@@ -61,6 +66,7 @@ impl AppState {
             data_dir,
             instance_id,
             ai_cancel: Mutex::new(std::collections::HashMap::new()),
+            plugin_ai_cancel: Mutex::new(std::collections::HashMap::new()),
             sync_scheduler_notify: Arc::new(Notify::new()),
             reminder_notify: Arc::new(Notify::new()),
             pending_open_md_path: Mutex::new(None),
@@ -70,6 +76,7 @@ impl AppState {
             mcp_external: Arc::new(crate::services::mcp_client::McpClientManager::new()),
             _lock_file: lock_file,
             plugin_tokens: PluginTokenRegistry::default(),
+            plugin_rate_limiter: PluginRateLimiter::new(),
         }
     }
 }

@@ -874,6 +874,18 @@ pub fn run() {
             commands::plugin_proxy::plugin_proxy_settings_get_all,
             // 插件审计日志（T25）
             commands::plugin_proxy::plugin_audit_log_list,
+            // 插件 proxy — AI
+            commands::plugin_proxy::plugin_proxy_ai_chat,
+            commands::plugin_proxy::plugin_proxy_ai_chat_sync,
+            commands::plugin_proxy::plugin_proxy_ai_models,
+            commands::plugin_proxy::plugin_proxy_ai_cancel,
+            // 插件 proxy — 待办（阶段 2）
+            commands::plugin_proxy::plugin_proxy_tasks_list,
+            commands::plugin_proxy::plugin_proxy_tasks_get,
+            commands::plugin_proxy::plugin_proxy_tasks_create,
+            commands::plugin_proxy::plugin_proxy_tasks_update,
+            commands::plugin_proxy::plugin_proxy_tasks_complete,
+            commands::plugin_proxy::plugin_proxy_tasks_delete,
             // 笔记模块
             commands::notes::create_note,
             commands::notes::update_note,

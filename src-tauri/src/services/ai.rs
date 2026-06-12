@@ -10,7 +10,8 @@ use crate::models::{
     AiMessage, AiModel, AiModelInput, AiModelTestResult, AttachmentPreview, DraftNoteRequest,
     DraftNoteResponse, ExcelPreview, Folder, MessageAttachment, MilestoneDraft, PdfPreview,
     PlanFromExcelRequest, PlanFromGoalRequest, PlanFromGoalResponse, PlanTodayRequest,
-    PlanTodayResponse, SkillCall, TaskQuery, TaskSuggestion, TextPreview,
+    PlanTodayResponse, PluginAiChatInput, PluginAiTokenPayload, SkillCall, TaskQuery,
+    TaskSuggestion, TextPreview,
 };
 use crate::services::skills;
 
@@ -47,6 +48,44 @@ impl AiEventEmitter for ChatEmitter {
     fn emit_error(&self, error: &str) {
         let _ = self.app.emit("ai:error", error);
     }
+}
+
+/// 插件 AI 事件发射器（plugin:ai-token-<token>）
+struct PluginAiEmitter {
+    app: AppHandle,
+    event_name: String,
+}
+
+impl AiEventEmitter for PluginAiEmitter {
+    fn emit_token(&self, content: &str) {
+        let _ = self.app.emit(
+            self.event_name.as_str(),
+            PluginAiTokenPayload {
+                token: content.to_string(),
+                full_text: None,
+                done: false,
+                error: None,
+            },
+        );
+    }
+    fn emit_error(&self, error: &str) {
+        let _ = self.app.emit(
+            self.event_name.as_str(),
+            PluginAiTokenPayload {
+                token: String::new(),
+                full_text: None,
+                done: false,
+                error: Some(error.to_string()),
+            },
+        );
+    }
+}
+
+struct NoopAiEmitter;
+
+impl AiEventEmitter for NoopAiEmitter {
+    fn emit_token(&self, _content: &str) {}
+    fn emit_error(&self, _error: &str) {}
 }
 
 pub struct AiService;
@@ -346,6 +385,87 @@ fn strip_html(html: &str) -> String {
 }
 
 impl AiService {
+    /// 插件 AI 流式对话：使用插件传入 messages，事件通过专属 event_name 推送。
+    pub async fn plugin_chat_stream(
+        app: AppHandle,
+        db: &Database,
+        input: PluginAiChatInput,
+        event_name: String,
+        cancel_rx: watch::Receiver<bool>,
+    ) -> Result<String, AppError> {
+        if input.messages.is_empty() {
+            return Err(AppError::InvalidInput("AI 消息不能为空".into()));
+        }
+        for msg in &input.messages {
+            if !matches!(msg.role.as_str(), "system" | "user" | "assistant") {
+                return Err(AppError::InvalidInput(format!("不支持的 AI 消息角色: {}", msg.role)));
+            }
+            if msg.content.trim().is_empty() {
+                return Err(AppError::InvalidInput("AI 消息内容不能为空".into()));
+            }
+        }
+        let model = match input.model_id {
+            Some(id) => db.get_ai_model(id)?,
+            None => db.get_default_ai_model()?,
+        };
+        let messages: Vec<Value> = input
+            .messages
+            .iter()
+            .map(|msg| json!({ "role": msg.role.as_str(), "content": msg.content.as_str() }))
+            .collect();
+        let emitter = PluginAiEmitter {
+            app: app.clone(),
+            event_name: event_name.clone(),
+        };
+        let full = match model.provider.as_str() {
+            "ollama" => Self::stream_ollama_generic(&emitter, &model, &messages, cancel_rx).await?,
+            _ => Self::stream_openai_generic(&emitter, &model, &messages, cancel_rx).await?,
+        };
+        let _ = app.emit(
+            event_name.as_str(),
+            PluginAiTokenPayload {
+                token: String::new(),
+                full_text: Some(full.clone()),
+                done: true,
+                error: None,
+            },
+        );
+        Ok(full)
+    }
+
+    /// 插件 AI 非流式对话：不发事件，只返回完整文本。
+    pub async fn plugin_chat_sync(
+        db: &Database,
+        input: PluginAiChatInput,
+        cancel_rx: watch::Receiver<bool>,
+    ) -> Result<String, AppError> {
+        if input.messages.is_empty() {
+            return Err(AppError::InvalidInput("AI 消息不能为空".into()));
+        }
+        for msg in &input.messages {
+            if !matches!(msg.role.as_str(), "system" | "user" | "assistant") {
+                return Err(AppError::InvalidInput(format!("不支持的 AI 消息角色: {}", msg.role)));
+            }
+            if msg.content.trim().is_empty() {
+                return Err(AppError::InvalidInput("AI 消息内容不能为空".into()));
+            }
+        }
+        let model = match input.model_id {
+            Some(id) => db.get_ai_model(id)?,
+            None => db.get_default_ai_model()?,
+        };
+        let messages: Vec<Value> = input
+            .messages
+            .iter()
+            .map(|msg| json!({ "role": msg.role.as_str(), "content": msg.content.as_str() }))
+            .collect();
+        let emitter = NoopAiEmitter;
+        match model.provider.as_str() {
+            "ollama" => Self::stream_ollama_generic(&emitter, &model, &messages, cancel_rx).await,
+            _ => Self::stream_openai_generic(&emitter, &model, &messages, cancel_rx).await,
+        }
+    }
+
     /// AI 写作辅助：选中文本 + 操作指令 → 流式返回结果
     ///
     /// 事件前缀 `ai-write:token` / `ai-write:done` / `ai-write:error`

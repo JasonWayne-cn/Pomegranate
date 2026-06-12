@@ -8,6 +8,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { message } from "antd";
 import {
   PLUGIN_API_VERSION,
@@ -15,6 +16,8 @@ import {
 import type {
   PluginAppAPI,
   PluginNotesAPI,
+  PluginTasksAPI,
+  PluginTaskViewsAPI,
   PluginSettingsAPI,
   PluginCommandsAPI,
   PluginWorkspaceAPI,
@@ -23,6 +26,9 @@ import type {
   PluginEventBus,
   PluginRibbonAPI,
   PluginEditorAPI,
+  PluginAiAPI,
+  PluginAiTokenPayload,
+  PluginTaskView,
 } from "@/types";
 import { PluginManager } from "@/services/pluginManager";
 import { getActiveSelectionText } from "@/services/editorBridge";
@@ -206,6 +212,75 @@ export function createAppAPI(
     },
   };
 
+  // ─── tasks 子 API（阶段 2：待办插件化）─────────
+  const tasks: PluginTasksAPI = {
+    list: async (filter?) => {
+      preCheck(pluginId, "tasks.read");
+      try {
+        return await invoke<PluginTaskView[]>("plugin_proxy_tasks_list", {
+          token,
+          filter: filter ?? null,
+        });
+      } catch (e) {
+        throw new Error(translateError(String(e)));
+      }
+    },
+    get: async (id) => {
+      preCheck(pluginId, "tasks.read");
+      try {
+        return await invoke<PluginTaskView | null>("plugin_proxy_tasks_get", {
+          token,
+          id,
+        });
+      } catch (e) {
+        throw new Error(translateError(String(e)));
+      }
+    },
+    create: async (input) => {
+      preCheck(pluginId, "tasks.write");
+      try {
+        return await invoke<PluginTaskView>("plugin_proxy_tasks_create", {
+          token,
+          input,
+        });
+      } catch (e) {
+        throw new Error(translateError(String(e)));
+      }
+    },
+    update: async (id, patch) => {
+      preCheck(pluginId, "tasks.write");
+      try {
+        await invoke("plugin_proxy_tasks_update", { token, id, input: patch });
+      } catch (e) {
+        throw new Error(translateError(String(e)));
+      }
+    },
+    complete: async (id) => {
+      preCheck(pluginId, "tasks.write");
+      try {
+        await invoke("plugin_proxy_tasks_complete", { token, id });
+      } catch (e) {
+        throw new Error(translateError(String(e)));
+      }
+    },
+    delete: async (id) => {
+      preCheck(pluginId, "tasks.write");
+      try {
+        await invoke("plugin_proxy_tasks_delete", { token, id });
+      } catch (e) {
+        throw new Error(translateError(String(e)));
+      }
+    },
+  };
+
+  // ─── taskViews 子 API（阶段 3：自定义视图）─────
+  const taskViews: PluginTaskViewsAPI = {
+    register: (def) => {
+      preCheck(pluginId, "taskViews.register");
+      return manager._registerTaskView(pluginId, def);
+    },
+  };
+
   // ─── notices 子 API ─────────────────────────
   const notices = {
     show: (msg: string, duration?: number) => {
@@ -222,6 +297,10 @@ export function createAppAPI(
       event: K,
       handler: (data: import("@/types").PluginEvents[K]) => void,
     ): (() => void) => {
+      // 任务类事件需要 tasks.subscribe 权限
+      if (String(event).startsWith("task:")) {
+        preCheck(pluginId, "tasks.subscribe");
+      }
       const off = manager._addEventListener(pluginId, event, handler as (data: unknown) => void);
       return off;
     },
@@ -234,10 +313,124 @@ export function createAppAPI(
     },
   };
 
+  // ─── ai 子 API（Phase 2：受控插件 AI 能力）────────────────
+  const ai: PluginAiAPI = {
+    chat: async (messages, callbacks, options) => {
+      preCheck(pluginId, "ai:chat");
+      const requestId = typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const eventName = `plugin:ai-token-${token}:${requestId}`;
+      let fullText = "";
+      let finished = false;
+      let unlisten: UnlistenFn | null = null;
+      const cleanup = () => {
+        if (unlisten) {
+          unlisten();
+          unlisten = null;
+        }
+      };
+      unlisten = await listen<PluginAiTokenPayload>(eventName, (event) => {
+        const payload = event.payload;
+        if (payload.error) {
+          finished = true;
+          cleanup();
+          callbacks.onError?.(payload.error);
+          return;
+        }
+        if (payload.done) {
+          finished = true;
+          cleanup();
+          callbacks.onDone?.(payload.fullText ?? fullText);
+          return;
+        }
+        if (payload.token) {
+          fullText += payload.token;
+          callbacks.onToken?.(payload.token, fullText);
+        }
+      });
+      invoke("plugin_proxy_ai_chat", {
+        token,
+        input: {
+          messages,
+          requestId,
+          modelId: options?.modelId,
+          conversationId: options?.conversationId,
+        },
+      })
+        .then(() => {
+          if (!finished) {
+            finished = true;
+            cleanup();
+            callbacks.onDone?.(fullText);
+          }
+        })
+        .catch((e) => {
+          finished = true;
+          cleanup();
+          callbacks.onError?.(translateError(String(e)));
+        });
+      return () => {
+        invoke("plugin_proxy_ai_cancel", { token, requestId }).catch(() => {});
+        cleanup();
+      };
+    },
+    chatSync: async (messages, options) => {
+      preCheck(pluginId, "ai:chat");
+      try {
+        return await invoke<string>("plugin_proxy_ai_chat_sync", {
+          token,
+          input: {
+            messages,
+            requestId: `sync-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            modelId: options?.modelId,
+            conversationId: options?.conversationId,
+          },
+        });
+      } catch (e) {
+        throw new Error(translateError(String(e)));
+      }
+    },
+    listModels: async () => {
+      preCheck(pluginId, "ai:models");
+      try {
+        return await invoke("plugin_proxy_ai_models", { token });
+      } catch (e) {
+        throw new Error(translateError(String(e)));
+      }
+    },
+  };
+
+  // ─── invoke 桥接（Phase 1：直接透传，供插件调用现有 Rust Command）───
+  const rawInvoke = async <T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
+    try {
+      return await invoke<T>(cmd, args);
+    } catch (e) {
+      throw new Error(translateError(String(e)));
+    }
+  };
+
+  // ─── Tauri 事件桥接（Phase 1：供插件监听全局事件如 ai:token）───
+  const rawOnTauriEvent = async <T = unknown>(
+    event: string,
+    handler: (payload: T) => void,
+  ): Promise<() => void> => {
+    const unlisten: UnlistenFn = await listen<T>(event, (e) => {
+      try {
+        handler(e.payload);
+      } catch (err) {
+        console.error(`[plugin:${pluginId}] 事件 ${event} 处理异常:`, err);
+      }
+    });
+    return () => { unlisten(); };
+  };
+
   return {
     version: PLUGIN_API_VERSION,
     workspace,
     notes,
+    tasks,
+    taskViews,
     settings,
     notices,
     commands,
@@ -246,5 +439,8 @@ export function createAppAPI(
     events,
     ribbon,
     editor,
+    ai,
+    invoke: rawInvoke,
+    onTauriEvent: rawOnTauriEvent,
   };
 }

@@ -10,11 +10,17 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 use tauri::State;
+use tokio::sync::watch;
 
 use crate::error::AppError;
-use crate::models::{Note, NoteInput, NoteQuery, PluginAuditLogEntry, SearchResult};
+use crate::models::{
+    Note, NoteInput, NoteQuery, PluginAiChatInput, PluginAiModelInfo, PluginAuditLogEntry,
+    PluginCreateTaskInput, PluginTaskFilter, PluginTaskView, PluginUpdateTaskInput, SearchResult,
+};
+use crate::services::ai::AiService;
 use crate::services::note::NoteService;
 use crate::services::search::SearchService;
+use crate::services::tasks::TaskService;
 use crate::state::AppState;
 
 /// 统一令牌+权限校验
@@ -207,4 +213,177 @@ pub fn plugin_audit_log_list(
                 .collect()
         })
         .map_err(|e| e.to_string())
+}
+
+// ─── AI 域 4 个 Command（插件 AI 能力）────────────────────
+
+#[tauri::command]
+pub async fn plugin_proxy_ai_chat(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    token: String,
+    input: PluginAiChatInput,
+) -> Result<(), String> {
+    let plugin_id = verify(&state, &token, Some("ai:chat")).map_err(|e| e.to_string())?;
+    state
+        .plugin_rate_limiter
+        .check_ai(&plugin_id)
+        .map_err(|e| e.to_string())?;
+
+    let request_key = format!("{}:{}", token, input.request_id);
+    let event_name = format!("plugin:ai-token-{}", request_key);
+    let (cancel_tx, cancel_rx) = watch::channel(false);
+    {
+        let mut cancel_map = state.plugin_ai_cancel.lock().map_err(|e| e.to_string())?;
+        cancel_map.insert(request_key.clone(), cancel_tx);
+    }
+
+    let result = AiService::plugin_chat_stream(app, &state.db, input, event_name, cancel_rx).await;
+
+    {
+        let mut cancel_map = state.plugin_ai_cancel.lock().map_err(|e| e.to_string())?;
+        cancel_map.remove(&request_key);
+    }
+
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn plugin_proxy_ai_chat_sync(
+    state: State<'_, AppState>,
+    token: String,
+    input: PluginAiChatInput,
+) -> Result<String, String> {
+    let plugin_id = verify(&state, &token, Some("ai:chat")).map_err(|e| e.to_string())?;
+    state
+        .plugin_rate_limiter
+        .check_ai(&plugin_id)
+        .map_err(|e| e.to_string())?;
+
+    let (_cancel_tx, cancel_rx) = watch::channel(false);
+    AiService::plugin_chat_sync(&state.db, input, cancel_rx)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugin_proxy_ai_models(
+    state: State<'_, AppState>,
+    token: String,
+) -> Result<Vec<PluginAiModelInfo>, String> {
+    verify(&state, &token, Some("ai:models")).map_err(|e| e.to_string())?;
+    let models = state.db.list_ai_models().map_err(|e| e.to_string())?;
+    Ok(models
+        .into_iter()
+        .map(|m| PluginAiModelInfo {
+            id: m.id,
+            name: m.name,
+            provider: m.provider,
+            api_url: m.api_url,
+            model_id: m.model_id,
+            is_default: m.is_default,
+            max_context: m.max_context,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn plugin_proxy_ai_cancel(
+    state: State<'_, AppState>,
+    token: String,
+    request_id: String,
+) -> Result<(), String> {
+    let _plugin_id = verify(&state, &token, Some("ai:chat")).map_err(|e| e.to_string())?;
+    let request_key = format!("{}:{}", token, request_id);
+    let cancel_map = state.plugin_ai_cancel.lock().map_err(|e| e.to_string())?;
+    if let Some(tx) = cancel_map.get(&request_key) {
+        let _ = tx.send(true);
+    }
+    Ok(())
+}
+
+// ─── tasks 域 6 个 Command（阶段 2：待办插件化）────────────
+
+#[tauri::command]
+pub fn plugin_proxy_tasks_list(
+    state: State<'_, AppState>,
+    token: String,
+    filter: Option<PluginTaskFilter>,
+) -> Result<Vec<PluginTaskView>, String> {
+    let _plugin_id = verify(&state, &token, Some("tasks.read")).map_err(|e| e.to_string())?;
+    TaskService::list_for_plugin(&state.db, filter.unwrap_or_default())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugin_proxy_tasks_get(
+    state: State<'_, AppState>,
+    token: String,
+    id: i64,
+) -> Result<PluginTaskView, String> {
+    let _plugin_id = verify(&state, &token, Some("tasks.read")).map_err(|e| e.to_string())?;
+    TaskService::get_for_plugin(&state.db, id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("任务 {} 不存在", id))
+}
+
+#[tauri::command]
+pub fn plugin_proxy_tasks_create(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    token: String,
+    input: PluginCreateTaskInput,
+) -> Result<PluginTaskView, String> {
+    let plugin_id = verify(&state, &token, Some("tasks.write")).map_err(|e| e.to_string())?;
+    state
+        .plugin_rate_limiter
+        .check_write(&plugin_id)
+        .map_err(|e| e.to_string())?;
+    TaskService::create_from_plugin(&app, &state.db, input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugin_proxy_tasks_update(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    token: String,
+    id: i64,
+    input: PluginUpdateTaskInput,
+) -> Result<(), String> {
+    let plugin_id = verify(&state, &token, Some("tasks.write")).map_err(|e| e.to_string())?;
+    state
+        .plugin_rate_limiter
+        .check_write(&plugin_id)
+        .map_err(|e| e.to_string())?;
+    TaskService::update_from_plugin(&app, &state.db, id, input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugin_proxy_tasks_complete(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    token: String,
+    id: i64,
+) -> Result<(), String> {
+    let plugin_id = verify(&state, &token, Some("tasks.write")).map_err(|e| e.to_string())?;
+    state
+        .plugin_rate_limiter
+        .check_write(&plugin_id)
+        .map_err(|e| e.to_string())?;
+    TaskService::complete_from_plugin(&app, &state.db, id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugin_proxy_tasks_delete(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    token: String,
+    id: i64,
+) -> Result<(), String> {
+    let plugin_id = verify(&state, &token, Some("tasks.write")).map_err(|e| e.to_string())?;
+    state
+        .plugin_rate_limiter
+        .check_write(&plugin_id)
+        .map_err(|e| e.to_string())?;
+    TaskService::delete_from_plugin(&app, &state.db, id).map_err(|e| e.to_string())
 }

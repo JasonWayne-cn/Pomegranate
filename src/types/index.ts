@@ -68,7 +68,7 @@ export interface PluginAuditLogEntry {
 // ═══════════════════════════════════════════════════════
 
 /** AppAPI 版本号（与 Rust 侧固定字符串保持一致） */
-export const PLUGIN_API_VERSION = "1.1.0" as const;
+export const PLUGIN_API_VERSION = "1.2.0" as const;
 
 /** 插件暴露的模块约定：module.exports = { onLoad, onUnload } */
 export interface PluginModule {
@@ -187,7 +187,7 @@ export interface EditorActionCtx {
 
 /** 命令注册子 API */
 export interface PluginCommandsAPI {
-  addCommand(def: PluginCommandDef): void;
+  addCommand(def: PluginCommandDef): () => void;
   removeCommand(id: string): void;
   executeCommand(fullId: string): void | Promise<void>;
 }
@@ -240,11 +240,37 @@ export interface PluginEditorAPI {
   getCurrentSelection(): string | null;
 }
 
+/** 插件任务 CRUD API */
+export interface PluginTasksAPI {
+  list(filter?: PluginTaskFilter): Promise<PluginTaskView[]>;
+  get(id: number): Promise<PluginTaskView | null>;
+  create(input: PluginCreateTaskInput): Promise<PluginTaskView>;
+  update(id: number, patch: PluginUpdateTaskInput): Promise<void>;
+  complete(id: number): Promise<void>;
+  delete(id: number): Promise<void>;
+}
+
+/** 插件任务视图注册 API */
+export interface PluginTaskViewsAPI {
+  register(def: {
+    id: string;
+    label: string;
+    icon: string;
+    render: (container: HTMLElement, props: TaskViewProps) => void | (() => void);
+  }): () => void;
+}
+
 /** 插件事件类型清单 */
 export interface PluginEvents {
   "workspace:active-note-changed": { noteId: number | null };
   "workspace:editor-saved": { noteId: number };
   "settings:changed": { key: string };
+  // ─── 待办事件（阶段 1 事件总线）─────────────
+  "task:created": Task;
+  "task:updated": Task;
+  "task:completed": Task;
+  "task:deleted": Task;
+  "task:reminded": Task;
 }
 
 /** 插件事件总线 */
@@ -254,6 +280,49 @@ export interface PluginEventBus {
     handler: (data: PluginEvents[K]) => void,
   ): () => void;
   emit<K extends keyof PluginEvents>(event: K, data: PluginEvents[K]): void;
+}
+
+export interface PluginAiMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface PluginAiChatCallbacks {
+  onToken?: (token: string, fullText: string) => void;
+  onDone?: (fullText: string) => void;
+  onError?: (error: string) => void;
+}
+
+export interface PluginAiChatOptions {
+  modelId?: number;
+  conversationId?: number;
+}
+
+export interface PluginAiModelInfo {
+  id: number;
+  name: string;
+  provider: string;
+  apiUrl: string;
+  modelId: string;
+  isDefault: boolean;
+  maxContext: number;
+}
+
+export interface PluginAiTokenPayload {
+  token: string;
+  fullText: string | null;
+  done: boolean;
+  error: string | null;
+}
+
+export interface PluginAiAPI {
+  chat(
+    messages: PluginAiMessage[],
+    callbacks: PluginAiChatCallbacks,
+    options?: PluginAiChatOptions,
+  ): Promise<() => void>;
+  chatSync(messages: PluginAiMessage[], options?: PluginAiChatOptions): Promise<string>;
+  listModels(): Promise<PluginAiModelInfo[]>;
 }
 
 /** 工作区子 API */
@@ -343,6 +412,8 @@ export interface PluginAppAPI {
   readonly version: typeof PLUGIN_API_VERSION;
   workspace: PluginWorkspaceAPI;
   notes: PluginNotesAPI;
+  tasks: PluginTasksAPI;
+  taskViews: PluginTaskViewsAPI;
   settings: PluginSettingsAPI;
   notices: PluginNoticesAPI;
   commands: PluginCommandsAPI;
@@ -353,6 +424,18 @@ export interface PluginAppAPI {
   ribbon: PluginRibbonAPI;
   /** 编辑器扩展点 — 1.1.0 新增 */
   editor: PluginEditorAPI;
+  /** AI 对话能力 — 1.2.0 新增 */
+  ai: PluginAiAPI;
+  /**
+   * 通用 invoke 桥接（Phase 1 轻量方案，供插件调用现有 Rust Command）。
+   * 直接透传 Tauri invoke，不做令牌/权限校验。
+   */
+  invoke: <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+  /**
+   * 监听 Tauri 全局事件（Phase 1 轻量方案）。
+   * 返回取消监听函数。
+   */
+  onTauriEvent: <T = unknown>(event: string, handler: (payload: T) => void) => Promise<() => void>;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1562,4 +1645,70 @@ export interface CardStats {
   review: number;
   newCards: number;
   total: number;
+}
+
+// ─── 插件化待办（阶段 2）─────────────────────────
+
+/** 插件可见的任务过滤条件 */
+export interface PluginTaskFilter {
+  categoryId?: number | null;
+  status?: 'pending' | 'completed' | 'archived';
+  parentTaskId?: number | null;
+  dueBefore?: string;
+  dueAfter?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/** 插件可见的任务对象（脱敏，不含 sourceBatchId 等内部字段） */
+export interface PluginTaskView {
+  id: number;
+  title: string;
+  description: string | null;
+  status: 'pending' | 'completed' | 'archived';
+  priority: number;
+  important: boolean;
+  dueAt: string | null;
+  remindBeforeMinutes: number | null;
+  categoryId: number | null;
+  parentTaskId: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 插件视图 render 函数接收的 props */
+export interface TaskViewProps {
+  tasks: PluginTaskView[];
+  filter: PluginTaskFilter;
+  api: {
+    complete(id: number): Promise<void>;
+    openDetail(id: number): void;
+    update(id: number, patch: Partial<PluginTaskView>): Promise<void>;
+  };
+}
+
+/** 插件创建任务入参 */
+export interface PluginCreateTaskInput {
+  title: string;
+  description?: string | null;
+  priority?: number;
+  important?: boolean;
+  dueAt?: string | null;
+  remindBeforeMinutes?: number | null;
+  categoryId?: number | null;
+  parentTaskId?: number | null;
+}
+
+/** 插件更新任务入参 */
+export interface PluginUpdateTaskInput {
+  title?: string;
+  description?: string;
+  priority?: number;
+  important?: boolean;
+  dueAt?: string | null;
+  remindBeforeMinutes?: number | null;
+  categoryId?: number | null;
+  clearDueAt?: boolean;
+  clearRemindBeforeMinutes?: boolean;
+  clearCategoryId?: boolean;
 }

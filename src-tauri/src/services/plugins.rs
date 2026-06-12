@@ -38,6 +38,14 @@ const VALID_PERMISSIONS: &[&str] = &[
     "network:request",
     "clipboard:read",
     "clipboard:write",
+    // ─── 待办插件化权限 ──────────────────────
+    "tasks.read",
+    "tasks.write",
+    "tasks.subscribe",
+    "taskViews.register",
+    // ─── AI 插件能力 ─────────────────────────
+    "ai:chat",
+    "ai:models",
 ];
 
 pub struct PluginService;
