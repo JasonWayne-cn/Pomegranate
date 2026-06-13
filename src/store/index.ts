@@ -15,7 +15,7 @@ async function getConfigOrNull(key: string): Promise<string | null> {
     return null;
   }
 }
-import type { Folder, SystemInfo } from "@/types";
+import type { Folder, SystemInfo, TaskSession, ExecutionPhase } from "@/types";
 import type { ThemeMode, ThemeCategory } from "@/theme/tokens";
 import {
   DEFAULT_MOBILE_TAB_KEYS,
@@ -95,6 +95,31 @@ export const EDITOR_FONT_DEFAULTS = {
   lineHeight: 1.8,
 };
 
+/** 编辑器背景纹理类型 */
+export type EditorRuleLines = "none" | "lines" | "grid";
+
+export const EDITOR_READING_WIDTH_OPTIONS = [0, 720, 820, 960, 1080] as const;
+export const EDITOR_READING_WIDTH_LABELS: Record<number, string> = {
+  0: "不限制（铺满）",
+  720: "紧凑 720",
+  820: "舒适 820",
+  960: "宽松 960",
+  1080: "超宽 1080",
+};
+
+export const EDITOR_RULE_LABELS: Record<EditorRuleLines, string> = {
+  none: "无",
+  lines: "横线",
+  grid: "网格",
+};
+
+export const EDITOR_LAYOUT_DEFAULTS = {
+  readingWidth: 820,
+  paper: true,
+  ruleLines: "none" as EditorRuleLines,
+  firstLineIndent: false,
+};
+
 // 开发/生产数据隔离：dev 用 dev-settings.json，prod 用 settings.json
 // 与后端 cfg!(debug_assertions) 加 dev- 前缀对齐；旧文件由后端 migrate_to_dev_prefix 自动迁移
 const STORE_FILE = import.meta.env.DEV ? "dev-settings.json" : "settings.json";
@@ -121,6 +146,14 @@ interface AppStore {
   tasksListRefreshTick: number;
   /** 未完成 + 紧急的任务数（用于侧边栏红色 Badge） */
   urgentTodoCount: number;
+  /** 任务执行会话：当前活跃会话 ID */
+  activeSessionId: string | null;
+  /** 任务执行会话：当前活跃会话详情 */
+  activeSession: TaskSession | null;
+  /** 任务执行会话：Phase 列表 */
+  activeSessionPhases: ExecutionPhase[];
+  /** 任务执行会话：是否正在执行中 */
+  isSessionExecuting: boolean;
   /** 窗口置顶状态（UI 真相源；托盘 CheckMenuItem 通过事件同步） */
   alwaysOnTop: boolean;
   /** 当前活动视图（Activity Bar 模式）；与 URL 双向同步 */
@@ -160,6 +193,29 @@ interface AppStore {
   editorFontSize: number;
   /** 编辑器行距倍数（持久化） */
   editorLineHeight: number;
+  /** 编辑器正文阅读列宽 px（持久化）。0 = 不限制（铺满） */
+  editorReadingWidth: number;
+  /** 编辑器纸张卡片观感开关（持久化） */
+  editorPaper: boolean;
+  /** 编辑器背景纹理：none / lines / grid（持久化） */
+  editorRuleLines: EditorRuleLines;
+  /** 编辑器顶层段落首行缩进 2 字符（持久化） */
+  editorFirstLineIndent: boolean;
+  /**
+   * 主题自定义总开关（持久化）。
+   * 关闭时所有 customAccent / customBgImage / customBgDim 都不生效，等同回到原始 4 套主题。
+   */
+  themeOverridesEnabled: boolean;
+  /** 自定义强调色（持久化，hex 形如 "#6366f1"）。null = 跟随当前主题预设。 */
+  customAccent: string | null;
+  /** 自定义全屏背景图（持久化）。存原始本地路径；null = 不启用背景图。 */
+  customBgImage: string | null;
+  /** 背景图遮罩不透明度（持久化，0..1） */
+  customBgDim: number;
+  /** 背景图模糊半径（持久化，0..30 px） */
+  customBgBlur: number;
+  /** 背景图适配模式（持久化） */
+  customBgFit: "cover" | "contain" | "center" | "repeat";
   /** 笔记编辑页：右侧大纲面板是否显示（持久化）。标题数 < 2 时由组件自动隐藏，与此独立 */
   outlineVisible: boolean;
   /**
@@ -225,6 +281,12 @@ interface AppStore {
   bumpTasksListRefresh: () => void;
   /** 重新拉取任务统计（任务变更后调用，用于刷新侧边栏 Badge） */
   refreshTaskStats: () => Promise<void>;
+  /** 设置当前活跃会话 */
+  setActiveSession: (session: TaskSession | null, phases?: ExecutionPhase[]) => void;
+  /** 更新指定 Phase 的状态 */
+  updateSessionPhase: (phaseId: string, status: string) => void;
+  /** 设置会话执行中状态 */
+  setSessionExecuting: (v: boolean) => void;
   /**
    * 设置窗口置顶。
    * - skipEmit=true：不再通知 Rust 侧（用于从 Rust 过来的事件回流，避免循环）
@@ -269,6 +331,28 @@ interface AppStore {
   setEditorLineHeight: (lineHeight: number) => void;
   /** 重置编辑器字体到默认值 */
   resetEditorTypography: () => void;
+  /** 设置编辑器阅读列宽 */
+  setEditorReadingWidth: (width: number) => void;
+  /** 设置编辑器纸张观感 */
+  setEditorPaper: (on: boolean) => void;
+  /** 设置编辑器背景纹理 */
+  setEditorRuleLines: (lines: EditorRuleLines) => void;
+  /** 设置编辑器首行缩进 */
+  setEditorFirstLineIndent: (on: boolean) => void;
+  /** 切换主题自定义总开关（持久化） */
+  setThemeOverridesEnabled: (on: boolean) => void;
+  /** 设置/清除自定义强调色（hex 或 null） */
+  setCustomAccent: (hex: string | null) => void;
+  /** 设置/清除自定义背景图（原始本地路径或 null） */
+  setCustomBgImage: (path: string | null) => void;
+  /** 设置背景图遮罩不透明度（自动 clamp 到 [0, 1]） */
+  setCustomBgDim: (dim: number) => void;
+  /** 设置背景图模糊半径（自动 clamp 到 [0, 30] px） */
+  setCustomBgBlur: (px: number) => void;
+  /** 设置背景图适配模式 */
+  setCustomBgFit: (fit: "cover" | "contain" | "center" | "repeat") => void;
+  /** 一键重置所有主题自定义项 */
+  resetThemeOverrides: () => void;
   /** 切换大纲面板可见性（persist） */
   toggleOutline: () => void;
   /** 设置大纲面板可见性（persist） */
@@ -382,6 +466,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   tagsRefreshTick: 0,
   tasksListRefreshTick: 0,
   urgentTodoCount: 0,
+  activeSessionId: null,
+  activeSession: null,
+  activeSessionPhases: [],
+  isSessionExecuting: false,
   alwaysOnTop: false,
   activeView: "notes",
   enabledViews: new Set(DEFAULT_ENABLED_VIEWS),
@@ -393,6 +481,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
   editorFontFamily: EDITOR_FONT_DEFAULTS.family,
   editorFontSize: EDITOR_FONT_DEFAULTS.size,
   editorLineHeight: EDITOR_FONT_DEFAULTS.lineHeight,
+  editorReadingWidth: EDITOR_LAYOUT_DEFAULTS.readingWidth,
+  editorPaper: EDITOR_LAYOUT_DEFAULTS.paper,
+  editorRuleLines: EDITOR_LAYOUT_DEFAULTS.ruleLines,
+  editorFirstLineIndent: EDITOR_LAYOUT_DEFAULTS.firstLineIndent,
+  themeOverridesEnabled: false,
+  customAccent: null,
+  customBgImage: null,
+  customBgDim: 0,
+  customBgBlur: 0,
+  customBgFit: "cover",
   outlineVisible: true,
   notesCollapsedFolderKeys: [],
   notesUncategorizedExpanded: false,
@@ -435,6 +533,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
       // 静默失败：侧边栏 Badge 不是关键路径
     }
   },
+  setActiveSession: (session, phases) =>
+    set({
+      activeSessionId: session?.id ?? null,
+      activeSession: session,
+      activeSessionPhases: phases ?? [],
+    }),
+  updateSessionPhase: (phaseId, status) =>
+    set((s) => ({
+      activeSessionPhases: s.activeSessionPhases.map((p) =>
+        p.id === phaseId ? { ...p, status: status as ExecutionPhase["status"] } : p
+      ),
+    })),
+  setSessionExecuting: (v) => set({ isSessionExecuting: v }),
   setActiveView: (view) => set({ activeView: view }),
   toggleEnabledView: (view) => {
     const cur = get().enabledViews;
@@ -584,6 +695,31 @@ export const useAppStore = create<AppStore>((set, get) => ({
       editorFontFamily: EDITOR_FONT_DEFAULTS.family,
       editorFontSize: EDITOR_FONT_DEFAULTS.size,
       editorLineHeight: EDITOR_FONT_DEFAULTS.lineHeight,
+    }),
+  setEditorReadingWidth: (width) => set({ editorReadingWidth: width }),
+  setEditorPaper: (on) => set({ editorPaper: on }),
+  setEditorRuleLines: (lines) => set({ editorRuleLines: lines }),
+  setEditorFirstLineIndent: (on) => set({ editorFirstLineIndent: on }),
+  setThemeOverridesEnabled: (on) => set({ themeOverridesEnabled: on }),
+  setCustomAccent: (hex) => set({ customAccent: hex }),
+  setCustomBgImage: (path) => set({ customBgImage: path }),
+  setCustomBgDim: (dim) => {
+    const clamped = Math.max(0, Math.min(1, dim));
+    set({ customBgDim: clamped });
+  },
+  setCustomBgBlur: (px) => {
+    const clamped = Math.max(0, Math.min(30, px));
+    set({ customBgBlur: clamped });
+  },
+  setCustomBgFit: (fit) => set({ customBgFit: fit }),
+  resetThemeOverrides: () =>
+    set({
+      themeOverridesEnabled: false,
+      customAccent: null,
+      customBgImage: null,
+      customBgDim: 0,
+      customBgBlur: 0,
+      customBgFit: "cover",
     }),
   toggleOutline: () => set((s) => ({ outlineVisible: !s.outlineVisible })),
   setOutlineVisible: (visible) => set({ outlineVisible: visible }),
@@ -796,6 +932,50 @@ export async function loadThemeFromStore() {
       useAppStore.getState().setOutlineVisible(ov);
     }
 
+    // 恢复编辑器版面偏好
+    const erw = await store.get<number>("editorReadingWidth");
+    if (typeof erw === "number" && Number.isFinite(erw)) {
+      useAppStore.getState().setEditorReadingWidth(erw);
+    }
+    const ep = await store.get<boolean>("editorPaper");
+    if (typeof ep === "boolean") {
+      useAppStore.getState().setEditorPaper(ep);
+    }
+    const erl = await store.get<string>("editorRuleLines");
+    if (erl === "none" || erl === "lines" || erl === "grid") {
+      useAppStore.getState().setEditorRuleLines(erl);
+    }
+    const efi = await store.get<boolean>("editorFirstLineIndent");
+    if (typeof efi === "boolean") {
+      useAppStore.getState().setEditorFirstLineIndent(efi);
+    }
+
+    // 恢复主题自定义
+    const toe = await store.get<boolean>("themeOverridesEnabled");
+    if (typeof toe === "boolean") {
+      useAppStore.getState().setThemeOverridesEnabled(toe);
+    }
+    const ca = await store.get<string>("customAccent");
+    if (typeof ca === "string" && ca) {
+      useAppStore.getState().setCustomAccent(ca);
+    }
+    const cbi = await store.get<string>("customBgImage");
+    if (typeof cbi === "string" && cbi) {
+      useAppStore.getState().setCustomBgImage(cbi);
+    }
+    const cbd = await store.get<number>("customBgDim");
+    if (typeof cbd === "number" && Number.isFinite(cbd)) {
+      useAppStore.getState().setCustomBgDim(cbd);
+    }
+    const cbb = await store.get<number>("customBgBlur");
+    if (typeof cbb === "number" && Number.isFinite(cbb)) {
+      useAppStore.getState().setCustomBgBlur(cbb);
+    }
+    const cbf = await store.get<string>("customBgFit");
+    if (cbf === "cover" || cbf === "contain" || cbf === "center" || cbf === "repeat") {
+      useAppStore.getState().setCustomBgFit(cbf);
+    }
+
     // 恢复 NotesPanel 折叠偏好
     const nck = await store.get<string[]>("notesCollapsedFolderKeys");
     if (Array.isArray(nck)) {
@@ -845,6 +1025,16 @@ export async function saveThemeToStore() {
       editorFontFamily,
       editorFontSize,
       editorLineHeight,
+      editorReadingWidth,
+      editorPaper,
+      editorRuleLines,
+      editorFirstLineIndent,
+      themeOverridesEnabled,
+      customAccent,
+      customBgImage,
+      customBgDim,
+      customBgBlur,
+      customBgFit,
       outlineVisible,
       notesCollapsedFolderKeys,
       notesUncategorizedExpanded,
@@ -862,6 +1052,16 @@ export async function saveThemeToStore() {
     await store.set("editorFontFamily", editorFontFamily);
     await store.set("editorFontSize", editorFontSize);
     await store.set("editorLineHeight", editorLineHeight);
+    await store.set("editorReadingWidth", editorReadingWidth);
+    await store.set("editorPaper", editorPaper);
+    await store.set("editorRuleLines", editorRuleLines);
+    await store.set("editorFirstLineIndent", editorFirstLineIndent);
+    await store.set("themeOverridesEnabled", themeOverridesEnabled);
+    await store.set("customAccent", customAccent);
+    await store.set("customBgImage", customBgImage);
+    await store.set("customBgDim", customBgDim);
+    await store.set("customBgBlur", customBgBlur);
+    await store.set("customBgFit", customBgFit);
     await store.set("outlineVisible", outlineVisible);
     await store.set("notesCollapsedFolderKeys", notesCollapsedFolderKeys);
     await store.set("notesUncategorizedExpanded", notesUncategorizedExpanded);
@@ -882,7 +1082,7 @@ useAppStore.subscribe((state) => {
   // notesHeadingFolded 摘要：用 entries 数 + 总 anchor 数 简化对比，避免每次 stringify 大对象
   const headingFoldEntries = Object.entries(state.notesHeadingFolded);
   const headingFoldKey = `${headingFoldEntries.length}:${headingFoldEntries.reduce((acc, [, v]) => acc + v.length, 0)}:${headingFoldEntries.map(([k, v]) => `${k}=${v.join(",")}`).join("|")}`;
-  const key = `${state.lightTheme}|${state.darkTheme}|${state.themeCategory}|${state.alwaysOnTop}|${state.sidePanelWidth}|${state.sidePanelVisible}|${state.recentSearches.join(",")}|${state.editorFontFamily}|${state.editorFontSize}|${state.editorLineHeight}|${state.outlineVisible}|${state.notesCollapsedFolderKeys.join(",")}|${state.notesUncategorizedExpanded}|${state.notesFoldersInitialCollapseDone}|${headingFoldKey}`;
+  const key = `${state.lightTheme}|${state.darkTheme}|${state.themeCategory}|${state.alwaysOnTop}|${state.sidePanelWidth}|${state.sidePanelVisible}|${state.recentSearches.join(",")}|${state.editorFontFamily}|${state.editorFontSize}|${state.editorLineHeight}|${state.editorReadingWidth}|${state.editorPaper}|${state.editorRuleLines}|${state.editorFirstLineIndent}|${state.themeOverridesEnabled}|${state.customAccent ?? ""}|${state.customBgImage ?? ""}|${state.customBgDim}|${state.customBgBlur}|${state.customBgFit}|${state.outlineVisible}|${state.notesCollapsedFolderKeys.join(",")}|${state.notesUncategorizedExpanded}|${state.notesFoldersInitialCollapseDone}|${headingFoldKey}`;
   if (key !== _prevPersistKey) {
     _prevPersistKey = key;
     saveThemeToStore();

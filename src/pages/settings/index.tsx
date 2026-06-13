@@ -18,15 +18,20 @@ import {
   List,
   Switch,
   Radio,
+  Tabs,
+  ColorPicker,
+  Slider,
+  Tooltip,
 } from "antd";
-import { SyncOutlined, PlusOutlined, CheckCircleFilled, CheckCircleOutlined } from "@ant-design/icons";
-import { Trash2, Pencil, FolderInput, FolderOutput, FolderOpen, LayoutTemplate, Power, ExternalLink, Type, Zap } from "lucide-react";
+import { SyncOutlined, PlusOutlined, CheckCircleFilled, CheckCircleOutlined, PictureOutlined } from "@ant-design/icons";
+import { Trash2, Pencil, FolderInput, FolderOutput, FolderOpen, LayoutTemplate, Power, Type, Zap, Palette, Bot, Cog, UserRound, Monitor, Rocket, Info, AppWindow } from "lucide-react";
 import dayjs, { type Dayjs } from "dayjs";
 import { TimePicker } from "antd";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import type { Update } from "@tauri-apps/plugin-updater";
 import type { AiModel, AiModelInput, ImportResult, ImportProgress, ImportConflictPolicy, ScannedFile, ExportResult, ExportProgress, NoteTemplate, NoteTemplateInput } from "@/types";
 import { systemApi, updaterApi, aiModelApi, importApi, exportApi, folderApi, templateApi, pdfApi, sourceFileApi, autostartApi, configApi } from "@/lib/api";
@@ -36,12 +41,15 @@ import {
   EDITOR_FONT_STACKS,
   EDITOR_FONT_SIZE_OPTIONS,
   EDITOR_LINE_HEIGHT_OPTIONS,
+  EDITOR_READING_WIDTH_OPTIONS,
+  EDITOR_READING_WIDTH_LABELS,
+  EDITOR_RULE_LABELS,
   type EditorFontFamily,
+  type EditorRuleLines,
 } from "@/store";
 import { importWordFiles } from "@/lib/wordImport";
 import { Checkbox } from "antd";
 import { UpdateModal } from "@/components/ui/UpdateModal";
-import { RecommendCards } from "@/components/ui/RecommendCards";
 import { SyncTabs } from "@/components/settings/SyncTabs";
 import { AsrSection } from "@/components/settings/AsrSection";
 import { DataDirSection } from "@/components/settings/DataDirSection";
@@ -52,6 +60,7 @@ import { ShortcutsSection } from "@/components/settings/ShortcutsSection";
 import { MCPServerSection } from "@/components/settings/MCPServerSection";
 import { TiptapEditor } from "@/components/editor";
 import { pluginManager } from "@/services/pluginManager";
+import { AboutContent } from "@/components/about/AboutContent";
 import type { Folder, PluginSettingsTabDef } from "@/types";
 
 const { Title, Text } = Typography;
@@ -84,11 +93,6 @@ function cancelIdle(handle: IdleHandle): void {
   }
 }
 
-/** 作者社区信息 */
-const BILIBILI_URL = "https://space.bilibili.com/520725002";
-const BILIBILI_TUTORIAL_URL = "https://www.bilibili.com/video/BV1xvosBREbr";
-const ZSXQ_NAME = "后端转AI实战派";
-const ZSXQ_ID = "91839984";
 const DAILY_NOTE_MD_STORAGE_PATH_KEY = "daily_note.md_storage_path";
 
 /** 模型提供商选项
@@ -209,93 +213,141 @@ const MODEL_PRESETS: Record<string, { value: string; label: string }[]> = {
   custom: [],
 };
 
-/**
- * 设置页左侧锚点导航。
- *
- * - 点击 → smooth scroll 到对应 section（用 id 锚定）
- * - 当前激活项用 IntersectionObserver 检测：哪个 section 进入视口顶部 30% 区域，
- *   就把对应导航项标灰底，实现"滚动同步高亮"
- * - sticky top: 16，跟随主区滚动；不依赖 Antd Anchor，省一份组件依赖
- */
-const SETTINGS_NAV_ITEMS: { id: string; label: string }[] = [
-  { id: "settings-daily-md-path", label: "日记文件路径" },
-  { id: "settings-update", label: "软件更新" },
-  { id: "settings-startup", label: "启动设置" },
-  { id: "settings-features", label: "功能模块" },
-  { id: "settings-hidden-pin", label: "隐藏笔记 PIN" },
-  { id: "settings-shortcuts", label: "全局快捷键" },
-  { id: "settings-editor", label: "编辑器外观" },
-  { id: "settings-task-reminder", label: "待办提醒" },
-  { id: "settings-import", label: "导入笔记" },
-  { id: "settings-export", label: "导出 Markdown" },
-  { id: "settings-ai-models", label: "AI 模型" },
-  { id: "settings-asr", label: "语音识别" },
-  { id: "settings-templates", label: "模板管理" },
-  { id: "settings-data-dir", label: "数据目录" },
-  { id: "settings-sync", label: "同步备份" },
-  { id: "settings-mcp", label: "MCP 服务器" },
-  { id: "settings-orphan-assets", label: "孤儿素材清理" },
-  { id: "settings-community", label: "作者 & 社区" },
-];
+// ─── 竖直 Tab 配置 ────────────────────────────────────
 
-function SettingsAnchorNav(
-  props: { pluginTabs?: Array<PluginSettingsTabDef & { pluginId: string }> },
-) {
-  const { pluginTabs } = props;
-  const allItems = useMemo(() => {
-    if (!pluginTabs?.length) return SETTINGS_NAV_ITEMS;
-    return [
-      ...SETTINGS_NAV_ITEMS,
-      ...pluginTabs.map((t) => ({
-        id: `settings-plugin-${t.pluginId}:${t.id}`,
-        label: `🔌 ${t.title}`,
-      })),
-    ];
-  }, [pluginTabs]);
+const TAB_KEYS = {
+  ai: "ai",
+  apps: "apps",
+  appConfig: "app-config",
+  personal: "personal",
+  display: "display",
+  startup: "startup",
+  about: "about",
+} as const;
 
-  const [activeId, setActiveId] = useState<string>(allItems[0].id);
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        // 取所有当前可见 entries 里 boundingClientRect.top 最小（最靠近顶部）的一个
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible.length > 0) {
-          setActiveId(visible[0].target.id);
-        }
-      },
-      { rootMargin: "0px 0px -66% 0px", threshold: 0 },
-    );
-    SETTINGS_NAV_ITEMS.forEach((item) => {
-      const el = document.getElementById(item.id);
-      if (el) observer.observe(el);
-    });
-    return () => observer.disconnect();
-  }, []);
+type TabKey = (typeof TAB_KEYS)[keyof typeof TAB_KEYS];
 
-  function jumpTo(id: string) {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-
-  return (
-    <aside className="anchor-page-nav">
-      <ul>
-        {allItems.map((item) => (
-          <li
-            key={item.id}
-            data-active={activeId === item.id || undefined}
-            onClick={() => jumpTo(item.id)}
-          >
-            {item.label}
-          </li>
-        ))}
-      </ul>
-    </aside>
-  );
+function sectionIdToTab(sectionId: string): TabKey | null {
+  if (/^settings-(ai-provider|ai-models|asr|mcp)$/.test(sectionId)) return TAB_KEYS.ai;
+  if (/^settings-(daily-md-path|data-dir|orphan-assets|import|export|sync|auto-save)$/.test(sectionId)) return TAB_KEYS.appConfig;
+  if (sectionId.startsWith("settings-plugin-")) return TAB_KEYS.appConfig;
+  if (/^settings-(task-reminder|templates|hidden-pin|shortcuts)$/.test(sectionId)) return TAB_KEYS.personal;
+  if (/^settings-(appearance|editor)$/.test(sectionId)) return TAB_KEYS.display;
+  if (/^settings-(update|startup|features)$/.test(sectionId)) return TAB_KEYS.startup;
+  if (/^settings-/.test(sectionId)) return TAB_KEYS.about;
+  return null;
 }
 
-/** 插件设置 Tab 的 DOM 挂载器（参考 PluginPanelViewPage 模式） */
+/** ─── 外观自定义组件 ─────────────────────────────────── */
+
+function AppearanceSection() {
+  const themeOverridesEnabled = useAppStore((s) => s.themeOverridesEnabled);
+  const customAccent = useAppStore((s) => s.customAccent);
+  const customBgImage = useAppStore((s) => s.customBgImage);
+  const customBgDim = useAppStore((s) => s.customBgDim);
+  const customBgBlur = useAppStore((s) => s.customBgBlur);
+  const customBgFit = useAppStore((s) => s.customBgFit);
+  const setThemeOverridesEnabled = useAppStore((s) => s.setThemeOverridesEnabled);
+  const setCustomAccent = useAppStore((s) => s.setCustomAccent);
+  const setCustomBgImage = useAppStore((s) => s.setCustomBgImage);
+  const setCustomBgDim = useAppStore((s) => s.setCustomBgDim);
+  const setCustomBgBlur = useAppStore((s) => s.setCustomBgBlur);
+  const setCustomBgFit = useAppStore((s) => s.setCustomBgFit);
+  const resetThemeOverrides = useAppStore((s) => s.resetThemeOverrides);
+
+  const [bgPicking, setBgPicking] = useState(false);
+
+  async function pickThemeBg() {
+    setBgPicking(true);
+    try {
+      const picked = await open({
+        multiple: false,
+        filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp"] }],
+      });
+      if (typeof picked !== "string") return;
+      try {
+        const target = await invoke<string>("copy_theme_bg", { srcPath: picked });
+        setCustomBgImage(target);
+        if (!themeOverridesEnabled) setThemeOverridesEnabled(true);
+      } catch {
+        setCustomBgImage(picked);
+        if (!themeOverridesEnabled) setThemeOverridesEnabled(true);
+      }
+    } catch (e) {
+      message.error(`选择图片失败: ${e}`);
+    } finally {
+      setBgPicking(false);
+    }
+  }
+
+  async function clearThemeBg() {
+    setCustomBgImage(null);
+    try { await invoke("clear_theme_bg"); } catch { /* Phase 1 */ }
+  }
+
+  const hasOverrides =
+    themeOverridesEnabled || !!customAccent || !!customBgImage ||
+    customBgDim !== 0 || customBgBlur !== 0 || customBgFit !== "cover";
+
+  return (
+    <Card
+      id="settings-appearance"
+      title={<span className="flex items-center gap-2"><Palette size={16} />外观自定义</span>}
+      extra={<Button size="small" type="link" onClick={resetThemeOverrides} disabled={!hasOverrides}>重置</Button>}
+    >
+      <div className="flex items-center justify-between py-1">
+        <div><div>启用自定义</div><Text type="secondary" style={{ fontSize: 12 }}>关闭后回到当前主题预设；下方调整不会丢失。</Text></div>
+        <Switch checked={themeOverridesEnabled} onChange={setThemeOverridesEnabled} />
+      </div>
+      <div className="py-1 mt-2" style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}>
+        <div className="flex items-center justify-between">
+          <div><div>强调色</div><Text type="secondary" style={{ fontSize: 12 }}>覆盖按钮/选中态/链接等主色。</Text></div>
+          <Space>
+            <ColorPicker value={customAccent ?? undefined} onChange={(c) => setCustomAccent(c.toHexString())} disabled={!themeOverridesEnabled} showText
+              presets={[{ label: "推荐", colors: ["#6366f1","#8b5cf6","#ec4899","#f43f5e","#f97316","#f59e0b","#10b981","#14b8a6","#0ea5e9","#3b82f6"] }]} />
+            <Button size="small" type="text" onClick={() => setCustomAccent(null)} disabled={!customAccent}>清除</Button>
+          </Space>
+        </div>
+        <div className="flex items-center gap-2 mt-2" style={{ flexWrap: "wrap" }}>
+          <Text type="secondary" style={{ fontSize: 12, marginRight: 4 }}>快速色板</Text>
+          {["经典蓝#1677ff","玫瑰#ec4899","紫罗兰#8b5cf6","海洋#0ea5e9","森林#10b981","橙日#f97316","桃粉#fb7185","灰岩#64748b"].map((p) => {
+            const [name, color] = p.split("#"); const hex = `#${color}`;
+            const active = customAccent?.toLowerCase() === hex.toLowerCase();
+            return (<button key={hex} type="button" title={name}
+              onClick={() => { setCustomAccent(hex); if (!themeOverridesEnabled) setThemeOverridesEnabled(true); }}
+              disabled={!themeOverridesEnabled}
+              style={{ width: 22, height: 22, borderRadius: "50%", background: hex,
+                border: active ? "2px solid var(--ant-color-text)" : "1px solid rgba(0,0,0,0.15)",
+                cursor: themeOverridesEnabled ? "pointer" : "not-allowed", opacity: themeOverridesEnabled ? 1 : 0.4, padding: 0 }} />);
+          })}
+        </div>
+      </div>
+      <div className="py-1 mt-2" style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}>
+        <div className="flex items-center justify-between">
+          <div><div className="flex items-center gap-2"><PictureOutlined style={{ fontSize: 14 }} />背景图</div><Text type="secondary" style={{ fontSize: 12 }}>选择本地图片作为应用背景。</Text></div>
+          <Space>
+            <Button size="small" onClick={pickThemeBg} loading={bgPicking} disabled={!themeOverridesEnabled}>{customBgImage ? "更换" : "选择图片"}</Button>
+            <Button size="small" type="text" onClick={clearThemeBg} disabled={!customBgImage}>清除</Button>
+          </Space>
+        </div>
+        {customBgImage && <Text type="secondary" style={{ fontSize: 12, display: "block", marginTop: 6, wordBreak: "break-all" }}>当前：{customBgImage}</Text>}
+      </div>
+      <div className="py-1 mt-2" style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}>
+        <div className="flex items-center justify-between mb-1"><div><div>背景遮罩</div><Text type="secondary" style={{ fontSize: 12 }}>在背景图上叠半透明色，保证文字对比度。</Text></div><Text style={{ fontSize: 12 }}>{Math.round(customBgDim * 100)}%</Text></div>
+        <Slider min={0} max={1} step={0.05} value={customBgDim} onChange={setCustomBgDim} disabled={!themeOverridesEnabled || !customBgImage} tooltip={{ formatter: (v) => `${Math.round((v ?? 0) * 100)}%` }} />
+      </div>
+      <div className="py-1 mt-2" style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}>
+        <div className="flex items-center justify-between"><div><div>背景适配</div><Text type="secondary" style={{ fontSize: 12 }}>控制背景图的缩放/排布方式。</Text></div>
+          <Select value={customBgFit} onChange={setCustomBgFit} disabled={!themeOverridesEnabled || !customBgImage} style={{ width: 140 }}
+            options={[{ label: "覆盖（裁切）", value: "cover" },{ label: "包含（留白）", value: "contain" },{ label: "原始大小", value: "center" },{ label: "平铺", value: "repeat" }]} /></div>
+      </div>
+      <div className="py-1 mt-2" style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}>
+        <div className="flex items-center justify-between mb-1"><div><div>背景模糊</div><Text type="secondary" style={{ fontSize: 12 }}>高斯模糊背景图（0=关闭）。</Text></div><Text style={{ fontSize: 12 }}>{customBgBlur}px</Text></div>
+        <Slider min={0} max={30} step={1} value={customBgBlur} onChange={setCustomBgBlur} disabled={!themeOverridesEnabled || !customBgImage} tooltip={{ formatter: (v) => `${v ?? 0}px` }} />
+      </div>
+    </Card>
+  );
+}/** 插件设置 Tab 的 DOM 挂载器（参考 PluginPanelViewPage 模式） */
 function PluginSettingsTabRenderer({
   tab,
 }: {
@@ -507,6 +559,14 @@ function DesktopSettingsPage() {
   const setEditorFontSize = useAppStore((s) => s.setEditorFontSize);
   const setEditorLineHeight = useAppStore((s) => s.setEditorLineHeight);
   const resetEditorTypography = useAppStore((s) => s.resetEditorTypography);
+  const editorReadingWidth = useAppStore((s) => s.editorReadingWidth);
+  const editorPaper = useAppStore((s) => s.editorPaper);
+  const editorRuleLines = useAppStore((s) => s.editorRuleLines);
+  const editorFirstLineIndent = useAppStore((s) => s.editorFirstLineIndent);
+  const setEditorReadingWidth = useAppStore((s) => s.setEditorReadingWidth);
+  const setEditorPaper = useAppStore((s) => s.setEditorPaper);
+  const setEditorRuleLines = useAppStore((s) => s.setEditorRuleLines);
+  const setEditorFirstLineIndent = useAppStore((s) => s.setEditorFirstLineIndent);
 
   // 订阅全局 foldersRefreshTick：Sidebar 修改文件夹后自动刷新设置页的文件夹选项
   // 走 idle defer：从笔记页切到设置页瞬间，路由 commit + 编辑器 destroy 已经吃掉一帧时间，
@@ -519,23 +579,32 @@ function DesktopSettingsPage() {
     return () => cancelIdle(handle);
   }, [foldersRefreshTick]);
 
-  // 从其他页面带 state.scrollTo 跳转过来时，滚到目标区块并短暂高亮
+  // ─── 竖直 Tab 状态 ────────────────────────────────
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get("tab") as TabKey | null) ?? TAB_KEYS.ai;
+  function setActiveTab(key: TabKey) {
+    setSearchParams({ tab: key }, { replace: true });
+  }
+
+  // 从其他页面带 state.scrollTo 跳转过来时，切到对应 Tab
   const location = useLocation();
   useEffect(() => {
     const target = (location.state as { scrollTo?: string } | null)?.scrollTo;
     if (!target) return;
-    const el = document.getElementById(target);
-    if (!el) return;
-    // 等下一帧再滚，避免内容尚未铺满高度时计算偏差
-    const raf = requestAnimationFrame(() => {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-      el.classList.add("settings-target-flash");
-    });
-    const t = setTimeout(() => el.classList.remove("settings-target-flash"), 1800);
-    return () => {
-      cancelAnimationFrame(raf);
-      clearTimeout(t);
-    };
+    const tab = sectionIdToTab(target);
+    if (tab) {
+      setActiveTab(tab);
+      const raf = requestAnimationFrame(() => {
+        const el = document.getElementById(target);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          el.classList.add("settings-target-flash");
+          const t = setTimeout(() => el.classList.remove("settings-target-flash"), 1800);
+          return () => clearTimeout(t);
+        }
+      });
+      return () => cancelAnimationFrame(raf);
+    }
   }, [location.state]);
 
   useEffect(() => {
@@ -1143,662 +1212,760 @@ function DesktopSettingsPage() {
   ];
 
   return (
-    <div className="anchor-page-layout">
-      <SettingsAnchorNav pluginTabs={pluginSettingsTabs} />
-      <div className="anchor-page-content" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div>
-          <Title level={3}>设置</Title>
-          <Text type="secondary">应用配置与 AI 模型管理</Text>
-        </div>
-
-      <Card
-        id="settings-daily-md-path"
-        title={
-          <span className="flex items-center gap-2">
-            <FolderOpen size={16} />
-            日记文件存储路径
-          </span>
-        }
-      >
-        <Alert
-          type="info"
-          showIcon
-          className="mb-3"
-          message="当前笔记仍按现有数据库方式保存"
-          description="这里仅保存一个用于日记 Markdown 文件输出的目录配置，不会改变当前笔记正文写入数据库的实现。"
-        />
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
-          后续生成或同步日记 .md 文件时，可读取此路径作为保存目录。
-        </Typography.Paragraph>
-        <Space.Compact style={{ width: "100%" }}>
-          <Input
-            allowClear
-            value={dailyNoteMdPathDraft}
-            placeholder="请选择或输入日记 Markdown 文件保存目录"
-            onChange={(e) => setDailyNoteMdPathDraft(e.target.value)}
-          />
-          <Button icon={<FolderOpen size={14} />} onClick={handlePickDailyNoteMdPath}>
-            选择目录
-          </Button>
-          <Button
-            type="primary"
-            loading={dailyNoteMdPathSaving}
-            disabled={dailyNoteMdPathDraft.trim() === dailyNoteMdPath}
-            onClick={() => saveDailyNoteMdPath(dailyNoteMdPathDraft)}
-          >
-            保存
-          </Button>
-        </Space.Compact>
-        {dailyNoteMdPath && (
-          <div className="mt-2">
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              当前已保存：
-            </Text>
-            <Text code copyable style={{ fontSize: 12, wordBreak: "break-all" }}>
-              {dailyNoteMdPath}
-            </Text>
-          </div>
-        )}
-      </Card>
-
-      <Card id="settings-update" title="软件更新">
-        <Space wrap>
-          <Button
-            icon={<SyncOutlined spin={checking} />}
-            onClick={handleCheckUpdate}
-            loading={checking}
-          >
-            检查更新
-          </Button>
-          <Text type="secondary">当前版本: {appVersion}</Text>
-          <Button
-            type="link"
-            size="small"
-            onClick={() => openUrl("https://me.bit.edu.cn/")}
-          >
-            官网 https://me.bit.edu.cn/
-          </Button>
-        </Space>
-      </Card>
-
-      <Card
-        id="settings-startup"
-        title={
-          <span className="flex items-center gap-2">
-            <Power size={16} />
-            启动设置
-          </span>
-        }
-      >
-        <div className="flex items-center justify-between py-1">
-          <div>
-            <div>开机自动启动</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              登录系统后自动打开知识库，用于定时提醒等后台任务
-            </Text>
-          </div>
-          <Switch
-            checked={autostartEnabled}
-            loading={autostartLoading}
-            onChange={handleAutostartToggle}
-          />
-        </div>
-        <div
-          className="flex items-center justify-between py-1 mt-2"
-          style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
-        >
-          <div>
-            <div>启动时最小化到托盘</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              仅在开机自动启动时生效；手动双击打开仍会正常显示窗口
-            </Text>
-          </div>
-          <Switch
-            checked={startMinimized}
-            loading={startMinimizedLoading}
-            disabled={!autostartEnabled}
-            onChange={handleStartMinimizedToggle}
-          />
-        </div>
-        <div
-          className="flex items-center justify-between py-1 mt-2"
-          style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
-        >
-          <div>
-            <div>允许多开实例</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              关闭时再次启动会唤起已有窗口（默认）；开启后每次启动都开新窗口，
-              注意多个实例同时写同一份数据库可能导致冲突。下次启动生效。
-            </Text>
-          </div>
-          <Switch
-            checked={multiInstanceEnabled}
-            loading={multiInstanceLoading}
-            onChange={handleMultiInstanceToggle}
-          />
-        </div>
-        <div
-          className="py-1 mt-2"
-          style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div style={{ flex: 1 }}>
-              <div>关闭窗口时</div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                点击右上角关闭按钮的行为。选"每次询问"会弹出三选一对话框。
-              </Text>
-            </div>
-            <Radio.Group
-              value={closeAction}
-              onChange={(e) => handleCloseActionChange(e.target.value)}
-              optionType="button"
-              buttonStyle="solid"
-            >
-              <Radio.Button value="ask">每次询问</Radio.Button>
-              <Radio.Button value="minimize">最小化到托盘</Radio.Button>
-              <Radio.Button value="exit">直接退出</Radio.Button>
-            </Radio.Group>
-          </div>
-        </div>
-      </Card>
-
-      <FeatureModulesSection />
-
-      <div id="settings-hidden-pin">
-        <HiddenPinSection />
+    <div className="settings-tabs-page">
+      <div style={{ marginBottom: 16 }}>
+        <Title level={3}>设置</Title>
       </div>
 
-      <div id="settings-shortcuts">
-        <ShortcutsSection />
-      </div>
-
-      <Card
-        id="settings-editor"
-        title={
-          <span className="flex items-center gap-2">
-            <Type size={16} />
-            编辑器外观
-          </span>
-        }
-      >
-        <div className="flex items-center justify-between py-1">
-          <div>
-            <div>正文字体</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              用户系统未装首选字体时自动 fallback 到下一项，不会出错
-            </Text>
-          </div>
-          <Select
-            value={editorFontFamily}
-            onChange={(v) => setEditorFontFamily(v as EditorFontFamily)}
-            style={{ width: 220 }}
-            options={(Object.keys(EDITOR_FONT_LABELS) as EditorFontFamily[]).map(
-              (key) => ({
-                value: key,
-                label: (
-                  <span
-                    style={{
-                      fontFamily: EDITOR_FONT_STACKS[key] || undefined,
-                    }}
-                  >
-                    {EDITOR_FONT_LABELS[key]}
-                  </span>
-                ),
-              }),
-            )}
-          />
-        </div>
-
-        <div
-          className="flex items-center justify-between py-1 mt-2"
-          style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
-        >
-          <div>
-            <div>正文字号</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              标题、代码块按比例缩放
-            </Text>
-          </div>
-          <Select
-            value={editorFontSize}
-            onChange={setEditorFontSize}
-            style={{ width: 120 }}
-            options={EDITOR_FONT_SIZE_OPTIONS.map((s) => ({
-              value: s,
-              label: `${s} px`,
-            }))}
-          />
-        </div>
-
-        <div
-          className="flex items-center justify-between py-1 mt-2"
-          style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
-        >
-          <div>
-            <div>行距</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              段落行间距倍数
-            </Text>
-          </div>
-          <Select
-            value={editorLineHeight}
-            onChange={setEditorLineHeight}
-            style={{ width: 120 }}
-            options={EDITOR_LINE_HEIGHT_OPTIONS.map((h) => ({
-              value: h,
-              label: h.toFixed(1),
-            }))}
-          />
-        </div>
-
-        <div
-          style={{
-            borderTop: "1px solid #f0f0f0",
-            marginTop: 12,
-            paddingTop: 12,
-          }}
-        >
-          <Text
-            type="secondary"
-            style={{ fontSize: 12, display: "block", marginBottom: 6 }}
-          >
-            预览
-          </Text>
-          <div
-            style={{
-              padding: "12px 14px",
-              background: "var(--ant-color-fill-quaternary, #fafafa)",
-              border: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
-              borderRadius: 6,
-              fontFamily: EDITOR_FONT_STACKS[editorFontFamily] || undefined,
-              fontSize: editorFontSize,
-              lineHeight: editorLineHeight,
-            }}
-          >
-            春有百花秋有月，夏有凉风冬有雪。
-            <br />
-            The quick brown fox jumps over the lazy dog. 1234567890
-          </div>
-          <div className="flex justify-end mt-3">
-            <Button size="small" onClick={resetEditorTypography}>
-              恢复默认
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      <div id="settings-task-reminder">
-        <Card title="待办提醒">
-          <div className="flex items-center justify-between py-1">
-            <div>
-              <div>任务默认提醒时刻</div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                新建任务时若未指定时间，自动填充此时刻；编辑/创建弹窗里的"默认"也指这个值
-              </Text>
-            </div>
-            <TimePicker
-              value={dayjs(allDayReminderTime, "HH:mm")}
-              onChange={handleAllDayReminderTimeChange}
-              format="HH:mm"
-              minuteStep={5}
-              allowClear={false}
-              style={{ width: 120 }}
-            />
-          </div>
-        </Card>
-      </div>
-
-      {/* 导入笔记（Markdown / PDF / Word） */}
-      <Card
-        id="settings-import"
-        title={
-          <span className="flex items-center gap-2">
-            <FolderInput size={16} />
-            导入笔记
-          </span>
-        }
-      >
-        <div className="mb-3">
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
-            支持三种导入方式：从文件夹批量扫描 .md 文件；从本地选择 PDF 或 Word 文档。
-          </Typography.Paragraph>
-          <Space wrap>
-            <Select
-              placeholder="导入到文件夹（可选）"
-              allowClear
-              style={{ width: 200 }}
-              value={importFolderId}
-              onChange={setImportFolderId}
-              options={flattenFolders(folders)}
-            />
-            <Button
-              type="primary"
-              icon={<FolderInput size={14} />}
-              onClick={handleScanFolder}
-              loading={scanning || importing}
-            >
-              扫描 Markdown 文件夹
-            </Button>
-            <Button onClick={handleImportPdfs}>导入 PDF</Button>
-            <Button onClick={handleImportWord}>导入 Word</Button>
-          </Space>
-        </div>
-
-        {importing && importProgress && (
-          <div className="mb-3">
-            <Progress
-              percent={Math.round((importProgress.current / importProgress.total) * 100)}
-              size="small"
-              format={() => `${importProgress.current}/${importProgress.total}`}
-            />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              正在导入: {importProgress.file_name}
-            </Text>
-          </div>
-        )}
-
-        {importResult && (
-          <Alert
-            type={importResult.errors.length > 0 ? "warning" : "success"}
-            showIcon
-            message={`导入完成: ${importResult.imported} 篇成功, ${importResult.skipped} 篇跳过`}
-            description={
-              importResult.errors.length > 0 ? (
-                <List
-                  size="small"
-                  dataSource={importResult.errors.slice(0, 10)}
-                  renderItem={(err) => (
-                    <List.Item style={{ padding: "2px 0", fontSize: 12 }}>
-                      <Text type="danger">{err}</Text>
-                    </List.Item>
-                  )}
-                  footer={
-                    importResult.errors.length > 10 ? (
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        还有 {importResult.errors.length - 10} 条错误...
-                      </Text>
-                    ) : null
+      <Tabs
+        activeKey={activeTab}
+        onChange={(key) => setActiveTab(key as TabKey)}
+        tabPosition="left"
+        destroyInactiveTabPane={false}
+        className="settings-tabs-shell"
+        items={[
+          // ─── Tab 1: AI能力中心 ──────────────────────
+          {
+            key: TAB_KEYS.ai,
+            label: <span className="flex items-center gap-2"><Bot size={16} />AI能力中心</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                {/* AI 模型配置 */}
+                <Card
+                  id="settings-ai-models"
+                  title="AI 模型配置"
+                  extra={
+                    <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openAddModel}>
+                      添加模型
+                    </Button>
                   }
-                />
-              ) : undefined
-            }
-            closable
-            onClose={() => setImportResult(null)}
-          />
-        )}
-      </Card>
-
-      {/* 导出 Markdown */}
-      <Card
-        id="settings-export"
-        title={
-          <span className="flex items-center gap-2">
-            <FolderOutput size={16} />
-            导出 Markdown
-          </span>
-        }
-      >
-        <div className="mb-3">
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
-            将笔记导出为 Markdown 文件，按文件夹结构组织。便于备份或迁移到其他笔记工具。
-          </Typography.Paragraph>
-          <Space>
-            <Select
-              placeholder="导出指定文件夹（可选，默认全部）"
-              allowClear
-              style={{ width: 240 }}
-              value={exportFolderId}
-              onChange={setExportFolderId}
-              options={flattenFolders(folders)}
-            />
-            <Button
-              type="primary"
-              icon={<FolderOutput size={14} />}
-              onClick={handleExport}
-              loading={exporting}
-            >
-              选择导出目录
-            </Button>
-          </Space>
-        </div>
-
-        {exporting && exportProgress && (
-          <div className="mb-3">
-            <Progress
-              percent={Math.round((exportProgress.current / exportProgress.total) * 100)}
-              size="small"
-              format={() => `${exportProgress.current}/${exportProgress.total}`}
-            />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              正在导出: {exportProgress.file_name}
-            </Text>
-          </div>
-        )}
-
-        {exportResult && (
-          <Alert
-            type={exportResult.errors.length > 0 ? "warning" : "success"}
-            showIcon
-            message={`导出完成: ${exportResult.exported} 篇笔记，附带 ${exportResult.assets_copied} 个资产文件`}
-            description={
-              <div className="space-y-2">
-                <div style={{ fontSize: 12, fontFamily: "monospace", wordBreak: "break-all" }}>
-                  {exportResult.root_dir}
-                </div>
-                <Space size="small">
-                  <Button
+                >
+                  <Table
+                    columns={modelColumns}
+                    dataSource={models}
+                    rowKey="id"
+                    loading={modelsLoading}
+                    pagination={false}
                     size="small"
-                    type="primary"
-                    onClick={() => revealItemInDir(exportResult.root_dir).catch(() => {})}
-                  >
-                    打开所在文件夹
-                  </Button>
-                </Space>
-                {exportResult.errors.length > 0 && (
-                  <List
-                    size="small"
-                    dataSource={exportResult.errors.slice(0, 10)}
-                    renderItem={(err) => (
-                      <List.Item style={{ padding: "2px 0", fontSize: 12 }}>
-                        <Text type="danger">{err}</Text>
-                      </List.Item>
-                    )}
                   />
-                )}
+                </Card>
+
+                {/* 语音识别 */}
+                <AsrSection />
               </div>
-            }
-            closable
-            onClose={() => setExportResult(null)}
-          />
-        )}
-      </Card>
+            ),
+          },
+          // ─── Tab 2: 应用管理 ────────────────────────
+          {
+            key: TAB_KEYS.apps,
+            label: <span className="flex items-center gap-2"><AppWindow size={16} />应用管理</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                {/* MCP 服务器 */}
+                <MCPServerSection />
+              </div>
+            ),
+          },
+          // ─── Tab 3: 应用配置 ──────────────────────────
+          {
+            key: TAB_KEYS.appConfig,
+            label: <span className="flex items-center gap-2"><Cog size={16} />应用配置</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                <div id="settings-data-dir">
+                  <DataDirSection />
+                </div>
 
-      <Card
-        id="settings-ai-models"
-        title="AI 模型配置"
-        extra={
-          <Button
-            type="primary"
-            size="small"
-            icon={<PlusOutlined />}
-            onClick={openAddModel}
-          >
-            添加模型
-          </Button>
-        }
-      >
-        <Table
-          columns={modelColumns}
-          dataSource={models}
-          rowKey="id"
-          loading={modelsLoading}
-          pagination={false}
-          size="small"
-        />
-      </Card>
-
-      {/* 语音识别（ASR）：阿里云百炼 DashScope，通过抽象层支持未来扩展 */}
-      <AsrSection />
-
-      {/* 模板管理 */}
-      <Card
-        id="settings-templates"
-        title={
-          <span className="flex items-center gap-2">
-            <LayoutTemplate size={16} />
-            笔记模板
-          </span>
-        }
-        extra={
-          <Button
-            type="primary"
-            size="small"
-            icon={<PlusOutlined />}
-            onClick={openAddTemplate}
-          >
-            新建模板
-          </Button>
-        }
-      >
-        <Table
-          columns={[
-            {
-              title: "模板名称",
-              dataIndex: "name",
-              key: "name",
-            },
-            {
-              title: "描述",
-              dataIndex: "description",
-              key: "description",
-              ellipsis: true,
-              render: (text: string) => (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {text || "—"}
-                </Text>
-              ),
-            },
-            {
-              title: "操作",
-              key: "action",
-              width: 100,
-              render: (_: unknown, record: NoteTemplate) => (
-                <Space size="small">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<Pencil size={14} />}
-                    onClick={() => openEditTemplate(record)}
+                <Card
+                  id="settings-daily-md-path"
+                  title={
+                    <span className="flex items-center gap-2">
+                      <FolderOpen size={16} />
+                      日记文件存储路径
+                    </span>
+                  }
+                >
+                  <Alert
+                    type="info"
+                    showIcon
+                    className="mb-3"
+                    message="当前笔记仍按现有数据库方式保存"
+                    description="这里仅保存一个用于日记 Markdown 文件输出的目录配置，不会改变当前笔记正文写入数据库的实现。"
                   />
-                  <Popconfirm
-                    title="确认删除此模板？"
-                    onConfirm={() => handleDeleteTemplate(record.id)}
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
+                    后续生成或同步日记 .md 文件时，可读取此路径作为保存目录。
+                  </Typography.Paragraph>
+                  <Space.Compact style={{ width: "100%" }}>
+                    <Input
+                      allowClear
+                      value={dailyNoteMdPathDraft}
+                      placeholder="请选择或输入日记 Markdown 文件保存目录"
+                      onChange={(e) => setDailyNoteMdPathDraft(e.target.value)}
+                    />
+                    <Button icon={<FolderOpen size={14} />} onClick={handlePickDailyNoteMdPath}>
+                      选择目录
+                    </Button>
+                    <Button
+                      type="primary"
+                      loading={dailyNoteMdPathSaving}
+                      disabled={dailyNoteMdPathDraft.trim() === dailyNoteMdPath}
+                      onClick={() => saveDailyNoteMdPath(dailyNoteMdPathDraft)}
+                    >
+                      保存
+                    </Button>
+                  </Space.Compact>
+                  {dailyNoteMdPath && (
+                    <div className="mt-2">
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        当前已保存：
+                      </Text>
+                      <Text code copyable style={{ fontSize: 12, wordBreak: "break-all" }}>
+                        {dailyNoteMdPath}
+                      </Text>
+                    </div>
+                  )}
+                </Card>
+
+                <Card
+                  id="settings-orphan-assets"
+                  size="small"
+                  title={
+                    <span className="flex items-center gap-2">
+                      <Trash2 size={16} style={{ color: "var(--ant-color-primary)" }} />
+                      维护 · 孤儿素材清理
+                    </span>
+                  }
+                >
+                  <OrphanAssetsPanel />
+                </Card>
+
+                <Card id="settings-auto-save" title="自动保存" size="small">
+                  <Text type="secondary" style={{ fontSize: 13 }}>
+                    编辑器和日记已内置自动保存机制：停止输入后 1.2 秒自动将内容写入数据库。
+                    无需手动操作，关闭窗口或切换笔记时也会自动触发保存。
+                  </Text>
+                </Card>
+
+                {/* 导入笔记 */}
+                <Card
+                  id="settings-import"
+                  title={
+                    <span className="flex items-center gap-2">
+                      <FolderInput size={16} />
+                      导入笔记
+                    </span>
+                  }
+                >
+                  <div className="mb-3">
+                    <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
+                      支持三种导入方式：从文件夹批量扫描 .md 文件；从本地选择 PDF 或 Word 文档。
+                    </Typography.Paragraph>
+                    <Space wrap>
+                      <Select
+                        placeholder="导入到文件夹（可选）"
+                        allowClear
+                        style={{ width: 200 }}
+                        value={importFolderId}
+                        onChange={setImportFolderId}
+                        options={flattenFolders(folders)}
+                      />
+                      <Button
+                        type="primary"
+                        icon={<FolderInput size={14} />}
+                        onClick={handleScanFolder}
+                        loading={scanning || importing}
+                      >
+                        扫描 Markdown 文件夹
+                      </Button>
+                      <Button onClick={handleImportPdfs}>导入 PDF</Button>
+                      <Button onClick={handleImportWord}>导入 Word</Button>
+                    </Space>
+                  </div>
+                  {importing && importProgress && (
+                    <div className="mb-3">
+                      <Progress
+                        percent={Math.round((importProgress.current / importProgress.total) * 100)}
+                        size="small"
+                        format={() => `${importProgress.current}/${importProgress.total}`}
+                      />
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        正在导入: {importProgress.file_name}
+                      </Text>
+                    </div>
+                  )}
+                  {importResult && (
+                    <Alert
+                      type={importResult.errors.length > 0 ? "warning" : "success"}
+                      showIcon
+                      message={`导入完成: ${importResult.imported} 篇成功, ${importResult.skipped} 篇跳过`}
+                      description={
+                        importResult.errors.length > 0 ? (
+                          <List
+                            size="small"
+                            dataSource={importResult.errors.slice(0, 10)}
+                            renderItem={(err) => (
+                              <List.Item style={{ padding: "2px 0", fontSize: 12 }}>
+                                <Text type="danger">{err}</Text>
+                              </List.Item>
+                            )}
+                            footer={
+                              importResult.errors.length > 10 ? (
+                                <Text type="secondary" style={{ fontSize: 11 }}>
+                                  还有 {importResult.errors.length - 10} 条错误...
+                                </Text>
+                              ) : null
+                            }
+                          />
+                        ) : undefined
+                      }
+                      closable
+                      onClose={() => setImportResult(null)}
+                    />
+                  )}
+                </Card>
+
+                {/* 导出 Markdown */}
+                <Card
+                  id="settings-export"
+                  title={
+                    <span className="flex items-center gap-2">
+                      <FolderOutput size={16} />
+                      导出 Markdown
+                    </span>
+                  }
+                >
+                  <div className="mb-3">
+                    <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
+                      将笔记导出为 Markdown 文件，按文件夹结构组织。便于备份或迁移到其他笔记工具。
+                    </Typography.Paragraph>
+                    <Space>
+                      <Select
+                        placeholder="导出指定文件夹（可选，默认全部）"
+                        allowClear
+                        style={{ width: 240 }}
+                        value={exportFolderId}
+                        onChange={setExportFolderId}
+                        options={flattenFolders(folders)}
+                      />
+                      <Button
+                        type="primary"
+                        icon={<FolderOutput size={14} />}
+                        onClick={handleExport}
+                        loading={exporting}
+                      >
+                        选择导出目录
+                      </Button>
+                    </Space>
+                  </div>
+                  {exporting && exportProgress && (
+                    <div className="mb-3">
+                      <Progress
+                        percent={Math.round((exportProgress.current / exportProgress.total) * 100)}
+                        size="small"
+                        format={() => `${exportProgress.current}/${exportProgress.total}`}
+                      />
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        正在导出: {exportProgress.file_name}
+                      </Text>
+                    </div>
+                  )}
+                  {exportResult && (
+                    <Alert
+                      type={exportResult.errors.length > 0 ? "warning" : "success"}
+                      showIcon
+                      message={`导出完成: ${exportResult.exported} 篇笔记，附带 ${exportResult.assets_copied} 个资产文件`}
+                      description={
+                        <div className="space-y-2">
+                          <div style={{ fontSize: 12, fontFamily: "monospace", wordBreak: "break-all" }}>
+                            {exportResult.root_dir}
+                          </div>
+                          <Space size="small">
+                            <Button
+                              size="small"
+                              type="primary"
+                              onClick={() => revealItemInDir(exportResult.root_dir).catch(() => {})}
+                            >
+                              打开所在文件夹
+                            </Button>
+                          </Space>
+                          {exportResult.errors.length > 0 && (
+                            <List
+                              size="small"
+                              dataSource={exportResult.errors.slice(0, 10)}
+                              renderItem={(err) => (
+                                <List.Item style={{ padding: "2px 0", fontSize: 12 }}>
+                                  <Text type="danger">{err}</Text>
+                                </List.Item>
+                              )}
+                            />
+                          )}
+                        </div>
+                      }
+                      closable
+                      onClose={() => setExportResult(null)}
+                    />
+                  )}
+                </Card>
+
+                <div id="settings-sync">
+                  <SyncTabs />
+                </div>
+
+                {/* 插件设置 Tab */}
+                {pluginSettingsTabs.map((tab) => {
+                  const sectionId = `settings-plugin-${tab.pluginId}:${tab.id}`;
+                  const pluginName =
+                    pluginManager.getPluginName(tab.pluginId) ?? tab.pluginId;
+                  return (
+                    <Card
+                      key={sectionId}
+                      id={sectionId}
+                      size="small"
+                      title={
+                        <span className="flex items-center gap-2">
+                          <span style={{ fontSize: 12, opacity: 0.6 }}>🔌</span>
+                          {tab.title}
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "var(--ant-color-text-quaternary)",
+                              fontWeight: "normal",
+                            }}
+                          >
+                            ({pluginName})
+                          </span>
+                        </span>
+                      }
+                    >
+                      <PluginSettingsTabRenderer tab={tab} />
+                    </Card>
+                  );
+                })}
+              </div>
+            ),
+          },
+          // ─── Tab 4: 个性设置 ──────────────────────────
+          {
+            key: TAB_KEYS.personal,
+            label: <span className="flex items-center gap-2"><UserRound size={16} />个性设置</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                <div id="settings-task-reminder">
+                  <Card title="待办提醒">
+                    <div className="flex items-center justify-between py-1">
+                      <div>
+                        <div>任务默认提醒时刻</div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          新建任务时若未指定时间，自动填充此时刻；编辑/创建弹窗里的"默认"也指这个值
+                        </Text>
+                      </div>
+                      <TimePicker
+                        value={dayjs(allDayReminderTime, "HH:mm")}
+                        onChange={handleAllDayReminderTimeChange}
+                        format="HH:mm"
+                        minuteStep={5}
+                        allowClear={false}
+                        style={{ width: 120 }}
+                      />
+                    </div>
+                  </Card>
+                </div>
+
+                <Card
+                  id="settings-templates"
+                  title={
+                    <span className="flex items-center gap-2">
+                      <LayoutTemplate size={16} />
+                      笔记模板
+                    </span>
+                  }
+                  extra={
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<PlusOutlined />}
+                      onClick={openAddTemplate}
+                    >
+                      新建模板
+                    </Button>
+                  }
+                >
+                  <Table
+                    columns={[
+                      { title: "模板名称", dataIndex: "name", key: "name" },
+                      {
+                        title: "描述",
+                        dataIndex: "description",
+                        key: "description",
+                        ellipsis: true,
+                        render: (text: string) => (
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {text || "—"}
+                          </Text>
+                        ),
+                      },
+                      {
+                        title: "操作",
+                        key: "action",
+                        width: 100,
+                        render: (_: unknown, record: NoteTemplate) => (
+                          <Space size="small">
+                            <Button type="text" size="small" icon={<Pencil size={14} />} onClick={() => openEditTemplate(record)} />
+                            <Popconfirm title="确认删除此模板？" onConfirm={() => handleDeleteTemplate(record.id)}>
+                              <Button type="text" size="small" danger icon={<Trash2 size={14} />} />
+                            </Popconfirm>
+                          </Space>
+                        ),
+                      },
+                    ]}
+                    dataSource={tplList}
+                    rowKey="id"
+                    loading={tplLoading}
+                    pagination={false}
+                    size="small"
+                  />
+                </Card>
+
+                <div id="settings-hidden-pin">
+                  <HiddenPinSection />
+                </div>
+
+                <div id="settings-shortcuts">
+                  <ShortcutsSection />
+                </div>
+              </div>
+            ),
+          },
+          // ─── Tab 5: 显示设置 ──────────────────────────
+          {
+            key: TAB_KEYS.display,
+            label: <span className="flex items-center gap-2"><Monitor size={16} />显示设置</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                <AppearanceSection />
+
+                <Card
+                  id="settings-editor"
+                  title={
+                    <span className="flex items-center gap-2">
+                      <Type size={16} />
+                      编辑器外观
+                    </span>
+                  }
+                >
+                  <div className="flex items-center justify-between py-1">
+                    <div>
+                      <div>正文字体</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        用户系统未装首选字体时自动 fallback 到下一项，不会出错
+                      </Text>
+                    </div>
+                    <Select
+                      value={editorFontFamily}
+                      onChange={(v) => setEditorFontFamily(v as EditorFontFamily)}
+                      style={{ width: 220 }}
+                      options={(Object.keys(EDITOR_FONT_LABELS) as EditorFontFamily[]).map(
+                        (key) => ({
+                          value: key,
+                          label: (
+                            <span style={{ fontFamily: EDITOR_FONT_STACKS[key] || undefined }}>
+                              {EDITOR_FONT_LABELS[key]}
+                            </span>
+                          ),
+                        }),
+                      )}
+                    />
+                  </div>
+                  <div
+                    className="flex items-center justify-between py-1 mt-2"
+                    style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
                   >
-                    <Button type="text" size="small" danger icon={<Trash2 size={14} />} />
-                  </Popconfirm>
-                </Space>
-              ),
-            },
-          ]}
-          dataSource={tplList}
-          rowKey="id"
-          loading={tplLoading}
-          pagination={false}
-          size="small"
-        />
-      </Card>
+                    <div>
+                      <div>正文字号</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        标题、代码块按比例缩放
+                      </Text>
+                    </div>
+                    <Select
+                      value={editorFontSize}
+                      onChange={setEditorFontSize}
+                      style={{ width: 120 }}
+                      options={EDITOR_FONT_SIZE_OPTIONS.map((s) => ({
+                        value: s,
+                        label: `${s} px`,
+                      }))}
+                    />
+                  </div>
+                  <div
+                    className="flex items-center justify-between py-1 mt-2"
+                    style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
+                  >
+                    <div>
+                      <div>行距</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        段落行间距倍数
+                      </Text>
+                    </div>
+                    <Select
+                      value={editorLineHeight}
+                      onChange={setEditorLineHeight}
+                      style={{ width: 120 }}
+                      options={EDITOR_LINE_HEIGHT_OPTIONS.map((h) => ({
+                        value: h,
+                        label: h.toFixed(1),
+                      }))}
+                    />
+                  </div>
 
-      <div id="settings-data-dir">
-        <DataDirSection />
-      </div>
+                  {/* 阅读列宽 */}
+                  <div
+                    className="flex items-center justify-between py-1"
+                    style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, paddingBottom: 12 }}
+                  >
+                    <div>
+                      <div>阅读列宽</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        限制正文宽度并居中，宽屏下一行不再横扫一大片
+                      </Text>
+                    </div>
+                    <Select
+                      value={editorReadingWidth}
+                      onChange={setEditorReadingWidth}
+                      style={{ width: 160 }}
+                      options={EDITOR_READING_WIDTH_OPTIONS.map((w) => ({
+                        value: w,
+                        label: EDITOR_READING_WIDTH_LABELS[w] ?? `${w} px`,
+                      }))}
+                    />
+                  </div>
 
-      <div id="settings-sync">
-        <SyncTabs />
-      </div>
+                  {/* 纸张观感 */}
+                  <div
+                    className="flex items-center justify-between py-1"
+                    style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, paddingBottom: 12 }}
+                  >
+                    <div>
+                      <div>纸张观感</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        正文区变白卡 + 阴影，外层垫浅灰底，像在纸上写
+                      </Text>
+                    </div>
+                    <Switch checked={editorPaper} onChange={setEditorPaper} />
+                  </div>
 
-      {/* MCP 服务器：接入 Claude Desktop / Cursor / Cherry Studio */}
-      <MCPServerSection />
+                  {/* 背景纹理 */}
+                  <div
+                    className="flex items-center justify-between py-1"
+                    style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, paddingBottom: 12 }}
+                  >
+                    <div>
+                      <div>背景纹理</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        横线 / 网格底纹，还原笔记本质感
+                      </Text>
+                    </div>
+                    <Radio.Group
+                      optionType="button"
+                      buttonStyle="solid"
+                      size="small"
+                      value={editorRuleLines}
+                      onChange={(e) => setEditorRuleLines(e.target.value as EditorRuleLines)}
+                      options={(Object.keys(EDITOR_RULE_LABELS) as EditorRuleLines[]).map(
+                        (k) => ({ value: k, label: EDITOR_RULE_LABELS[k] }),
+                      )}
+                    />
+                  </div>
 
-      {/* 维护：孤儿素材清理（5 类素材统一） */}
-      <Card
-        id="settings-orphan-assets"
-        size="small"
-        title={
-          <span className="flex items-center gap-2">
-            <Trash2 size={16} style={{ color: "var(--ant-color-primary)" }} />
-            维护 · 孤儿素材清理
-          </span>
-        }
-        className="mb-4"
-      >
-        <OrphanAssetsPanel />
-      </Card>
+                  {/* 首行缩进 */}
+                  <div
+                    className="flex items-center justify-between py-1"
+                    style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, paddingBottom: 12 }}
+                  >
+                    <div>
+                      <div>首行缩进</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        顶层段落首行缩进 2 字符（中文写作习惯）
+                      </Text>
+                    </div>
+                    <Switch
+                      checked={editorFirstLineIndent}
+                      onChange={setEditorFirstLineIndent}
+                    />
+                  </div>
 
-      <Card id="settings-community" title="作者 & 社区">
-        <div className="flex items-center justify-between py-1">
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div>
-              <Text strong style={{ fontSize: 13 }}>B 站主页</Text>
-            </div>
-            <Text
-              type="secondary"
-              style={{ fontSize: 12, wordBreak: "break-all" }}
-            >
-              {BILIBILI_URL}
-            </Text>
-          </div>
-          <Button
-            type="link"
-            size="small"
-            icon={<ExternalLink size={14} />}
-            onClick={() => openUrl(BILIBILI_URL)}
-          >
-            打开
-          </Button>
-        </div>
-        <div
-          className="flex items-center justify-between py-1 mt-2"
-          style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
-        >
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div>
-              <Text strong style={{ fontSize: 13 }}>视频讲解</Text>
-            </div>
-            <Text
-              type="secondary"
-              style={{ fontSize: 12, wordBreak: "break-all" }}
-            >
-              B 站使用教程 / 功能演示
-            </Text>
-          </div>
-          <Button
-            type="link"
-            size="small"
-            icon={<ExternalLink size={14} />}
-            onClick={() => openUrl(BILIBILI_TUTORIAL_URL)}
-          >
-            打开
-          </Button>
-        </div>
-        <div
-          className="py-1 mt-2"
-          style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
-        >
-          <div>
-            <Text strong style={{ fontSize: 13 }}>知识星球</Text>
-          </div>
-          <div style={{ marginTop: 2 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {ZSXQ_NAME} · 星球号{" "}
-            </Text>
-            <Text copyable={{ text: ZSXQ_ID }} strong style={{ fontSize: 13 }}>
-              {ZSXQ_ID}
-            </Text>
-          </div>
-        </div>
-      </Card>
+                  {/* 高亮快捷键 */}
+                  <div
+                    className="flex items-center justify-between py-1"
+                    style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, paddingBottom: 4 }}
+                  >
+                    <div>
+                      <div>高亮快捷键</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        选中文字后按快捷键加/取消高亮（后续版本支持自定义键位）
+                      </Text>
+                    </div>
+                    <Tooltip title="当前默认快捷键 Ctrl+Shift+H">
+                      <Tag color="blue">Ctrl+Shift+H</Tag>
+                    </Tooltip>
+                  </div>
 
-      <RecommendCards />
+                  <div style={{ borderTop: "1px solid #f0f0f0", marginTop: 12, paddingTop: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>
+                      预览
+                    </Text>
+                    <div
+                      style={{
+                        padding: "12px 14px",
+                        background: "var(--ant-color-fill-quaternary, #fafafa)",
+                        border: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
+                        borderRadius: 6,
+                        fontFamily: EDITOR_FONT_STACKS[editorFontFamily] || undefined,
+                        fontSize: editorFontSize,
+                        lineHeight: editorLineHeight,
+                      }}
+                    >
+                      春有百花秋有月，夏有凉风冬有雪。
+                      <br />
+                      The quick brown fox jumps over the lazy dog. 1234567890
+                    </div>
+                    <div className="flex justify-end mt-3">
+                      <Button size="small" onClick={resetEditorTypography}>
+                        恢复默认
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            ),
+          },
+          // ─── Tab 6: 更新启动 ──────────────────────────
+          {
+            key: TAB_KEYS.startup,
+            label: <span className="flex items-center gap-2"><Rocket size={16} />更新启动</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                <Card id="settings-update" title="软件更新">
+                  <Space wrap>
+                    <Button
+                      icon={<SyncOutlined spin={checking} />}
+                      onClick={handleCheckUpdate}
+                      loading={checking}
+                    >
+                      检查更新
+                    </Button>
+                    <Text type="secondary">当前版本: {appVersion}</Text>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() => openUrl("https://me.bit.edu.cn/")}
+                    >
+                      官网 https://me.bit.edu.cn/
+                    </Button>
+                  </Space>
+                </Card>
+
+                <Card
+                  id="settings-startup"
+                  title={
+                    <span className="flex items-center gap-2">
+                      <Power size={16} />
+                      启动设置
+                    </span>
+                  }
+                >
+                  <div className="flex items-center justify-between py-1">
+                    <div>
+                      <div>开机自动启动</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        登录系统后自动打开知识库，用于定时提醒等后台任务
+                      </Text>
+                    </div>
+                    <Switch
+                      checked={autostartEnabled}
+                      loading={autostartLoading}
+                      onChange={handleAutostartToggle}
+                    />
+                  </div>
+                  <div
+                    className="flex items-center justify-between py-1 mt-2"
+                    style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
+                  >
+                    <div>
+                      <div>启动时最小化到托盘</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        仅在开机自动启动时生效；手动双击打开仍会正常显示窗口
+                      </Text>
+                    </div>
+                    <Switch
+                      checked={startMinimized}
+                      loading={startMinimizedLoading}
+                      disabled={!autostartEnabled}
+                      onChange={handleStartMinimizedToggle}
+                    />
+                  </div>
+                  <div
+                    className="flex items-center justify-between py-1 mt-2"
+                    style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
+                  >
+                    <div>
+                      <div>允许多开实例</div>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        关闭时再次启动会唤起已有窗口（默认）；开启后每次启动都开新窗口，
+                        注意多个实例同时写同一份数据库可能导致冲突。下次启动生效。
+                      </Text>
+                    </div>
+                    <Switch
+                      checked={multiInstanceEnabled}
+                      loading={multiInstanceLoading}
+                      onChange={handleMultiInstanceToggle}
+                    />
+                  </div>
+                  <div
+                    className="py-1 mt-2"
+                    style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div style={{ flex: 1 }}>
+                        <div>关闭窗口时</div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          点击右上角关闭按钮的行为。选"每次询问"会弹出三选一对话框。
+                        </Text>
+                      </div>
+                      <Radio.Group
+                        value={closeAction}
+                        onChange={(e) => handleCloseActionChange(e.target.value)}
+                        optionType="button"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="ask">每次询问</Radio.Button>
+                        <Radio.Button value="minimize">最小化到托盘</Radio.Button>
+                        <Radio.Button value="exit">直接退出</Radio.Button>
+                      </Radio.Group>
+                    </div>
+                  </div>
+                </Card>
+
+                <FeatureModulesSection title="侧边栏" />
+              </div>
+            ),
+          },
+          // ─── Tab 7: 关于 ─────────────────────────────
+          {
+            key: TAB_KEYS.about,
+            label: <span className="flex items-center gap-2"><Info size={16} />关于</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                <AboutContent
+                  showHeader={false}
+                  showSponsor={false}
+                  showRecommend={false}
+                  idPrefix="settings-about"
+                />
+              </div>
+            ),
+          },
+        ]}
+      />
 
       {/* 导入预览弹窗 */}
       <Modal
@@ -1823,18 +1990,11 @@ function DesktopSettingsPage() {
             已选 {selectedPaths.size} / {scannedFiles.length}
           </Text>
         </div>
-        {/* 分桶统计 + 冲突策略 */}
         <div className="mb-3 pb-2" style={{ borderBottom: "1px solid #f0f0f0" }}>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2" style={{ fontSize: 12 }}>
-            <span>
-              🆕 全新 <strong>{matchStats.news}</strong>
-            </span>
-            <span title="路径已匹配到已有笔记（上次导入过）">
-              🔁 已导入过 <strong>{matchStats.paths}</strong>
-            </span>
-            <span title="路径不同但标题+内容与已有笔记一致，可能是用户搬动过文件">
-              ⚠️ 可能重复 <strong>{matchStats.fuzzies}</strong>
-            </span>
+            <span>🆕 全新 <strong>{matchStats.news}</strong></span>
+            <span title="路径已匹配到已有笔记（上次导入过）">🔁 已导入过 <strong>{matchStats.paths}</strong></span>
+            <span title="路径不同但标题+内容与已有笔记一致，可能是用户搬动过文件">⚠️ 可能重复 <strong>{matchStats.fuzzies}</strong></span>
           </div>
           {matchStats.conflicts > 0 && (
             <div>
@@ -1851,21 +2011,14 @@ function DesktopSettingsPage() {
             </div>
           )}
         </div>
-
-        {/* 保留目录层级选项 */}
         <div className="mb-3 pb-2" style={{ borderBottom: "1px solid #f0f0f0" }}>
-          <Checkbox
-            checked={preserveRoot}
-            onChange={(e) => setPreserveRoot(e.target.checked)}
-          >
+          <Checkbox checked={preserveRoot} onChange={(e) => setPreserveRoot(e.target.checked)}>
             <span style={{ fontSize: 13 }}>保留源文件夹作为根</span>
           </Checkbox>
           <div className="mt-1" style={{ paddingLeft: 24 }}>
             <Text type="secondary" style={{ fontSize: 11 }}>
               导入时按源目录层级自动创建子文件夹，同名文件夹复用已有记录。
-              {preserveRoot
-                ? "将在目标下创建与源目录同名的根文件夹。"
-                : "子目录直接挂到目标位置。"}
+              {preserveRoot ? "将在目标下创建与源目录同名的根文件夹。" : "子目录直接挂到目标位置。"}
             </Text>
           </div>
         </div>
@@ -1880,16 +2033,10 @@ function DesktopSettingsPage() {
                 style={{ marginRight: 8 }}
               />
               <div className="flex-1 min-w-0">
-                <Text ellipsis style={{ fontSize: 13 }}>
-                  {file.name}.md
-                </Text>
+                <Text ellipsis style={{ fontSize: 13 }}>{file.name}.md</Text>
                 {file.relative_dir && (
                   <div>
-                    <Text
-                      type="secondary"
-                      ellipsis
-                      style={{ fontSize: 11, display: "block" }}
-                    >
+                    <Text type="secondary" ellipsis style={{ fontSize: 11, display: "block" }}>
                       {file.relative_dir}
                     </Text>
                   </div>
@@ -1907,26 +2054,14 @@ function DesktopSettingsPage() {
         />
       </Modal>
 
-      {/* 添加/编辑模型弹窗
-       *
-       * 表单字段较多（name / provider / url / key / model_id / max_context + 各种 extra 提示），
-       * 全展开会顶到屏幕外。固定 body 最大高度 + 内部滚动 → 在小屏（笔记本 13"）也能看全。
-       * extra 字号统一缩小 (12px) 进一步压缩纵向占用，见 Modal styles.body 内的 .ant-form-item-extra。 */}
+      {/* 添加/编辑模型弹窗 */}
       <Modal
         title={editingModel ? "编辑 AI 模型" : "添加 AI 模型"}
         open={modelModalOpen}
         onCancel={() => setModelModalOpen(false)}
         destroyOnHidden
-        // 类名配合 global.css 里的 .ai-model-modal .ant-form-item-extra → 提示文字 12px
         className="ai-model-modal"
-        styles={{
-          body: {
-            // 固定 body 最大高度 + 内部滚动，避免表单顶到屏幕外（小屏 13" 笔记本也能看全）
-            maxHeight: "calc(100vh - 220px)",
-            overflowY: "auto",
-          },
-        }}
-        // 自定义 footer：在「保存/取消」前面加「测试连接」，让用户填完字段不必先存就能验
+        styles={{ body: { maxHeight: "calc(100vh - 220px)", overflowY: "auto" } }}
         footer={
           <Space>
             <Button
@@ -1944,71 +2079,36 @@ function DesktopSettingsPage() {
           </Space>
         }
       >
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={{ provider: "ollama", api_url: DEFAULT_URLS.ollama }}
-        >
-          <Form.Item
-            name="name"
-            label="名称"
-            rules={[{ required: true, message: "请输入模型名称" }]}
-          >
+        <Form form={form} layout="vertical" initialValues={{ provider: "ollama", api_url: DEFAULT_URLS.ollama }}>
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入模型名称" }]}>
             <Input placeholder="如: GPT-4o Mini" />
           </Form.Item>
-
           <Form.Item
-            name="provider"
-            label="提供商"
+            name="provider" label="提供商"
             extra="除 Ollama 外都按 OpenAI 兼容协议处理。选「自定义」可填任意 baseUrl（OpenRouter / Moonshot / 字节豆包 / 自建网关 / lm studio 等任何 OpenAI 兼容服务）"
             rules={[{ required: true }]}
           >
-            <Select
-              options={PROVIDERS}
-              onChange={handleProviderChange}
-            />
+            <Select options={PROVIDERS} onChange={handleProviderChange} />
           </Form.Item>
-
-          <Form.Item
-            name="api_url"
-            label="API 地址"
-            extra="支持任意 OpenAI 兼容服务的 base_url（不含 /chat/completions 后缀）"
-            rules={[{ required: true, message: "请输入 API 地址" }]}
-          >
+          <Form.Item name="api_url" label="API 地址" extra="支持任意 OpenAI 兼容服务的 base_url（不含 /chat/completions 后缀）" rules={[{ required: true, message: "请输入 API 地址" }]}>
             <Input placeholder={DEFAULT_URLS[watchedProvider] || "https://api.openai.com/v1"} />
           </Form.Item>
-
           <Form.Item name="api_key" label="API Key">
             <Input.Password placeholder="sk-... (Ollama 无需填写)" />
           </Form.Item>
-
           <Form.Item
-            name="model_id"
-            label="模型标识"
+            name="model_id" label="模型标识"
             extra="✏️ 可直接输入任意模型名（如 anthropic/claude-sonnet-4.6、moonshotai/kimi-k2 等），不必限于下拉候选"
             rules={[{ required: true, message: "请输入或选择模型标识" }]}
           >
             <AutoComplete
               options={MODEL_PRESETS[watchedProvider] || []}
-              placeholder={
-                MODEL_ID_PLACEHOLDERS[watchedProvider] ||
-                "如: gpt-4o-mini / qwen2.5:7b"
-              }
-              filterOption={(input, option) =>
-                (option?.value as string)
-                  ?.toLowerCase()
-                  .includes(input.toLowerCase())
-              }
+              placeholder={MODEL_ID_PLACEHOLDERS[watchedProvider] || "如: gpt-4o-mini / qwen2.5:7b"}
+              filterOption={(input, option) => (option?.value as string)?.toLowerCase().includes(input.toLowerCase())}
               allowClear
             />
           </Form.Item>
-
-          <Form.Item
-            name="max_context"
-            label="最大上下文 token"
-            extra="从下拉选常用量级，或手动输入任意数字。不确定就保留 32000。"
-            initialValue={32000}
-          >
+          <Form.Item name="max_context" label="最大上下文 token" extra="从下拉选常用量级，或手动输入任意数字。不确定就保留 32000。" initialValue={32000}>
             <AutoComplete
               placeholder="32000"
               options={[
@@ -2022,10 +2122,7 @@ function DesktopSettingsPage() {
               filterOption={(input, option) => {
                 const q = input.trim().toLowerCase();
                 if (!q) return true;
-                return (
-                  String(option?.value ?? "").includes(q) ||
-                  String(option?.label ?? "").toLowerCase().includes(q)
-                );
+                return String(option?.value ?? "").includes(q) || String(option?.label ?? "").toLowerCase().includes(q);
               }}
               style={{ width: "100%" }}
             />
@@ -2046,11 +2143,7 @@ function DesktopSettingsPage() {
         styles={{ body: { maxHeight: "calc(100vh - 240px)", overflow: "auto" } }}
       >
         <Form form={tplForm} layout="vertical" className="mt-4">
-          <Form.Item
-            name="name"
-            label="模板名称"
-            rules={[{ required: true, message: "请输入模板名称" }]}
-          >
+          <Form.Item name="name" label="模板名称" rules={[{ required: true, message: "请输入模板名称" }]}>
             <Input placeholder="如：会议记录" />
           </Form.Item>
           <Form.Item name="description" label="描述" initialValue="">
@@ -2069,11 +2162,7 @@ function DesktopSettingsPage() {
             initialValue=""
             valuePropName="content"
           >
-            <TiptapEditor
-              content=""
-              onChange={() => {}}
-              placeholder="输入模板内容（支持富文本），创建笔记时将自动填充"
-            />
+            <TiptapEditor content="" onChange={() => {}} placeholder="输入模板内容（支持富文本），创建笔记时将自动填充" />
           </Form.Item>
         </Form>
       </Modal>
@@ -2083,38 +2172,6 @@ function DesktopSettingsPage() {
         onClose={() => setUpdateModalOpen(false)}
         update={update}
       />
-
-      {/* 插件设置 Tab（注册表来源，按 pluginId 分块，每块一个独立 section） */}
-      {pluginSettingsTabs.map((tab) => {
-        const sectionId = `settings-plugin-${tab.pluginId}:${tab.id}`;
-        const pluginName =
-          pluginManager.getPluginName(tab.pluginId) ?? tab.pluginId;
-        return (
-          <Card
-            key={sectionId}
-            id={sectionId}
-            size="small"
-            title={
-              <span className="flex items-center gap-2">
-                <span style={{ fontSize: 12, opacity: 0.6 }}>🔌</span>
-                {tab.title}
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: "var(--ant-color-text-quaternary)",
-                    fontWeight: "normal",
-                  }}
-                >
-                  ({pluginName})
-                </span>
-              </span>
-            }
-          >
-            <PluginSettingsTabRenderer tab={tab} />
-          </Card>
-        );
-      })}
-      </div>
     </div>
   );
 }

@@ -30,7 +30,7 @@ interface ModuleMeta {
 const MODULES: ModuleMeta[] = [
   {
     view: "daily",
-    label: "每日笔记",
+    label: "日记",
     desc: "按日期写日记 / 工作日志，自带月历与日期跳转",
     icon: <Calendar size={16} />,
   },
@@ -99,7 +99,12 @@ if (import.meta.env.DEV) {
   }
 }
 
-export function FeatureModulesSection() {
+interface FeatureModulesSectionProps {
+  title?: string;
+  description?: string;
+}
+
+export function FeatureModulesSection({ title, description }: FeatureModulesSectionProps) {
   const { token } = antdTheme.useToken();
   const enabledViews = useAppStore((s) => s.enabledViews);
   const toggleEnabledView = useAppStore((s) => s.toggleEnabledView);
@@ -110,13 +115,12 @@ export function FeatureModulesSection() {
       title={
         <span className="flex items-center gap-2">
           <Boxes size={16} />
-          功能模块
+          {title ?? "功能模块"}
         </span>
       }
     >
       <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 12 }}>
-        关闭后侧栏入口隐藏，但功能本身和数据不会被删除——重新开启即可恢复。
-        核心模块（首页 / 笔记 / 搜索 / 回收站 / 关于）始终启用，不可关闭。
+        {description ?? "关闭后侧栏入口隐藏，但功能本身和数据不会被删除——重新开启即可恢复。"}
       </Text>
 
       {MODULES.map((m, i) => {
