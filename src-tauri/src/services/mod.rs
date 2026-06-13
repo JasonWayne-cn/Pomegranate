@@ -2,6 +2,7 @@ pub mod ai;
 pub mod asr;
 pub mod asset_path;
 pub mod cards;
+pub mod claude_agent;
 pub mod attachment;
 pub mod config;
 pub mod converter;
@@ -39,15 +40,19 @@ pub mod note;
 pub mod orphan_scan;
 pub mod pdf;
 pub mod plugin_token;
+pub mod plugin_rate_limit;
 // 插件系统：元数据管理、manifest 校验、安装/卸载
 pub mod plugins;
 // 笔记 pop-out 窗口仅桌面端（移动端改 Modal）
 #[cfg(desktop)]
 pub mod popout_window;
 pub mod prompt;
+pub mod provider_registry;
 pub mod quick_capture;
 pub mod safe_filename;
 pub mod search;
+pub mod session_manager;
+pub mod session_plan;
 // 全局快捷键仅桌面端可用
 #[cfg(desktop)]
 pub mod shortcut;

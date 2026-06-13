@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 38;
+pub const SCHEMA_VERSION: i32 = 42;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -68,6 +68,10 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             35 => migrate_v35_to_v36(conn)?,
             36 => migrate_v36_to_v37(conn)?,
             37 => migrate_v37_to_v38(conn)?,
+            38 => migrate_v38_to_v39(conn)?,
+            39 => migrate_v39_to_v40(conn)?,
+            40 => migrate_v40_to_v41(conn)?,
+            41 => migrate_v41_to_v42(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -1516,5 +1520,155 @@ fn migrate_v37_to_v38(conn: &Connection) -> Result<(), AppError> {
         "ALTER TABLE plugins ADD COLUMN content_hash TEXT NOT NULL DEFAULT '';",
     )?;
     set_version(conn, 38)?;
+    Ok(())
+}
+
+/// v38 → v39: 任务执行会话 — 会话表 + 阶段表 + 执行日志表
+fn migrate_v38_to_v39(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS task_sessions (
+            id              TEXT PRIMARY KEY NOT NULL,
+            plan_path       TEXT NOT NULL,
+            plan_name       TEXT NOT NULL DEFAULT '',
+            status          TEXT NOT NULL DEFAULT 'idle',
+            current_phase_index INTEGER NOT NULL DEFAULT 0,
+            total_phases    INTEGER NOT NULL DEFAULT 0,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS execution_phases (
+            id              TEXT PRIMARY KEY NOT NULL,
+            session_id      TEXT NOT NULL,
+            index_num       INTEGER NOT NULL DEFAULT 0,
+            name            TEXT NOT NULL DEFAULT '',
+            description     TEXT NOT NULL DEFAULT '',
+            status          TEXT NOT NULL DEFAULT 'pending',
+            files_modified  TEXT,
+            result_summary  TEXT,
+            started_at      TEXT,
+            finished_at     TEXT,
+            FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_phases_session ON execution_phases(session_id);
+
+        CREATE TABLE IF NOT EXISTS execution_logs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id  TEXT NOT NULL,
+            phase_id    TEXT,
+            level       TEXT NOT NULL DEFAULT 'info',
+            message     TEXT NOT NULL DEFAULT '',
+            created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_logs_session ON execution_logs(session_id);
+        CREATE INDEX IF NOT EXISTS idx_logs_phase ON execution_logs(phase_id);",
+    )?;
+    set_version(conn, 39)?;
+    Ok(())
+}
+
+/// v39 → v40: 项目文件夹会话（Tab 化管理）
+fn migrate_v39_to_v40(conn: &Connection) -> Result<(), AppError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS project_sessions (
+            id              TEXT PRIMARY KEY NOT NULL,
+            project_name    TEXT NOT NULL,
+            project_path    TEXT NOT NULL UNIQUE,
+            status          TEXT NOT NULL DEFAULT 'idle',
+            git_branch      TEXT,
+            is_open         INTEGER NOT NULL DEFAULT 0,
+            last_active_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_project_sessions_open
+            ON project_sessions(is_open);
+
+        CREATE TABLE IF NOT EXISTS project_session_contexts (
+            session_id          TEXT PRIMARY KEY NOT NULL,
+            project_path        TEXT NOT NULL,
+            git_branch          TEXT,
+            changed_files_json  TEXT NOT NULL DEFAULT '[]',
+            pinned_files_json   TEXT NOT NULL DEFAULT '[]',
+            recent_files_json   TEXT NOT NULL DEFAULT '[]',
+            current_task        TEXT,
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (session_id) REFERENCES project_sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS project_session_messages (
+            id          TEXT PRIMARY KEY NOT NULL,
+            session_id  TEXT NOT NULL,
+            role        TEXT NOT NULL,
+            content     TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (session_id) REFERENCES project_sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_project_session_msgs
+            ON project_session_messages(session_id, created_at);",
+    )?;
+    set_version(conn, 40)?;
+    Ok(())
+}
+
+/// v40 -> v41: AI 模型能力字段 — 协议类型 + 工具调用/视觉/最大输出 token
+fn migrate_v40_to_v41(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v40 -> v41");
+
+    conn.execute_batch(
+        r#"
+        ALTER TABLE ai_models ADD COLUMN protocol TEXT NOT NULL DEFAULT 'openai_compatible';
+        ALTER TABLE ai_models ADD COLUMN supports_tools INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE ai_models ADD COLUMN supports_vision INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ai_models ADD COLUMN max_output_tokens INTEGER;
+
+        -- 存量 deepseek 模型自动标协议（deepseek 走 OpenAI 兼容，无需改）
+        "#,
+    )?;
+
+    set_version(conn, 41)?;
+    Ok(())
+}
+
+/// v41 -> v42: Claude Code Agent Runner — agent 会话 + 事件日志表
+fn migrate_v41_to_v42(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v41 -> v42");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS claude_agent_sessions (
+            id          TEXT PRIMARY KEY NOT NULL,
+            project_path TEXT NOT NULL,
+            prompt      TEXT NOT NULL,
+            session_name TEXT,
+            permission_mode TEXT NOT NULL DEFAULT 'readonly',
+            status      TEXT NOT NULL DEFAULT 'pending',
+            pid         INTEGER,
+            exit_code   INTEGER,
+            error_message TEXT,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            started_at  TEXT,
+            finished_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_cas_project ON claude_agent_sessions(project_path);
+
+        CREATE TABLE IF NOT EXISTS claude_agent_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id  TEXT NOT NULL,
+            kind        TEXT NOT NULL,
+            content     TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY (session_id) REFERENCES claude_agent_sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_cae_session ON claude_agent_events(session_id);
+        ",
+    )?;
+
+    set_version(conn, 42)?;
     Ok(())
 }

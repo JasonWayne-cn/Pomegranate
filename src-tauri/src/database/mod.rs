@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod cards;
+pub mod claude_agent;
 pub mod folders;
 pub mod links;
 pub mod mcp_servers;
@@ -8,6 +9,7 @@ pub mod plugins;
 pub mod prompt;
 pub mod schema;
 pub mod search;
+pub mod session;
 pub mod sync;
 pub mod sync_v1;
 pub mod tags;

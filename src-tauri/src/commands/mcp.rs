@@ -13,6 +13,7 @@
 //!   3) 协议统一，UI 不需要区分"原生工具"和"外部工具"
 
 use std::path::PathBuf;
+use std::process::Command;
 
 use rmcp::model::CallToolRequestParams;
 use serde::Serialize;
@@ -792,18 +793,143 @@ pub struct ClientInstallStatus {
     pub writable: bool,
 }
 
+/// Claude Code CLI + MCP 安装状态，设置页用。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeCodeCliInfo {
+    pub available: bool,
+    pub version: Option<String>,
+    pub config_path: Option<String>,
+    pub config_exists: bool,
+    pub mcp_installed: bool,
+    pub mcp_writable: bool,
+    pub error: Option<String>,
+}
+
 #[tauri::command]
 pub fn mcp_check_install_status(target: InstallTarget) -> Result<ClientInstallStatus, String> {
-    let config_path = match target {
-        InstallTarget::ClaudeDesktop => locate_claude_desktop_config()
-            .ok_or_else(|| "无法定位 Claude Desktop 配置目录".to_string())?,
-        InstallTarget::Cursor => {
-            locate_cursor_config().ok_or_else(|| "无法定位 Cursor 配置目录".to_string())?
+    let config_path = locate_client_config(&target)?;
+    read_client_install_status(config_path)
+}
+
+#[tauri::command]
+pub fn mcp_claude_code_cli_info() -> ClaudeCodeCliInfo {
+    let config_path = locate_claude_code_config();
+    let install_status = config_path
+        .clone()
+        .map(read_client_install_status)
+        .transpose();
+
+    let cli_result = run_claude_version();
+    let (available, version, cli_error) = match cli_result {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let text = if stdout.is_empty() { stderr } else { stdout };
+            (true, Some(text), None)
         }
-        InstallTarget::ClaudeCode => locate_claude_code_config()
-            .ok_or_else(|| "无法定位 Claude Code (CLI) 配置文件 ~/.claude.json".to_string())?,
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let detail = if stderr.is_empty() { stdout } else { stderr };
+            (
+                false,
+                None,
+                Some(if detail.is_empty() {
+                    format!("claude --version 退出码: {}", output.status)
+                } else {
+                    detail
+                }),
+            )
+        }
+        Err(e) => (false, None, Some(e.to_string())),
     };
 
+    let (config_exists, mcp_installed, mcp_writable, status_error) = match install_status {
+        Ok(Some(status)) => (
+            status.config_exists,
+            status.installed,
+            status.writable,
+            None,
+        ),
+        Ok(None) => (
+            false,
+            false,
+            false,
+            Some("无法定位 Claude Code 配置文件".to_string()),
+        ),
+        Err(e) => (false, false, false, Some(e)),
+    };
+
+    ClaudeCodeCliInfo {
+        available,
+        version,
+        config_path: config_path.map(|p| p.to_string_lossy().into_owned()),
+        config_exists,
+        mcp_installed,
+        mcp_writable,
+        error: cli_error.or(status_error),
+    }
+}
+
+fn run_claude_version() -> std::io::Result<std::process::Output> {
+    let mut last_err = None;
+    for program in claude_command_candidates() {
+        let mut cmd = Command::new(&program);
+        cmd.arg("--version");
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        match cmd.output() {
+            Ok(output) => return Ok(output),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err
+        .unwrap_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "program not found")))
+}
+
+fn claude_command_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let npm_dir = PathBuf::from(appdata).join("npm");
+            candidates.push(npm_dir.join("claude.cmd"));
+            candidates.push(npm_dir.join("claude.exe"));
+            candidates.push(npm_dir.join("claude"));
+        }
+        if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
+            let npm_dir = PathBuf::from(localappdata).join("npm");
+            candidates.push(npm_dir.join("claude.cmd"));
+            candidates.push(npm_dir.join("claude.exe"));
+            candidates.push(npm_dir.join("claude"));
+        }
+        candidates.push(PathBuf::from("claude.cmd"));
+        candidates.push(PathBuf::from("claude.exe"));
+    }
+
+    candidates.push(PathBuf::from("claude"));
+    candidates
+}
+
+fn locate_client_config(target: &InstallTarget) -> Result<PathBuf, String> {
+    match target {
+        InstallTarget::ClaudeDesktop => locate_claude_desktop_config()
+            .ok_or_else(|| "无法定位 Claude Desktop 配置目录".to_string()),
+        InstallTarget::Cursor => {
+            locate_cursor_config().ok_or_else(|| "无法定位 Cursor 配置目录".to_string())
+        }
+        InstallTarget::ClaudeCode => locate_claude_code_config()
+            .ok_or_else(|| "无法定位 Claude Code (CLI) 配置文件 ~/.claude.json".to_string()),
+    }
+}
+
+fn read_client_install_status(config_path: PathBuf) -> Result<ClientInstallStatus, String> {
     let config_path_str = config_path.to_string_lossy().into_owned();
     if !config_path.exists() {
         return Ok(ClientInstallStatus {
@@ -814,8 +940,13 @@ pub fn mcp_check_install_status(target: InstallTarget) -> Result<ClientInstallSt
         });
     }
 
-    let raw = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let root: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+    let raw = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("读取 {} 失败: {}", config_path.display(), e))?;
+    let root: serde_json::Value = if raw.trim().is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_str(&raw).map_err(|e| format!("解析 JSON 失败: {}", e))?
+    };
 
     let kb_entry = root.get("mcpServers").and_then(|s| s.get("knowledge-base"));
 
@@ -826,7 +957,7 @@ pub fn mcp_check_install_status(target: InstallTarget) -> Result<ClientInstallSt
                 .and_then(|a| a.as_array())
                 .map(|arr| {
                     arr.iter()
-                        .any(|v| v.as_str().map(|s| s == "--writable").unwrap_or(false))
+                        .any(|v| v.as_str().is_some_and(|s| s == "--writable"))
                 })
                 .unwrap_or(false);
             (true, writable)

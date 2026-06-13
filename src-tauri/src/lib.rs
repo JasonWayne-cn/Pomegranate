@@ -831,6 +831,7 @@ pub fn run() {
             commands::mcp::mcp_install_to_client,
             commands::mcp::mcp_uninstall_from_client,
             commands::mcp::mcp_check_install_status,
+            commands::mcp::mcp_claude_code_cli_info,
             commands::mcp::mcp_get_setup_doc,
             // 系统模块
             commands::system::greet,
@@ -841,11 +842,19 @@ pub fn run() {
             commands::system::set_multi_instance_enabled,
             commands::system::write_text_file,
             commands::system::resolve_asset_absolute_path,
+            commands::system::get_git_info,
             // 配置模块
             commands::config::get_all_config,
             commands::config::get_config,
             commands::config::set_config,
             commands::config::delete_config,
+            // Claude Code Agent Runner
+            commands::claude_agent::claude_agent_check_cli,
+            commands::claude_agent::start_claude_agent_session,
+            commands::claude_agent::stop_claude_agent_session,
+            commands::claude_agent::list_claude_agent_sessions,
+            commands::claude_agent::get_claude_agent_session,
+            commands::claude_agent::list_claude_agent_events,
             // 插件系统 MVP（元数据管理 + 权限授权 + 设置存储；暂不执行第三方 JS）
             commands::plugins::list_plugins,
             commands::plugins::scan_plugins,
@@ -977,6 +986,12 @@ pub fn run() {
             commands::links::search_link_targets,
             commands::links::find_note_id_by_title_loose,
             commands::links::get_graph_data,
+            // AI Provider 注册表
+            commands::ai_provider::list_ai_providers,
+            commands::ai_provider::get_active_provider,
+            commands::ai_provider::get_provider_capabilities,
+            commands::ai_provider::switch_ai_provider,
+            commands::ai_provider::init_default_provider,
             // AI 模块
             commands::ai::list_ai_models,
             commands::ai::create_ai_model,
@@ -1130,6 +1145,31 @@ pub fn run() {
             commands::asr::asr_save_config,
             commands::asr::asr_test_connection,
             commands::asr::asr_transcribe_audio,
+            // 任务执行会话
+            commands::session::parse_plan_file,
+            commands::session::create_task_session,
+            commands::session::get_task_session,
+            commands::session::list_task_sessions,
+            commands::session::start_session_phase,
+            commands::session::confirm_session_phase,
+            commands::session::skip_session_phase,
+            commands::session::retry_session_phase,
+            commands::session::pause_task_session,
+            commands::session::resume_task_session,
+            commands::session::delete_task_session,
+            commands::session::add_execution_log,
+            commands::session::get_execution_logs,
+            commands::session::export_execution_logs,
+            commands::session::save_temp_plan,
+            // 项目文件夹会话
+            commands::session::open_project_session,
+            commands::session::list_open_project_sessions,
+            commands::session::list_recent_project_sessions,
+            commands::session::set_active_project_session,
+            commands::session::close_project_session,
+            commands::session::get_project_session_context,
+            commands::session::append_project_session_message,
+            commands::session::list_project_session_messages,
         ])
         // ─── 窗口事件处理 ─────────────────────────
         .on_window_event(|window, event| {

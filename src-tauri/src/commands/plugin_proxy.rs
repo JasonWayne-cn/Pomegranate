@@ -279,10 +279,14 @@ pub fn plugin_proxy_ai_models(
             id: m.id,
             name: m.name,
             provider: m.provider,
+            protocol: m.protocol,
             api_url: m.api_url,
             model_id: m.model_id,
             is_default: m.is_default,
             max_context: m.max_context,
+            supports_tools: m.supports_tools,
+            supports_vision: m.supports_vision,
+            max_output_tokens: m.max_output_tokens,
         })
         .collect())
 }

@@ -58,6 +58,7 @@ import OrphanAssetsPanel from "@/components/settings/OrphanAssetsPanel";
 import { HiddenPinSection } from "@/components/hidden/HiddenPinSection";
 import { ShortcutsSection } from "@/components/settings/ShortcutsSection";
 import { MCPServerSection } from "@/components/settings/MCPServerSection";
+import ClaudeAgentRunnerCard from "@/components/ai/ClaudeAgentRunnerCard";
 import { TiptapEditor } from "@/components/editor";
 import { pluginManager } from "@/services/pluginManager";
 import { AboutContent } from "@/components/about/AboutContent";
@@ -1261,6 +1262,8 @@ function DesktopSettingsPage() {
             label: <span className="flex items-center gap-2"><AppWindow size={16} />应用管理</span>,
             children: (
               <div className="settings-tabs-stack">
+                {/* Claude Code Agent Runner */}
+                <ClaudeAgentRunnerCard />
                 {/* MCP 服务器 */}
                 <MCPServerSection />
               </div>

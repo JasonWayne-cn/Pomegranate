@@ -50,6 +50,16 @@ interface InstallResult {
   overwritten: boolean;
 }
 
+interface ClaudeCodeCliInfo {
+  available: boolean;
+  version: string | null;
+  configPath: string | null;
+  configExists: boolean;
+  mcpInstalled: boolean;
+  mcpWritable: boolean;
+  error: string | null;
+}
+
 // 用浏览器原生 clipboard，省一个 npm 依赖；webview 在 https / tauri:// 协议下都允许
 async function writeClipboard(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
@@ -88,6 +98,7 @@ export function MCPServerSection() {
   const [pinging, setPinging] = useState(false);
   const [pingResult, setPingResult] = useState<string | null>(null);
   const [claudeCodeTpl, setClaudeCodeTpl] = useState<ClaudeCodeTemplate | null>(null);
+  const [claudeCodeInfo, setClaudeCodeInfo] = useState<ClaudeCodeCliInfo | null>(null);
   const [docOpen, setDocOpen] = useState(false);
   const [docContent, setDocContent] = useState<string | null>(null);
   const [docLoading, setDocLoading] = useState(false);
@@ -99,14 +110,16 @@ export function MCPServerSection() {
   async function load() {
     setLoading(true);
     try {
-      const [i, t, tpl] = await Promise.all([
+      const [i, t, tpl, ccInfo] = await Promise.all([
         invoke<McpRuntimeInfo>("mcp_runtime_info"),
         invoke<McpToolInfo[]>("mcp_internal_list_tools").catch(() => [] as McpToolInfo[]),
         invoke<ClaudeCodeTemplate>("mcp_get_claude_md_template").catch(() => null),
+        invoke<ClaudeCodeCliInfo>("mcp_claude_code_cli_info").catch(() => null),
       ]);
       setInfo(i);
       setTools(t);
       setClaudeCodeTpl(tpl);
+      setClaudeCodeInfo(ccInfo);
     } catch (e) {
       message.error(`加载 MCP 信息失败: ${e}`);
     } finally {
@@ -191,6 +204,9 @@ export function MCPServerSection() {
         target,
         writable,
       });
+      if (target === "claudecode") {
+        void load();
+      }
       Modal.success({
         title: `已安装到 ${label}`,
         width: 540,
@@ -224,6 +240,18 @@ export function MCPServerSection() {
       });
     } catch (e) {
       message.error(`安装失败: ${e}`);
+    }
+  }
+
+  async function handleUninstall(target: InstallTarget, label: string) {
+    try {
+      await invoke("mcp_uninstall_from_client", { target });
+      if (target === "claudecode") {
+        void load();
+      }
+      message.success(`已从 ${label} 卸载 knowledge-base MCP 配置`);
+    } catch (e) {
+      message.error(`卸载失败: ${e}`);
     }
   }
 
@@ -408,10 +436,12 @@ export function MCPServerSection() {
                     children: claudeCodeTpl ? (
                       <ClaudeCodeBlock
                         tpl={claudeCodeTpl}
+                        cliInfo={claudeCodeInfo}
                         onCopy={copyConfig}
                         onSaveAs={() => void saveClaudeMdAs()}
                         onOpenClaudeDir={() => void openClaudeDir()}
                         onInstall={handleInstall}
+                        onUninstall={handleUninstall}
                       />
                     ) : (
                       <Empty description="模板未加载" />
@@ -856,9 +886,10 @@ interface ConfigBlockProps {
   /// 提供时显示「一键安装」按钮，自动 merge JSON 到客户端配置文件
   installer?: { target: InstallTarget; writable: boolean; clientLabel: string };
   onInstall?: (target: InstallTarget, writable: boolean, label: string) => void;
+  onUninstall?: (target: InstallTarget, clientLabel: string) => void;
 }
 
-function ConfigBlock({ json, label, hint, onCopy, installer, onInstall }: ConfigBlockProps) {
+function ConfigBlock({ json, label, hint, onCopy, installer, onInstall, onUninstall }: ConfigBlockProps) {
   return (
     <div>
       {installer && onInstall && (
@@ -895,6 +926,15 @@ function ConfigBlock({ json, label, hint, onCopy, installer, onInstall }: Config
               ⚡ 一键安装到 {installer.clientLabel}
             </Button>
           )}
+          {installer && onUninstall && (
+            <Button
+              size="small"
+              danger
+              onClick={() => onUninstall(installer.target, installer.clientLabel)}
+            >
+              卸载
+            </Button>
+          )}
           <Button size="small" icon={<CopyOutlined />} onClick={() => onCopy(json, label)}>
             复制 JSON
           </Button>
@@ -908,13 +948,15 @@ function ConfigBlock({ json, label, hint, onCopy, installer, onInstall }: Config
 
 interface ClaudeCodeBlockProps {
   tpl: ClaudeCodeTemplate;
+  cliInfo: ClaudeCodeCliInfo | null;
   onCopy: (text: string, label: string) => void;
   onSaveAs: () => void;
   onOpenClaudeDir: () => void;
   onInstall: (target: InstallTarget, writable: boolean, label: string) => void;
+  onUninstall?: (target: InstallTarget, label: string) => void;
 }
 
-function ClaudeCodeBlock({ tpl, onCopy, onSaveAs, onOpenClaudeDir, onInstall }: ClaudeCodeBlockProps) {
+function ClaudeCodeBlock({ tpl, cliInfo, onCopy, onSaveAs, onOpenClaudeDir, onInstall }: ClaudeCodeBlockProps) {
   // 注：不用 space-y-* —— TailwindCSS 4 的 space utilities 在 antd 组件嵌套
   // 场景下偶尔被覆盖（Alert 内部样式优先级），改用每块显式 mt-5 兜底。
   return (
@@ -940,6 +982,30 @@ function ClaudeCodeBlock({ tpl, onCopy, onSaveAs, onOpenClaudeDir, onInstall }: 
           </ol>
         }
       />
+
+      <div className="mt-4">
+        <Alert
+          type={cliInfo?.available ? (cliInfo.mcpInstalled ? "success" : "warning") : "error"}
+          showIcon
+          message={
+            <Space wrap>
+              <span>Claude Code CLI</span>
+              {cliInfo?.available ? <Tag color="green">已安装</Tag> : <Tag color="red">未检测到</Tag>}
+              {cliInfo?.mcpInstalled && <Tag color={cliInfo.mcpWritable ? "orange" : "blue"}>{cliInfo.mcpWritable ? "MCP 可写" : "MCP 只读"}</Tag>}
+            </Space>
+          }
+          description={
+            cliInfo ? (
+              <div className="space-y-1">
+                {cliInfo.version && <div>版本：<code>{cliInfo.version}</code></div>}
+                {cliInfo.configPath && <div>配置：<code>{cliInfo.configPath}</code></div>}
+                <div>配置文件：{cliInfo.configExists ? "已存在" : "未创建"}；knowledge-base：{cliInfo.mcpInstalled ? "已安装" : "未安装"}</div>
+                {cliInfo.error && <div>提示：{cliInfo.error}</div>}
+              </div>
+            ) : "无法读取 Claude Code 状态，请确认后端 Command 已注册。"
+          }
+        />
+      </div>
 
       {/* CLAUDE.md 块 */}
       <div className="mt-5">

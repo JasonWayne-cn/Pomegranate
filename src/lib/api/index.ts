@@ -26,6 +26,10 @@ import type {
   AiModel,
   AiModelInput,
   AiModelTestResult,
+  AiProviderMetadata,
+  ActiveProviderInfo,
+  AiCapabilities,
+  SwitchProviderInput,
   AiConversation,
   AiMessage,
   ImportConflictPolicy,
@@ -94,6 +98,18 @@ import type {
   PluginInfo,
   PluginManifest,
   PluginAuditLogEntry,
+  TaskSession,
+  ExecutionPhase,
+  ExecutionLog,
+  CreateExecutionLogInput,
+  ParsedPlan,
+  TaskSessionDetail,
+  ProjectSession,
+  ProjectSessionContext,
+  ProjectSessionMessage,
+  ClaudeAgentSession,
+  ClaudeAgentEvent,
+  StartClaudeAgentInput,
 } from "@/types";
 
 /** 系统相关 API */
@@ -407,6 +423,25 @@ export const tagApi = {
     invoke<Tag[]>("get_note_tags", { noteId }),
   listNotesByTag: (tagId: number, page?: number, pageSize?: number) =>
     invoke<PageResult<Note>>("list_notes_by_tag", { tagId, page, pageSize }),
+};
+
+/** AI Provider 注册表 API */
+export const aiProviderApi = {
+  /** 列出所有已注册的 Provider */
+  listProviders: () =>
+    invoke<AiProviderMetadata[]>("list_ai_providers"),
+  /** 获取当前活跃 Provider（不含 api_key） */
+  getActiveProvider: () =>
+    invoke<ActiveProviderInfo | null>("get_active_provider"),
+  /** 获取当前 Provider 能力 */
+  getCapabilities: () =>
+    invoke<AiCapabilities | null>("get_provider_capabilities"),
+  /** 切换到指定 Provider（通过模型 ID 加载配置） */
+  switchProvider: (input: SwitchProviderInput) =>
+    invoke<ActiveProviderInfo>("switch_ai_provider", { input }),
+  /** 使用默认模型初始化 Provider */
+  initDefault: () =>
+    invoke<ActiveProviderInfo>("init_default_provider"),
 };
 
 /** AI 模型 API */
@@ -896,6 +931,59 @@ export const taskCategoryApi = {
   delete: (id: number) => invoke<boolean>("delete_task_category", { id }),
 };
 
+/** 任务执行会话 API */
+export const sessionApi = {
+  parsePlan: (path: string) =>
+    invoke<ParsedPlan>("parse_plan_file", { path }),
+  create: (planPath: string) =>
+    invoke<TaskSession>("create_task_session", { planPath }),
+  get: (sessionId: string) =>
+    invoke<TaskSessionDetail>("get_task_session", { sessionId }),
+  list: () => invoke<TaskSession[]>("list_task_sessions"),
+  startPhase: (sessionId: string, phaseIndex: number) =>
+    invoke<ExecutionPhase>("start_session_phase", { sessionId, phaseIndex }),
+  confirmPhase: (sessionId: string) =>
+    invoke<void>("confirm_session_phase", { sessionId }),
+  skipPhase: (sessionId: string, phaseIndex: number) =>
+    invoke<void>("skip_session_phase", { sessionId, phaseIndex }),
+  retryPhase: (sessionId: string, phaseIndex: number) =>
+    invoke<void>("retry_session_phase", { sessionId, phaseIndex }),
+  pause: (sessionId: string) =>
+    invoke<void>("pause_task_session", { sessionId }),
+  resume: (sessionId: string) =>
+    invoke<void>("resume_task_session", { sessionId }),
+  delete: (sessionId: string) =>
+    invoke<void>("delete_task_session", { sessionId }),
+  addLog: (log: CreateExecutionLogInput) =>
+    invoke<void>("add_execution_log", { log }),
+  getLogs: (sessionId: string, phaseId?: string) =>
+    invoke<ExecutionLog[]>("get_execution_logs", { sessionId, phaseId: phaseId ?? null }),
+  exportLogs: (sessionId: string) =>
+    invoke<string>("export_execution_logs", { sessionId }),
+};
+
+/** 项目文件夹会话 API */
+export const projectSessionApi = {
+  open: (projectPath: string, projectName?: string) =>
+    invoke<ProjectSession>("open_project_session", { projectPath, projectName: projectName ?? null }),
+  listOpen: () =>
+    invoke<ProjectSession[]>("list_open_project_sessions"),
+  listRecent: () =>
+    invoke<ProjectSession[]>("list_recent_project_sessions"),
+  setActive: (sessionId: string) =>
+    invoke<void>("set_active_project_session", { sessionId }),
+  close: (sessionId: string) =>
+    invoke<void>("close_project_session", { sessionId }),
+  getContext: (sessionId: string) =>
+    invoke<ProjectSessionContext | null>("get_project_session_context", { sessionId }),
+  appendMessage: (sessionId: string, role: string, content: string) =>
+    invoke<ProjectSessionMessage>("append_project_session_message", {
+      input: { sessionId, role, content },
+    }),
+  listMessages: (sessionId: string) =>
+    invoke<ProjectSessionMessage[]>("list_project_session_messages", { sessionId }),
+};
+
 /** 闪卡 + FSRS 复习 API */
 export const cardApi = {
   create: (input: CreateCardInput) => invoke<Card>("create_card", { input }),
@@ -915,4 +1003,19 @@ export const cardApi = {
       cardId,
       limit: limit ?? null,
     }),
+};
+
+/** Claude Code Agent Runner API */
+export const claudeAgentApi = {
+  checkCli: () => invoke<string>("claude_agent_check_cli"),
+  start: (input: StartClaudeAgentInput) =>
+    invoke<ClaudeAgentSession>("start_claude_agent_session", { input }),
+  stop: (sessionId: string) =>
+    invoke<void>("stop_claude_agent_session", { sessionId }),
+  list: (projectPath?: string) =>
+    invoke<ClaudeAgentSession[]>("list_claude_agent_sessions", { projectPath }),
+  get: (sessionId: string) =>
+    invoke<ClaudeAgentSession>("get_claude_agent_session", { sessionId }),
+  events: (sessionId: string) =>
+    invoke<ClaudeAgentEvent[]>("list_claude_agent_events", { sessionId }),
 };

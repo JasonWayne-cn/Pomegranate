@@ -5,25 +5,30 @@ use super::Database;
 
 /// 把一行 ai_models 查询结果转成 AiModel
 ///
-/// 列顺序约定（v25 起 9 列）：
-///   id, name, provider, api_url, api_key, model_id, is_default, max_context, created_at
+/// 列顺序约定（v41 起 13 列）：
+///   id, name, provider, protocol, api_url, api_key, model_id, is_default,
+///   max_context, supports_tools, supports_vision, max_output_tokens, created_at
 fn row_to_ai_model(row: &rusqlite::Row) -> rusqlite::Result<AiModel> {
     Ok(AiModel {
         id: row.get(0)?,
         name: row.get(1)?,
         provider: row.get(2)?,
-        api_url: row.get(3)?,
-        api_key: row.get(4)?,
-        model_id: row.get(5)?,
-        is_default: row.get::<_, i32>(6)? != 0,
-        max_context: row.get(7)?,
-        created_at: row.get(8)?,
+        protocol: row.get(3)?,
+        api_url: row.get(4)?,
+        api_key: row.get(5)?,
+        model_id: row.get(6)?,
+        is_default: row.get::<_, i32>(7)? != 0,
+        max_context: row.get(8)?,
+        supports_tools: row.get::<_, i32>(9)? != 0,
+        supports_vision: row.get::<_, i32>(10)? != 0,
+        max_output_tokens: row.get(11)?,
+        created_at: row.get(12)?,
     })
 }
 
 /// 标准 ai_models 查询列表达式（与 row_to_ai_model 对齐）
 const AI_MODEL_COLS: &str =
-    "id, name, provider, api_url, api_key, model_id, is_default, max_context, created_at";
+    "id, name, provider, protocol, api_url, api_key, model_id, is_default, max_context, supports_tools, supports_vision, max_output_tokens, created_at";
 
 /// 把一行 ai_conversations 查询结果转成 AiConversation
 ///
@@ -75,10 +80,14 @@ mod tests {
         AiModelInput {
             name: name.into(),
             provider: "custom".into(),
+            protocol: Some("openai_compatible".into()),
             api_url: "http://localhost".into(),
             api_key: None,
             model_id: "test-model".into(),
             max_context: None,
+            supports_tools: Some(true),
+            supports_vision: Some(false),
+            max_output_tokens: None,
         }
     }
 
@@ -215,24 +224,28 @@ impl Database {
             .conn
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
-        // max_context 缺省时走表 DEFAULT 32000
         let max_ctx = input.max_context.unwrap_or(32000).max(1000);
+        let protocol = input.protocol.as_deref().unwrap_or("openai_compatible");
+        let supports_tools = input.supports_tools.unwrap_or(true);
+        let supports_vision = input.supports_vision.unwrap_or(false);
         conn.execute(
-            "INSERT INTO ai_models (name, provider, api_url, api_key, model_id, max_context)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO ai_models (name, provider, protocol, api_url, api_key, model_id, max_context, supports_tools, supports_vision, max_output_tokens)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
                 input.name,
                 input.provider,
+                protocol,
                 input.api_url,
                 input.api_key,
                 input.model_id,
                 max_ctx,
+                supports_tools as i32,
+                supports_vision as i32,
+                input.max_output_tokens,
             ],
         )?;
         let id = conn.last_insert_rowid();
 
-        // T-B02: 当前没有任何默认模型时（首次新建 / 之前默认的被删了），
-        // 自动把新建的这条设为默认；避免后续 get_default_ai_model 报 NoRows。
         let has_default: bool = conn
             .query_row(
                 "SELECT COUNT(*) FROM ai_models WHERE is_default = 1",
@@ -253,17 +266,23 @@ impl Database {
     }
 
     /// 更新 AI 模型
+    ///
+    /// api_key = None → 保留旧值；"" → 清空；其他 → 更新。
     pub fn update_ai_model(&self, id: i64, input: &AiModelInput) -> Result<AiModel, AppError> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
-        // 用户没传 max_context 时保持原值，避免覆盖成默认 32000
         let max_ctx = input.max_context.unwrap_or(32000).max(1000);
         conn.execute(
-            "UPDATE ai_models SET name = ?1, provider = ?2, api_url = ?3, api_key = ?4,
-                 model_id = ?5, max_context = ?6
-             WHERE id = ?7",
+            "UPDATE ai_models SET name = ?1, provider = ?2, api_url = ?3,
+                 api_key = COALESCE(?4, api_key),
+                 model_id = ?5, max_context = ?6,
+                 protocol = COALESCE(?7, protocol),
+                 supports_tools = COALESCE(?8, supports_tools),
+                 supports_vision = COALESCE(?9, supports_vision),
+                 max_output_tokens = CASE WHEN ?10 IS NULL THEN max_output_tokens ELSE ?10 END
+             WHERE id = ?11",
             rusqlite::params![
                 input.name,
                 input.provider,
@@ -271,6 +290,10 @@ impl Database {
                 input.api_key,
                 input.model_id,
                 max_ctx,
+                input.protocol,
+                input.supports_tools.map(|v| v as i32),
+                input.supports_vision.map(|v| v as i32),
+                input.max_output_tokens,
                 id
             ],
         )?;

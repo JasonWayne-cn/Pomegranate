@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::{watch, Notify};
 
 use crate::database::Database;
+use crate::services::claude_agent::AgentProcessHandle;
 use crate::services::plugin_rate_limit::PluginRateLimiter;
 use crate::services::plugin_token::PluginTokenRegistry;
 use crate::services::vault::VaultState;
@@ -51,6 +52,8 @@ pub struct AppState {
     pub plugin_tokens: PluginTokenRegistry,
     /// 插件写操作速率限制器（防爆库：每插件 ≤ 10 次/秒）
     pub plugin_rate_limiter: PluginRateLimiter,
+    /// Claude Code Agent Runner 活跃进程表（session_id → 进程句柄）
+    pub claude_agent_processes: Arc<Mutex<std::collections::HashMap<String, AgentProcessHandle>>>,
 }
 
 impl AppState {
@@ -77,6 +80,7 @@ impl AppState {
             _lock_file: lock_file,
             plugin_tokens: PluginTokenRegistry::default(),
             plugin_rate_limiter: PluginRateLimiter::new(),
+            claude_agent_processes: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 }

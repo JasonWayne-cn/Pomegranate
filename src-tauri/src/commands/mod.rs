@@ -1,7 +1,9 @@
 pub mod ai;
+pub mod ai_provider;
 pub mod asr;
 pub mod attachment;
 pub mod cards;
+pub mod claude_agent;
 pub mod config;
 pub mod daily;
 pub mod data_dir;
@@ -20,6 +22,7 @@ pub mod plugin_runtime;
 pub mod plugins;
 pub mod prompt;
 pub mod search;
+pub mod session;
 // 全局快捷键仅桌面端可用（移动端无此概念）
 #[cfg(desktop)]
 pub mod shortcut;

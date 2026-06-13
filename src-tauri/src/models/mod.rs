@@ -1,3 +1,11 @@
+pub mod ai_provider;
+// 将常用 Provider 类型提升到 models 层，方便 commands 层直接 use
+pub use ai_provider::{
+    ActiveProviderInfo, AiCapabilities, AiProviderConfig, AiProviderMetadata, ChatMessage,
+    ChatOptions, SwitchProviderInput,
+};
+pub mod session;
+
 use serde::{Deserialize, Serialize};
 
 /// 应用配置
@@ -129,10 +137,14 @@ pub struct PluginAiModelInfo {
     pub id: i64,
     pub name: String,
     pub provider: String,
+    pub protocol: String,
     pub api_url: String,
     pub model_id: String,
     pub is_default: bool,
     pub max_context: i64,
+    pub supports_tools: bool,
+    pub supports_vision: bool,
+    pub max_output_tokens: Option<i64>,
 }
 
 /// 全局快捷键绑定信息（返回给前端的视图模型）
@@ -166,6 +178,31 @@ pub struct SystemInfo {
     pub instance_id: Option<u32>,
     /// 是否运行在 debug build 下（前端徽章追加 [DEV] 标识）
     pub is_dev: bool,
+}
+
+// ─── Git 信息 ─────────────────────────────────
+
+/// Git 仓库状态快照
+///
+/// 由 `get_git_info` Command 通过 shell out `git` CLI 获取。
+/// 非 git 仓库时返回 Default（branch: None, is_clean: true）。
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitInfo {
+    /// 当前分支名；非 git 仓库为 None
+    pub branch: Option<String>,
+    /// 工作区干净（无修改/暂存/未跟踪）
+    pub is_clean: bool,
+    /// 已修改未暂存的文件数
+    pub changed: i32,
+    /// 已暂存的文件数
+    pub staged: i32,
+    /// 未跟踪的文件数
+    pub untracked: i32,
+    /// 领先远程的提交数；无 upstream 时为 0
+    pub ahead: i32,
+    /// 落后远程的提交数；无 upstream 时为 0
+    pub behind: i32,
 }
 
 // ─── 笔记 ─────────────────────────────────────
@@ -343,6 +380,8 @@ pub struct AiModel {
     pub name: String,
     /// 模型提供商: openai / claude / ollama
     pub provider: String,
+    /// 协议: openai_compatible / anthropic / ollama
+    pub protocol: String,
     /// API 基础 URL
     pub api_url: String,
     /// API Key（可为空，如 Ollama 本地模型）
@@ -354,6 +393,12 @@ pub struct AiModel {
     /// 模型支持的最大上下文 token 数（用户填，默认 32000）
     /// 用于在 send_message 拼附加笔记时动态算每篇截断阈值
     pub max_context: i64,
+    /// 是否支持工具调用/Function Calling
+    pub supports_tools: bool,
+    /// 是否支持视觉输入
+    pub supports_vision: bool,
+    /// 最大输出 token 数（None = 模型决定）
+    pub max_output_tokens: Option<i64>,
     pub created_at: String,
 }
 
@@ -376,11 +421,20 @@ pub struct AiModelTestResult {
 pub struct AiModelInput {
     pub name: String,
     pub provider: String,
+    /// 协议: openai_compatible / anthropic / ollama
+    pub protocol: Option<String>,
     pub api_url: String,
+    /// API Key: None = 保留旧值（更新时）, "" = 清空, 其他 = 更新
     pub api_key: Option<String>,
     pub model_id: String,
     /// 可选：缺省时按 32000 入库（覆盖大多数中端模型）
     pub max_context: Option<i64>,
+    /// 是否支持工具调用，缺省 true
+    pub supports_tools: Option<bool>,
+    /// 是否支持视觉输入，缺省 false
+    pub supports_vision: Option<bool>,
+    /// 最大输出 token 数，缺省 None（模型决定）
+    pub max_output_tokens: Option<i64>,
 }
 
 /// AI 对话
@@ -1782,4 +1836,66 @@ pub struct PluginUpdateTaskInput {
     pub clear_due_at: Option<bool>,
     pub clear_remind_before_minutes: Option<bool>,
     pub clear_category_id: Option<bool>,
+}
+
+// ─── Claude Code Agent Runner ────────────────────
+
+/// Agent 会话状态
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaudeAgentStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl std::fmt::Display for ClaudeAgentStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pending => write!(f, "pending"),
+            Self::Running => write!(f, "running"),
+            Self::Completed => write!(f, "completed"),
+            Self::Failed => write!(f, "failed"),
+            Self::Cancelled => write!(f, "cancelled"),
+        }
+    }
+}
+
+/// 启动 Agent 入参
+#[derive(Debug, Clone, Deserialize)]
+pub struct StartClaudeAgentInput {
+    pub project_path: String,
+    pub prompt: String,
+    pub permission_mode: String,
+    pub session_name: Option<String>,
+}
+
+/// Agent 会话
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeAgentSession {
+    pub id: String,
+    pub project_path: String,
+    pub prompt: String,
+    pub session_name: Option<String>,
+    pub permission_mode: String,
+    pub status: String,
+    pub pid: Option<i64>,
+    pub exit_code: Option<i32>,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+}
+
+/// Agent 事件
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeAgentEvent {
+    pub id: i64,
+    pub session_id: String,
+    pub kind: String,
+    pub content: String,
+    pub created_at: String,
 }

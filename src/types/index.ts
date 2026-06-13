@@ -120,6 +120,7 @@ export interface PluginSidebarItemDef {
 export interface PluginPanelViewDef {
   id: string;
   title: string;
+  layout?: "default" | "fullscreen";
   /** 返回 cleanup 函数（可选） */
   render: (container: HTMLElement) => void | (() => void);
   /** PluginManager 填充，插件不应设置 */
@@ -302,10 +303,14 @@ export interface PluginAiModelInfo {
   id: number;
   name: string;
   provider: string;
+  protocol: string;
   apiUrl: string;
   modelId: string;
   isDefault: boolean;
   maxContext: number;
+  supportsTools: boolean;
+  supportsVision: boolean;
+  maxOutputTokens: number | null;
 }
 
 export interface PluginAiTokenPayload {
@@ -639,15 +644,16 @@ export interface GraphData {
 export interface AiModel {
   id: number;
   name: string;
-  /** 模型提供商: openai / claude / ollama */
   provider: string;
+  protocol: string;
   api_url: string;
   api_key: string | null;
-  /** 模型标识 (如 gpt-4o-mini, claude-sonnet-4-20250514, llama3) */
   model_id: string;
   is_default: boolean;
-  /** 模型支持的最大上下文 token 数（默认 32000，AI 页拼附加笔记按这个算预算） */
   max_context: number;
+  supports_tools: boolean;
+  supports_vision: boolean;
+  max_output_tokens: number | null;
   created_at: string;
 }
 
@@ -655,11 +661,14 @@ export interface AiModel {
 export interface AiModelInput {
   name: string;
   provider: string;
+  protocol?: string;
   api_url: string;
   api_key?: string | null;
   model_id: string;
-  /** 可选：缺省时后端按 32000 入库 */
   max_context?: number;
+  supports_tools?: boolean;
+  supports_vision?: boolean;
+  max_output_tokens?: number | null;
 }
 
 /** AI 模型连通性测试结果 */
@@ -669,6 +678,40 @@ export interface AiModelTestResult {
   latency_ms: number;
   /** 服务端样本：成功时为模型回复前 40 字 */
   sample: string | null;
+}
+
+// ─── AI Provider 注册表 ───────────────────────
+
+/** AI Provider 能力描述 */
+export interface AiCapabilities {
+  supports_streaming: boolean;
+  supports_vision: boolean;
+  supports_function_calling: boolean;
+  max_output_tokens: number | null;
+}
+
+/** AI Provider 元数据（前端选择列表用） */
+export interface AiProviderMetadata {
+  provider_type: string;
+  display_name: string;
+  description: string;
+  default_base_url: string;
+  default_model: string;
+  capabilities: AiCapabilities;
+}
+
+/** 切换 Provider 入参 */
+export interface SwitchProviderInput {
+  provider_type: string;
+  model_id: number;
+}
+
+/** 活跃 Provider 信息（不含 api_key） */
+export interface ActiveProviderInfo {
+  provider_type: string;
+  display_name: string;
+  model_id: string;
+  capabilities: AiCapabilities;
 }
 
 /** AI 对话 */
@@ -1699,6 +1742,67 @@ export interface PluginCreateTaskInput {
   parentTaskId?: number | null;
 }
 
+// ─── 任务执行会话 ─────────────────────────────────
+
+export type SessionStatus = "idle" | "running" | "waiting_confirm" | "paused" | "completed";
+export type PhaseStatus = "pending" | "running" | "waiting_confirm" | "completed" | "skipped" | "failed";
+
+export interface TaskSession {
+  id: string;
+  plan_path: string;
+  plan_name: string;
+  status: SessionStatus;
+  current_phase_index: number;
+  total_phases: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExecutionPhase {
+  id: string;
+  session_id: string;
+  index_num: number;
+  name: string;
+  description: string;
+  status: PhaseStatus;
+  files_modified?: string | null;
+  result_summary?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ExecutionLog {
+  id: number;
+  session_id: string;
+  phase_id?: string | null;
+  level: string;
+  message: string;
+  created_at: string;
+}
+
+export interface CreateExecutionLogInput {
+  session_id: string;
+  phase_id?: string | null;
+  level: string;
+  message: string;
+}
+
+export interface ParsedPlan {
+  name: string;
+  phases: PhaseDraft[];
+}
+
+export interface PhaseDraft {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface TaskSessionDetail {
+  session: TaskSession;
+  phases: ExecutionPhase[];
+}
+
 /** 插件更新任务入参 */
 export interface PluginUpdateTaskInput {
   title?: string;
@@ -1711,4 +1815,88 @@ export interface PluginUpdateTaskInput {
   clearDueAt?: boolean;
   clearRemindBeforeMinutes?: boolean;
   clearCategoryId?: boolean;
+}
+
+// ─── 项目文件夹会话 ─────────────────────────────────
+
+export interface ProjectSession {
+  id: string;
+  projectName: string;
+  projectPath: string;
+  status: string;
+  gitBranch?: string | null;
+  isOpen: boolean;
+  lastActiveAt: string;
+  createdAt: string;
+}
+
+// ─── Claude Code Agent Runner ────────────────────
+
+export type ClaudeAgentStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type ClaudeAgentPermissionMode =
+  | "readonly"
+  | "ask"
+  | "workspace_write";
+
+export interface StartClaudeAgentInput {
+  project_path: string;
+  prompt: string;
+  permission_mode: string;
+  session_name?: string;
+}
+
+export interface ClaudeAgentSession {
+  id: string;
+  project_path: string;
+  prompt: string;
+  session_name?: string | null;
+  permission_mode: string;
+  status: string;
+  pid?: number | null;
+  exit_code?: number | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ClaudeAgentEvent {
+  id: number;
+  session_id: string;
+  kind: string;
+  content: string;
+  created_at: string;
+}
+
+export interface ClaudeAgentEventPayload {
+  sessionId: string;
+  kind: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface ProjectSessionContext {
+  sessionId: string;
+  projectPath: string;
+  gitBranch?: string | null;
+  changedFiles: string[];
+  pinnedFiles: string[];
+  recentFiles: string[];
+  currentTask?: string | null;
+  updatedAt: string;
+}
+
+export interface ProjectSessionMessage {
+  id: string;
+  sessionId: string;
+  role: string;
+  content: string;
+  createdAt: string;
 }
