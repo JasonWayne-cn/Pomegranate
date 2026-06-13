@@ -1,4 +1,0 @@
-# Cargo 编译配置
-# Windows: 锁定 PE 子系统版本为 6.01 (Windows 7)，确保不引入 Win8+ API
-[target.'cfg(target_os = "windows")']
-rustflags = ["-C", "link-arg=/SUBSYSTEM:WINDOWS,6.01"]
