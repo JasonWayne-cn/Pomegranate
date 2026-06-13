@@ -13,7 +13,9 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "build:mcp": "node scripts/build-mcp.mjs",
-    "build:mcp:debug": "node scripts/build-mcp.mjs --debug"
+    "build:mcp:debug": "node scripts/build-mcp.mjs --debug",
+    "build:win7": "node scripts/build-win7.mjs",
+    "build:win7:debug": "node scripts/build-win7.mjs --debug"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
