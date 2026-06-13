@@ -96,6 +96,30 @@ function build() {
   execSync(cmd, { cwd: ROOT, stdio: "inherit" });
 }
 
+// ─── PE 子系统版本锁定 ─────────────────────────
+// Tauri build 先编译 Rust 再跑 NSIS，NSIS 嵌入的 exe 就是刚编译的产物。
+// 这里在 cargo build 完成后、makensis 运行前，把 exe 的 PE 子系统版本
+// 修正为 6.1 (Windows 7)，确保加载器不会因版本号过低而拒绝。
+// 注意：tauri build 内部顺序是 cargo → nsis，我们需要 2-phase 构建。
+function patchPE(phase) {
+  const EXE = join(SRC_TAURI, "target", isDebug ? "debug" : "release", "IntelligentNoteBook.exe");
+  if (!existsSync(EXE)) {
+    if (phase === "post") console.warn("[build-win7] 未找到 exe，跳过 PE 补丁");
+    return;
+  }
+
+  const { execSync: run } = require("node:child_process");
+  try {
+    run(
+      `python -c "import struct; f=open('${EXE.replace(/\\/g, "/")}','r+b'); d=f.read(); o=struct.unpack_from('<I',d,0x3C)[0]+72; f.seek(o); f.write(struct.pack('<HH',6,1)); f.close()"`,
+      { stdio: "pipe" }
+    );
+    console.log("[build-win7] PE 子系统已锁定为 6.1 (Windows 7)");
+  } catch {
+    console.warn("[build-win7] PE 补丁失败（python 不可用，子系统保持默认）");
+  }
+}
+
 // ─── 重命名产物 ─────────────────────────────
 function renameOutput() {
   if (!existsSync(BUNDLE_DIR)) {
@@ -129,7 +153,20 @@ function main() {
   switchConfig();
 
   try {
-    build();
+    // Phase 1: cargo build（产生 .exe）
+    const profile = isDebug ? "debug" : "release";
+    const cargoCmd = `cargo build --${profile}`;
+    console.log(`[build-win7] Phase 1: ${cargoCmd}`);
+    execSync(cargoCmd, { cwd: SRC_TAURI, stdio: "inherit" });
+
+    // Patch PE 子系统 → 6.1
+    patchPE("post");
+
+    // Phase 2: NSIS 打包（tauri build 检测到 Rust 产物已就绪，跳过编译）
+    const tauriCmd = `pnpm tauri build --bundles nsis${isDebug ? " --debug" : ""}`;
+    console.log(`[build-win7] Phase 2: ${tauriCmd}`);
+    execSync(tauriCmd, { cwd: ROOT, stdio: "inherit" });
+
     renameOutput();
     console.log("[build-win7] === 构建成功 ===");
   } catch (err) {
