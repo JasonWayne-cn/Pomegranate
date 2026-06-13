@@ -39,7 +39,7 @@ function navigateAfterImport(
 function untitledTitle(): string {
   const d = new Date();
   const pad = (n: number) => n.toString().padStart(2, "0");
-  return `未命名笔记 ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+  return `未命名文档 ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
     d.getDate(),
   )} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -116,7 +116,7 @@ export async function createBlankAndOpen(
       if (appliedTagNames.length > 0) {
         parts.push(`标签 ${appliedTagNames.map((n) => `「${n}」`).join("、")}`);
       }
-      message.success(`已新建笔记 · 默认套用 ${parts.join(" + ")}`, 3);
+      message.success(`已新建文档 · 默认套用 ${parts.join(" + ")}`, 3);
     }
   } catch (e) {
     message.error(String(e));

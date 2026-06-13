@@ -1,9 +1,11 @@
 use chrono::{Datelike, Duration, Months, NaiveDate, NaiveDateTime};
+use tauri::{AppHandle, Emitter};
 
 use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{
-    CreateTaskCategoryInput, CreateTaskInput, Task, TaskCategory, TaskLinkInput, TaskQuery,
+    CreateTaskCategoryInput, CreateTaskInput, PluginCreateTaskInput, PluginTaskFilter,
+    PluginTaskView, PluginUpdateTaskInput, Task, TaskCategory, TaskLinkInput, TaskQuery,
     TaskSearchHit, TaskStats, UpdateTaskCategoryInput, UpdateTaskInput,
 };
 
@@ -23,7 +25,11 @@ impl TaskService {
         db.list_subtasks(parent_id)
     }
 
-    pub fn create(db: &Database, input: CreateTaskInput) -> Result<i64, AppError> {
+    pub fn create(
+        app: &AppHandle,
+        db: &Database,
+        input: CreateTaskInput,
+    ) -> Result<Task, AppError> {
         let title = input.title.trim();
         if title.is_empty() {
             return Err(AppError::InvalidInput("任务标题不能为空".into()));
@@ -39,10 +45,19 @@ impl TaskService {
             input.repeat_weekdays.as_deref(),
             input.repeat_count,
         )?;
-        db.create_task(input)
+        let id = db.create_task(input)?;
+        let task = db.get_task(id)?
+            .ok_or_else(|| AppError::Custom(format!("任务 {} 创建后无法读取", id)))?;
+        let _ = app.emit("plugin:task:created", &task);
+        Ok(task)
     }
 
-    pub fn update(db: &Database, id: i64, input: UpdateTaskInput) -> Result<bool, AppError> {
+    pub fn update(
+        app: &AppHandle,
+        db: &Database,
+        id: i64,
+        input: UpdateTaskInput,
+    ) -> Result<bool, AppError> {
         if let Some(t) = input.title.as_ref() {
             if t.trim().is_empty() {
                 return Err(AppError::InvalidInput("任务标题不能为空".into()));
@@ -59,15 +74,36 @@ impl TaskService {
             input.repeat_weekdays.as_deref(),
             input.repeat_count,
         )?;
-        db.update_task(id, input)
+        let ok = db.update_task(id, input)?;
+        if ok {
+            if let Some(task) = db.get_task(id)? {
+                let _ = app.emit("plugin:task:updated", &task);
+            }
+        }
+        Ok(ok)
     }
 
-    pub fn toggle_status(db: &Database, id: i64) -> Result<i32, AppError> {
-        db.toggle_task_status(id)
+    pub fn toggle_status(app: &AppHandle, db: &Database, id: i64) -> Result<i32, AppError> {
+        let new_status = db.toggle_task_status(id)?;
+        if let Some(task) = db.get_task(id)? {
+            if new_status == 1 {
+                let _ = app.emit("plugin:task:completed", &task);
+            } else {
+                let _ = app.emit("plugin:task:updated", &task);
+            }
+        }
+        Ok(new_status)
     }
 
-    pub fn delete(db: &Database, id: i64) -> Result<bool, AppError> {
-        db.delete_task(id)
+    pub fn delete(app: &AppHandle, db: &Database, id: i64) -> Result<bool, AppError> {
+        let task = db.get_task(id)?;
+        let ok = db.delete_task(id)?;
+        if ok {
+            if let Some(task) = task {
+                let _ = app.emit("plugin:task:deleted", &task);
+            }
+        }
+        Ok(ok)
     }
 
     pub fn add_link(db: &Database, task_id: i64, input: TaskLinkInput) -> Result<i64, AppError> {
@@ -141,6 +177,7 @@ impl TaskService {
     /// 完成本次（循环任务）：推进 due 到下一次；若循环已到终止条件则自动结束整条。
     /// 非循环任务走普通完成（切换 status）。
     pub fn complete_occurrence(
+        app: &AppHandle,
         db: &Database,
         id: i64,
         all_day_base_time: &str,
@@ -150,12 +187,168 @@ impl TaskService {
             .ok_or_else(|| AppError::Custom(format!("任务 {} 不存在", id)))?;
         if task.repeat_kind == "none" {
             db.toggle_task_status(id)?;
+            if let Some(updated) = db.get_task(id)? {
+                let _ = app.emit("plugin:task:completed", &updated);
+            }
             return Ok(());
         }
         let now = chrono::Local::now().naive_local();
         let result = advance_recurrence(&task, all_day_base_time, now);
         db.advance_task_recurrence(id, result.next_due, result.new_done_count)?;
+        if let Some(updated) = db.get_task(id)? {
+            if updated.status == 1 {
+                let _ = app.emit("plugin:task:completed", &updated);
+            } else {
+                let _ = app.emit("plugin:task:updated", &updated);
+            }
+        }
         Ok(())
+    }
+
+    // ─── 插件专用方法（阶段 2）────────────────────────
+
+    /// 插件列表：PluginTaskFilter → TaskQuery → Vec<PluginTaskView>
+    pub fn list_for_plugin(
+        db: &Database,
+        filter: PluginTaskFilter,
+    ) -> Result<Vec<PluginTaskView>, AppError> {
+        let limit = filter.limit.unwrap_or(100).min(500);
+        let offset = filter.offset.unwrap_or(0);
+        let query = into_task_query(&filter);
+        // 如果指定了 parent_task_id，则列子任务；否则列主任务
+        let src_tasks: Vec<Task> = if let Some(pid) = filter.parent_task_id {
+            db.list_subtasks(pid)?
+        } else {
+            db.list_tasks(query)?
+        };
+        let mut tasks: Vec<Task> = src_tasks
+            .into_iter()
+            .filter(|t| {
+                // due_before
+                if let Some(ref before) = filter.due_before {
+                    if let Some(ref due) = t.due_date {
+                        if due.as_str() > before.as_str() {
+                            return false;
+                        }
+                    }
+                }
+                // due_after
+                if let Some(ref after) = filter.due_after {
+                    if let Some(ref due) = t.due_date {
+                        if due.as_str() < after.as_str() {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                true
+            })
+            .collect();
+        // 分页
+        let total = tasks.len();
+        let start = (offset as usize).min(total);
+        let end = ((offset + limit) as usize).min(total);
+        tasks = tasks[start..end].to_vec();
+        Ok(tasks.into_iter().map(PluginTaskView::from).collect())
+    }
+
+    /// 插件读取单任务
+    pub fn get_for_plugin(db: &Database, id: i64) -> Result<Option<PluginTaskView>, AppError> {
+        db.get_task(id).map(|opt| opt.map(PluginTaskView::from))
+    }
+
+    /// 插件创建任务（写 + emit）
+    pub fn create_from_plugin(
+        app: &AppHandle,
+        db: &Database,
+        input: PluginCreateTaskInput,
+    ) -> Result<PluginTaskView, AppError> {
+        let task_input = CreateTaskInput {
+            title: input.title,
+            description: input.description,
+            priority: input.priority,
+            important: input.important,
+            due_date: input.due_at,
+            remind_before_minutes: input.remind_before_minutes,
+            links: None,
+            repeat_kind: None,
+            repeat_interval: None,
+            repeat_weekdays: None,
+            repeat_until: None,
+            repeat_count: None,
+            source_batch_id: None,
+            category_id: input.category_id,
+            parent_task_id: input.parent_task_id,
+        };
+        Self::create(app, db, task_input).map(PluginTaskView::from)
+    }
+
+    /// 插件更新任务（写 + emit）
+    pub fn update_from_plugin(
+        app: &AppHandle,
+        db: &Database,
+        id: i64,
+        input: PluginUpdateTaskInput,
+    ) -> Result<(), AppError> {
+        let task_input = UpdateTaskInput {
+            title: input.title,
+            description: input.description,
+            priority: input.priority,
+            important: input.important,
+            due_date: input.due_at,
+            clear_due_date: input.clear_due_at,
+            remind_before_minutes: input.remind_before_minutes,
+            clear_remind_before_minutes: input.clear_remind_before_minutes,
+            repeat_kind: None,
+            repeat_interval: None,
+            repeat_weekdays: None,
+            clear_repeat_weekdays: None,
+            repeat_until: None,
+            clear_repeat_until: None,
+            repeat_count: None,
+            clear_repeat_count: None,
+            category_id: input.category_id,
+            clear_category_id: input.clear_category_id,
+        };
+        Self::update(app, db, id, task_input)?;
+        Ok(())
+    }
+
+    /// 插件完成任务（写 + emit）
+    pub fn complete_from_plugin(
+        app: &AppHandle,
+        db: &Database,
+        id: i64,
+    ) -> Result<(), AppError> {
+        Self::toggle_status(app, db, id)?;
+        Ok(())
+    }
+
+    /// 插件删除任务（写 + emit）
+    pub fn delete_from_plugin(
+        app: &AppHandle,
+        db: &Database,
+        id: i64,
+    ) -> Result<(), AppError> {
+        Self::delete(app, db, id)?;
+        Ok(())
+    }
+}
+
+// ─── 插件过滤 → TaskQuery 转换 ──────────────────
+
+fn into_task_query(f: &PluginTaskFilter) -> TaskQuery {
+    TaskQuery {
+        status: f.status.as_ref().and_then(|s| match s.as_str() {
+            "completed" => Some(1),
+            "pending" => Some(0),
+            _ => None,
+        }),
+        keyword: None,
+        priority: None,
+        category_id: f.category_id,
+        uncategorized: None,
     }
 }
 
@@ -373,4 +566,147 @@ fn compute_remind_trigger(
         .or_else(|_| NaiveDateTime::parse_from_str(&dt_str, "%Y-%m-%d %H:%M"))
         .ok()?;
     parsed.checked_sub_signed(Duration::minutes(remind_before_minutes as i64))
+}
+
+// ─── 单元测试 ────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_task() -> Task {
+        Task {
+            id: 1,
+            title: "测试任务".into(),
+            description: Some("描述".into()),
+            priority: 0,
+            important: true,
+            status: 0,
+            due_date: Some("2026-06-07 10:00:00".into()),
+            completed_at: None,
+            created_at: "2026-06-01".into(),
+            updated_at: "2026-06-01".into(),
+            remind_before_minutes: Some(15),
+            reminded_at: Some("2026-06-07 09:45:00".into()),
+            repeat_kind: "none".into(),
+            repeat_interval: 1,
+            repeat_weekdays: None,
+            repeat_until: None,
+            repeat_count: None,
+            repeat_done_count: 0,
+            source_batch_id: Some("batch-abc-123".into()),
+            category_id: Some(5),
+            parent_task_id: None,
+            subtask_done: 0,
+            subtask_total: 0,
+            links: vec![],
+        }
+    }
+
+    // ─── into_task_query ──────────────────────
+
+    #[test]
+    fn test_into_task_query_status_pending() {
+        let f = PluginTaskFilter {
+            status: Some("pending".into()),
+            ..Default::default()
+        };
+        let q = into_task_query(&f);
+        assert_eq!(q.status, Some(0));
+    }
+
+    #[test]
+    fn test_into_task_query_status_completed() {
+        let f = PluginTaskFilter {
+            status: Some("completed".into()),
+            ..Default::default()
+        };
+        let q = into_task_query(&f);
+        assert_eq!(q.status, Some(1));
+    }
+
+    #[test]
+    fn test_into_task_query_unknown_status_is_none() {
+        let f = PluginTaskFilter {
+            status: Some("archived".into()),
+            ..Default::default()
+        };
+        let q = into_task_query(&f);
+        assert_eq!(q.status, None);
+    }
+
+    #[test]
+    fn test_into_task_query_category_id() {
+        let f = PluginTaskFilter {
+            category_id: Some(3),
+            ..Default::default()
+        };
+        let q = into_task_query(&f);
+        assert_eq!(q.category_id, Some(3));
+    }
+
+    // ─── PluginTaskView::from(Task) 脱敏 ──────
+
+    #[test]
+    fn test_plugin_task_view_strips_internal_fields() {
+        let task = make_task();
+        let v = PluginTaskView::from(task);
+        assert_eq!(v.id, 1);
+        assert_eq!(v.title, "测试任务");
+        assert_eq!(v.status, "pending");
+        assert_eq!(v.priority, 0);
+        assert!(v.important);
+        assert_eq!(v.due_at.unwrap(), "2026-06-07 10:00:00");
+        // 核心断言：脱敏对象不暴露内部字段
+        // source_batch_id / reminded_at 不在 PluginTaskView 结构体中
+        // 通过 from() 转换确保了这一点
+    }
+
+    #[test]
+    fn test_plugin_task_view_status_completed() {
+        let mut task = make_task();
+        task.status = 1;
+        let v = PluginTaskView::from(task);
+        assert_eq!(v.status, "completed");
+    }
+
+    #[test]
+    fn test_plugin_task_view_archived() {
+        let mut task = make_task();
+        task.status = 2;
+        let v = PluginTaskView::from(task);
+        assert_eq!(v.status, "archived");
+    }
+
+    // ─── validate_repeat ──────────────────────
+
+    #[test]
+    fn test_validate_repeat_valid_daily() {
+        assert!(validate_repeat(Some("daily"), Some(1), None, None).is_ok());
+    }
+
+    #[test]
+    fn test_validate_repeat_invalid_kind() {
+        assert!(validate_repeat(Some("yearly"), None, None, None).is_err());
+    }
+
+    #[test]
+    fn test_validate_repeat_invalid_interval_zero() {
+        assert!(validate_repeat(Some("daily"), Some(0), None, None).is_err());
+    }
+
+    #[test]
+    fn test_validate_repeat_invalid_weekday() {
+        assert!(validate_repeat(Some("weekly"), Some(1), Some("8"), None).is_err());
+    }
+
+    #[test]
+    fn test_validate_repeat_valid_weekdays() {
+        assert!(validate_repeat(Some("weekly"), Some(1), Some("1,3,5"), None).is_ok());
+    }
+
+    #[test]
+    fn test_validate_repeat_count_zero() {
+        assert!(validate_repeat(Some("daily"), Some(1), None, Some(0)).is_err());
+    }
 }

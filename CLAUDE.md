@@ -1,38 +1,18 @@
 # CLAUDE.md - Tauri Desktop App Framework
 
 ## 语言设置
+
 **必须使用中文**与用户对话。
 
 ## 术语约定
-| 术语 | 含义 | 对应目录 |
-|------|------|---------|
-| **后端** | Rust Core（Tauri 后端进程） | `src-tauri/src/` |
-| **前端** | React UI（WebView 进程） | `src/` |
-| **配置** | Tauri 核心配置 | `src-tauri/tauri.conf.json` |
-| **权限** | Capabilities 安全声明 | `src-tauri/capabilities/` |
-| **Command** | Rust 侧可被前端调用的函数 | `#[tauri::command]` |
-| **IPC** | 进程间通信（前端 ↔ Rust） | `invoke()` / `listen()` |
 
----
+<table style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>术语</p></th><th colspan="1" rowspan="1"><p>含义</p></th><th colspan="1" rowspan="1"><p>对应目录</p></th></tr><tr><td colspan="1" rowspan="1"><p><strong>后端</strong></p></td><td colspan="1" rowspan="1"><p>Rust Core（Tauri 后端进程）</p></td><td colspan="1" rowspan="1"><p><code>src-tauri/src/</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>前端</strong></p></td><td colspan="1" rowspan="1"><p>React UI（WebView 进程）</p></td><td colspan="1" rowspan="1"><p><code>src/</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>配置</strong></p></td><td colspan="1" rowspan="1"><p>Tauri 核心配置</p></td><td colspan="1" rowspan="1"><p><code>src-tauri/tauri.conf.json</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>权限</strong></p></td><td colspan="1" rowspan="1"><p>Capabilities 安全声明</p></td><td colspan="1" rowspan="1"><p><code>src-tauri/capabilities/</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Command</strong></p></td><td colspan="1" rowspan="1"><p>Rust 侧可被前端调用的函数</p></td><td colspan="1" rowspan="1"><p><code>#[tauri::command]</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>IPC</strong></p></td><td colspan="1" rowspan="1"><p>进程间通信（前端 ↔ Rust）</p></td><td colspan="1" rowspan="1"><p><code>invoke()</code> / <code>listen()</code></p></td></tr></tbody></table>
+
+* * *
 
 ## 核心架构（必须牢记）
 
-| 项目 | 规范 |
-|------|------|
-| **应用类型** | Tauri 2.x 桌面应用（双进程架构） |
-| **后端语言** | Rust 2021 edition |
-| **前端框架** | React 19 + TypeScript 5.8 |
-| **UI 组件库** | Ant Design (v5+) + Lucide React 图标库 |
-| **样式方案** | TailwindCSS 4 + CSS Variables 设计令牌 |
-| **状态管理** | Zustand (v5+)（全局状态）+ React Hooks（局部状态） |
-| **路由方案** | React Router 7（HashRouter） |
-| **构建工具** | Vite 7 (前端) + Cargo (后端) |
-| **通信机制** | Tauri IPC（`invoke` 调用 Rust Commands） |
-| **序列化** | serde + serde_json（Rust ↔ JSON ↔ TypeScript） |
-| **数据库** | SQLite（rusqlite，Rust 直接操作） |
-| **错误处理** | thiserror（Rust）+ ErrorBoundary（React） |
-| **安全模型** | Capabilities 细粒度权限声明 |
-| **应用标识** | `edu.bit.inb` |
+<table style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>项目</p></th><th colspan="1" rowspan="1"><p>规范</p></th></tr><tr><td colspan="1" rowspan="1"><p><strong>应用类型</strong></p></td><td colspan="1" rowspan="1"><p>Tauri 2.x 桌面应用（双进程架构）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>后端语言</strong></p></td><td colspan="1" rowspan="1"><p>Rust 2021 edition</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>前端框架</strong></p></td><td colspan="1" rowspan="1"><p>React 19 + TypeScript 5.8</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>UI 组件库</strong></p></td><td colspan="1" rowspan="1"><p>Ant Design (v5+) + Lucide React 图标库</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>样式方案</strong></p></td><td colspan="1" rowspan="1"><p>TailwindCSS 4 + CSS Variables 设计令牌</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>状态管理</strong></p></td><td colspan="1" rowspan="1"><p>Zustand (v5+)（全局状态）+ React Hooks（局部状态）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>路由方案</strong></p></td><td colspan="1" rowspan="1"><p>React Router 7（HashRouter）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>构建工具</strong></p></td><td colspan="1" rowspan="1"><p>Vite 7 (前端) + Cargo (后端)</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>通信机制</strong></p></td><td colspan="1" rowspan="1"><p>Tauri IPC（<code>invoke</code> 调用 Rust Commands）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>序列化</strong></p></td><td colspan="1" rowspan="1"><p>serde + serde_json（Rust ↔ JSON ↔ TypeScript）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>数据库</strong></p></td><td colspan="1" rowspan="1"><p>SQLite（rusqlite，Rust 直接操作）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>错误处理</strong></p></td><td colspan="1" rowspan="1"><p>thiserror（Rust）+ ErrorBoundary（React）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>安全模型</strong></p></td><td colspan="1" rowspan="1"><p>Capabilities 细粒度权限声明</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>应用标识</strong></p></td><td colspan="1" rowspan="1"><p><code>edu.bit.inb</code></p></td></tr></tbody></table>
 
 ### 双进程架构
 
@@ -65,19 +45,9 @@ Commands 层（IPC 入口）→ Services 层（业务逻辑）→ Database 层�
 
 ### 分层职责
 
-| 层级 | 职责 | 关键技术 |
-|------|------|---------|
-| **WebView 层** | UI 渲染、用户交互 | React 19 + Ant Design + TailwindCSS |
-| **状态管理层** | 全局状态、设置管理 | Zustand（`src/store/`） |
-| **API 封装层** | 统一 invoke 调用 | `src/lib/api/index.ts` |
-| **IPC 桥接层** | 前后端通信 | `invoke()` / `listen()` |
-| **Command 层** | IPC 接口定义 | `#[tauri::command]`（`src-tauri/src/commands/`） |
-| **Service 层** | 业务逻辑 | `src-tauri/src/services/` |
-| **Database 层** | 数据访问 DAO | `src-tauri/src/database/`（rusqlite） |
-| **Plugin 层** | 功能扩展 | `tauri::Builder.plugin()` 注册 |
-| **Capabilities 层** | 安全权限控制 | JSON 声明式权限 |
+<table style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>层级</p></th><th colspan="1" rowspan="1"><p>职责</p></th><th colspan="1" rowspan="1"><p>关键技术</p></th></tr><tr><td colspan="1" rowspan="1"><p><strong>WebView 层</strong></p></td><td colspan="1" rowspan="1"><p>UI 渲染、用户交互</p></td><td colspan="1" rowspan="1"><p>React 19 + Ant Design + TailwindCSS</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>状态管理层</strong></p></td><td colspan="1" rowspan="1"><p>全局状态、设置管理</p></td><td colspan="1" rowspan="1"><p>Zustand（<code>src/store/</code>）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>API 封装层</strong></p></td><td colspan="1" rowspan="1"><p>统一 invoke 调用</p></td><td colspan="1" rowspan="1"><p><code>src/lib/api/index.ts</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>IPC 桥接层</strong></p></td><td colspan="1" rowspan="1"><p>前后端通信</p></td><td colspan="1" rowspan="1"><p><code>invoke()</code> / <code>listen()</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Command 层</strong></p></td><td colspan="1" rowspan="1"><p>IPC 接口定义</p></td><td colspan="1" rowspan="1"><p><code>#[tauri::command]</code>（<code>src-tauri/src/commands/</code>）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Service 层</strong></p></td><td colspan="1" rowspan="1"><p>业务逻辑</p></td><td colspan="1" rowspan="1"><p><code>src-tauri/src/services/</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Database 层</strong></p></td><td colspan="1" rowspan="1"><p>数据访问 DAO</p></td><td colspan="1" rowspan="1"><p><code>src-tauri/src/database/</code>（rusqlite）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Plugin 层</strong></p></td><td colspan="1" rowspan="1"><p>功能扩展</p></td><td colspan="1" rowspan="1"><p><code>tauri::Builder.plugin()</code> 注册</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Capabilities 层</strong></p></td><td colspan="1" rowspan="1"><p>安全权限控制</p></td><td colspan="1" rowspan="1"><p>JSON 声明式权限</p></td></tr></tbody></table>
 
----
+* * *
 
 ## 目录结构
 
@@ -150,23 +120,26 @@ tauri/
 └── docs/                         # 项目文档
 ```
 
----
+* * *
 
 ## 🔴 Skills 强制评估（必须遵守）
 
 > **每次用户提问时，Hook 会注入技能评估提示。必须严格遵循！**
 
 **流程**：
-1. **评估**：根据注入的技能列表，列出匹配的技能及理由
-2. **激活**：对每个匹配的技能调用 `Skill(技能名)`
-3. **实现**：激活完成后开始实现
 
----
+1.  **评估**：根据注入的技能列表，列出匹配的技能及理由
+    
+2.  **激活**：对每个匹配的技能调用 `Skill(技能名)`
+    
+3.  **实现**：激活完成后开始实现
+    
+
+* * *
 
 ## 🔴 多会话并发自动避让协议（L1/L2/L3 三层触发）
 
-> 用户可能同时开多个 Claude Code 会话操作同一仓库。本会话必须**自动感知并避让**其他会话的工作，**默认静默执行，不打扰用户**。
-> 设计原则：宁可绕路，绝不覆盖；宁可静默放弃，绝不擅自 stash / reset / checkout。
+> 用户可能同时开多个 Claude Code 会话操作同一仓库。本会话必须**自动感知并避让**其他会话的工作，**默认静默执行，不打扰用户**。 设计原则：宁可绕路，绝不覆盖；宁可静默放弃，绝不擅自 stash / reset / checkout。
 
 ### L1 — 启动时探测（首次响应前，仅执行一次）
 
@@ -175,9 +148,12 @@ git status -s
 git branch --show-current
 ```
 
-- 把"未提交文件清单"和"当前分支"记入会话上下文，整个会话复用，**不向用户复述**
-- 若清单非空且与本次任务无关 → 视为"他者占用区"，本会话**不修改、不 stash、不 checkout、不 reset** 这些文件
-- 若清单非空且与本次任务相关（用户接续之前的工作）→ 当作己方未完成工作正常处理
+-   把"未提交文件清单"和"当前分支"记入会话上下文，整个会话复用，**不向用户复述**
+    
+-   若清单非空且与本次任务无关 → 视为"他者占用区"，本会话**不修改、不 stash、不 checkout、不 reset** 这些文件
+    
+-   若清单非空且与本次任务相关（用户接续之前的工作）→ 当作己方未完成工作正常处理
+    
 
 ### L2 — 修改文件前（按需触发，单文件粒度）
 
@@ -189,12 +165,7 @@ git log -1 --format="%ar|%s" <file>
 
 判定规则（严格按此执行，不询问）：
 
-| 条件 | 处置 |
-|------|------|
-| 距今 ≥ 15 分钟 | ✅ 自由修改 |
-| 距今 < 15 分钟 + 文件**不在** L1 未提交清单 | ✅ 自由修改（已提交的近期改动不冲突） |
-| 距今 < 15 分钟 + 文件**在** L1 未提交清单 + 可绕开（新增功能/换路径） | ⚠️ **静默换路径绕开**，不告知用户 |
-| 距今 < 15 分钟 + 文件**在** L1 未提交清单 + 必须改同文件 | 🛑 **此时唯一允许打扰用户一次**："`<file>` 15min 内有未提交改动，疑似其他会话占用，是否继续？" |
+<table style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>条件</p></th><th colspan="1" rowspan="1"><p>处置</p></th></tr><tr><td colspan="1" rowspan="1"><p>距今 ≥ 15 分钟</p></td><td colspan="1" rowspan="1"><p>✅ 自由修改</p></td></tr><tr><td colspan="1" rowspan="1"><p>距今 &lt; 15 分钟 + 文件<strong>不在</strong> L1 未提交清单</p></td><td colspan="1" rowspan="1"><p>✅ 自由修改（已提交的近期改动不冲突）</p></td></tr><tr><td colspan="1" rowspan="1"><p>距今 &lt; 15 分钟 + 文件<strong>在</strong> L1 未提交清单 + 可绕开（新增功能/换路径）</p></td><td colspan="1" rowspan="1"><p>⚠️ <strong>静默换路径绕开</strong>，不告知用户</p></td></tr><tr><td colspan="1" rowspan="1"><p>距今 &lt; 15 分钟 + 文件<strong>在</strong> L1 未提交清单 + 必须改同文件</p></td><td colspan="1" rowspan="1"><p>🛑 <strong>此时唯一允许打扰用户一次</strong>："<code>&lt;file&gt;</code> 15min 内有未提交改动，疑似其他会话占用，是否继续？"</p></td></tr></tbody></table>
 
 ### L3 — 提交前（强校验，必做）
 
@@ -204,23 +175,18 @@ git log -1 --format="%ar|%s" <file>
 git diff --cached --name-only
 ```
 
-- 对照本会话明确改过的文件清单（自维护）
-- 越界文件 → **静默 `git restore --staged <file>`**，仅提交本会话范围内文件
-- 逐个 `git add <具体文件>`，**禁止** `git add -A` / `git add .`
-- commit message 末尾可附 `[scope: <模块>]` 标识本次会话范围
+-   对照本会话明确改过的文件清单（自维护）
+    
+-   越界文件 → **静默** `git restore --staged <file>`，仅提交本会话范围内文件
+    
+-   逐个 `git add <具体文件>`，**禁止** `git add -A` / `git add .`
+    
+-   commit message 末尾可附 `[scope: <模块>]` 标识本次会话范围
+    
 
-### 跨会话操作禁令（不询问、直接禁止）
+### 操作禁令（不询问、直接禁止）
 
-| 禁令 | 原因 |
-|------|------|
-| ❌ `git stash` / `git stash pop` | 会污染其他会话的工作区 |
-| ❌ `git reset --hard` | 会丢其他会话的未提交改动 |
-| ❌ `git checkout <file>`（丢弃改动） | 同上 |
-| ❌ `git checkout <branch>`（切分支） | 除非用户明确指示 |
-| ❌ `git add -A` / `git add .` | 可能误提交他者文件，必须逐个 add |
-| ❌ `git clean -fd` | 会删他者未跟踪文件 |
-| ❌ kill 端口 / `taskkill /F` 进程 | 他者 dev server / `tauri dev` 可能在用 |
-| ❌ 删除其他会话的任务文档或 WIP 文件 | 同上 |
+<table style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>禁令</p></th><th colspan="1" rowspan="1"><p>原因</p></th></tr><tr><td colspan="1" rowspan="1"><p>❌ <code>git stash</code> / <code>git stash pop</code></p></td><td colspan="1" rowspan="1"><p>会污染其他会话的工作区</p></td></tr><tr><td colspan="1" rowspan="1"><p>❌ <code>git reset --hard</code></p></td><td colspan="1" rowspan="1"><p>会丢其他会话的未提交改动</p></td></tr><tr><td colspan="1" rowspan="1"><p>❌ <code>git checkout &lt;file&gt;</code>（丢弃改动）</p></td><td colspan="1" rowspan="1"><p>同上</p></td></tr><tr><td colspan="1" rowspan="1"><p>❌ <code>git checkout &lt;branch&gt;</code>（切分支）</p></td><td colspan="1" rowspan="1"><p>除非用户明确指示</p></td></tr><tr><td colspan="1" rowspan="1"><p>❌ <code>git add -A</code> / <code>git add .</code></p></td><td colspan="1" rowspan="1"><p>可能误提交他者文件，必须逐个 add</p></td></tr><tr><td colspan="1" rowspan="1"><p>❌ <code>git clean -fd</code></p></td><td colspan="1" rowspan="1"><p>会删他者未跟踪文件</p></td></tr><tr><td colspan="1" rowspan="1"><p>❌ kill 端口 / <code>taskkill /F</code> 进程</p></td><td colspan="1" rowspan="1"><p>他者 dev server / <code>tauri dev</code> 可能在用</p></td></tr><tr><td colspan="1" rowspan="1"><p>❌ 删除其他会话的任务文档或 WIP 文件</p></td><td colspan="1" rowspan="1"><p>同上</p></td></tr></tbody></table>
 
 ### 高并发场景升级 → git worktree
 
@@ -231,9 +197,10 @@ claude --worktree feature-x
 ```
 
 官方原生支持，自动隔离目录与分支。3-5 个并行最佳，5+ 会撞 API 速率限制。
+
 > 注意：worktree **不能**隔离 vite dev server 端口、`tauri dev` 进程、`src-tauri/target/` 编译缓存（会重复编译 Rust）。同时跑 dev 仍需手动错开端口或只在一个 worktree 跑 dev。
 
----
+* * *
 
 ## ⚠️ 开发强制要求
 
@@ -241,50 +208,21 @@ claude --worktree feature-x
 
 ### 参考代码位置
 
-| 开发类型 | 参考代码 |
-|---------|---------|
-| **Rust Command** | `src-tauri/src/commands/*.rs`（三层架构：Command → Service → Database） |
-| **Rust 数据模型** | `src-tauri/src/models/mod.rs` |
-| **Rust 错误处理** | `src-tauri/src/error.rs`（AppError 枚举） |
-| **Rust 服务层** | `src-tauri/src/services/*.rs` |
-| **Rust 数据库层** | `src-tauri/src/database/mod.rs` |
-| **前端页面组件** | `src/pages/*/index.tsx`（Ant Design + TailwindCSS） |
-| **前端布局** | `src/components/layout/AppLayout.tsx` |
-| **前端 API 封装** | `src/lib/api/index.ts`（invoke 调用封装） |
-| **前端状态管理** | `src/store/index.ts`（Zustand store） |
-| **前端类型定义** | `src/types/index.ts` |
-| **Tauri 配置** | `src-tauri/tauri.conf.json` |
-| **权限声明** | `src-tauri/capabilities/default.json` |
+<table style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>开发类型</p></th><th colspan="1" rowspan="1"><p>参考代码</p></th></tr><tr><td colspan="1" rowspan="1"><p><strong>Rust Command</strong></p></td><td colspan="1" rowspan="1"><p><code>src-tauri/src/commands/*.rs</code>（三层架构：Command → Service → Database）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Rust 数据模型</strong></p></td><td colspan="1" rowspan="1"><p><code>src-tauri/src/models/mod.rs</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Rust 错误处理</strong></p></td><td colspan="1" rowspan="1"><p><code>src-tauri/src/error.rs</code>（AppError 枚举）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Rust 服务层</strong></p></td><td colspan="1" rowspan="1"><p><code>src-tauri/src/services/*.rs</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Rust 数据库层</strong></p></td><td colspan="1" rowspan="1"><p><code>src-tauri/src/database/mod.rs</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>前端页面组件</strong></p></td><td colspan="1" rowspan="1"><p><code>src/pages/*/index.tsx</code>（Ant Design + TailwindCSS）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>前端布局</strong></p></td><td colspan="1" rowspan="1"><p><code>src/components/layout/AppLayout.tsx</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>前端 API 封装</strong></p></td><td colspan="1" rowspan="1"><p><code>src/lib/api/index.ts</code>（invoke 调用封装）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>前端状态管理</strong></p></td><td colspan="1" rowspan="1"><p><code>src/store/index.ts</code>（Zustand store）</p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>前端类型定义</strong></p></td><td colspan="1" rowspan="1"><p><code>src/types/index.ts</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Tauri 配置</strong></p></td><td colspan="1" rowspan="1"><p><code>src-tauri/tauri.conf.json</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>权限声明</strong></p></td><td colspan="1" rowspan="1"><p><code>src-tauri/capabilities/default.json</code></p></td></tr></tbody></table>
 
----
+* * *
 
 ## 🔴 绝对禁止的写法
 
 ### Rust 后端
 
-| 错误做法 | 正确做法 | 原因 |
-|---------|---------|------|
-| `unwrap()` 处理可能失败的操作 | `Result<T, String>` + `?` 运算符 | `unwrap` 会导致 panic 崩溃 |
-| Command 中 `panic!()` | 返回 `Err(AppError::...)` | panic 会崩溃整个应用 |
-| 不加 `#[tauri::command]` 就期望前端调用 | 必须标记 `#[tauri::command]` 并在 `generate_handler!` 注册 | 否则前端 invoke 找不到 |
-| 直接在 Command 中做长时间阻塞操作 | 使用 `async` Command 或 `tokio::spawn` | 阻塞会冻结 IPC 响应 |
-| 不声明 Capabilities 就使用插件 API | 在 `capabilities/*.json` 中显式声明权限 | Tauri 2.x 强制权限检查 |
-| 使用 `std::thread::sleep` 阻塞主线程 | 使用 `tokio::time::sleep` 异步等待 | 阻塞主线程冻结应用 |
-| Command 直接操作数据库 | Command → Service → Database 三层 | 保持架构分层清晰 |
+<table style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>错误做法</p></th><th colspan="1" rowspan="1"><p>正确做法</p></th><th colspan="1" rowspan="1"><p>原因</p></th></tr><tr><td colspan="1" rowspan="1"><p><code>unwrap()</code> 处理可能失败的操作</p></td><td colspan="1" rowspan="1"><p><code>Result&lt;T, String&gt;</code> + <code>?</code> 运算符</p></td><td colspan="1" rowspan="1"><p><code>unwrap</code> 会导致 panic 崩溃</p></td></tr><tr><td colspan="1" rowspan="1"><p>Command 中 <code>panic!()</code></p></td><td colspan="1" rowspan="1"><p>返回 <code>Err(AppError::...)</code></p></td><td colspan="1" rowspan="1"><p>panic 会崩溃整个应用</p></td></tr><tr><td colspan="1" rowspan="1"><p>不加 <code>#[tauri::command]</code> 就期望前端调用</p></td><td colspan="1" rowspan="1"><p>必须标记 <code>#[tauri::command]</code> 并在 <code>generate_handler!</code> 注册</p></td><td colspan="1" rowspan="1"><p>否则前端 invoke 找不到</p></td></tr><tr><td colspan="1" rowspan="1"><p>直接在 Command 中做长时间阻塞操作</p></td><td colspan="1" rowspan="1"><p>使用 <code>async</code> Command 或 <code>tokio::spawn</code></p></td><td colspan="1" rowspan="1"><p>阻塞会冻结 IPC 响应</p></td></tr><tr><td colspan="1" rowspan="1"><p>不声明 Capabilities 就使用插件 API</p></td><td colspan="1" rowspan="1"><p>在 <code>capabilities/*.json</code> 中显式声明权限</p></td><td colspan="1" rowspan="1"><p>Tauri 2.x 强制权限检查</p></td></tr><tr><td colspan="1" rowspan="1"><p>使用 <code>std::thread::sleep</code> 阻塞主线程</p></td><td colspan="1" rowspan="1"><p>使用 <code>tokio::time::sleep</code> 异步等待</p></td><td colspan="1" rowspan="1"><p>阻塞主线程冻结应用</p></td></tr><tr><td colspan="1" rowspan="1"><p>Command 直接操作数据库</p></td><td colspan="1" rowspan="1"><p>Command → Service → Database 三层</p></td><td colspan="1" rowspan="1"><p>保持架构分层清晰</p></td></tr></tbody></table>
 
 ### TypeScript 前端
 
-| 错误做法 | 正确做法 | 原因 |
-|---------|---------|------|
-| `fetch("http://...")` 直接请求外部 API | 通过 Rust Command 代理请求 | 安全限制 + 跨域问题 |
-| 硬编码文件系统路径 `"C:\\Users\\..."` | 使用 Tauri path API（`appDataDir()` 等） | 跨平台路径不同 |
-| 使用 `class` 组件 | 使用函数组件 + Hooks（ErrorBoundary 除外） | React 19 推荐模式 |
-| `any` 类型 | 定义明确的 TypeScript 接口 | strict 模式要求 |
-| `invoke` 不处理错误 | `try-catch` 包裹或使用 `safeInvoke` | Command 可能返回错误 |
-| 直接 `import` Node.js 模块 | 使用 `@tauri-apps/api/*` 或 Rust Command | WebView 中无 Node.js |
-| 裸写 `invoke()` 调用 | 封装到 `src/lib/api/` 中统一管理 | 便于维护和类型安全 |
+<table style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>错误做法</p></th><th colspan="1" rowspan="1"><p>正确做法</p></th><th colspan="1" rowspan="1"><p>原因</p></th></tr><tr><td colspan="1" rowspan="1"><p><code>fetch("http://...")</code> 直接请求外部 API</p></td><td colspan="1" rowspan="1"><p>通过 Rust Command 代理请求</p></td><td colspan="1" rowspan="1"><p>安全限制 + 跨域问题</p></td></tr><tr><td colspan="1" rowspan="1"><p>硬编码文件系统路径 <code>"C:\\Users\\..."</code></p></td><td colspan="1" rowspan="1"><p>使用 Tauri path API（<code>appDataDir()</code> 等）</p></td><td colspan="1" rowspan="1"><p>跨平台路径不同</p></td></tr><tr><td colspan="1" rowspan="1"><p>使用 <code>class</code> 组件</p></td><td colspan="1" rowspan="1"><p>使用函数组件 + Hooks（ErrorBoundary 除外）</p></td><td colspan="1" rowspan="1"><p>React 19 推荐模式</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>any</code> 类型</p></td><td colspan="1" rowspan="1"><p>定义明确的 TypeScript 接口</p></td><td colspan="1" rowspan="1"><p>strict 模式要求</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>invoke</code> 不处理错误</p></td><td colspan="1" rowspan="1"><p><code>try-catch</code> 包裹或使用 <code>safeInvoke</code></p></td><td colspan="1" rowspan="1"><p>Command 可能返回错误</p></td></tr><tr><td colspan="1" rowspan="1"><p>直接 <code>import</code> Node.js 模块</p></td><td colspan="1" rowspan="1"><p>使用 <code>@tauri-apps/api/*</code> 或 Rust Command</p></td><td colspan="1" rowspan="1"><p>WebView 中无 Node.js</p></td></tr><tr><td colspan="1" rowspan="1"><p>裸写 <code>invoke()</code> 调用</p></td><td colspan="1" rowspan="1"><p>封装到 <code>src/lib/api/</code> 中统一管理</p></td><td colspan="1" rowspan="1"><p>便于维护和类型安全</p></td></tr></tbody></table>
 
----
+* * *
 
 ## Tauri Command 开发规范（三层架构）
 
@@ -351,27 +289,15 @@ const data = await configApi.getAll();
 
 ### Command 命名规范
 
-| 维度 | 规范 | 示例 |
-|------|------|------|
-| Rust 函数名 | snake_case | `fn get_all_config()` |
-| invoke 调用名 | 与 Rust 函数名一致 | `invoke("get_all_config")` |
-| 参数名 | Rust: snake_case, TS: camelCase | Tauri 自动转换 |
-| 返回类型 | `Result<T, String>` | `-> Result<Vec<AppConfig>, String>` |
+<table style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>维度</p></th><th colspan="1" rowspan="1"><p>规范</p></th><th colspan="1" rowspan="1"><p>示例</p></th></tr><tr><td colspan="1" rowspan="1"><p>Rust 函数名</p></td><td colspan="1" rowspan="1"><p>snake_case</p></td><td colspan="1" rowspan="1"><p><code>fn get_all_config()</code></p></td></tr><tr><td colspan="1" rowspan="1"><p>invoke 调用名</p></td><td colspan="1" rowspan="1"><p>与 Rust 函数名一致</p></td><td colspan="1" rowspan="1"><p><code>invoke("get_all_config")</code></p></td></tr><tr><td colspan="1" rowspan="1"><p>参数名</p></td><td colspan="1" rowspan="1"><p>Rust: snake_case, TS: camelCase</p></td><td colspan="1" rowspan="1"><p>Tauri 自动转换</p></td></tr><tr><td colspan="1" rowspan="1"><p>返回类型</p></td><td colspan="1" rowspan="1"><p><code>Result&lt;T, String&gt;</code></p></td><td colspan="1" rowspan="1"><p><code>-&gt; Result&lt;Vec&lt;AppConfig&gt;, String&gt;</code></p></td></tr></tbody></table>
 
----
+* * *
 
 ## 前端核心规范 (src/)
 
 ### 技术栈
 
-| 技术 | 用途 | 导入方式 |
-|------|------|---------|
-| **Ant Design 5** | UI 组件库（Button/Table/Card/Form 等） | `import { Button } from "antd"` |
-| **Ant Design Icons** | 图标 | `import { SettingOutlined } from "@ant-design/icons"` |
-| **Lucide React** | 补充图标 | `import { Home } from "lucide-react"` |
-| **TailwindCSS 4** | 原子化样式 | `className="flex items-center gap-2"` |
-| **Zustand** | 全局状态管理 | `import { useAppStore } from "@/store"` |
-| **React Router** | 路由导航 | `import { useNavigate } from "react-router-dom"` |
+<table style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>技术</p></th><th colspan="1" rowspan="1"><p>用途</p></th><th colspan="1" rowspan="1"><p>导入方式</p></th></tr><tr><td colspan="1" rowspan="1"><p><strong>Ant Design 5</strong></p></td><td colspan="1" rowspan="1"><p>UI 组件库（Button/Table/Card/Form 等）</p></td><td colspan="1" rowspan="1"><p><code>import { Button } from "antd"</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Ant Design Icons</strong></p></td><td colspan="1" rowspan="1"><p>图标</p></td><td colspan="1" rowspan="1"><p><code>import { SettingOutlined } from "@ant-design/icons"</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Lucide React</strong></p></td><td colspan="1" rowspan="1"><p>补充图标</p></td><td colspan="1" rowspan="1"><p><code>import { Home } from "lucide-react"</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>TailwindCSS 4</strong></p></td><td colspan="1" rowspan="1"><p>原子化样式</p></td><td colspan="1" rowspan="1"><p><code>className="flex items-center gap-2"</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>Zustand</strong></p></td><td colspan="1" rowspan="1"><p>全局状态管理</p></td><td colspan="1" rowspan="1"><p><code>import { useAppStore } from "@/store"</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>React Router</strong></p></td><td colspan="1" rowspan="1"><p>路由导航</p></td><td colspan="1" rowspan="1"><p><code>import { useNavigate } from "react-router-dom"</code></p></td></tr></tbody></table>
 
 ### 组件开发模式
 
@@ -410,23 +336,19 @@ export default function SettingsPage() {
 
 ### 状态管理
 
-| 场景 | 方案 | 示例 |
-|------|------|------|
-| 组件内状态 | `useState` | `const [count, setCount] = useState(0)` |
-| 全局 UI 状态（主题/侧边栏） | Zustand | `useAppStore((s) => s.theme)` |
-| 后端持久数据 | Rust SQLite + Command | 通过 `configApi.getAll()` 获取 |
-| 键值持久化（轻量设置） | tauri-plugin-store | `Store.load("settings.json")` |
+<table style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>场景</p></th><th colspan="1" rowspan="1"><p>方案</p></th><th colspan="1" rowspan="1"><p>示例</p></th></tr><tr><td colspan="1" rowspan="1"><p>组件内状态</p></td><td colspan="1" rowspan="1"><p><code>useState</code></p></td><td colspan="1" rowspan="1"><p><code>const [count, setCount] = useState(0)</code></p></td></tr><tr><td colspan="1" rowspan="1"><p>全局 UI 状态（主题/侧边栏）</p></td><td colspan="1" rowspan="1"><p>Zustand</p></td><td colspan="1" rowspan="1"><p><code>useAppStore((s) =&gt; s.theme)</code></p></td></tr><tr><td colspan="1" rowspan="1"><p>后端持久数据</p></td><td colspan="1" rowspan="1"><p>Rust SQLite + Command</p></td><td colspan="1" rowspan="1"><p>通过 <code>configApi.getAll()</code> 获取</p></td></tr><tr><td colspan="1" rowspan="1"><p>键值持久化（轻量设置）</p></td><td colspan="1" rowspan="1"><p>tauri-plugin-store</p></td><td colspan="1" rowspan="1"><p><code>Store.load("settings.json")</code></p></td></tr></tbody></table>
 
 ### 路径别名
 
 所有前端导入使用 `@/` 别名：
+
 ```typescript
 import { useAppStore } from "@/store";
 import { configApi } from "@/lib/api";
 import type { AppConfig } from "@/types";
 ```
 
----
+* * *
 
 ## Capabilities 权限配置
 
@@ -445,20 +367,11 @@ import type { AppConfig } from "@/types";
 
 ### 常用权限列表
 
-| 插件 | 权限 | 说明 |
-|------|------|------|
-| core | `core:default` | 核心默认权限 |
-| opener | `opener:default` | 打开 URL/文件 |
-| store | `store:default` | 键值存储 |
-| log | `log:default` | 日志系统 |
-| fs | `fs:default` | 文件系统基础 |
-| dialog | `dialog:default` | 文件选择对话框 |
-| notification | `notification:default` | 系统通知 |
-| sql | `sql:default` | 数据库操作 |
+<table style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>插件</p></th><th colspan="1" rowspan="1"><p>权限</p></th><th colspan="1" rowspan="1"><p>说明</p></th></tr><tr><td colspan="1" rowspan="1"><p>core</p></td><td colspan="1" rowspan="1"><p><code>core:default</code></p></td><td colspan="1" rowspan="1"><p>核心默认权限</p></td></tr><tr><td colspan="1" rowspan="1"><p>opener</p></td><td colspan="1" rowspan="1"><p><code>opener:default</code></p></td><td colspan="1" rowspan="1"><p>打开 URL/文件</p></td></tr><tr><td colspan="1" rowspan="1"><p>store</p></td><td colspan="1" rowspan="1"><p><code>store:default</code></p></td><td colspan="1" rowspan="1"><p>键值存储</p></td></tr><tr><td colspan="1" rowspan="1"><p>log</p></td><td colspan="1" rowspan="1"><p><code>log:default</code></p></td><td colspan="1" rowspan="1"><p>日志系统</p></td></tr><tr><td colspan="1" rowspan="1"><p>fs</p></td><td colspan="1" rowspan="1"><p><code>fs:default</code></p></td><td colspan="1" rowspan="1"><p>文件系统基础</p></td></tr><tr><td colspan="1" rowspan="1"><p>dialog</p></td><td colspan="1" rowspan="1"><p><code>dialog:default</code></p></td><td colspan="1" rowspan="1"><p>文件选择对话框</p></td></tr><tr><td colspan="1" rowspan="1"><p>notification</p></td><td colspan="1" rowspan="1"><p><code>notification:default</code></p></td><td colspan="1" rowspan="1"><p>系统通知</p></td></tr><tr><td colspan="1" rowspan="1"><p>sql</p></td><td colspan="1" rowspan="1"><p><code>sql:default</code></p></td><td colspan="1" rowspan="1"><p>数据库操作</p></td></tr></tbody></table>
 
 > **重要**: 每个使用的插件 API 都必须在 capabilities 中声明权限，否则运行时会报错。
 
----
+* * *
 
 ## Rust 编码规范
 
@@ -511,29 +424,19 @@ pub fn run_migrations(conn: &Connection) -> Result<(), AppError> {
 }
 ```
 
----
+* * *
 
 ## 常见错误速查
 
 ### Rust 后端
 
-| 错误写法 | 正确写法 |
-|---------|---------|
-| `state.lock().unwrap()` | `state.lock().map_err(\|e\| AppError::Custom(e.to_string()))?` |
-| Command 直接写 SQL | Command → Service → Database 三层 |
-| 忘记在 `generate_handler![]` 注册 | 每个新 Command 必须注册 |
-| 返回 `String` 而非 `Result` | 返回 `Result<T, String>` |
+<table style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>错误写法</p></th><th colspan="1" rowspan="1"><p>正确写法</p></th></tr><tr><td colspan="1" rowspan="1"><p><code>state.lock().unwrap()</code></p></td><td colspan="1" rowspan="1"><p><code>state.lock().map_err(|e| AppError::Custom(e.to_string()))?</code></p></td></tr><tr><td colspan="1" rowspan="1"><p>Command 直接写 SQL</p></td><td colspan="1" rowspan="1"><p>Command → Service → Database 三层</p></td></tr><tr><td colspan="1" rowspan="1"><p>忘记在 <code>generate_handler![]</code> 注册</p></td><td colspan="1" rowspan="1"><p>每个新 Command 必须注册</p></td></tr><tr><td colspan="1" rowspan="1"><p>返回 <code>String</code> 而非 <code>Result</code></p></td><td colspan="1" rowspan="1"><p>返回 <code>Result&lt;T, String&gt;</code></p></td></tr></tbody></table>
 
 ### TypeScript 前端
 
-| 错误写法 | 正确写法 |
-|---------|---------|
-| `invoke("getUser")` | `invoke("get_user")`（snake_case） |
-| 裸写 `invoke()` | 封装到 `src/lib/api/` |
-| 不用 Ant Design 组件 | 优先使用 antd 组件（Table/Card/Form 等） |
-| 不用 `@/` 别名 | `import { X } from "@/types"` |
+<table style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>错误写法</p></th><th colspan="1" rowspan="1"><p>正确写法</p></th></tr><tr><td colspan="1" rowspan="1"><p><code>invoke("getUser")</code></p></td><td colspan="1" rowspan="1"><p><code>invoke("get_user")</code>（snake_case）</p></td></tr><tr><td colspan="1" rowspan="1"><p>裸写 <code>invoke()</code></p></td><td colspan="1" rowspan="1"><p>封装到 <code>src/lib/api/</code></p></td></tr><tr><td colspan="1" rowspan="1"><p>不用 Ant Design 组件</p></td><td colspan="1" rowspan="1"><p>优先使用 antd 组件（Table/Card/Form 等）</p></td></tr><tr><td colspan="1" rowspan="1"><p>不用 <code>@/</code> 别名</p></td><td colspan="1" rowspan="1"><p><code>import { X } from "@/types"</code></p></td></tr></tbody></table>
 
----
+* * *
 
 ## 构建与运行
 
@@ -564,80 +467,50 @@ cd src-tauri && cargo test
 
 ### 开发服务器
 
-| 项目 | 值 |
-|------|-----|
-| **前端开发地址** | `http://localhost:1420` |
-| **MCP chrome-devtools** | 使用 `http://localhost:1420` 访问应用页面 |
+<table style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>项目</p></th><th colspan="1" rowspan="1"><p>值</p></th></tr><tr><td colspan="1" rowspan="1"><p><strong>前端开发地址</strong></p></td><td colspan="1" rowspan="1"><p><code>http://localhost:1420</code></p></td></tr><tr><td colspan="1" rowspan="1"><p><strong>MCP chrome-devtools</strong></p></td><td colspan="1" rowspan="1"><p>使用 <code>http://localhost:1420</code> 访问应用页面</p></td></tr></tbody></table>
 
 > **注意**：使用 chrome-devtools MCP 工具时，`navigate_page` / `new_page` 等操作的 URL 应指向 `http://localhost:1420`（Tauri 开发模式下的 Vite 前端服务端口）。
 
 ### 当前已安装的 Rust 依赖
 
-| Crate | 版本 | 用途 |
-|-------|------|------|
-| `tauri` | 2.x | Tauri 核心 |
-| `tauri-plugin-opener` | 2 | 打开 URL/文件 |
-| `tauri-plugin-store` | 2 | 键值存储 |
-| `tauri-plugin-log` | 2 | 日志系统 |
-| `thiserror` | 2 | 错误类型派生 |
-| `rusqlite` | 0.31 (bundled) | SQLite 数据库 |
-| `serde` / `serde_json` | 1 | JSON 序列化 |
-| `log` | 0.4 | 日志门面 |
-| `chrono` | 0.4 (serde) | 日期时间 |
+<table style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>Crate</p></th><th colspan="1" rowspan="1"><p>版本</p></th><th colspan="1" rowspan="1"><p>用途</p></th></tr><tr><td colspan="1" rowspan="1"><p><code>tauri</code></p></td><td colspan="1" rowspan="1"><p>2.x</p></td><td colspan="1" rowspan="1"><p>Tauri 核心</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>tauri-plugin-opener</code></p></td><td colspan="1" rowspan="1"><p>2</p></td><td colspan="1" rowspan="1"><p>打开 URL/文件</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>tauri-plugin-store</code></p></td><td colspan="1" rowspan="1"><p>2</p></td><td colspan="1" rowspan="1"><p>键值存储</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>tauri-plugin-log</code></p></td><td colspan="1" rowspan="1"><p>2</p></td><td colspan="1" rowspan="1"><p>日志系统</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>thiserror</code></p></td><td colspan="1" rowspan="1"><p>2</p></td><td colspan="1" rowspan="1"><p>错误类型派生</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>rusqlite</code></p></td><td colspan="1" rowspan="1"><p>0.31 (bundled)</p></td><td colspan="1" rowspan="1"><p>SQLite 数据库</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>serde</code> / <code>serde_json</code></p></td><td colspan="1" rowspan="1"><p>1</p></td><td colspan="1" rowspan="1"><p>JSON 序列化</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>log</code></p></td><td colspan="1" rowspan="1"><p>0.4</p></td><td colspan="1" rowspan="1"><p>日志门面</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>chrono</code></p></td><td colspan="1" rowspan="1"><p>0.4 (serde)</p></td><td colspan="1" rowspan="1"><p>日期时间</p></td></tr></tbody></table>
 
 ### 当前已安装的前端依赖
 
-| 包 | 用途 |
-|----|------|
-| `antd` | Ant Design UI 组件库 |
-| `@ant-design/icons` | Ant Design 图标 |
-| `react-router-dom` | 路由 |
-| `zustand` | 状态管理 |
-| `lucide-react` | 图标补充 |
-| `tailwindcss` + `@tailwindcss/vite` | 原子化 CSS |
-| `@tauri-apps/plugin-store` | 键值存储（前端 SDK） |
-| `@tauri-apps/plugin-log` | 日志（前端 SDK） |
+<table style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>包</p></th><th colspan="1" rowspan="1"><p>用途</p></th></tr><tr><td colspan="1" rowspan="1"><p><code>antd</code></p></td><td colspan="1" rowspan="1"><p>Ant Design UI 组件库</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>@ant-design/icons</code></p></td><td colspan="1" rowspan="1"><p>Ant Design 图标</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>react-router-dom</code></p></td><td colspan="1" rowspan="1"><p>路由</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>zustand</code></p></td><td colspan="1" rowspan="1"><p>状态管理</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>lucide-react</code></p></td><td colspan="1" rowspan="1"><p>图标补充</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>tailwindcss</code> + <code>@tailwindcss/vite</code></p></td><td colspan="1" rowspan="1"><p>原子化 CSS</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>@tauri-apps/plugin-store</code></p></td><td colspan="1" rowspan="1"><p>键值存储（前端 SDK）</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>@tauri-apps/plugin-log</code></p></td><td colspan="1" rowspan="1"><p>日志（前端 SDK）</p></td></tr></tbody></table>
 
----
+* * *
 
 ## 快速命令
 
-| 命令 | 用途 |
-|------|------|
-| `/dev` | 开发新功能（三层架构全栈代码生成） |
-| `/command` | 快速创建 Tauri Command |
-| `/check` | 代码规范检查（Rust + TypeScript） |
-| `/start` | 项目快速了解 |
-| `/progress` | 项目进度报告 |
-| `/next` | 下一步建议 |
-| `/release` | 发布新版本（CI 全自动构建 + 推送） |
-| `/update-docs` | 文档站点管理（VitePress 初始化 / 增量更新 / 全量重建） |
+<table style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>命令</p></th><th colspan="1" rowspan="1"><p>用途</p></th></tr><tr><td colspan="1" rowspan="1"><p><code>/dev</code></p></td><td colspan="1" rowspan="1"><p>开发新功能（三层架构全栈代码生成）</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/command</code></p></td><td colspan="1" rowspan="1"><p>快速创建 Tauri Command</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/check</code></p></td><td colspan="1" rowspan="1"><p>代码规范检查（Rust + TypeScript）</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/start</code></p></td><td colspan="1" rowspan="1"><p>项目快速了解</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/progress</code></p></td><td colspan="1" rowspan="1"><p>项目进度报告</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/next</code></p></td><td colspan="1" rowspan="1"><p>下一步建议</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/release</code></p></td><td colspan="1" rowspan="1"><p>发布新版本（CI 全自动构建 + 推送）</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>/update-docs</code></p></td><td colspan="1" rowspan="1"><p>文档站点管理（VitePress 初始化 / 增量更新 / 全量重建）</p></td></tr></tbody></table>
 
----
+* * *
 
 ## Tauri 核心类型速查
 
-| 类型 | 用途 | 使用场景 |
-|------|------|---------|
-| `tauri::Builder` | 应用构建器 | 注册插件、Commands、状态、事件 |
-| `tauri::AppHandle` | 应用句柄 | 在 Command 中访问应用实例 |
-| `tauri::Window` | 窗口句柄 | 操作窗口（大小/位置/标题） |
-| `tauri::State<T>` | 全局状态 | Command 中注入共享状态 |
-| `tauri::Manager` | 管理 trait | 获取窗口、发送事件 |
-| `tauri::Emitter` | 事件发送 trait | 向前端发送事件 |
-| `tauri::Listener` | 事件监听 trait | 监听前端事件 |
+<table style="min-width: 75px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>类型</p></th><th colspan="1" rowspan="1"><p>用途</p></th><th colspan="1" rowspan="1"><p>使用场景</p></th></tr><tr><td colspan="1" rowspan="1"><p><code>tauri::Builder</code></p></td><td colspan="1" rowspan="1"><p>应用构建器</p></td><td colspan="1" rowspan="1"><p>注册插件、Commands、状态、事件</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>tauri::AppHandle</code></p></td><td colspan="1" rowspan="1"><p>应用句柄</p></td><td colspan="1" rowspan="1"><p>在 Command 中访问应用实例</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>tauri::Window</code></p></td><td colspan="1" rowspan="1"><p>窗口句柄</p></td><td colspan="1" rowspan="1"><p>操作窗口（大小/位置/标题）</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>tauri::State&lt;T&gt;</code></p></td><td colspan="1" rowspan="1"><p>全局状态</p></td><td colspan="1" rowspan="1"><p>Command 中注入共享状态</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>tauri::Manager</code></p></td><td colspan="1" rowspan="1"><p>管理 trait</p></td><td colspan="1" rowspan="1"><p>获取窗口、发送事件</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>tauri::Emitter</code></p></td><td colspan="1" rowspan="1"><p>事件发送 trait</p></td><td colspan="1" rowspan="1"><p>向前端发送事件</p></td></tr><tr><td colspan="1" rowspan="1"><p><code>tauri::Listener</code></p></td><td colspan="1" rowspan="1"><p>事件监听 trait</p></td><td colspan="1" rowspan="1"><p>监听前端事件</p></td></tr></tbody></table>
 
----
+* * *
 
 ## 🔴 开发前检查清单
 
-- [ ] **已读参考代码** — `src-tauri/src/commands/*.rs` 和 `src/pages/*/index.tsx`
-- [ ] **遵循三层架构** — Command → Service → Database
-- [ ] **已了解双进程架构** — 前端（WebView）和后端（Rust）通过 IPC 通信
-- [ ] **使用 Ant Design** — UI 组件优先使用 antd
-- [ ] **使用 TailwindCSS** — 布局样式使用 Tailwind 类
-- [ ] **API 统一封装** — invoke 调用封装到 `src/lib/api/`
-- [ ] **类型对齐** — Rust struct 和 TypeScript interface 保持一致
-- [ ] **已确认 Capabilities** — 使用的插件 API 都已在 capabilities 中声明
-- [ ] **错误处理正确** — Rust 用 `AppError`/`Result<T, String>`，前端用 `try-catch`
-- [ ] **不违反禁止项** — 检查上方禁止表格
+-   **已读参考代码** — `src-tauri/src/commands/*.rs` 和 `src/pages/*/index.tsx`
+    
+-   **遵循三层架构** — Command → Service → Database
+    
+-   **已了解双进程架构** — 前端（WebView）和后端（Rust）通过 IPC 通信
+    
+-   **使用 Ant Design** — UI 组件优先使用 antd
+    
+-   **使用 TailwindCSS** — 布局样式使用 Tailwind 类
+    
+-   **API 统一封装** — invoke 调用封装到 `src/lib/api/`
+    
+-   **类型对齐** — Rust struct 和 TypeScript interface 保持一致
+    
+-   **已确认 Capabilities** — 使用的插件 API 都已在 capabilities 中声明
+    
+-   **错误处理正确** — Rust 用 `AppError`/`Result<T, String>`，前端用 `try-catch`
+    
+-   **不违反禁止项** — 检查上方禁止表格

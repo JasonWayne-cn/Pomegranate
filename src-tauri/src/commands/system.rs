@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::models::{DailyWritingStat, DashboardStats, SystemInfo};
+use crate::models::{DailyWritingStat, DashboardStats, GitInfo, SystemInfo};
 use crate::services::asset_path;
 use crate::services::image::ImageService;
 use crate::state::AppState;
@@ -99,4 +99,92 @@ pub fn set_multi_instance_enabled(app: tauri::AppHandle, enabled: bool) -> Resul
 #[tauri::command]
 pub fn write_text_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| format!("写入文件失败 {}: {}", path, e))
+}
+
+/// 获取当前工作目录的 Git 仓库状态快照。
+///
+/// 通过 shell out `git` CLI 实现，不引入额外 crate。
+/// 非 git 仓库时返回 Default（branch: None, is_clean: true）。
+#[tauri::command]
+pub fn get_git_info() -> Result<GitInfo, String> {
+    fn run_git(args: &[&str]) -> Option<String> {
+        let mut cmd = std::process::Command::new("git");
+        cmd.args(args);
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::null());
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let output = cmd.output().ok()?;
+        if output.status.success() {
+            Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            None
+        }
+    }
+
+    // 1) 当前分支
+    let branch = run_git(&["branch", "--show-current"]);
+
+    // 无分支 = 非 git 仓库（或 detached HEAD）
+    let branch = branch.filter(|b| !b.is_empty());
+
+    // 2) git status --porcelain 解析文件状态
+    let mut changed = 0i32;
+    let mut staged = 0i32;
+    let mut untracked = 0i32;
+    if let Some(porcelain) = run_git(&["status", "--porcelain"]) {
+        for line in porcelain.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let bytes = line.as_bytes();
+            if bytes.len() < 2 {
+                continue;
+            }
+            let x = bytes[0]; // 暂存区状态
+            let y = bytes[1]; // 工作区状态
+            // 未跟踪
+            if x == b'?' && y == b'?' {
+                untracked += 1;
+                continue;
+            }
+            // 暂存区有变更
+            if x != b' ' {
+                staged += 1;
+            }
+            // 工作区有变更
+            if y != b' ' {
+                changed += 1;
+            }
+        }
+    }
+
+    // 3) 领先/落后远程提交数
+    let (ahead, behind) = if let Some(counts) =
+        run_git(&["rev-list", "--count", "--left-right", "@{upstream}...HEAD"])
+    {
+        let parts: Vec<&str> = counts.split_whitespace().collect();
+        let a = parts.first().and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
+        let b = parts.get(1).and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
+        (a, b)
+    } else {
+        (0, 0)
+    };
+
+    let is_clean = changed == 0 && staged == 0 && untracked == 0;
+
+    Ok(GitInfo {
+        branch,
+        is_clean,
+        changed,
+        staged,
+        untracked,
+        ahead,
+        behind,
+    })
 }

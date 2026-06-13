@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{Emitter, State};
 use tokio::sync::watch;
 
 use crate::models::{
@@ -354,11 +354,23 @@ pub async fn ai_plan_from_goal(
 /// 返回删除的任务条数；批次不存在或已被删完时返回 0。task_links 由数据库
 /// ON DELETE CASCADE 自动清理。
 #[tauri::command]
-pub fn undo_task_batch(state: State<'_, AppState>, batch_id: String) -> Result<usize, String> {
-    state
+pub fn undo_task_batch(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    batch_id: String,
+) -> Result<usize, String> {
+    let snapshot = state
+        .db
+        .get_tasks_by_batch(&batch_id)
+        .map_err(|e| e.to_string())?;
+    let n = state
         .db
         .delete_tasks_by_batch(&batch_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    for task in &snapshot {
+        let _ = app.emit("plugin:task:deleted", task);
+    }
+    Ok(n)
 }
 
 /// Excel 文件 → AI 智能规划

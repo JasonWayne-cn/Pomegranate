@@ -32,6 +32,7 @@ import {
   Flame,
   Circle,
   Check as IconCheck,
+  Bot,
 } from "lucide-react";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import {
@@ -43,9 +44,10 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { taskApi, taskCategoryApi } from "@/lib/api";
 import { MicButton } from "@/components/MicButton";
 import { useAppStore } from "@/store";
+import { usePluginTaskViews } from "@/hooks/usePluginTaskViews";
 import type { Task, TaskPriority, TaskCategory } from "@/types";
 
-type ViewMode = "list" | "kanban" | "quadrant" | "calendar";
+type ViewMode = "list" | "kanban" | "quadrant" | "calendar" | string;
 import { CreateTaskModal } from "@/components/tasks/CreateTaskModal";
 import { SubtaskList } from "@/components/tasks/SubtaskList";
 import { TaskDetailModal } from "@/components/tasks/TaskDetailModal";
@@ -261,6 +263,7 @@ function DesktopTasksPage() {
   /** 行点击 → 只读详情 Modal（与首页一致）；编辑走 hover Edit / 右键菜单 → setEditing */
   const [detailViewing, setDetailViewing] = useState<Task | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const pluginViews = usePluginTaskViews();
   const [presetPriority, setPresetPriority] = useState<TaskPriority | undefined>(undefined);
   const [presetImportant, setPresetImportant] = useState<boolean | undefined>(undefined);
   const [presetDueDate, setPresetDueDate] = useState<string | undefined>(undefined);
@@ -530,6 +533,10 @@ function DesktopTasksPage() {
               { label: "看板", value: "kanban" },
               { label: "四象限", value: "quadrant" },
               { label: "日历", value: "calendar" },
+              ...pluginViews.map((pv) => ({
+                label: pv.label,
+                value: `plugin:${pv.pluginId}:${pv.id}`,
+              })),
             ]}
           />
           {viewMode === "list" && (
@@ -555,6 +562,14 @@ function DesktopTasksPage() {
               useAppStore.getState().refreshTaskStats();
             }}
           />
+          <Tooltip title="AI 渐进式执行任务计划">
+            <Button
+              icon={<Bot size={14} />}
+              onClick={() => navigate("/task-session")}
+            >
+              AI 执行
+            </Button>
+          </Tooltip>
         </div>
       </div>
 
@@ -616,6 +631,15 @@ function DesktopTasksPage() {
             setCreateOpen(true);
           }}
         />
+      ) : viewMode.startsWith("plugin:") ? (
+        <div className="flex flex-col items-center justify-center py-12 gap-4">
+          <Text type="secondary">
+            插件视图：{pluginViews.find((pv) => `plugin:${pv.pluginId}:${pv.id}` === viewMode)?.label ?? viewMode}
+          </Text>
+          <Text type="secondary" className="text-xs">
+            由插件提供 · 渲染在 iframe 沙箱中
+          </Text>
+        </div>
       ) : tasks.length === 0 ? (
         <Empty
           description={

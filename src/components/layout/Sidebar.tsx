@@ -54,9 +54,9 @@ import { ImportPreviewModal } from "@/components/ImportPreviewModal";
 /** 导航菜单项（静态部分，用于路由高亮匹配） */
 const navItems = [
   { key: "/", icon: <Home size={16} />, label: "首页" },
-  { key: "/notes", icon: <NotebookText size={16} />, label: "笔记" },
+  { key: "/notes", icon: <NotebookText size={16} />, label: "文档" },
   { key: "/search", icon: <Search size={16} />, label: "搜索" },
-  { key: "/daily", icon: <Calendar size={16} />, label: "每日笔记" },
+  { key: "/daily", icon: <Calendar size={16} />, label: "日记" },
   { key: "/tags", icon: <Tags size={16} />, label: "标签" },
   { key: "/tasks", icon: <CheckSquare size={16} />, label: "待办" },
   { key: "/graph", icon: <GitBranch size={16} />, label: "知识图谱" },
@@ -67,7 +67,7 @@ const navItems = [
 
 /** 底部快捷入口 */
 const bottomItems = [
-  { key: "/hidden", icon: <EyeOff size={16} />, label: "隐藏笔记" },
+  { key: "/hidden", icon: <EyeOff size={16} />, label: "隐藏文档" },
   { key: "/trash", icon: <Trash2 size={16} />, label: "回收站" },
 ];
 
@@ -322,7 +322,7 @@ export function Sidebar() {
   function confirmDelete(key: string, name: string) {
     Modal.confirm({
       title: `删除文件夹"${name}"`,
-      content: "若文件夹下含有子文件夹或笔记，将拒绝删除。请先清空内容。",
+      content: "若文件夹下含有子文件夹或文档，将拒绝删除。请先清空内容。",
       okText: "删除",
       okType: "danger",
       cancelText: "取消",
@@ -467,7 +467,7 @@ export function Sidebar() {
       {
         key: "new-note",
         icon: <NotebookText size={14} />,
-        label: "在此新建笔记",
+        label: "在此新建文档",
         onClick: () => {
           createBlankAndOpen(Number(key), navigate);
           close();
@@ -735,7 +735,7 @@ export function Sidebar() {
         <Button
           icon={<Sparkles size={collapsed ? 16 : 14} />}
           onClick={() => setShowDraftModal(true)}
-          title="AI 写笔记（T-006）"
+          title="AI 写文档（T-006）"
         />
         <Button
           icon={<Globe size={collapsed ? 16 : 14} />}

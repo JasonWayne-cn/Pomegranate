@@ -785,6 +785,55 @@ impl super::Database {
 
     // ─── 批次操作（AI 智能规划）─────────────────
 
+    /// 查询某个 source_batch_id 下的所有任务（含 links，含子任务）
+    pub fn get_tasks_by_batch(&self, batch_id: &str) -> Result<Vec<Task>, AppError> {
+        if batch_id.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, title, description, priority, important, status, due_date, \
+             completed_at, created_at, updated_at, remind_before_minutes, reminded_at, \
+             repeat_kind, repeat_interval, repeat_weekdays, repeat_until, repeat_count, \
+             repeat_done_count, source_batch_id, category_id, parent_task_id \
+             FROM tasks WHERE source_batch_id = ?1",
+        )?;
+        let tasks = stmt
+            .query_map(params![batch_id], |row| {
+                Ok(Task {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    description: row.get(2)?,
+                    priority: row.get(3)?,
+                    important: row.get(4)?,
+                    status: row.get(5)?,
+                    due_date: row.get(6)?,
+                    completed_at: row.get(7)?,
+                    created_at: row.get(8)?,
+                    updated_at: row.get(9)?,
+                    remind_before_minutes: row.get(10)?,
+                    reminded_at: row.get(11)?,
+                    repeat_kind: row.get(12)?,
+                    repeat_interval: row.get(13)?,
+                    repeat_weekdays: row.get(14)?,
+                    repeat_until: row.get(15)?,
+                    repeat_count: row.get(16)?,
+                    repeat_done_count: row.get(17)?,
+                    source_batch_id: row.get(18)?,
+                    category_id: row.get(19)?,
+                    parent_task_id: row.get(20)?,
+                    subtask_done: 0,
+                    subtask_total: 0,
+                    links: Vec::new(),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(tasks)
+    }
+
     /// 删除某个 source_batch_id 下的所有任务（task_links 因 ON DELETE CASCADE 一并清掉）
     /// 返回删除的任务条数。
     pub fn delete_tasks_by_batch(&self, batch_id: &str) -> Result<usize, AppError> {

@@ -74,7 +74,7 @@ export function DraftNoteModal({ open, onClose, onSaved }: DraftNoteModalProps) 
 
   async function handleGenerate() {
     if (!topic.trim()) {
-      setErrorText("请填写笔记主题");
+      setErrorText("请填写文档主题");
       return;
     }
     setPhase("loading");
@@ -139,7 +139,7 @@ export function DraftNoteModal({ open, onClose, onSaved }: DraftNoteModalProps) 
       title={
         <div className="flex items-center gap-2">
           <Sparkles size={16} style={{ color: token.colorPrimary }} />
-          <span>AI 写笔记</span>
+          <span>AI 写文档</span>
         </div>
       }
       open={open}
@@ -242,7 +242,7 @@ export function DraftNoteModal({ open, onClose, onSaved }: DraftNoteModalProps) 
               lineHeight: 1.7,
             }}
           >
-            AI 会参考你的目录结构建议归档路径；不会读取笔记正文内容，不上传云端。
+            AI 会参考你的目录结构建议归档路径；不会读取文档正文内容，不上传云端。
             <br />
             <strong>仅 OpenAI / DeepSeek / 智谱 / Claude 兼容模型可用；Ollama 暂不支持。</strong>
           </div>
@@ -396,7 +396,7 @@ export function DraftNoteModal({ open, onClose, onSaved }: DraftNoteModalProps) 
                   onChange={(e) =>
                     setDraft({ ...draft, title: e.target.value })
                   }
-                  placeholder="笔记标题"
+                  placeholder="文档标题"
                 />
               </div>
               <div>

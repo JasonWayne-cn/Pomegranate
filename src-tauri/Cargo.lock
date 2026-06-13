@@ -2838,7 +2838,9 @@ version = "1.8.0"
 dependencies = [
  "aes-gcm",
  "argon2",
+ "async-trait",
  "base64 0.22.1",
+ "bytes",
  "calamine",
  "chardetng",
  "chrono",

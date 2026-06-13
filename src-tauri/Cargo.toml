@@ -51,6 +51,7 @@ tokio = { version = "1", features = ["sync", "fs", "io-util", "rt", "rt-multi-th
 # 移动端按 T-M014 计划改"手动同步 + 仅 WebDAV/local"，等 rust-s3 修了 features 隔离再启用
 tokio-util = { version = "0.7", features = ["io"] }
 futures = "0.3"
+async-trait = "0.1"
 tauri-plugin-dialog = "2"
 walkdir = "2"
 pulldown-cmark = "0.13.1"
@@ -60,6 +61,7 @@ serde_yml = "0.0.12"
 # T-009 OB 整库导入：识别 markdown / OB-wiki 形式的图片引用（`![](...)` / `![[...]]`）
 regex = "1"
 base64 = "0.22.1"
+bytes = "1"
 pdf-extract = "0.9"
 # ─── 同步功能 ────────────────────────────────────
 zip = "2.2"

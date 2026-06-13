@@ -19,8 +19,10 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { pluginApi } from "@/lib/api";
 import { createAppAPI } from "@/services/pluginApi";
+import type { Task } from "@/types";
 import type {
   PluginInfo,
   PluginContext,
@@ -32,6 +34,7 @@ import type {
   PluginEditorContextMenuItemDef,
   PluginEditorToolbarButtonDef,
   PluginSettingsTabDef,
+  TaskViewProps,
 } from "@/types";
 
 // ───────── 类型 ─────────
@@ -108,6 +111,7 @@ export class PluginManager {
     commands: new Map<string, PluginCommandDef & { pluginId: string }>(),
     sidebar: new Map<string, PluginSidebarItemDef & { pluginId: string }>(),
     panelViews: new Map<string, PluginPanelViewDef>(),
+    taskViews: new Map<string, { id: string; label: string; icon: string; pluginId: string; render: (container: HTMLElement, props: TaskViewProps) => void | (() => void) }>(),
     ribbon: new Map<string, PluginRibbonItemDef & { pluginId: string }>(),
     editorMenus: new Map<
       string,
@@ -191,6 +195,42 @@ export class PluginManager {
   /** 初始化是否完成 */
   private initialized = false;
 
+  /** Tauri 事件监听器清理句柄 */
+  private tauriUnlistens: UnlistenFn[] = [];
+
+  /**
+   * 搭建 Tauri 事件 → 插件事件桥接。
+   * Rust 侧 emit `plugin:task:*`，桥接后转发为 `task:*` 到注册的插件处理器。
+   */
+  private async setupEventBridge(): Promise<void> {
+    const bridge = (tauriEvent: string, pluginEvent: string) => {
+      listen<Task>(tauriEvent, (event) => {
+        // 遍历所有插件订阅，派发给匹配的 handler
+        for (const [, pluginEvents] of this.eventSubscriptions) {
+          const handlers = pluginEvents.get(pluginEvent);
+          if (handlers) {
+            for (const fn of handlers) {
+              try {
+                fn(event.payload);
+              } catch (e) {
+                console.error(`[PluginManager] 事件 ${pluginEvent} 派发异常:`, e);
+              }
+            }
+          }
+        }
+      }).then((unlisten) => {
+        this.tauriUnlistens.push(unlisten);
+      });
+    };
+
+    await bridge("plugin:task:created", "task:created");
+    await bridge("plugin:task:updated", "task:updated");
+    await bridge("plugin:task:completed", "task:completed");
+    await bridge("plugin:task:deleted", "task:deleted");
+    await bridge("plugin:task:reminded", "task:reminded");
+    console.log("[PluginManager] 任务事件桥接已就绪");
+  }
+
   /** 启动时初始化：加载所有已启用插件 */
   async init(): Promise<void> {
     if (this.initialized) {
@@ -224,6 +264,9 @@ export class PluginManager {
         console.error(`[PluginManager] 插件 ${plugin.id} 启动失败:`, e);
       }
     }
+
+    // 搭建任务事件桥接（Tauri emit → 插件 handler）
+    await this.setupEventBridge();
 
     this.initialized = true;
     console.log(`[PluginManager] 初始化完成，${this.active.size} 个插件已激活`);
@@ -439,10 +482,14 @@ export class PluginManager {
   // 内部方法（给 createAppAPI 的子 API 调用）
   // ═══════════════════════════════════════════════════
 
-  _addCommand(pluginId: string, def: PluginCommandDef) {
+  _addCommand(pluginId: string, def: PluginCommandDef): () => void {
     const key = `${pluginId}:${def.id}`;
     this.registry.commands.set(key, { ...def, pluginId });
     this.emit("commands");
+    return () => {
+      this.registry.commands.delete(key);
+      this.emit("commands");
+    };
   }
 
   _removeCommand(pluginId: string, id: string) {
@@ -476,6 +523,42 @@ export class PluginManager {
   _unregisterPanelView(pluginId: string, id: string) {
     this.registry.panelViews.delete(`${pluginId}:${id}`);
     this.emit("views");
+  }
+
+  /** 注册插件任务视图（单插件最多 5 个） */
+  _registerTaskView(
+    pluginId: string,
+    def: { id: string; label: string; icon: string; render: (container: HTMLElement, props: TaskViewProps) => void | (() => void) },
+  ): () => void {
+    const key = `${pluginId}:${def.id}`;
+    const count = Array.from(this.registry.taskViews.keys()).filter((k) =>
+      k.startsWith(`${pluginId}:`),
+    ).length;
+    if (count >= 5) {
+      console.warn(`[PluginManager] 插件 ${pluginId} 注册视图超过 5 个上限`);
+      return () => {};
+    }
+    this.registry.taskViews.set(key, { ...def, pluginId });
+    this.emit("views");
+    return () => {
+      this.registry.taskViews.delete(key);
+      this.emit("views");
+    };
+  }
+
+  _unregisterTaskView(pluginId: string, id: string) {
+    this.registry.taskViews.delete(`${pluginId}:${id}`);
+    this.emit("views");
+  }
+
+  getAllTaskViews(): Array<{
+    id: string;
+    label: string;
+    icon: string;
+    pluginId: string;
+    render: (container: HTMLElement, props: TaskViewProps) => void | (() => void);
+  }> {
+    return Array.from(this.registry.taskViews.values());
   }
 
   _addRibbonItem(pluginId: string, def: PluginRibbonItemDef) {
@@ -570,6 +653,9 @@ export class PluginManager {
     }
     for (const key of [...this.registry.panelViews.keys()]) {
       if (key.startsWith(prefix)) this.registry.panelViews.delete(key);
+    }
+    for (const key of [...this.registry.taskViews.keys()]) {
+      if (key.startsWith(prefix)) this.registry.taskViews.delete(key);
     }
     for (const key of [...this.registry.ribbon.keys()]) {
       if (key.startsWith(prefix)) this.registry.ribbon.delete(key);

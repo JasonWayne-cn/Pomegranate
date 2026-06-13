@@ -3,34 +3,130 @@
  *
  * 通过 ctx.app.invoke / ctx.app.onTauriEvent 桥接调用现有 AI Command，
  * 零 Rust 改动。终端 UI 纯 DOM 渲染，参考 DeepSeek TUI 暗色配色。
+ *
+ * v1.1 — 输入框优化：模型选择器 + 权限模式 + 上下文进度条 + Git 信息
  */
 
 /* ================================================================
- * DeepseekAPI — AI API 封装层
+ * DeepseekAPI — AI API 封装层 + 状态管理
  * ================================================================ */
 var DeepseekAPI = (function () {
   var _app = null;
   var _conversationId = null;
   var _listeners = [];  // 所有事件监听器清理句柄
+  var _creatingPromise = null;  // 防止并发创建对话的 Promise 锁
 
-  function init(app) { _app = app; }
+  // ─── v1.1 新增状态 ───
+  var _models = [];              // 模型列表缓存 [{id, name, provider, model_id, is_default, max_context}]
+  var _selectedModelId = null;    // 当前选中的模型 ID
+  var _permissionMode = "ask";   // ask | auto-edit | plan | skip
+
+  function init(app) { if (!_app) { _app = app; } }
+
+  // ─── v1.1 模型管理 ───
+  async function loadModels() {
+    try {
+      var list = await _app.invoke("list_ai_models");
+      _models = list || [];
+      if (_models.length > 0) {
+        // 选默认模型，没有默认则选第一个
+        var def = null;
+        for (var i = 0; i < _models.length; i++) {
+          if (_models[i].is_default) { def = _models[i]; break; }
+        }
+        _selectedModelId = def ? def.id : _models[0].id;
+      }
+    } catch (e) {
+      console.warn("[deepseek-tui] 加载模型列表失败:", e);
+      _models = [];
+    }
+    return _models;
+  }
+
+  function getModels() { return _models; }
+  function getSelectedModelId() { return _selectedModelId; }
+  function setSelectedModelId(id) { _selectedModelId = id; }
+
+  // ─── v1.1 权限模式 ───
+  function getPermissionMode() { return _permissionMode; }
+  function setPermissionMode(mode) { _permissionMode = mode; }
+
+  /** 返回当前权限模式对应的系统提示前缀 */
+  function getPermissionPrompt() {
+    switch (_permissionMode) {
+      case "auto-edit":
+        return "[模式: 自动编辑] 请直接进行文件编辑操作，无需询问确认。\n\n";
+      case "plan":
+        return "[模式: 计划模式] 请先制定执行计划，说明每一步要做什么，等我确认后再执行。\n\n";
+      case "skip":
+        return "[模式: 跳过权限] 请自由执行所有操作，无需任何权限检查。\n\n";
+      case "ask":
+      default:
+        return "";
+    }
+  }
+
+  // ─── v1.1 Git 信息 ───
+  async function loadGitInfo() {
+    try {
+      return await _app.invoke("get_git_info");
+    } catch (e) {
+      console.warn("[deepseek-tui] 获取 git 信息失败:", e);
+      return null;
+    }
+  }
+
+  // ─── v1.1 上下文计算 ───
+  async function calcContextUsage() {
+    try {
+      var msgs = await getHistory();
+      if (!msgs || !msgs.length) return 0;
+      var totalChars = 0;
+      for (var i = 0; i < msgs.length; i++) {
+        totalChars += (msgs[i].content || "").length;
+      }
+      // 找当前选中模型的 max_context
+      var maxCtx = 32000;
+      for (var j = 0; j < _models.length; j++) {
+        if (_models[j].id === _selectedModelId) {
+          maxCtx = _models[j].max_context || 32000;
+          break;
+        }
+      }
+      return Math.min(Math.round((totalChars / maxCtx) * 100), 99);
+    } catch (e) {
+      return 0;
+    }
+  }
 
   async function ensureConversation() {
     if (_conversationId) return _conversationId;
-    var conv = await _app.invoke("create_ai_conversation", {
-      title: "Deepseek 终端对话",
+    // 防止并发调用创建多个对话
+    if (_creatingPromise) return _creatingPromise;
+    var args = { title: "Deepseek 终端对话" };
+    if (_selectedModelId) args.model_id = _selectedModelId;
+    _creatingPromise = _app.invoke("create_ai_conversation", args).then(function (conv) {
+      _conversationId = conv.id;
+      _creatingPromise = null;
+      return _conversationId;
+    }).catch(function (e) {
+      _creatingPromise = null;
+      throw e;
     });
-    _conversationId = conv.id;
-    return _conversationId;
+    return _creatingPromise;
   }
 
   async function send(message, callbacks) {
     var cid = await ensureConversation();
-    cleanup();  // 清理上一次的全部监听器
+    cleanup();
+
+    // v1.1: 拼接权限模式前缀
+    var prompt = getPermissionPrompt();
+    var finalMessage = prompt ? prompt + message : message;
+
     var fullText = "";
 
     _listeners.push(await _app.onTauriEvent("ai:token", function (payload) {
-      // Rust emit("ai:token", content) — content 是纯字符串
       var token = typeof payload === "string" ? payload : (payload && payload.token);
       if (token) {
         fullText += token;
@@ -49,7 +145,7 @@ var DeepseekAPI = (function () {
       if (callbacks && callbacks.onError) callbacks.onError(err);
     }));
 
-    await _app.invoke("send_ai_message", { conversationId: cid, message: message });
+    await _app.invoke("send_ai_message", { conversationId: cid, message: finalMessage });
     return function cancel() {
       cleanup();
       _app.invoke("cancel_ai_generation", { conversationId: cid }).catch(function () {});
@@ -59,9 +155,9 @@ var DeepseekAPI = (function () {
   async function newSession(title) {
     _conversationId = null;
     cleanup();
-    var conv = await _app.invoke("create_ai_conversation", {
-      title: title || "Deepseek 终端对话",
-    });
+    var args = { title: title || "Deepseek 终端对话" };
+    if (_selectedModelId) args.model_id = _selectedModelId;
+    var conv = await _app.invoke("create_ai_conversation", args);
     _conversationId = conv.id;
     return conv;
   }
@@ -93,11 +189,24 @@ var DeepseekAPI = (function () {
     cleanup();
     _conversationId = null;
     _app = null;
+    _models = [];
+    _selectedModelId = null;
   }
 
-  return { init: init, send: send, newSession: newSession, getHistory: getHistory,
+  return {
+    init: init, send: send, newSession: newSession, getHistory: getHistory,
     listConversations: listConversations, switchConversation: switchConversation,
-    getConversationId: getConversationId, cleanup: cleanup, destroy: destroy };
+    getConversationId: getConversationId, cleanup: cleanup, destroy: destroy,
+    // v1.1
+    loadModels: loadModels, getModels: getModels,
+    getSelectedModelId: getSelectedModelId, setSelectedModelId: setSelectedModelId,
+    getPermissionMode: getPermissionMode, setPermissionMode: setPermissionMode,
+    getPermissionPrompt: getPermissionPrompt,
+    loadGitInfo: loadGitInfo, calcContextUsage: calcContextUsage,
+    getActiveProvider: function () {
+      return _app.invoke("get_active_provider").catch(function () { return null; });
+    },
+  };
 })();
 
 /* ================================================================
@@ -146,6 +255,92 @@ var DeepseekTerminal = (function () {
     el.output.className = "dt-output";
     mainArea.appendChild(el.output);
 
+    // ═══════════════════════════════════════════════════════
+    // v1.1 工具栏行 — 模型选择器 | 权限选择器 | 上下文进度条
+    // ═══════════════════════════════════════════════════════
+    el.toolbar = document.createElement("div");
+    el.toolbar.className = "dt-toolbar";
+
+    // A) 模型选择器
+    var modelGroup = document.createElement("div");
+    modelGroup.className = "dt-toolbar-group";
+
+    var modelLabel = document.createElement("span");
+    modelLabel.className = "dt-toolbar-label";
+    modelLabel.textContent = "模型";
+    modelGroup.appendChild(modelLabel);
+
+    el.modelSelect = document.createElement("select");
+    el.modelSelect.className = "dt-select dt-select-model";
+    modelGroup.appendChild(el.modelSelect);
+    el.toolbar.appendChild(modelGroup);
+
+    // B) 权限模式选择器
+    var permGroup = document.createElement("div");
+    permGroup.className = "dt-toolbar-group";
+
+    var permLabel = document.createElement("span");
+    permLabel.className = "dt-toolbar-label";
+    permLabel.textContent = "权限";
+    permGroup.appendChild(permLabel);
+
+    el.permSelect = document.createElement("select");
+    el.permSelect.className = "dt-select dt-select-perm";
+    var PERM_OPTIONS = [
+      { value: "ask", label: "询问" },
+      { value: "auto-edit", label: "自动编辑" },
+      { value: "plan", label: "计划模式" },
+      { value: "skip", label: "跳过权限" },
+    ];
+    for (var p = 0; p < PERM_OPTIONS.length; p++) {
+      var opt = document.createElement("option");
+      opt.value = PERM_OPTIONS[p].value;
+      opt.textContent = PERM_OPTIONS[p].label;
+      if (PERM_OPTIONS[p].value === DeepseekAPI.getPermissionMode()) opt.selected = true;
+      el.permSelect.appendChild(opt);
+    }
+    permGroup.appendChild(el.permSelect);
+    el.toolbar.appendChild(permGroup);
+
+    // C) 上下文进度条
+    el.contextGroup = document.createElement("div");
+    el.contextGroup.className = "dt-toolbar-group dt-context-group";
+
+    el.contextLabel = document.createElement("span");
+    el.contextLabel.className = "dt-context-label";
+    el.contextLabel.textContent = "上下文 0%";
+    el.contextGroup.appendChild(el.contextLabel);
+
+    el.contextBarWrap = document.createElement("div");
+    el.contextBarWrap.className = "dt-context-bar";
+    el.contextFill = document.createElement("div");
+    el.contextFill.className = "dt-context-fill";
+    el.contextBarWrap.appendChild(el.contextFill);
+    el.contextGroup.appendChild(el.contextBarWrap);
+
+    el.toolbar.appendChild(el.contextGroup);
+    mainArea.appendChild(el.toolbar);
+
+    // ─── 工具栏事件 ───
+    el.modelSelect.addEventListener("change", function () {
+      var newModelId = parseInt(el.modelSelect.value, 10);
+      if (isNaN(newModelId)) return;
+      DeepseekAPI.setSelectedModelId(newModelId);
+      var cid = DeepseekAPI.getConversationId();
+      if (cid) {
+        app.invoke("update_ai_conversation_model", { id: cid, modelId: newModelId })
+          .then(function () { refreshContext(); })
+          .catch(function (e) { console.warn("[deepseek-tui] 切换模型失败:", e); });
+      } else {
+        refreshContext();
+      }
+    });
+
+    el.permSelect.addEventListener("change", function () {
+      DeepseekAPI.setPermissionMode(el.permSelect.value);
+    });
+
+    // ─── 输入区 ───
     el.inputWrapper = document.createElement("div");
     el.inputWrapper.className = "dt-input-wrapper";
     el.promptSpan = document.createElement("span");
@@ -159,9 +354,28 @@ var DeepseekTerminal = (function () {
     el.inputWrapper.appendChild(el.input);
     mainArea.appendChild(el.inputWrapper);
 
+    // v1.1 状态栏 — 快捷键 + Git 信息
     el.statusBar = document.createElement("div");
     el.statusBar.className = "dt-statusbar";
-    el.statusBar.textContent = "Ctrl+N 新会话 | Ctrl+L 清屏 | Enter 发送 | Escape 取消";
+
+    var shortcutsSpan = document.createElement("span");
+    shortcutsSpan.className = "dt-shortcuts";
+    shortcutsSpan.textContent = "Ctrl+N 新会话 | Ctrl+L 清屏 | Enter 发送 | Escape 取消";
+    el.statusBar.appendChild(shortcutsSpan);
+
+    el.gitSpan = document.createElement("span");
+    el.gitSpan.className = "dt-git-info";
+    el.statusBar.appendChild(el.gitSpan);
+
+    var providerSep = document.createElement("span");
+    providerSep.className = "dt-status-sep";
+    providerSep.textContent = " \u2502 ";
+    el.statusBar.appendChild(providerSep);
+
+    el.providerSpan = document.createElement("span");
+    el.providerSpan.className = "dt-provider-info";
+    el.statusBar.appendChild(el.providerSpan);
+
     mainArea.appendChild(el.statusBar);
 
     el.root.appendChild(mainArea);
@@ -182,6 +396,75 @@ var DeepseekTerminal = (function () {
     function scrollBottom() { el.output.scrollTop = el.output.scrollHeight; }
     function handleCancel() { if (state.streaming) api.cancel(); }
 
+    // ─── v1.1 模型选择器渲染 ───
+    function renderModelSelect() {
+      var models = DeepseekAPI.getModels();
+      var selectedId = DeepseekAPI.getSelectedModelId();
+      el.modelSelect.innerHTML = "";
+      for (var i = 0; i < models.length; i++) {
+        var m = models[i];
+        var opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.provider + ": " + m.model_id + (m.is_default ? " (默认)" : "");
+        if (m.id === selectedId) opt.selected = true;
+        el.modelSelect.appendChild(opt);
+      }
+    }
+
+    // ─── v1.1 Git 信息渲染 ───
+    async function updateGitInfo() {
+      try {
+        var info = await DeepseekAPI.loadGitInfo();
+        if (!info || !info.branch) {
+          el.gitSpan.style.display = "none";
+          return;
+        }
+        el.gitSpan.style.display = "";
+        var parts = [];
+        parts.push("\uD83C\uDF3F " + info.branch);
+        if (info.changed > 0) parts.push("\u25CF" + info.changed);
+        if (info.staged > 0) parts.push("+" + info.staged);
+        if (info.untracked > 0) parts.push("~" + info.untracked);
+        if (info.ahead > 0) parts.push("\u2191" + info.ahead);
+        if (info.behind > 0) parts.push("\u2193" + info.behind);
+        el.gitSpan.textContent = parts.join(" ");
+      } catch (e) {
+        el.gitSpan.style.display = "none";
+      }
+    }
+
+    // ─── v1.1 Provider 信息渲染 ───
+    async function updateProviderInfo() {
+      try {
+        var info = await DeepseekAPI.getActiveProvider();
+        if (!info || !info.provider_type) {
+          el.providerSpan.style.display = "none";
+          return;
+        }
+        el.providerSpan.style.display = "";
+        el.providerSpan.textContent = info.provider_type + ": " + info.model_id;
+      } catch (e) {
+        el.providerSpan.style.display = "none";
+      }
+    }
+
+    // ─── v1.1 上下文刷新 ───
+    async function refreshContext() {
+      try {
+        var pct = await DeepseekAPI.calcContextUsage();
+        el.contextLabel.textContent = "上下文 " + pct + "%";
+        el.contextFill.style.width = pct + "%";
+        // 三档颜色
+        var cls = "dt-context-fill";
+        if (pct > 80) cls += " high";
+        else if (pct > 50) cls += " medium";
+        else cls += " low";
+        el.contextFill.className = cls;
+      } catch (e) {
+        // 静默失败
+      }
+    }
+
     // ─── 会话列表渲染 ───
     function renderConversationList() {
       sidebarList.innerHTML = "";
@@ -198,6 +481,7 @@ var DeepseekTerminal = (function () {
             clearOutput();
             loadHistory();
             renderConversationList();
+            refreshContext();
           };
         })(conv));
         sidebarList.appendChild(item);
@@ -294,6 +578,7 @@ var DeepseekTerminal = (function () {
         state.streamingBlock = null;
         state.streamingContent = null;
         loadConversations();
+        refreshContext();
       },
       showAiError: function (error) {
         if (!state) return;
@@ -324,17 +609,20 @@ var DeepseekTerminal = (function () {
       },
     };
 
+    // v1.1: 修改发送逻辑，完成后刷新上下文
     async function handleSend() {
       var text = api.getInput();
       if (!text || state.streaming) return;
+      // 权限前缀在 DeepseekAPI.send 内部拼接，这里直接传原始文本用于展示
       api.addUserMessage(text);
       api.startAiMessage();
       try {
-        await DeepseekAPI.send(text, {
+        var cancel = await DeepseekAPI.send(text, {
           onToken: function (token) { api.appendAiToken(token); },
           onDone: function (fullText) { api.finishAiMessage(fullText); },
           onError: function (err) { api.showAiError(err); },
         });
+        state.cancelFn = cancel;
       } catch (e) { api.showAiError(String(e)); }
     }
 
@@ -343,6 +631,7 @@ var DeepseekTerminal = (function () {
         await DeepseekAPI.newSession();
         clearOutput();
         loadConversations();
+        refreshContext();
         var msg = document.createElement("div");
         msg.className = "dt-system-msg";
         msg.textContent = "\u2500\u2500 新会话已创建 \u2500\u2500";
@@ -368,7 +657,16 @@ var DeepseekTerminal = (function () {
     }
 
     DeepseekAPI.init(app);
+
+    // ─── v1.1 初始化：加载模型列表 → 渲染选择器 → 加载 Git 信息 → 上下文 ───
+    DeepseekAPI.loadModels().then(function () {
+      renderModelSelect();
+      refreshContext();
+    });
     loadConversations();
+    updateGitInfo();
+    updateProviderInfo();
+    refreshContext();
     api.focus();
     return api;
   }
@@ -388,12 +686,13 @@ module.exports = {
     app.panelViews.register({
       id: "deepseek-terminal",
       title: "Deepseek 终端",
+      layout: "fullscreen",
       icon: "Terminal",
       render: function (container) {
         if (terminalInstance) terminalInstance.destroy();
         terminalInstance = DeepseekTerminal.create(container, app);
         return function cleanup() {
-          if (terminalInstance) { terminalInstance.destroy(); DeepseekAPI.destroy(); terminalInstance = null; }
+          if (terminalInstance) { terminalInstance.destroy(); terminalInstance = null; }
         };
       },
     });
@@ -418,7 +717,7 @@ module.exports = {
         }).catch(function (e) { app.notices.error("新建会话失败: " + e); });
       } });
 
-    console.log("[deepseek-tui] 激活完成");
+    console.log("[deepseek-tui] v1.1 激活完成");
   },
 
   onUnload: function () {

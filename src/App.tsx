@@ -8,7 +8,10 @@ import { useAppStore } from "@/store";
 import { AppRouter } from "@/Router";
 import { getAntdTokens } from "@/theme/tokens";
 import { TaskReminderListener } from "@/components/tasks/TaskReminderListener";
+
 import { pluginManager } from "@/services/pluginManager";
+import { EditorRegistryProvider, initEditorRegistry } from "@/components/editor";
+
 
 // 紧急提醒窗口 / 迁移 splash 等子窗口共用同一个 React bundle，
 // 但只有 main 窗口才需要挂全局提醒监听器，否则子窗口也会响应 task:reminder
@@ -86,11 +89,18 @@ function App() {
   // 非阻塞：init 在后台异步执行，不延迟首屏渲染。
   // beforeunload 时调用 deactivateAll 清理（应用关闭 / 刷新时）。
   const pluginInitStarted = useRef(false);
+  const editorInitStarted = useRef(false);
   useEffect(() => {
     if (!IS_MAIN_WINDOW || pluginInitStarted.current) return;
     pluginInitStarted.current = true;
 
     void pluginManager.init();
+
+    // 初始化编辑器注册表
+    if (!editorInitStarted.current) {
+      editorInitStarted.current = true;
+      initEditorRegistry();
+    }
 
     const handleBeforeUnload = () => {
       void pluginManager.deactivateAll();
@@ -110,12 +120,14 @@ function App() {
         token: tokens,
       }}
     >
-      <AntdApp style={{ height: "100%" }}>
-        <ErrorBoundary>
-          <AppRouter />
-          {IS_MAIN_WINDOW && <TaskReminderListener />}
-        </ErrorBoundary>
-      </AntdApp>
+      <EditorRegistryProvider>
+        <AntdApp style={{ height: "100%" }}>
+          <ErrorBoundary>
+            <AppRouter />
+            {IS_MAIN_WINDOW && <TaskReminderListener />}
+          </ErrorBoundary>
+        </AntdApp>
+      </EditorRegistryProvider>
     </ConfigProvider>
   );
 }

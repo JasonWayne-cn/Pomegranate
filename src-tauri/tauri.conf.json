@@ -6,7 +6,7 @@
   "identifier": "edu.bit.inb",
   "build": {
     "beforeDevCommand": "pnpm dev:clean",
-    "devUrl": "http://localhost:1421",
+    "devUrl": "http://localhost:2010",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },

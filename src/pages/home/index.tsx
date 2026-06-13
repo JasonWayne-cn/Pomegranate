@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Card,
   Input,
   Typography,
   Button,
@@ -21,7 +20,6 @@ import {
   AlertTriangle,
   PencilLine,
   Send,
-  Flame,
   Clock,
   TrendingUp,
   Sparkles,
@@ -57,6 +55,28 @@ import { NewTodoButton } from "@/components/NewTodoButton";
 import { MicButton } from "@/components/MicButton";
 import { HomeSearchInput } from "@/components/HomeSearchInput";
 import { useAppStore } from "@/store";
+import {
+  useHomeLayoutStore,
+  type HomeWidgetId,
+  COL_SPAN_MAP,
+  HEIGHT_MAP,
+} from "@/store/homeLayout";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  rectSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { RotateCcw } from "lucide-react";
+import { SortableWidget } from "@/components/home/SortableWidget";
+import { HomeWidget } from "@/components/home/HomeWidget";
 import { useFeatureEnabled } from "@/hooks/useFeatureEnabled";
 import type {
   Note,
@@ -111,7 +131,46 @@ function DesktopHomePage() {
   const [recentChats, setRecentChats] = useState<AiConversation[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ─── 输入态 ───────────────────────────────────────
+  // ─── 首页布局（可拖拽排序 + 折叠 + 宽高） ────────────
+  const {
+    widgets,
+    collapsed,
+    hydrate: hydrateLayout,
+    setOrder,
+    setColSpan,
+    setHeight,
+    toggleCollapse,
+    resetLayout,
+  } = useHomeLayoutStore();
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  );
+
+  /** 根据功能开关过滤可见 widget */
+  const visibleWidgets = useMemo(() => {
+    return widgets.filter((w) => {
+      switch (w.id) {
+        case "quick-note":
+          return dailyEnabled;
+        case "todo":
+          return tasksEnabled;
+        case "ai":
+          return aiEnabled;
+        case "recent":
+        case "pinned":
+        case "writing-stat":
+          return true;
+        default:
+          return true;
+      }
+    });
+  }, [widgets, dailyEnabled, tasksEnabled, aiEnabled]);
+
+  const visibleWidgetIds = useMemo(
+    () => visibleWidgets.map((w) => w.id),
+    [visibleWidgets],
+  );
   const [searchKeyword, setSearchKeyword] = useState("");
   const [quickNote, setQuickNote] = useState("");
   const [quickNoteSaving, setQuickNoteSaving] = useState(false);
@@ -172,7 +231,34 @@ function DesktopHomePage() {
 
   useEffect(() => {
     loadDashboard();
-  }, [loadDashboard]);
+    void hydrateLayout();
+  }, [loadDashboard, hydrateLayout]);
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const allIds = widgets.map((w) => w.id);
+      const oldIdx = allIds.indexOf(active.id as HomeWidgetId);
+      const newIdx = allIds.indexOf(over.id as HomeWidgetId);
+      if (oldIdx === -1 || newIdx === -1) return;
+      setOrder(arrayMove(allIds, oldIdx, newIdx));
+    },
+    [widgets, setOrder],
+  );
+
+  const handleResetLayout = useCallback(() => {
+    Modal.confirm({
+      title: "重置首页布局",
+      content: "将所有 Widget 的位置、宽度、高度和折叠状态恢复为默认。",
+      okText: "重置",
+      cancelText: "取消",
+      onOk: () => {
+        resetLayout();
+        message.success("已重置为默认布局");
+      },
+    });
+  }, [resetLayout, message]);
 
   // ─── 搜索 ─────────────────────────────────────────
   const handleSearch = useCallback(() => {
@@ -578,651 +664,688 @@ function DesktopHomePage() {
         );
       })()}
 
-      {/* ③ 快速记一笔 — 追加到今日 daily（每日笔记关闭时整块隐藏） */}
-      {dailyEnabled && (
-      <Card
-        size="small"
-        styles={{ body: { padding: "12px 14px" } }}
+      {/* ③-⑧ 可拖拽排序 + 可调宽高的 Widget 区（CSS Grid 12 列） */}
+      <div className="flex items-center justify-end gap-2 -mb-1">
+        <AntTooltip title="重置为默认布局" mouseEnterDelay={0.4}>
+          <Button
+            type="text"
+            size="small"
+            icon={<RotateCcw size={13} />}
+            onClick={handleResetLayout}
+          >
+            <span style={{ fontSize: 12 }}>重置布局</span>
+          </Button>
+        </AntTooltip>
+      </div>
+      <DndContext
+        sensors={dndSensors}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
       >
-        <div className="flex items-center justify-between mb-2 gap-3">
-          <span className="flex items-center gap-2 text-sm font-medium">
-            <PencilLine size={14} style={{ color: token.colorPrimary }} />
-            快速记一笔
-            <Text type="secondary" style={{ fontSize: 11, fontWeight: "normal" }}>
-              追加到「今日笔记」
-            </Text>
-          </span>
-          <div className="flex items-center gap-2 shrink-0">
-            {quickNote.trim() && (
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                {quickNote.trim().length} 字
-              </Text>
-            )}
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              Ctrl/⌘ + ↩
-            </Text>
-            <MicButton
-              onTranscribed={(text) =>
-                setQuickNote((prev) => (prev ? `${prev}\n${text}` : text))
-              }
-            />
-            <Button
-              size="small"
-              type="primary"
-              ghost
-              icon={<Check size={13} />}
-              loading={quickNoteSaving}
-              disabled={!quickNote.trim()}
-              onClick={handleQuickSaveNote}
-            >
-              保存
-            </Button>
-          </div>
-        </div>
-        <Input.TextArea
-          rows={2}
-          placeholder="想到什么先记下来…"
-          value={quickNote}
-          onChange={(e) => setQuickNote(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-              e.preventDefault();
-              handleQuickSaveNote();
-            }
-          }}
-          style={{ borderRadius: 6, fontSize: 13 }}
-          autoSize={{ minRows: 2, maxRows: 5 }}
-        />
-      </Card>
-      )}
-
-      {/* ④ 双列:今日待办速览(左) + 最近笔记(右)；待办关闭时只剩最近笔记一列 */}
-      <div className="grid grid-cols-12 gap-3">
-
-        {/* 待办速览(三段:逾期/今日/即将到期):tasks 关闭整卡不渲染，最近笔记自动占满 */}
-        {tasksEnabled && (
-        <Card
-          size="small"
-          className="col-span-7"
-          styles={{ body: { padding: "8px 14px" } }}
-          title={
-            <span className="flex items-center gap-2 text-sm">
-              <CheckSquare size={14} style={{ color: token.colorSuccess }} />
-              待办速览
-              {totalTodoCount > 0 && (
-                <Text type="secondary" style={{ fontSize: 12, fontWeight: "normal" }}>
-                  · 共 {totalTodoCount} 条
-                </Text>
-              )}
-            </span>
-          }
-          extra={
-            <Button
-              type="link"
-              size="small"
-              onClick={() => navigate("/tasks")}
-              style={{ padding: 0, fontSize: 12 }}
-            >
-              全部 <ArrowRight size={11} />
-            </Button>
-          }
+        <SortableContext
+          items={visibleWidgetIds}
+          strategy={rectSortingStrategy}
         >
-          {totalTodoCount === 0 ? (
-            <div className="text-center py-4">
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {loading ? "加载中…" : "暂无待办，享受当下 ✨"}
-              </Text>
-            </div>
-          ) : (
-            (() => {
-              /** 单条任务渲染（三段共用），按段类型决定日期标签的色/文 */
-              const renderTaskRow = (
-                task: Task,
-                sectionKey: "overdue" | "today" | "upcoming",
-              ) => {
-                const due = new Date(task.due_date!);
-                const dueMs = due.getTime();
-                const dotColor =
-                  task.priority === 0
-                    ? token.colorError
-                    : task.priority === 1
-                      ? token.colorPrimary
-                      : token.colorTextTertiary;
-                const desc = task.description?.trim();
-                const ctxActive = taskCtx.state.payload?.id === task.id;
-                const hasSubtasks = task.subtask_total > 0;
-                const expanded = expandedTodoIds.has(task.id);
-
-                // 日期标签：每段不同
-                let dateLabel: React.ReactNode;
-                if (sectionKey === "overdue") {
-                  const todayStart = new Date();
-                  todayStart.setHours(0, 0, 0, 0);
-                  const days = Math.max(
-                    1,
-                    Math.round((todayStart.getTime() - dueMs) / 86400000),
-                  );
-                  dateLabel = (
-                    <span
-                      className="text-[11px] px-1.5 py-0.5 rounded shrink-0"
-                      style={{
-                        background: `${token.colorError}1a`,
-                        color: token.colorError,
-                      }}
-                    >
-                      {days === 1 ? "昨天" : `${days} 天前`}
-                    </span>
-                  );
-                } else if (sectionKey === "today") {
-                  const hh = String(due.getHours()).padStart(2, "0");
-                  const mm = String(due.getMinutes()).padStart(2, "0");
-                  const noTime = hh === "00" && mm === "00";
-                  const overdueNow = dueMs < Date.now();
-                  dateLabel = (
-                    <Text
-                      type={overdueNow ? "danger" : "secondary"}
-                      style={{ fontSize: 11, flexShrink: 0 }}
-                    >
-                      {noTime ? "今天" : `${hh}:${mm}`}
-                    </Text>
-                  );
-                } else {
-                  const todayStart = new Date();
-                  todayStart.setHours(0, 0, 0, 0);
-                  const days = Math.max(
-                    1,
-                    Math.ceil((dueMs - todayStart.getTime()) / 86400000),
-                  );
-                  dateLabel = (
-                    <Text
-                      type="secondary"
-                      style={{ fontSize: 11, flexShrink: 0 }}
-                    >
-                      +{days} 天
-                    </Text>
-                  );
-                }
-
-                return (
-                  <Fragment key={task.id}>
-                    <li
-                      className="flex items-start gap-2.5"
-                      style={{
-                        padding: "4px 6px",
-                        borderRadius: 4,
-                        background: ctxActive ? token.colorPrimaryBg : "transparent",
-                        transition: "background .12s",
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        taskCtx.open(e.nativeEvent, task);
-                      }}
-                    >
-                      {hasSubtasks ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setExpandedTodoIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(task.id)) next.delete(task.id);
-                              else next.add(task.id);
-                              return next;
-                            });
-                          }}
-                          className="flex items-center justify-center hover:bg-black/5 rounded transition cursor-pointer"
-                          style={{
-                            width: 16,
-                            height: 16,
-                            marginTop: 3,
-                            flexShrink: 0,
-                            color: token.colorTextTertiary,
-                          }}
-                          title={expanded ? "折叠子任务" : "展开子任务"}
-                        >
-                          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                        </button>
-                      ) : (
-                        <span style={{ width: 16, flexShrink: 0 }} />
-                      )}
-                      <input
-                        type="checkbox"
-                        onChange={() => handleToggleTask(task.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ cursor: "pointer", flexShrink: 0, marginTop: 4 }}
-                      />
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: "50%",
-                          background: dotColor,
-                          flexShrink: 0,
-                          marginTop: 7,
-                        }}
-                      />
-                      <div
-                        className="flex-1 min-w-0 cursor-pointer"
-                        onClick={() => setTaskDetail(task)}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <Text
-                            ellipsis
-                            style={{ fontSize: 13, flex: 1, minWidth: 0 }}
-                          >
-                            {task.title}
-                          </Text>
-                          {task.important && (
-                            <Star
-                              size={11}
-                              style={{ color: token.colorWarning, flexShrink: 0 }}
-                              fill={token.colorWarning}
-                            />
-                          )}
-                          {dateLabel}
-                        </div>
-                        <Text
-                          type="secondary"
-                          ellipsis
-                          style={{ fontSize: 11, display: "block", minHeight: 16 }}
-                        >
-                          {desc || "\u00A0"}
-                        </Text>
-                      </div>
-                    </li>
-                    {expanded && hasSubtasks && (
-                      <li
-                        className="list-none"
-                        style={{
-                          padding: "6px 10px 8px 38px",
-                          background: token.colorFillQuaternary,
-                          borderRadius: 4,
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <SubtaskList
-                          parentTaskId={task.id}
-                          compact
-                          onChanged={(done, total) =>
-                            patchTask(task.id, {
-                              subtask_done: done,
-                              subtask_total: total,
-                            })
-                          }
-                        />
-                      </li>
-                    )}
-                  </Fragment>
-                );
+          <div className="grid grid-cols-12 gap-3 auto-rows-min">
+            {visibleWidgets.map((w) => {
+              const isCollapsed = collapsed[w.id] ?? false;
+              // Tailwind 4 不能扫描动态拼接的类名，必须用静态映射
+              const COL_CLASS: Record<number, string> = {
+                4: "col-span-4",
+                6: "col-span-6",
+                8: "col-span-8",
+                12: "col-span-12",
               };
+              const colSpanClass = COL_CLASS[COL_SPAN_MAP[w.colSpan]] ?? "col-span-12";
+              const minH = HEIGHT_MAP[w.heightLevel];
 
-              const sections: Array<{
-                key: "overdue" | "today" | "upcoming";
-                items: Task[];
-                total: number;
-                label: string;
-                icon: React.ReactNode;
-                color: string;
-              }> = [
-                {
-                  key: "overdue",
-                  items: todoGroups.overdue,
-                  total: todoGroups.overdueTotal,
-                  label: "逾期",
-                  icon: <AlertTriangle size={11} />,
-                  color: token.colorError,
-                },
-                {
-                  key: "today",
-                  items: todoGroups.today,
-                  total: todoGroups.todayTotal,
-                  label: "今日",
-                  icon: <CalendarDays size={11} />,
-                  color: token.colorPrimary,
-                },
-                {
-                  key: "upcoming",
-                  items: todoGroups.upcoming,
-                  total: todoGroups.upcomingTotal,
-                  label: "即将到期(7 天内)",
-                  icon: <Clock size={11} />,
-                  color: token.colorTextSecondary,
-                },
-              ];
-
-              return (
-                <div
-                  className="flex flex-col gap-3"
-                  style={{ maxHeight: 420, overflowY: "auto" }}
-                >
-                  {sections
-                    .filter((s) => s.items.length > 0)
-                    .map((s) => (
-                      <div key={s.key} className="flex flex-col gap-1">
-                        <div
-                          className="flex items-center gap-1.5"
-                          style={{
-                            fontSize: 11,
-                            color: s.color,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {s.icon}
-                          <span>{s.label}</span>
-                          <Text
-                            type="secondary"
-                            style={{ fontSize: 11, fontWeight: 400 }}
+              const renderContent = (): React.ReactNode => {
+                switch (w.id) {
+                  case "quick-note":
+                    return (
+                      <>
+                        <div className="flex items-center justify-end gap-2 mb-2">
+                          {quickNote.trim() && (
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              {quickNote.trim().length} 字
+                            </Text>
+                          )}
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            Ctrl/⌘ + ↩
+                          </Text>
+                          <MicButton
+                            onTranscribed={(text) =>
+                              setQuickNote((prev) => (prev ? `${prev}\n${text}` : text))
+                            }
+                          />
+                          <Button
+                            size="small"
+                            type="primary"
+                            ghost
+                            icon={<Check size={13} />}
+                            loading={quickNoteSaving}
+                            disabled={!quickNote.trim()}
+                            onClick={handleQuickSaveNote}
                           >
-                            · {s.total}
+                            保存
+                          </Button>
+                        </div>
+                        <Input.TextArea
+                          rows={2}
+                          placeholder="想到什么先记下来…"
+                          value={quickNote}
+                          onChange={(e) => setQuickNote(e.target.value)}
+                          onKeyDown={(e) => {
+                            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                              e.preventDefault();
+                              handleQuickSaveNote();
+                            }
+                          }}
+                          style={{ borderRadius: 6, fontSize: 13 }}
+                          autoSize={{ minRows: 2, maxRows: 8 }}
+                        />
+                      </>
+                    );
+
+                  case "todo": {
+                    if (totalTodoCount === 0) {
+                      return (
+                        <div className="text-center py-4">
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {loading ? "加载中…" : "暂无待办，享受当下 ✨"}
                           </Text>
                         </div>
-                        <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
-                          {s.items.map((t) => renderTaskRow(t, s.key))}
-                        </ul>
-                        {s.total > s.items.length && (
-                          <Button
-                            type="link"
-                            size="small"
-                            onClick={() => navigate("/tasks")}
+                      );
+                    }
+                    const renderTaskRow = (
+                      task: Task,
+                      sectionKey: "overdue" | "today" | "upcoming",
+                    ) => {
+                      const due = new Date(task.due_date!);
+                      const dueMs = due.getTime();
+                      const dotColor =
+                        task.priority === 0
+                          ? token.colorError
+                          : task.priority === 1
+                            ? token.colorPrimary
+                            : token.colorTextTertiary;
+                      const desc = task.description?.trim();
+                      const ctxActive = taskCtx.state.payload?.id === task.id;
+                      const hasSubtasks = task.subtask_total > 0;
+                      const expanded = expandedTodoIds.has(task.id);
+
+                      let dateLabel: React.ReactNode;
+                      if (sectionKey === "overdue") {
+                        const todayStart = new Date();
+                        todayStart.setHours(0, 0, 0, 0);
+                        const days = Math.max(
+                          1,
+                          Math.round((todayStart.getTime() - dueMs) / 86400000),
+                        );
+                        dateLabel = (
+                          <span
+                            className="text-[11px] px-1.5 py-0.5 rounded shrink-0"
                             style={{
-                              padding: 0,
-                              fontSize: 11,
-                              alignSelf: "flex-start",
-                              marginLeft: 24,
+                              background: `${token.colorError}1a`,
+                              color: token.colorError,
                             }}
                           >
-                            + 还有 {s.total - s.items.length} 条…
-                          </Button>
-                        )}
+                            {days === 1 ? "昨天" : `${days} 天前`}
+                          </span>
+                        );
+                      } else if (sectionKey === "today") {
+                        const hh = String(due.getHours()).padStart(2, "0");
+                        const mm = String(due.getMinutes()).padStart(2, "0");
+                        const noTime = hh === "00" && mm === "00";
+                        const overdueNow = dueMs < Date.now();
+                        dateLabel = (
+                          <Text
+                            type={overdueNow ? "danger" : "secondary"}
+                            style={{ fontSize: 11, flexShrink: 0 }}
+                          >
+                            {noTime ? "今天" : `${hh}:${mm}`}
+                          </Text>
+                        );
+                      } else {
+                        const todayStart = new Date();
+                        todayStart.setHours(0, 0, 0, 0);
+                        const days = Math.max(
+                          1,
+                          Math.ceil((dueMs - todayStart.getTime()) / 86400000),
+                        );
+                        dateLabel = (
+                          <Text
+                            type="secondary"
+                            style={{ fontSize: 11, flexShrink: 0 }}
+                          >
+                            +{days} 天
+                          </Text>
+                        );
+                      }
+
+                      return (
+                        <Fragment key={task.id}>
+                          <li
+                            className="flex items-start gap-2.5"
+                            style={{
+                              padding: "4px 6px",
+                              borderRadius: 4,
+                              background: ctxActive ? token.colorPrimaryBg : "transparent",
+                              transition: "background .12s",
+                            }}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              taskCtx.open(e.nativeEvent, task);
+                            }}
+                          >
+                            {hasSubtasks ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedTodoIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(task.id)) next.delete(task.id);
+                                    else next.add(task.id);
+                                    return next;
+                                  });
+                                }}
+                                className="flex items-center justify-center hover:bg-black/5 rounded transition cursor-pointer"
+                                style={{
+                                  width: 16,
+                                  height: 16,
+                                  marginTop: 3,
+                                  flexShrink: 0,
+                                  color: token.colorTextTertiary,
+                                }}
+                                title={expanded ? "折叠子任务" : "展开子任务"}
+                              >
+                                {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                              </button>
+                            ) : (
+                              <span style={{ width: 16, flexShrink: 0 }} />
+                            )}
+                            <input
+                              type="checkbox"
+                              onChange={() => handleToggleTask(task.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ cursor: "pointer", flexShrink: 0, marginTop: 4 }}
+                            />
+                            <span
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: "50%",
+                                background: dotColor,
+                                flexShrink: 0,
+                                marginTop: 7,
+                              }}
+                            />
+                            <div
+                              className="flex-1 min-w-0 cursor-pointer"
+                              onClick={() => setTaskDetail(task)}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <Text
+                                  ellipsis
+                                  style={{ fontSize: 13, flex: 1, minWidth: 0 }}
+                                >
+                                  {task.title}
+                                </Text>
+                                {task.important && (
+                                  <Star
+                                    size={11}
+                                    style={{ color: token.colorWarning, flexShrink: 0 }}
+                                    fill={token.colorWarning}
+                                  />
+                                )}
+                                {dateLabel}
+                              </div>
+                              <Text
+                                type="secondary"
+                                ellipsis
+                                style={{ fontSize: 11, display: "block", minHeight: 16 }}
+                              >
+                                {desc || "\u00A0"}
+                              </Text>
+                            </div>
+                          </li>
+                          {expanded && hasSubtasks && (
+                            <li
+                              className="list-none"
+                              style={{
+                                padding: "6px 10px 8px 38px",
+                                background: token.colorFillQuaternary,
+                                borderRadius: 4,
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <SubtaskList
+                                parentTaskId={task.id}
+                                compact
+                                onChanged={(done, total) =>
+                                  patchTask(task.id, {
+                                    subtask_done: done,
+                                    subtask_total: total,
+                                  })
+                                }
+                              />
+                            </li>
+                          )}
+                        </Fragment>
+                      );
+                    };
+
+                    const sections: Array<{
+                      key: "overdue" | "today" | "upcoming";
+                      items: Task[];
+                      total: number;
+                      label: string;
+                      icon: React.ReactNode;
+                      color: string;
+                    }> = [
+                      {
+                        key: "overdue",
+                        items: todoGroups.overdue,
+                        total: todoGroups.overdueTotal,
+                        label: "逾期",
+                        icon: <AlertTriangle size={11} />,
+                        color: token.colorError,
+                      },
+                      {
+                        key: "today",
+                        items: todoGroups.today,
+                        total: todoGroups.todayTotal,
+                        label: "今日",
+                        icon: <CalendarDays size={11} />,
+                        color: token.colorPrimary,
+                      },
+                      {
+                        key: "upcoming",
+                        items: todoGroups.upcoming,
+                        total: todoGroups.upcomingTotal,
+                        label: "即将到期(7 天内)",
+                        icon: <Clock size={11} />,
+                        color: token.colorTextSecondary,
+                      },
+                    ];
+
+                    return (
+                      <div className="flex flex-col gap-3" style={{ overflowY: "auto" }}>
+                        {sections
+                          .filter((s) => s.items.length > 0)
+                          .map((s) => (
+                            <div key={s.key} className="flex flex-col gap-1">
+                              <div
+                                className="flex items-center gap-1.5"
+                                style={{
+                                  fontSize: 11,
+                                  color: s.color,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {s.icon}
+                                <span>{s.label}</span>
+                                <Text
+                                  type="secondary"
+                                  style={{ fontSize: 11, fontWeight: 400 }}
+                                >
+                                  · {s.total}
+                                </Text>
+                              </div>
+                              <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
+                                {s.items.map((t) => renderTaskRow(t, s.key))}
+                              </ul>
+                              {s.total > s.items.length && (
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  onClick={() => navigate("/tasks")}
+                                  style={{
+                                    padding: 0,
+                                    fontSize: 11,
+                                    alignSelf: "flex-start",
+                                    marginLeft: 24,
+                                  }}
+                                >
+                                  + 还有 {s.total - s.items.length} 条…
+                                </Button>
+                              )}
+                            </div>
+                          ))}
                       </div>
-                    ))}
+                    );
+                  }
+
+                  case "recent": {
+                    if (displayedRecent.length === 0) {
+                      return (
+                        <EmptyState description={loading ? "加载中…" : "还没有文档"} />
+                      );
+                    }
+                    return (
+                      <ul className="flex flex-col gap-2 m-0 p-0 list-none" style={{ overflowY: "auto" }}>
+                        {displayedRecent.map((note) => {
+                          const ctxActive = noteCtx.state.payload?.id === note.id;
+                          return (
+                            <li
+                              key={note.id}
+                              className="cursor-pointer"
+                              style={{
+                                padding: "4px 6px",
+                                borderRadius: 4,
+                                background: ctxActive ? token.colorPrimaryBg : "transparent",
+                                transition: "background .12s",
+                              }}
+                              onClick={() => navigate(`/notes/${note.id}`)}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                noteCtx.open(e.nativeEvent, note);
+                              }}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                {note.is_daily && (
+                                  <Tag
+                                    color="blue"
+                                    style={{ fontSize: 10, lineHeight: "14px", padding: "0 4px", margin: 0 }}
+                                  >
+                                    日记
+                                  </Tag>
+                                )}
+                                <Text ellipsis style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
+                                  {note.title}
+                                </Text>
+                              </div>
+                              <Text
+                                type="secondary"
+                                style={{ fontSize: 11, display: "block", minHeight: 16 }}
+                              >
+                                {relativeTime(note.updated_at)} · {note.word_count} 字
+                              </Text>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    );
+                  }
+
+                  case "pinned":
+                    if (pinnedNotes.length === 0) {
+                      return (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          在文档编辑器右上角可置顶
+                        </Text>
+                      );
+                    }
+                    return (
+                      <ul className="flex flex-col gap-1.5 m-0 p-0 list-none" style={{ overflowY: "auto" }}>
+                        {pinnedNotes.map((note) => (
+                          <li
+                            key={note.id}
+                            className="flex items-center gap-2 cursor-pointer"
+                            onClick={() => navigate(`/notes/${note.id}`)}
+                            style={{ padding: "2px 0" }}
+                          >
+                            <Pin size={11} style={{ color: token.colorWarning, flexShrink: 0 }} />
+                            <Text ellipsis style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
+                              {note.title}
+                            </Text>
+                            <Text type="secondary" style={{ fontSize: 10, flexShrink: 0 }}>
+                              {relativeTime(note.updated_at)}
+                            </Text>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+
+                  case "ai":
+                    return (
+                      <>
+                        <Input
+                          placeholder="例如:总结我本周写的内容…"
+                          value={aiQuestion}
+                          onChange={(e) => setAiQuestion(e.target.value)}
+                          onPressEnter={handleAskAi}
+                          suffix={
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<Send size={12} />}
+                              disabled={!aiQuestion.trim()}
+                              onClick={handleAskAi}
+                              style={{ color: aiQuestion.trim() ? "#9333ea" : undefined }}
+                            />
+                          }
+                          style={{ borderRadius: 6, marginBottom: 8 }}
+                        />
+                        {recentChats.length > 0 ? (
+                          <>
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              最近会话
+                            </Text>
+                            <ul className="flex flex-col gap-1 mt-1 m-0 p-0 list-none" style={{ overflowY: "auto" }}>
+                              {recentChats.map((chat) => (
+                                <li
+                                  key={chat.id}
+                                  className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition"
+                                  onClick={() => navigate(`/ai?cid=${chat.id}`)}
+                                  style={{ fontSize: 12 }}
+                                >
+                                  <MessageCircle size={11} style={{ flexShrink: 0, opacity: 0.6 }} />
+                                  <Text ellipsis style={{ fontSize: 12, flex: 1, minWidth: 0 }}>
+                                    {chat.title || "未命名会话"}
+                                  </Text>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : (
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            输入问题回车直接发送,自动新建对话
+                          </Text>
+                        )}
+                      </>
+                    );
+
+                  case "writing-stat":
+                    return (
+                      <div className="flex flex-col gap-4 h-full">
+                        {/* 上排：指标 4 项，文档总数+总字数 | 距上次+本周字数 */}
+                        <div className="flex items-center gap-6 flex-wrap">
+                          <MetricItem
+                            icon={<NotebookText size={16} style={{ color: token.colorPrimary }} />}
+                            iconBg={`${token.colorPrimary}15`}
+                            value={vitalityMetrics.totalNotes}
+                            label="文档总数"
+                            compact
+                          />
+                          <MetricItem
+                            icon={<Type size={16} style={{ color: "#7c3aed" }} />}
+                            iconBg="#ede9fe"
+                            value={vitalityMetrics.totalWords.toLocaleString()}
+                            label="总字数"
+                            isText
+                            compact
+                          />
+                          <MetricItem
+                            icon={<Clock size={16} style={{ color: "#2563eb" }} />}
+                            iconBg="#dbeafe"
+                            value={vitalityMetrics.lastSinceLabel}
+                            label="距上次写作"
+                            isText
+                            compact
+                          />
+                          <MetricItem
+                            icon={<TrendingUp size={16} style={{ color: token.colorSuccess }} />}
+                            iconBg={`${token.colorSuccess}1a`}
+                            value={vitalityMetrics.thisWeekWords.toLocaleString()}
+                            label="本周字数"
+                            compact
+                            extra={
+                              vitalityMetrics.weekDelta != null && (
+                                <span
+                                  className="text-[11px]"
+                                  style={{
+                                    color:
+                                      vitalityMetrics.weekDelta >= 0
+                                        ? token.colorSuccess
+                                        : token.colorError,
+                                  }}
+                                >
+                                  {vitalityMetrics.weekDelta >= 0 ? "▲" : "▼"} {Math.abs(vitalityMetrics.weekDelta)}%
+                                </span>
+                              )
+                            }
+                          />
+                        </div>
+                        {/* 底部：统计图 */}
+                        <div
+                          className="pt-3"
+                          style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }}
+                        >
+                          <div className="flex items-end gap-0.5" style={{ height: 48 }}>
+                            {trendBars.map((bar) => (
+                              <AntTooltip key={bar.date} title={`${bar.date} · ${bar.words} 字`}>
+                                <div
+                                  className="flex-1 rounded-sm transition-colors"
+                                  style={{
+                                    height: `${Math.max(bar.ratio * 100, 4)}%`,
+                                    background: bar.words > 0
+                                      ? `linear-gradient(to top, ${token.colorPrimary}, ${token.colorPrimary}cc)`
+                                      : token.colorBorderSecondary,
+                                    opacity: bar.words > 0 ? 0.6 + bar.ratio * 0.4 : 0.4,
+                                    cursor: "pointer",
+                                  }}
+                                />
+                              </AntTooltip>
+                            ))}
+                          </div>
+                          <div
+                            className="flex justify-between mt-1"
+                            style={{ fontSize: 10, color: token.colorTextQuaternary }}
+                          >
+                            <span>{trendBars[0]?.date.slice(5) ?? ""}</span>
+                            <span>{trendBars[7]?.date.slice(5) ?? "7 天前"}</span>
+                            <span>今天</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  default:
+                    return null;
+                }
+              };
+
+              const widgetMeta: Record<
+                HomeWidgetId,
+                { title: string; icon: React.ReactNode; extra?: React.ReactNode }
+              > = {
+                "quick-note": {
+                  title: "快速记一笔",
+                  icon: <PencilLine size={14} style={{ color: token.colorPrimary }} />,
+                  extra: (
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      追加到「今日文档」
+                    </Text>
+                  ),
+                },
+                todo: {
+                  title: "待办速览",
+                  icon: <CheckSquare size={14} style={{ color: token.colorSuccess }} />,
+                  extra: (
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() => navigate("/tasks")}
+                      style={{ padding: 0, fontSize: 12 }}
+                    >
+                      全部 <ArrowRight size={11} />
+                    </Button>
+                  ),
+                },
+                recent: {
+                  title: "最近文档",
+                  icon: <NotebookText size={14} style={{ color: token.colorPrimary }} />,
+                  extra: (
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() => navigate("/notes")}
+                      style={{ padding: 0, fontSize: 12 }}
+                    >
+                      更多 <ArrowRight size={11} />
+                    </Button>
+                  ),
+                },
+                pinned: {
+                  title: "置顶文档",
+                  icon: <Pin size={14} style={{ color: token.colorWarning }} />,
+                },
+                ai: {
+                  title: "问 AI",
+                  icon: <Bot size={14} style={{ color: "#9333ea" }} />,
+                  extra: (
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() => navigate("/ai")}
+                      style={{ padding: 0, fontSize: 12 }}
+                    >
+                      所有会话 <ArrowRight size={11} />
+                    </Button>
+                  ),
+                },
+                "writing-stat": {
+                  title: "写作活力",
+                  icon: <Sparkles size={14} style={{ color: "#f97316" }} />,
+                  extra: (
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      近 14 天
+                    </Text>
+                  ),
+                },
+              };
+
+              const meta = widgetMeta[w.id];
+
+              return (
+                <div key={w.id} className={colSpanClass}>
+                  <SortableWidget id={w.id}>
+                    {({ dragHandleProps }) => (
+                      <div
+                        style={{
+                          height: isCollapsed ? undefined : minH,
+                          display: "flex",
+                          flexDirection: "column",
+                        }}
+                      >
+                        <HomeWidget
+                          id={w.id}
+                          title={meta.title}
+                          icon={meta.icon}
+                          collapsed={isCollapsed}
+                          onToggle={() => toggleCollapse(w.id)}
+                          dragHandleProps={dragHandleProps}
+                          extra={meta.extra}
+                          colSpan={w.colSpan}
+                          heightLevel={w.heightLevel}
+                          onColSpanChange={(s) => setColSpan(w.id, s)}
+                          onHeightChange={(h) => setHeight(w.id, h)}
+                        >
+                          <div style={{ height: "100%", overflowY: "auto" }}>
+                            {renderContent()}
+                          </div>
+                        </HomeWidget>
+                      </div>
+                    )}
+                  </SortableWidget>
                 </div>
               );
-            })()
-          )}
-        </Card>
-        )}
-
-        {/* 最近笔记：tasks 关时占满 12 列，反之 5 列 */}
-        <Card
-          size="small"
-          className={tasksEnabled ? "col-span-5" : "col-span-12"}
-          styles={{ body: { padding: "8px 14px" } }}
-          title={
-            <span className="flex items-center gap-2 text-sm">
-              <NotebookText size={14} style={{ color: token.colorPrimary }} />
-              最近笔记
-            </span>
-          }
-          extra={
-            <Button
-              type="link"
-              size="small"
-              onClick={() => navigate("/notes")}
-              style={{ padding: 0, fontSize: 12 }}
-            >
-              更多 <ArrowRight size={11} />
-            </Button>
-          }
-        >
-          {displayedRecent.length === 0 ? (
-            <EmptyState
-              description={loading ? "加载中…" : "还没有笔记"}
-            />
-          ) : (
-            <ul className="flex flex-col gap-2 m-0 p-0 list-none">
-              {displayedRecent.map((note) => {
-                const ctxActive = noteCtx.state.payload?.id === note.id;
-                return (
-                <li
-                  key={note.id}
-                  className="cursor-pointer"
-                  style={{
-                    padding: "4px 6px",
-                    borderRadius: 4,
-                    background: ctxActive ? token.colorPrimaryBg : "transparent",
-                    transition: "background .12s",
-                  }}
-                  onClick={() => navigate(`/notes/${note.id}`)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    noteCtx.open(e.nativeEvent, note);
-                  }}
-                >
-                  <div className="flex items-center gap-1.5">
-                    {note.is_daily && (
-                      <Tag
-                        color="blue"
-                        style={{ fontSize: 10, lineHeight: "14px", padding: "0 4px", margin: 0 }}
-                      >
-                        日记
-                      </Tag>
-                    )}
-                    <Text ellipsis style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
-                      {note.title}
-                    </Text>
-                  </div>
-                  <Text
-                    type="secondary"
-                    style={{ fontSize: 11, display: "block", minHeight: 16 }}
-                  >
-                    {relativeTime(note.updated_at)} · {note.word_count} 字
-                  </Text>
-                </li>
-              );
-              })}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      {/* ⑤ 写作活力 — 4 指标 + 14 天迷你图 */}
-      <Card
-        size="small"
-        styles={{ body: { padding: "12px 14px" } }}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <span className="flex items-center gap-2 text-sm font-medium">
-            <Sparkles size={14} style={{ color: "#f97316" }} />
-            写作活力
-          </span>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            近 14 天
-          </Text>
-        </div>
-        <div className="grid grid-cols-5 gap-3">
-          <MetricItem
-            icon={<NotebookText size={16} style={{ color: token.colorPrimary }} />}
-            iconBg={`${token.colorPrimary}15`}
-            value={vitalityMetrics.totalNotes}
-            label="笔记总数"
-          />
-          <MetricItem
-            icon={<Type size={16} style={{ color: "#7c3aed" }} />}
-            iconBg="#ede9fe"
-            value={vitalityMetrics.totalWords.toLocaleString()}
-            label="总字数"
-            isText
-          />
-          <MetricItem
-            icon={<Flame size={16} style={{ color: "#ea580c" }} />}
-            iconBg="#fff7ed"
-            value={vitalityMetrics.streak}
-            valueSuffix="天"
-            label="连续写作"
-          />
-          <MetricItem
-            icon={<Clock size={16} style={{ color: "#2563eb" }} />}
-            iconBg="#dbeafe"
-            value={vitalityMetrics.lastSinceLabel}
-            label="距上次写作"
-            isText
-          />
-          <MetricItem
-            icon={<TrendingUp size={16} style={{ color: token.colorSuccess }} />}
-            iconBg={`${token.colorSuccess}1a`}
-            value={vitalityMetrics.thisWeekWords.toLocaleString()}
-            label="本周字数"
-            extra={
-              vitalityMetrics.weekDelta != null && (
-                <span
-                  className="text-[11px]"
-                  style={{
-                    color:
-                      vitalityMetrics.weekDelta >= 0
-                        ? token.colorSuccess
-                        : token.colorError,
-                  }}
-                >
-                  {vitalityMetrics.weekDelta >= 0 ? "▲" : "▼"} {Math.abs(vitalityMetrics.weekDelta)}%
-                </span>
-              )
-            }
-          />
-        </div>
-        {/* 迷你 14 天柱状图 + 底部 X 轴标签(3 个关键日期) */}
-        <div
-          className="mt-3 pt-3"
-          style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }}
-        >
-          <div className="flex items-end gap-0.5" style={{ height: 36 }}>
-            {trendBars.map((bar) => (
-              <AntTooltip key={bar.date} title={`${bar.date} · ${bar.words} 字`}>
-                <div
-                  className="flex-1 rounded-sm transition-colors"
-                  style={{
-                    height: `${Math.max(bar.ratio * 100, 4)}%`,
-                    background: bar.words > 0 ? token.colorPrimary : token.colorBorderSecondary,
-                    opacity: bar.words > 0 ? 0.5 + bar.ratio * 0.5 : 0.4,
-                    cursor: "pointer",
-                  }}
-                />
-              </AntTooltip>
-            ))}
+            })}
           </div>
-          {/* X 轴标签:14 天前 / 7 天前 / 今天 */}
-          <div
-            className="flex justify-between mt-1"
-            style={{ fontSize: 10, color: token.colorTextQuaternary }}
-          >
-            <span>{trendBars[0]?.date.slice(5) ?? ""}</span>
-            <span>{trendBars[7]?.date.slice(5) ?? "7 天前"}</span>
-            <span>今天</span>
-          </div>
-        </div>
-      </Card>
+        </SortableContext>
+      </DndContext>
 
-      {/* ⑥ 双列:置顶笔记 + 问 AI；ai 关闭时只剩置顶笔记一列 */}
-      <div className="grid grid-cols-12 gap-3">
-        <Card
-          size="small"
-          className={aiEnabled ? "col-span-5" : "col-span-12"}
-          styles={{ body: { padding: "12px 14px" } }}
-          title={
-            <span className="flex items-center gap-2 text-sm">
-              <Pin size={14} style={{ color: token.colorWarning }} />
-              置顶笔记
-              {pinnedNotes.length > 0 && (
-                <Text type="secondary" style={{ fontSize: 12, fontWeight: "normal" }}>
-                  · {pinnedNotes.length}
-                </Text>
-              )}
-            </span>
-          }
-        >
-          {pinnedNotes.length === 0 ? (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              在笔记编辑器右上角可置顶
-            </Text>
-          ) : (
-            <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
-              {pinnedNotes.slice(0, 5).map((note) => (
-                <li
-                  key={note.id}
-                  className="flex items-center gap-2 cursor-pointer"
-                  onClick={() => navigate(`/notes/${note.id}`)}
-                  style={{ padding: "2px 0" }}
-                >
-                  <Pin size={11} style={{ color: token.colorWarning, flexShrink: 0 }} />
-                  <Text ellipsis style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
-                    {note.title}
-                  </Text>
-                  <Text type="secondary" style={{ fontSize: 10, flexShrink: 0 }}>
-                    {relativeTime(note.updated_at)}
-                  </Text>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        {aiEnabled && (
-        <Card
-          size="small"
-          className="col-span-7"
-          styles={{ body: { padding: "12px 14px" } }}
-          title={
-            <span className="flex items-center gap-2 text-sm">
-              <Bot size={14} style={{ color: "#9333ea" }} />
-              问 AI
-            </span>
-          }
-          extra={
-            <Button
-              type="link"
-              size="small"
-              onClick={() => navigate("/ai")}
-              style={{ padding: 0, fontSize: 12 }}
-            >
-              所有会话 <ArrowRight size={11} />
-            </Button>
-          }
-        >
-          <Input
-            placeholder="例如:总结我本周写的内容…"
-            value={aiQuestion}
-            onChange={(e) => setAiQuestion(e.target.value)}
-            onPressEnter={handleAskAi}
-            suffix={
-              <Button
-                type="text"
-                size="small"
-                icon={<Send size={12} />}
-                disabled={!aiQuestion.trim()}
-                onClick={handleAskAi}
-                style={{ color: aiQuestion.trim() ? "#9333ea" : undefined }}
-              />
-            }
-            style={{ borderRadius: 6, marginBottom: 8 }}
-          />
-          {recentChats.length > 0 ? (
-            <>
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                最近会话
-              </Text>
-              <ul className="flex flex-col gap-1 mt-1 m-0 p-0 list-none">
-                {recentChats.map((chat) => (
-                  <li
-                    key={chat.id}
-                    className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition"
-                    onClick={() => navigate(`/ai?cid=${chat.id}`)}
-                    style={{ fontSize: 12 }}
-                  >
-                    <MessageCircle size={11} style={{ flexShrink: 0, opacity: 0.6 }} />
-                    <Text ellipsis style={{ fontSize: 12, flex: 1, minWidth: 0 }}>
-                      {chat.title || "未命名会话"}
-                    </Text>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : (
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              输入问题回车直接发送,自动新建对话
-            </Text>
-          )}
-        </Card>
-        )}
-      </div>
 
       {/* 待办详情弹窗 — 点击今日待办列表项触发；只读视图 + 标记完成 + 子任务 + 编辑入口 */}
       <TaskDetailModal
@@ -1284,6 +1407,7 @@ function MetricItem({
   label,
   extra,
   isText,
+  compact,
 }: {
   icon: React.ReactNode;
   iconBg: string;
@@ -1292,7 +1416,34 @@ function MetricItem({
   label: string;
   extra?: React.ReactNode;
   isText?: boolean;
+  compact?: boolean;
 }) {
+  if (compact) {
+    return (
+      <div className="flex flex-col gap-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <div
+            className="flex items-center justify-center rounded-md shrink-0"
+            style={{ width: 22, height: 22, background: iconBg }}
+          >
+            {icon}
+          </div>
+          <span
+            className="font-semibold leading-tight"
+            style={{ fontSize: isText ? 13 : 16 }}
+          >
+            {value}
+            {valueSuffix && (
+              <span className="text-[11px] opacity-50 font-normal ml-0.5">{valueSuffix}</span>
+            )}
+            {extra && <span className="ml-1">{extra}</span>}
+          </span>
+        </div>
+        <div className="text-[11px] opacity-60 pl-[30px]">{label}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex items-center gap-2.5">
       <div

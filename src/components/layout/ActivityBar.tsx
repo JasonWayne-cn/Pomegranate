@@ -64,8 +64,8 @@ const MAIN_GROUPS: ActivityItem[][] = [
   [{ view: "home", route: "/", label: "首页", icon: <Home size={18} />, core: true }],
   // 创作 / 工作流
   [
-    { view: "notes", route: "/notes", label: "笔记", icon: <NotebookText size={18} />, core: true },
-    { view: "daily", route: "/daily", label: "每日笔记", icon: <Calendar size={18} /> },
+    { view: "notes", route: "/notes", label: "文档", icon: <NotebookText size={18} />, core: true },
+    { view: "daily", route: "/daily", label: "日记", icon: <Calendar size={18} /> },
     { view: "tasks", route: "/tasks", label: "待办", icon: <CheckSquare size={18} /> },
     { view: "cards", route: "/cards", label: "卡片复习", icon: <Layers size={18} /> },
   ],
@@ -85,7 +85,7 @@ const MAIN_GROUPS: ActivityItem[][] = [
 
 /** 底部视图（放最下方，视觉上与主视图分组） */
 const BOTTOM_ITEMS: ActivityItem[] = [
-  { view: "hidden", route: "/hidden", label: "隐藏笔记", icon: <EyeOff size={18} /> },
+  { view: "hidden", route: "/hidden", label: "隐藏文档", icon: <EyeOff size={18} /> },
   { view: "trash", route: "/trash", label: "回收站", icon: <Trash2 size={18} />, core: true },
   { view: "about", route: "/about", label: "关于", icon: <Info size={18} />, core: true },
 ];
@@ -252,7 +252,6 @@ export function ActivityBar() {
     }
     if (item.viewId) {
       startTransition(() => {
-        if (!sidePanelVisible) setSidePanelVisible(true);
         navigate(`/plugin-view/${item.viewId}`);
       });
       return;

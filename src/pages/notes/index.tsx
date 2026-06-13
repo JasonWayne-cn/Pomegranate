@@ -499,7 +499,7 @@ function FolderChangeCell({
             }}
             style={{ textAlign: "left", justifyContent: "flex-start" }}
           >
-            筛选此文件夹下的笔记
+            筛选此文件夹下的文档
           </Button>
         )}
       </div>
@@ -866,14 +866,14 @@ function DesktopNoteListPage() {
   const handleTrashAll = useCallback(() => {
     Modal.confirm({
       title: "全部移到回收站",
-      content: `将全部 ${data.total} 篇笔记移到回收站，可在回收站中恢复或彻底删除。`,
+      content: `将全部 ${data.total} 篇文档移到回收站，可在回收站中恢复或彻底删除。`,
       okText: "确认移入回收站",
       cancelText: "取消",
       onOk: async () => {
         try {
           const count = await noteApi.trashAll();
           useTabsStore.getState().closeAllTabs();
-          message.success(`已将 ${count} 篇笔记移到回收站`);
+          message.success(`已将 ${count} 篇文档移到回收站`);
           useAppStore.getState().bumpNotesRefresh();
           loadNotes(1);
         } catch (e) {
@@ -924,8 +924,8 @@ function DesktopNoteListPage() {
       if (dragNote.is_pinned !== dropNote.is_pinned) {
         message.info(
           dragNote.is_pinned
-            ? "置顶笔记不能拖到普通笔记之间（先取消置顶）"
-            : "普通笔记不能拖到置顶笔记之间（先置顶它）",
+            ? "置顶文档不能拖到普通文档之间（先取消置顶）"
+            : "普通文档不能拖到置顶文档之间（先置顶它）",
         );
         return;
       }
@@ -1191,7 +1191,7 @@ function DesktopNoteListPage() {
                 <Button type="link" size="small" icon={<Share size={14} />} />
               </Tooltip>
             </Dropdown>
-            <Popconfirm title="确认删除此笔记？" onConfirm={() => handleDelete(record.id)}>
+            <Popconfirm title="确认删除此文档？" onConfirm={() => handleDelete(record.id)}>
               <Tooltip title="删除">
                 <Button type="link" danger size="small" icon={<Trash2 size={14} />} />
               </Tooltip>
@@ -1239,7 +1239,7 @@ function DesktopNoteListPage() {
       {/* 顶部标题栏 */}
       <div className="flex items-center justify-between mb-2 flex-shrink-0">
         <Title level={3} style={{ margin: 0, lineHeight: "32px" }}>
-          笔记
+          文档
         </Title>
         <Space align="center">
           <Segmented
@@ -1269,7 +1269,7 @@ function DesktopNoteListPage() {
       >
         <Input
           size="large"
-          placeholder="搜索笔记标题..."
+          placeholder="搜索文档标题..."
           prefix={<Search size={16} />}
           suffix={
             <MicButton
@@ -1337,7 +1337,7 @@ function DesktopNoteListPage() {
             }}
           />
           <Popconfirm
-            title={`确认将 ${selectedIds.length} 篇笔记移到回收站？`}
+            title={`确认将 ${selectedIds.length} 篇文档移到回收站？`}
             okText="移到回收站"
             okButtonProps={{ danger: true }}
             onConfirm={async () => {
@@ -1706,8 +1706,8 @@ function DesktopNoteListPage() {
             </>
           ) : (
             <EmptyState
-              description="暂无笔记"
-              actionText="创建第一篇笔记"
+              description="暂无文档"
+              actionText="创建第一篇文档"
               onAction={() =>
                 createBlankAndOpen(
                   folderId ? Number(folderId) : null,
@@ -1788,8 +1788,8 @@ function DesktopNoteListPage() {
             </div>
           ) : (
             <EmptyState
-              description="暂无笔记"
-              actionText="创建第一篇笔记"
+              description="暂无文档"
+              actionText="创建第一篇文档"
               onAction={() =>
                 createBlankAndOpen(
                   folderId ? Number(folderId) : null,
@@ -1815,7 +1815,7 @@ function DesktopNoteListPage() {
 
       {/* 重命名弹窗 */}
       <Modal
-        title="重命名笔记"
+        title="重命名文档"
         open={!!renameTarget}
         onOk={handleRenameSubmit}
         onCancel={() => setRenameTarget(null)}

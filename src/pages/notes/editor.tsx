@@ -85,7 +85,7 @@ function BacklinksPanel({
       </div>
       {backlinks.length === 0 ? (
         <Text type="secondary" style={{ fontSize: 12 }}>
-          暂无其他笔记链接到这里。在其他笔记中输入 <Text code style={{ fontSize: 11 }}>[[本笔记标题]]</Text> 即可建立反向链接。
+          暂无其他文档链接到这里。在其他文档中输入 <Text code style={{ fontSize: 11 }}>[[本文档标题]]</Text> 即可建立反向链接。
         </Text>
       ) : (
         <div className="flex flex-col gap-1">
@@ -209,7 +209,7 @@ function FolderPathEditor({
       <div className="kb-folder-tree-row flex items-center justify-between w-full pr-1">
         <span className="truncate">{nodeData.title}</span>
         <Tooltip
-          title={isDefault ? "取消默认（新建笔记不再自动归此处）" : "设为默认（新建笔记自动归此处）"}
+          title={isDefault ? "取消默认（新建文档不再自动归此处）" : "设为默认（新建文档自动归此处）"}
           mouseEnterDelay={0.4}
         >
           <button
@@ -825,7 +825,7 @@ function DesktopNoteEditorPage() {
       if (dirtyRef.current) {
         notification.warning({
           key: `note-updated-${noteId}`,
-          message: "其他窗口已更新此笔记",
+          message: "其他窗口已更新此文档",
           description: "另一个窗口刚刚保存了内容。当前窗口有未保存修改——加载新版本会丢弃这些修改。",
           btn: (
             <Button
@@ -923,7 +923,7 @@ function DesktopNoteEditorPage() {
 
       if (missing.length > 0) {
         notification.warning({
-          message: `已保存，但 ${missing.length} 个 wiki 链接未能匹配到笔记`,
+          message: `已保存，但 ${missing.length} 个 wiki 链接未能匹配到文档`,
           description: (
             <div>
               <ul style={{ margin: "4px 0 8px", paddingLeft: 20, maxHeight: 160, overflow: "auto" }}>
@@ -934,7 +934,7 @@ function DesktopNoteEditorPage() {
                 ))}
               </ul>
               <div style={{ fontSize: 12, opacity: 0.75 }}>
-                <code>[[标题]]</code> 必须是<strong>完整且精确</strong>的笔记标题（忽略首尾空白和大小写），不支持通配符 / 省略号。建议正文里输入 <code>[[</code> 从自动补全菜单选择。
+                <code>[[标题]]</code> 必须是<strong>完整且精确</strong>的文档标题（忽略首尾空白和大小写），不支持通配符 / 省略号。建议正文里输入 <code>[[</code> 从自动补全菜单选择。
               </div>
             </div>
           ),
@@ -1210,11 +1210,11 @@ function DesktopNoteEditorPage() {
       if (results.length > 0) {
         await ensureSavedBeforeNavigate();
         navigate(`/notes/${results[0][0]}`);
-        message.info(`未找到同名笔记，跳转到相近的「${results[0][1]}」`);
+        message.info(`未找到同名文档，跳转到相近的「${results[0][1]}」`);
         return;
       }
 
-      message.warning(`未找到笔记「${wikiTitle}」`);
+      message.warning(`未找到文档「${wikiTitle}」`);
     } catch (e) {
       message.error(`跳转失败: ${e}`);
     }
@@ -1489,7 +1489,7 @@ function DesktopNoteEditorPage() {
             title={
               note?.is_hidden
                 ? "取消隐藏（回到主列表）"
-                : "隐藏此笔记（主列表/搜索/图谱不可见）"
+                : "隐藏此文档（主列表/搜索/图谱不可见）"
             }
           >
             <Button
@@ -1501,8 +1501,8 @@ function DesktopNoteEditorPage() {
           <Tooltip
             title={
               note?.is_encrypted
-                ? "取消加密（恢复为普通笔记）"
-                : "加密此笔记（需先设置并解锁主密码）"
+                ? "取消加密（恢复为普通文档）"
+                : "加密此文档（需先设置并解锁主密码）"
             }
           >
             <Button
@@ -1645,7 +1645,7 @@ function DesktopNoteEditorPage() {
               }}
             />
           </Tooltip>
-          <Popconfirm title="确认删除此笔记？" onConfirm={handleDelete}>
+          <Popconfirm title="确认删除此文档？" onConfirm={handleDelete}>
             <Button danger icon={<Trash2 size={16} />}>
               删除
             </Button>
@@ -1685,7 +1685,7 @@ function DesktopNoteEditorPage() {
             <Input
               value={title}
               onChange={(e) => handleTitleChange(e.target.value)}
-              placeholder="笔记标题"
+              placeholder="文档标题"
               variant="borderless"
               className="editor-title"
               style={{ paddingRight: 64 }}
@@ -1977,7 +1977,7 @@ function DesktopNoteEditorPage() {
       {/* 同名笔记消歧 */}
       <Modal
         open={disambigOpen}
-        title={`「${disambigTitle}」存在 ${disambigItems.length} 条同名笔记`}
+        title={`「${disambigTitle}」存在 ${disambigItems.length} 条同名文档`}
         footer={null}
         onCancel={() => setDisambigOpen(false)}
         width={520}
@@ -2021,7 +2021,7 @@ function DesktopNoteEditorPage() {
         mode={vaultModal.mode}
         onClose={() => setVaultModal((s) => ({ ...s, open: false }))}
         onSuccess={() => {
-          message.info("保险库已就绪，再次点击锁图标即可加密此笔记");
+          message.info("保险库已就绪，再次点击锁图标即可加密此文档");
         }}
       />
     </div>

@@ -26,6 +26,7 @@ import QuickCapturePage from "@/pages/quick-capture";
 import FeatureTogglePage from "@/pages/feature-toggle";
 import MigrationSplash from "@/pages/migration-splash";
 import EmergencyReminderPage from "@/pages/emergency-reminder";
+import TaskSessionPage from "@/pages/task-session";
 
 // 路由级 errorElement：路由内任何同步渲染异常（如 TipTap 在老 WebView 上
 // 的 lookbehind 正则解析失败）都会被 RouteErrorFallback 接管，给用户友好
@@ -87,6 +88,7 @@ const router = createHashRouter([
       { path: "plugins", element: <PluginsPage /> },
       { path: "plugin-view/:viewId", element: <PluginPanelViewPage /> },
       { path: "tasks", element: <TasksPage /> },
+      { path: "task-session", element: <TaskSessionPage /> },
       { path: "cards", element: <CardsPage /> },
       { path: "settings", element: <SettingsPage /> },
       { path: "about", element: <AboutPage /> },

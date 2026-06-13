@@ -56,7 +56,7 @@ export function MobileNotes() {
       <div className="bg-white px-4 pt-3 pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">笔记</h1>
+            <h1 className="text-2xl font-bold text-slate-900">文档</h1>
             <div className="mt-0.5 text-xs text-slate-400">
               共 {total} 篇
             </div>
@@ -95,7 +95,7 @@ export function MobileNotes() {
         ) : notes.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-4 py-16 text-slate-400">
             <Plus size={40} className="text-slate-300" />
-            <span className="text-sm">还没有笔记</span>
+            <span className="text-sm">还没有文档</span>
             <span className="text-xs text-slate-300">
               点右下 + 按钮新建第一篇
             </span>
@@ -165,7 +165,7 @@ function NoteCard({ note, onClick }: { note: Note; onClick: () => void }) {
       <div className="rounded-2xl bg-white p-4">
         <div className="flex items-start justify-between gap-2">
           <h3 className="flex-1 truncate text-base font-semibold text-slate-900">
-            {note.title || "未命名笔记"}
+            {note.title || "未命名文档"}
           </h3>
           {note.is_pinned && (
             <Pin size={14} className="mt-1 shrink-0 text-amber-500" />

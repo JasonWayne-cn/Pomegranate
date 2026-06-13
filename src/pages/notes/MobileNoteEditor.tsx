@@ -89,7 +89,7 @@ export function MobileNoteEditor() {
       dirtyRef.current = false;
       setStatus("idle");
     } catch (e) {
-      message.error(`加载笔记失败: ${e}`);
+      message.error(`加载文档失败: ${e}`);
     }
   }, [noteId]);
 
@@ -242,7 +242,7 @@ export function MobileNoteEditor() {
   if (Number.isNaN(noteId)) {
     return (
       <div className="p-4 text-center text-sm text-slate-400">
-        笔记 ID 无效
+        文档 ID 无效
       </div>
     );
   }
@@ -265,7 +265,7 @@ export function MobileNoteEditor() {
         </button>
         <div className="flex flex-col items-center min-w-0 flex-1 leading-tight">
           <span className="truncate text-sm font-semibold text-slate-900">
-            编辑笔记
+            编辑文档
           </span>
           {/* 状态指示器：仅在 saving / saved 时显示，dirty 与 idle 都隐藏（避免噪音） */}
           <SaveBadge status={status} />
@@ -302,7 +302,7 @@ export function MobileNoteEditor() {
             setTitle(v);
             scheduleSave();
           }}
-          placeholder="无标题笔记"
+          placeholder="无标题文档"
           className="w-full text-2xl font-bold text-slate-900 outline-none placeholder:text-slate-300 bg-transparent"
         />
 

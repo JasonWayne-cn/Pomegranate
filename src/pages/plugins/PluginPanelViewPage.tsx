@@ -100,48 +100,53 @@ export default function PluginPanelViewPage() {
     );
   }
 
+  const isFullscreen = viewDef.layout === "fullscreen";
+
   return (
     <div
       style={{
         height: "100%",
+        minHeight: 0,
         display: "flex",
         flexDirection: "column",
       }}
     >
-      {/* 标题栏 */}
-      <div
-        style={{
-          padding: "8px 16px",
-          borderBottom: `1px solid ${token.colorBorderSecondary}`,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          background: token.colorBgContainer,
-        }}
-      >
-        <Button
-          type="text"
-          size="small"
-          icon={<ArrowLeft size={16} />}
-          onClick={() => navigate("/notes")}
-        />
-        <Puzzle size={16} style={{ color: token.colorPrimary }} />
-        <Text strong style={{ fontSize: 15 }}>
-          {title}
-        </Text>
-        <div style={{ flex: 1 }} />
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          插件: {viewDef.pluginId}
-        </Text>
-      </div>
+      {!isFullscreen && (
+        <div
+          style={{
+            padding: "8px 16px",
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: token.colorBgContainer,
+          }}
+        >
+          <Button
+            type="text"
+            size="small"
+            icon={<ArrowLeft size={16} />}
+            onClick={() => navigate("/notes")}
+          />
+          <Puzzle size={16} style={{ color: token.colorPrimary }} />
+          <Text strong style={{ fontSize: 15 }}>
+            {title}
+          </Text>
+          <div style={{ flex: 1 }} />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            插件: {viewDef.pluginId}
+          </Text>
+        </div>
+      )}
 
-      {/* 插件渲染区域 */}
       <div
         ref={containerRef}
         style={{
           flex: 1,
-          overflow: "auto",
-          padding: 16,
+          minHeight: 0,
+          height: "100%",
+          overflow: isFullscreen ? "hidden" : "auto",
+          padding: isFullscreen ? 0 : 16,
         }}
       />
     </div>

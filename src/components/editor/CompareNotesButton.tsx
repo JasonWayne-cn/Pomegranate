@@ -32,7 +32,7 @@ export function CompareNotesButton({ editor, noteId }: Props) {
   // 合并视图状态
   const [mergeOpen, setMergeOpen] = useState(false);
   const [left, setLeft] = useState<DiffSide>({ label: "", value: "", editable: true });
-  const [right, setRight] = useState<DiffSide>({ label: "当前笔记", value: "", editable: true });
+  const [right, setRight] = useState<DiffSide>({ label: "当前文档", value: "", editable: true });
   const otherNoteRef = useRef<Note | null>(null);
   const baseRightRef = useRef<string>("");
 
@@ -47,7 +47,7 @@ export function CompareNotesButton({ editor, noteId }: Props) {
             .map((n) => ({ value: n.id, label: n.title || `（无标题 #${n.id}）` })),
         );
       } catch (e) {
-        message.error(`加载笔记列表失败：${e}`);
+        message.error(`加载文档列表失败：${e}`);
       } finally {
         setLoadingOpts(false);
       }
@@ -63,18 +63,18 @@ export function CompareNotesButton({ editor, noteId }: Props) {
     try {
       const other = await noteApi.get(otherId);
       if (other.is_encrypted) {
-        message.warning("该笔记已加密，无法在此对比");
+        message.warning("该文档已加密，无法在此对比");
         return;
       }
       otherNoteRef.current = other;
       const curMd = getEditorMarkdown(editor);
       baseRightRef.current = curMd;
-      setLeft({ label: other.title || `笔记 #${otherId}`, value: other.content, editable: true });
-      setRight({ label: "当前笔记 (markdown)", value: curMd, editable: true });
+      setLeft({ label: other.title || `文档 #${otherId}`, value: other.content, editable: true });
+      setRight({ label: "当前文档 (markdown)", value: curMd, editable: true });
       setPickerOpen(false);
       setMergeOpen(true);
     } catch (e) {
-      message.error(`打开笔记失败：${e}`);
+      message.error(`打开文档失败：${e}`);
     }
   }
 
@@ -100,12 +100,12 @@ export function CompareNotesButton({ editor, noteId }: Props) {
 
   return (
     <>
-      <Tooltip title="与其他笔记对比 / 合并" mouseEnterDelay={0.5}>
+      <Tooltip title="与其他文档对比 / 合并" mouseEnterDelay={0.5}>
         <Button type="text" size="small" icon={<FileDiff size={15} />} onClick={() => setPickerOpen(true)} />
       </Tooltip>
 
       <Modal
-        title="选择要对比的笔记"
+        title="选择要对比的文档"
         open={pickerOpen}
         onCancel={() => setPickerOpen(false)}
         footer={null}
@@ -115,16 +115,16 @@ export function CompareNotesButton({ editor, noteId }: Props) {
           showSearch
           autoFocus
           style={{ width: "100%" }}
-          placeholder="搜索笔记标题…"
+          placeholder="搜索文档标题…"
           loading={loadingOpts}
           filterOption={false}
           onSearch={(v) => void loadOptions(v)}
           options={options}
-          notFoundContent={loadingOpts ? "加载中…" : "无匹配笔记"}
+          notFoundContent={loadingOpts ? "加载中…" : "无匹配文档"}
           onChange={(v) => void pickNote(v as number)}
         />
         <div style={{ fontSize: 12, color: "var(--ant-color-text-secondary, #888)", marginTop: 8 }}>
-          选中后会打开对比视图：左 = 该笔记，右 = 当前笔记（= 最终结果）。
+          选中后会打开对比视图：左 = 该文档，右 = 当前文档（= 最终结果）。
         </div>
       </Modal>
 
@@ -133,7 +133,7 @@ export function CompareNotesButton({ editor, noteId }: Props) {
         onClose={() => setMergeOpen(false)}
         left={left}
         right={right}
-        saveHint="「当前笔记」会用 markdown 重新生成内容（表格 / 批注 / 嵌入 / 折叠等自定义块可能不完全保留）；另一篇笔记直接以新内容保存。只改动过的那一侧才会被写回。"
+        saveHint="「当前文档」会用 markdown 重新生成内容（表格 / 批注 / 嵌入 / 折叠等自定义块可能不完全保留）；另一篇文档直接以新内容保存。只改动过的那一侧才会被写回。"
         onSave={handleSave}
       />
     </>

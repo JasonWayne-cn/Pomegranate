@@ -960,53 +960,6 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
         ],
       },
       {
-        icon: (
-          <span className="inline-flex items-center gap-0.5">
-            <Columns3 size={15} />
-            <ChevronDown size={11} style={{ opacity: 0.6 }} />
-          </span>
-        ),
-        title: "分栏布局",
-        dropdownItems: [
-          {
-            key: "cols-2",
-            icon: <Columns3 size={14} />,
-            label: "两栏",
-            onClick: () =>
-              editor.chain().focus().insertContent(
-                '<div class="kb-columns-2" style="display:flex;gap:1.5em"><div><p></p></div><div><p></p></div></div>'
-              ).run(),
-          },
-          {
-            key: "cols-3",
-            icon: <Columns3 size={14} />,
-            label: "三栏",
-            onClick: () =>
-              editor.chain().focus().insertContent(
-                '<div class="kb-columns-3" style="display:flex;gap:1em"><div><p></p></div><div><p></p></div><div><p></p></div></div>'
-              ).run(),
-          },
-          {
-            key: "cols-2-1",
-            icon: <Columns3 size={14} />,
-            label: "左窄右宽",
-            onClick: () =>
-              editor.chain().focus().insertContent(
-                '<div class="kb-columns-2-1" style="display:flex;gap:1.5em"><div style="flex:1"><p></p></div><div style="flex:2"><p></p></div></div>'
-              ).run(),
-          },
-          {
-            key: "cols-1-2",
-            icon: <Columns3 size={14} />,
-            label: "左宽右窄",
-            onClick: () =>
-              editor.chain().focus().insertContent(
-                '<div class="kb-columns-1-2" style="display:flex;gap:1.5em"><div style="flex:2"><p></p></div><div style="flex:1"><p></p></div></div>'
-              ).run(),
-          },
-        ],
-      },
-      {
         icon: <span className="text-base">💬</span>,
         title: "批注",
         action: () => editor.chain().focus().insertContent("【批注：】").run(),

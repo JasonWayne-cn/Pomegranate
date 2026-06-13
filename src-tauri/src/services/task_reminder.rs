@@ -158,6 +158,9 @@ fn tick_once(app: &AppHandle) -> Result<(), AppError> {
             log::warn!("[reminder] 系统通知发送失败: {}", e);
         }
 
+        // 🆕 通知插件：已触发该任务的提醒
+        let _ = app.emit("plugin:task:reminded", &task);
+
         // 分级派发：
         // - priority == 0 紧急：开全屏接管窗口（前端自带循环铃声 + 抢焦点），
         //   主窗 Modal 不再弹同一条，避免双重打扰；窗口创建失败自动 fallback

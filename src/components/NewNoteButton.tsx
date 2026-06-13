@@ -49,7 +49,7 @@ export function NewNoteButton({
   folderId = null,
   collapsed = false,
   block = false,
-  label = "新建笔记",
+  label = "新建文档",
   style,
   size,
 }: Props) {
@@ -141,7 +141,7 @@ export function NewNoteButton({
           type="primary"
           icon={<Plus size={16} />}
           onClick={handleCreate}
-          title="新建笔记 (Ctrl+N)"
+          title="新建文档 (Ctrl+N)"
           style={style}
         />
         <TemplatePickerModal
@@ -161,7 +161,7 @@ export function NewNoteButton({
           size={size}
           icon={<Plus size={14} />}
           onClick={handleCreate}
-          title="新建笔记 (Ctrl+N)"
+          title="新建文档 (Ctrl+N)"
           style={block ? { flex: 1 } : undefined}
         >
           {label}

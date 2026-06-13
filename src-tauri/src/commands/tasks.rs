@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::models::{
     CreateTaskCategoryInput, CreateTaskInput, Task, TaskCategory, TaskLinkInput, TaskQuery,
@@ -34,55 +34,86 @@ pub fn list_subtasks(state: State<'_, AppState>, parent_id: i64) -> Result<Vec<T
 }
 
 #[tauri::command]
-pub fn create_task(state: State<'_, AppState>, input: CreateTaskInput) -> Result<i64, String> {
-    let id = TaskService::create(&state.db, input).map_err(|e| e.to_string())?;
+pub fn create_task(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    input: CreateTaskInput,
+) -> Result<i64, String> {
+    let task = TaskService::create(&app, &state.db, input).map_err(|e| e.to_string())?;
     notify_reminder(&state);
-    Ok(id)
+    Ok(task.id)
 }
 
 #[tauri::command]
 pub fn update_task(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     id: i64,
     input: UpdateTaskInput,
 ) -> Result<bool, String> {
-    let ok = TaskService::update(&state.db, id, input).map_err(|e| e.to_string())?;
+    let ok = TaskService::update(&app, &state.db, id, input).map_err(|e| e.to_string())?;
     notify_reminder(&state);
     Ok(ok)
 }
 
 #[tauri::command]
-pub fn toggle_task_status(state: State<'_, AppState>, id: i64) -> Result<i32, String> {
-    let v = TaskService::toggle_status(&state.db, id).map_err(|e| e.to_string())?;
+pub fn toggle_task_status(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<i32, String> {
+    let v = TaskService::toggle_status(&app, &state.db, id).map_err(|e| e.to_string())?;
     notify_reminder(&state);
     Ok(v)
 }
 
 #[tauri::command]
-pub fn delete_task(state: State<'_, AppState>, id: i64) -> Result<bool, String> {
-    let ok = TaskService::delete(&state.db, id).map_err(|e| e.to_string())?;
+pub fn delete_task(app: tauri::AppHandle, state: State<'_, AppState>, id: i64) -> Result<bool, String> {
+    let ok = TaskService::delete(&app, &state.db, id).map_err(|e| e.to_string())?;
     notify_reminder(&state);
     Ok(ok)
 }
 
 /// 批量删除任务（任务页多选模式用）。返回实际删除的条数。
 #[tauri::command]
-pub fn delete_tasks_batch(state: State<'_, AppState>, ids: Vec<i64>) -> Result<usize, String> {
+pub fn delete_tasks_batch(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<i64>,
+) -> Result<usize, String> {
+    // 删除前先取快照用于事件 emit
+    let snapshots: Vec<Task> = ids
+        .iter()
+        .filter_map(|id| state.db.get_task(*id).ok().flatten())
+        .collect();
     let n = state
         .db
         .delete_tasks_by_ids(&ids)
         .map_err(|e| e.to_string())?;
+    for task in &snapshots {
+        let _ = app.emit("plugin:task:deleted", task);
+    }
     notify_reminder(&state);
     Ok(n)
 }
 
 /// 批量标记任务为已完成（任务页多选模式用）。返回实际更新条数。
 #[tauri::command]
-pub fn complete_tasks_batch(state: State<'_, AppState>, ids: Vec<i64>) -> Result<usize, String> {
+pub fn complete_tasks_batch(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<i64>,
+) -> Result<usize, String> {
     let n = state
         .db
         .complete_tasks_by_ids(&ids)
         .map_err(|e| e.to_string())?;
+    // 补读完成后的任务 emit 事件
+    for id in &ids {
+        if let Ok(Some(task)) = state.db.get_task(*id) {
+            let _ = app.emit("plugin:task:completed", &task);
+        }
+    }
     notify_reminder(&state);
     Ok(n)
 }
@@ -160,7 +191,11 @@ pub fn delete_task_category(state: State<'_, AppState>, id: i64) -> Result<bool,
 /// 完成本次（循环任务）：推进到下一次；非循环任务等同于 toggle 到完成。
 /// 达到 repeat_count / repeat_until 上限时自动结束整条循环。
 #[tauri::command]
-pub fn complete_task_occurrence(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+pub fn complete_task_occurrence(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<(), String> {
     // 从 app_config 读取全天任务提醒基准时刻，兼容 "HH:MM" / "HH:MM:SS"
     let base = state
         .db
@@ -169,7 +204,7 @@ pub fn complete_task_occurrence(state: State<'_, AppState>, id: i64) -> Result<(
         .flatten()
         .map(|s| if s.len() == 5 { format!("{}:00", s) } else { s })
         .unwrap_or_else(|| "09:00:00".to_string());
-    TaskService::complete_occurrence(&state.db, id, &base).map_err(|e| e.to_string())?;
+    TaskService::complete_occurrence(&app, &state.db, id, &base).map_err(|e| e.to_string())?;
     notify_reminder(&state);
     Ok(())
 }

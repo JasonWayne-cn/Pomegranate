@@ -139,11 +139,14 @@ export function AppLayout() {
     location.pathname === "/about" ||
     location.pathname.startsWith("/about/");
 
-  // SidePanel 是否最终可见：视图自身有 panel + 用户未手动折叠 + 不在 standalone 路由
+  // 插件视图路由：Content 不应加 padding / overflow，由插件页面自行控制布局
+  const isPluginViewRoute = location.pathname.startsWith("/plugin-view/");
+
+  // SidePanel 是否最终可见：视图自身有 panel + 用户未手动折叠 + 不在 standalone/插件路由
   const panelShown =
-    !isStandalonePage && sidePanelVisible && viewHasPanel(activeView);
+    !isStandalonePage && !isPluginViewRoute && sidePanelVisible && viewHasPanel(activeView);
   // 折叠按钮是否值得显示：当前视图本身要有 panel，否则按钮没有作用对象
-  const canTogglePanel = !isStandalonePage && viewHasPanel(activeView);
+  const canTogglePanel = !isStandalonePage && !isPluginViewRoute && viewHasPanel(activeView);
   const { canGoBack, canGoForward } = useHistoryNav();
   // Sider 永远只占 ActivityBar 宽度（48px），SidePanel 走绝对定位浮层覆盖在主区上方，
   // 这样 panel 出现/消失不会让主内容横向 reflow，彻底消掉"home → notes"卡顿
@@ -601,15 +604,15 @@ export function AppLayout() {
         {!focusMode && <TabBar />}
         <Content
           style={{
-            padding: focusMode ? 0 : 24,
+            padding: isPluginViewRoute ? 0 : (focusMode ? 0 : 24),
             // popout 窗口用 OS 原生标题栏（decorations:true），顶部 ~32px 被系统占用，
             // 给内容让位，否则编辑器 topbar 会被系统标题栏盖住
-            paddingTop: isPopoutWindow ? 32 : (focusMode ? 0 : 24),
+            paddingTop: isPluginViewRoute ? 0 : (isPopoutWindow ? 32 : (focusMode ? 0 : 24)),
             // popout 模式下两侧给一点透气 padding，主窗有 SidePanel/Sider 视觉分隔，
             // popout 内容直接贴窗框看着挤
             paddingLeft: isPopoutWindow ? 16 : undefined,
             paddingRight: isPopoutWindow ? 16 : undefined,
-            overflow: "auto",
+            overflow: isPluginViewRoute ? "hidden" : "auto",
           }}
         >
           <Outlet />

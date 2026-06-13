@@ -245,7 +245,7 @@ export function NoteAiDrawer({
             <Empty
               description={
                 <span style={{ fontSize: 12 }}>
-                  本笔记还没问过 AI，输入问题开始
+                  本文档还没问过 AI，输入问题开始
                 </span>
               }
               image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -350,7 +350,7 @@ export function NoteAiDrawer({
             placeholder={
               pendingContext
                 ? "针对上面这段，输入你的问题…"
-                : "基于本笔记问 AI…(Enter 发送)"
+                : "基于本文档问 AI…(Enter 发送)"
             }
             autoSize={{ minRows: 1, maxRows: 4 }}
             disabled={streaming || !conv}

@@ -645,7 +645,7 @@ export function NotesPanel() {
       // 加密笔记的 content 是占位符，直接 update_note 会把真实加密内容覆盖掉。
       // 引导用户在编辑器里改标题（那里能拿到解密后内容）。
       if (note.is_encrypted) {
-        message.info("加密笔记请在编辑器内修改标题");
+        message.info("加密文档请在编辑器内修改标题");
         setEditingKey(null);
         setEditingName("");
         return;
@@ -690,7 +690,7 @@ export function NotesPanel() {
   function confirmDelete(key: string, name: string) {
     Modal.confirm({
       title: `删除文件夹"${name}"`,
-      content: "若文件夹下含有子文件夹或笔记，将拒绝删除。请先清空内容。",
+      content: "若文件夹下含有子文件夹或文档，将拒绝删除。请先清空内容。",
       okText: "删除",
       okType: "danger",
       cancelText: "取消",
@@ -812,8 +812,8 @@ export function NotesPanel() {
       if (note.is_pinned !== dropNote.is_pinned) {
         message.info(
           note.is_pinned
-            ? "置顶笔记不能拖到普通笔记之间（先取消置顶）"
-            : "普通笔记不能拖到置顶笔记之间（先置顶它）",
+            ? "置顶文档不能拖到普通文档之间（先取消置顶）"
+            : "普通文档不能拖到置顶文档之间（先置顶它）",
         );
         return;
       }
@@ -1084,7 +1084,7 @@ export function NotesPanel() {
       {
         key: "new-note",
         icon: <NotebookText size={14} />,
-        label: "在此新建笔记",
+        label: "在此新建文档",
         onClick: () => {
           createBlankAndOpen(folderId, navigate);
           close();
@@ -1248,7 +1248,7 @@ export function NotesPanel() {
     const texts = files.filter(isDroppedTextFile);
     const skipped = files.length - texts.length;
     if (texts.length === 0) {
-      message.warning("仅支持 .md / .txt 拖入新建笔记（附件拖放请拖到编辑器内）");
+      message.warning("仅支持 .md / .txt 拖入新建文档（附件拖放请拖到编辑器内）");
       return;
     }
 
@@ -1305,7 +1305,7 @@ export function NotesPanel() {
     }
     if (ok > 0) {
       message.success(
-        `已新建 ${ok} 篇笔记${skipped > 0 ? `（忽略 ${skipped} 个非文本文件）` : ""}`,
+        `已新建 ${ok} 篇文档${skipped > 0 ? `（忽略 ${skipped} 个非文本文件）` : ""}`,
       );
       useAppStore.getState().bumpNotesRefresh();
       useAppStore.getState().bumpFoldersRefresh();
@@ -1546,7 +1546,7 @@ export function NotesPanel() {
       >
         <NotebookText size={15} style={{ color: token.colorPrimary }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: token.colorText }}>
-          笔记
+          文档
         </span>
         <div style={{ flex: 1 }} />
         <Button

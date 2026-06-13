@@ -249,9 +249,7 @@ export function OpenFileButton({
           onClick={handlePreviewOpen}
           title="预览打开 .md 文件"
           style={block ? { flex: 1 } : undefined}
-        >
-          打开文件
-        </Button>
+        />
         <Dropdown
           menu={{ items: menuItems }}
           trigger={["click"]}

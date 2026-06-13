@@ -50,7 +50,7 @@ export function MindMapView({ open, onClose, markdown, title }: Props) {
 
       const md = markdown.trim()
         ? markdown
-        : `# ${title || "未命名笔记"}\n`;
+        : `# ${title || "未命名文档"}\n`;
       const { root } = transformer.transform(md);
 
       if (mmRef.current) {
