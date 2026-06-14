@@ -26,6 +26,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1"
 
 [dependencies]
 # ─── 跨平台核心依赖（桌面 + 移动端共用）────────────────

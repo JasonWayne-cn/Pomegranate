@@ -18,7 +18,7 @@
 //   3. kb-mcp sidecar 已构建 (pnpm build:mcp)
 
 import { execSync } from "node:child_process";
-import { copyFileSync, existsSync, renameSync, readdirSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, renameSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,6 +32,8 @@ const BUNDLE_DIR = join(SRC_TAURI, "target", "release", "bundle", "nsis");
 
 const argv = process.argv.slice(2);
 const isDebug = argv.includes("--debug");
+const CARGO = "cargo";
+const RUSTC = "rustc";
 
 // ─── 读取版本号 ─────────────────────────────
 function getVersion() {
@@ -45,6 +47,9 @@ function getVersion() {
 
 // ─── 验证前置条件 ──────────────────────────
 function checkPrerequisites() {
+  const rustcVersion = execSync(`${RUSTC} --version`, { encoding: "utf8" }).trim();
+  console.log(`[build-win7] Rust 工具链: ${rustcVersion}`);
+
   const webview2Dir = join(SRC_TAURI, "WebView2-FixedRuntime-109");
   const webview2Exe = join(webview2Dir, "msedgewebview2.exe");
 
@@ -88,35 +93,69 @@ function restoreConfig() {
   }
 }
 
-// ─── 构建 ───────────────────────────────────
-function build() {
-  const debugFlag = isDebug ? " --debug" : "";
-  const cmd = `pnpm tauri build --bundles nsis${debugFlag}`;
-  console.log(`[build-win7] 开始构建: ${cmd}`);
-  execSync(cmd, { cwd: ROOT, stdio: "inherit" });
-}
+// ─── PE 补丁 ─────────────────────────────────
+const BLOCKING_IMPORTS = [
+  "GetSystemTimePreciseAsFileTime",
+  "api-ms-win-core-synch-l1-2-0.dll",
+  "api-ms-win-crt-private-l1-1-0.dll",
+  "combase.dll",
+];
+const RISKY_IMPORTS = [];
 
-// ─── PE 子系统版本锁定 ─────────────────────────
-// Tauri build 先编译 Rust 再跑 NSIS，NSIS 嵌入的 exe 就是刚编译的产物。
-// 这里在 cargo build 完成后、makensis 运行前，把 exe 的 PE 子系统版本
-// 修正为 6.1 (Windows 7)，确保加载器不会因版本号过低而拒绝。
-// 注意：tauri build 内部顺序是 cargo → nsis，我们需要 2-phase 构建。
-function patchPE(phase) {
-  const EXE = join(SRC_TAURI, "target", isDebug ? "debug" : "release", "IntelligentNoteBook.exe");
-  if (!existsSync(EXE)) {
-    if (phase === "post") console.warn("[build-win7] 未找到 exe，跳过 PE 补丁");
+function patchPE(exePath) {
+  if (!existsSync(exePath)) {
+    console.warn(`[build-win7] 未找到 exe，跳过 PE 补丁: ${exePath}`);
     return;
   }
 
-  const { execSync: run } = require("node:child_process");
-  try {
-    run(
-      `python -c "import struct; f=open('${EXE.replace(/\\/g, "/")}','r+b'); d=f.read(); o=struct.unpack_from('<I',d,0x3C)[0]+72; f.seek(o); f.write(struct.pack('<HH',6,1)); f.close()"`,
-      { stdio: "pipe" }
-    );
-    console.log("[build-win7] PE 子系统已锁定为 6.1 (Windows 7)");
-  } catch {
-    console.warn("[build-win7] PE 补丁失败（python 不可用，子系统保持默认）");
+  const buffer = readFileSync(exePath);
+  const peOffset = buffer.readUInt32LE(0x3c);
+  const optionalHeaderOffset = peOffset + 24;
+
+  // PE Optional Header: MajorSubsystemVersion / MinorSubsystemVersion
+  buffer.writeUInt16LE(6, optionalHeaderOffset + 48);
+  buffer.writeUInt16LE(1, optionalHeaderOffset + 50);
+
+  // Win8+ API 降级：GetSystemTimePreciseAsFileTime → GetSystemTimeAsFileTime
+  // 两者签名相同，目标函数 Win7 可用；目标名更短，可原地覆盖并用 \0 填充。
+  const from = Buffer.from("GetSystemTimePreciseAsFileTime\0", "ascii");
+  const to = Buffer.from("GetSystemTimeAsFileTime\0", "ascii");
+  let patchedImports = 0;
+  let offset = buffer.indexOf(from);
+  while (offset !== -1) {
+    to.copy(buffer, offset);
+    buffer.fill(0, offset + to.length, offset + from.length);
+    patchedImports += 1;
+    offset = buffer.indexOf(from, offset + from.length);
+  }
+
+  writeFileSync(exePath, buffer);
+  console.log(`[build-win7] PE 已补丁: ${exePath} (subsystem=6.1, imports=${patchedImports})`);
+}
+
+function patchAllBinaries() {
+  const profile = isDebug ? "debug" : "release";
+  patchPE(join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe"));
+
+  const binariesDir = join(SRC_TAURI, "binaries");
+  if (existsSync(binariesDir)) {
+    for (const file of readdirSync(binariesDir)) {
+      if (file.endsWith(".exe")) patchPE(join(binariesDir, file));
+    }
+  }
+}
+
+function verifyWin7Imports(exePath) {
+  if (!existsSync(exePath)) return;
+  const text = readFileSync(exePath).toString("latin1");
+  const blocking = BLOCKING_IMPORTS.filter((name) => text.includes(name));
+  if (blocking.length > 0) {
+    throw new Error(`[build-win7] ${exePath} 仍包含 Win7 加载阻断导入: ${blocking.join(", ")}`);
+  }
+
+  const risky = RISKY_IMPORTS.filter((name) => text.includes(name));
+  if (risky.length > 0) {
+    console.warn(`[build-win7] 警告: ${exePath} 仍包含需 Win7 实测的风险导入: ${risky.join(", ")}`);
   }
 }
 
@@ -155,17 +194,21 @@ function main() {
   try {
     // Phase 1: cargo build（产生 .exe）
     const profile = isDebug ? "debug" : "release";
-    const cargoCmd = `cargo build --${profile}`;
+    const cargoCmd = `${CARGO} build --${profile}`;
     console.log(`[build-win7] Phase 1: ${cargoCmd}`);
     execSync(cargoCmd, { cwd: SRC_TAURI, stdio: "inherit" });
 
-    // Patch PE 子系统 → 6.1
-    patchPE("post");
+    // Patch PE：子系统 → 6.1 + Win8+ 导入降级
+    patchAllBinaries();
 
     // Phase 2: NSIS 打包（tauri build 检测到 Rust 产物已就绪，跳过编译）
     const tauriCmd = `pnpm tauri build --bundles nsis${isDebug ? " --debug" : ""}`;
     console.log(`[build-win7] Phase 2: ${tauriCmd}`);
     execSync(tauriCmd, { cwd: ROOT, stdio: "inherit" });
+
+    // Tauri build 可能重新 patch/bundle 产物，构建后再次补丁并验证 target exe。
+    patchAllBinaries();
+    verifyWin7Imports(join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe"));
 
     renameOutput();
     console.log("[build-win7] === 构建成功 ===");

@@ -73,7 +73,12 @@ pnpm build:win7
   ├── 验证 WebView2 109 Runtime 存在
   ├── 备份 tauri.conf.json → tauri.conf.json.bak
   ├── 替换为 tauri.win7.conf.json（fixedRuntime 配置）
-  ├── 运行 tauri build --bundles nsis
+  ├── Phase 1: cargo build --release
+  ├── PE 补丁：
+  │   ├── SubsystemVersion → 6.1 (Windows 7)
+  │   └── GetSystemTimePreciseAsFileTime → GetSystemTimeAsFileTime
+  ├── Phase 2: tauri build --bundles nsis
+  ├── 构建后再次 PE 补丁 + Win8+ 导入扫描
   ├── 产物重命名：知识库_Setup_x.x.x_win7_x64-setup.exe
   └── 恢复 tauri.conf.json
 ```
@@ -94,6 +99,22 @@ pnpm build:win7
 | Windows 7（无 SP1） | 拒绝安装，提示升级到 SP1 |
 | Windows 7 SP1 / 8 / 8.1 | 正常安装（WebView2 109 已捆绑） |
 | Windows 10+ | 警告提示（建议使用标准版），用户可选择继续或退出 |
+
+## PE 导入表兼容补丁
+
+Win7 版构建脚本会对主程序和 sidecar 执行二进制级补丁：
+
+| 项 | 修复前 | 修复后 | 原因 |
+|----|--------|--------|------|
+| PE 子系统版本 | 通常为 6.0 或默认值 | 6.1 | 明确标记为 Windows 7 目标 |
+| 时间 API | `GetSystemTimePreciseAsFileTime` | `GetSystemTimeAsFileTime` | 前者 Win8+ 才存在，后者 Win7 可用且签名相同 |
+
+补丁后脚本会扫描最终 EXE，若仍包含以下 Win8+ 导入则构建失败：
+
+- `GetSystemTimePreciseAsFileTime`
+- `api-ms-win-core-synch-l1-2-0.dll`
+- `api-ms-win-crt-private-l1-1-0.dll`
+- `combase.dll`
 
 ## 已知限制
 
