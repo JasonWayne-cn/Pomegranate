@@ -6,7 +6,8 @@
 import { existsSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const exePath = join("target", "release", "IntelligentNoteBook.exe");
+// beforeBundleCommand cwd 是项目根目录，EXE 在 src-tauri/target/release/
+const exePath = join("src-tauri", "target", "release", "IntelligentNoteBook.exe");
 
 if (!existsSync(exePath)) {
   console.warn("[patch-win7-pe] EXE not found at", exePath);
