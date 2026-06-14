@@ -11,19 +11,6 @@
 
 !macro NSIS_HOOK_PREINSTALL
   ; ─── 操作系统版本检测 ─────────────────────
-  ; 本安装包捆绑 WebView2 109 Fixed Runtime，专为 Windows 7 SP1 构建。
-  ; Win8/Win10+ 用户建议使用标准版（Evergreen WebView2，体积更小）。
-  ${If} ${AtLeastWin10}
-    MessageBox MB_YESNO|MB_ICONINFORMATION \
-      "检测到您的系统为 Windows 10 或更高版本。$\n$\n\
-       本安装包为 Windows 7 兼容版，捆绑了旧版 WebView2 运行时（约 250MB 额外体积）。$\n$\n\
-       建议使用标准版安装包以获得更小的下载体积和最新的浏览器内核。$\n$\n\
-       是否继续安装？" \
-      IDYES win10_continue
-    Quit
-    win10_continue:
-  ${EndIf}
-
   ${If} ${IsWin7}
   ${AndIfNot} ${AtLeastServicePack} 1
     MessageBox MB_OK|MB_ICONSTOP \
@@ -32,6 +19,19 @@
        请先安装 Windows 7 Service Pack 1 后再运行本安装程序。"
     Quit
   ${EndIf}
+
+  ; ─── WebView2 运行时检测 ──────────────────
+  ; 本安装包不捆绑 WebView2，需系统已预装 WebView2 109+ (Win7) 或 Evergreen (Win10+)。
+  ; 检测 Evergreen 注册表键（固定版 WebView2 无此键，仅做参考提示）。
+  ReadRegStr $0 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" "pv"
+  ${If} $0 == ""
+    MessageBox MB_OK|MB_ICONEXCLAMATION \
+      "未检测到 WebView2 Evergreen 运行时。$\n$\n\
+       如果您使用的是 Windows 7，请确保已安装 WebView2 109 或更高版本，$\n\
+       否则应用将无法启动。$\n$\n\
+       WebView2 109 下载地址：$\n\
+       https://www.nuget.org/packages/Microsoft.Web.WebView2/109.0.1518.78"
+  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -39,8 +39,7 @@
   Delete "$DESKTOP\${PRODUCTNAME}.lnk"
   Delete "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk"
 
-  ; 创建中文快捷方式（指向同一个 exe）
-  CreateShortcut "$DESKTOP\知识库.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+  ; 仅在开始菜单创建中文快捷方式（桌面不创建）
   CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\知识库.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
 
   ; 覆盖 Tauri fileAssociations 默认生成的右键菜单文字
@@ -50,7 +49,6 @@
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
-  ; 卸载时清理中文快捷方式
-  Delete "$DESKTOP\知识库.lnk"
+  ; 卸载时清理开始菜单中文快捷方式
   Delete "$SMPROGRAMS\$AppStartMenuFolder\知识库.lnk"
 !macroend

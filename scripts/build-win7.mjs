@@ -13,7 +13,7 @@
 //   4. 恢复原 tauri.conf.json
 //
 // 前置条件：
-//   1. WebView2 109 Fixed Runtime 已解压到 src-tauri/WebView2-FixedRuntime-109/
+//   1. 目标系统已预装 WebView2 109+ (Win7) 或 Evergreen (Win10+)
 //   2. 前端依赖已安装 (pnpm install)
 //   3. kb-mcp sidecar 已构建 (pnpm build:mcp)
 
@@ -50,18 +50,7 @@ function getVersion() {
 function checkPrerequisites() {
   const rustcVersion = execSync(`${RUSTC} --version`, { encoding: "utf8" }).trim();
   console.log(`[build-win7] Rust 工具链: ${rustcVersion}`);
-
-  const webview2Dir = join(SRC_TAURI, "WebView2-FixedRuntime-109");
-  const webview2Exe = join(webview2Dir, "msedgewebview2.exe");
-
-  if (!existsSync(webview2Exe)) {
-    console.error("[build-win7] 错误: 找不到 WebView2 109 Fixed Runtime");
-    console.error(`  预期位置: ${webview2Exe}`);
-    console.error("  请从以下地址下载并解压到该目录:");
-    console.error("    https://www.nuget.org/packages/Microsoft.Web.WebView2/109.0.1518.78");
-    process.exit(1);
-  }
-  console.log(`[build-win7] WebView2 Runtime 已就绪: ${webview2Dir}`);
+  console.log("[build-win7] WebView2 运行时由目标系统提供（跳过捆绑检查）");
 }
 
 // ─── 切换配置 ──────────────────────────────
@@ -170,20 +159,27 @@ function renameOutput() {
 
   const version = getVersion();
   const files = readdirSync(BUNDLE_DIR);
-  const installer = files.find((f) => f.endsWith(".exe"));
+  const installer = files.find((f) => f.endsWith("_x64-setup.exe") && !f.includes("_win7"));
   if (!installer) {
-    console.warn("[build-win7] 未找到 .exe 安装包，跳过重命名");
+    console.warn("[build-win7] 未找到 tauri 原生产物 .exe，跳过重命名");
     return;
   }
 
+  // 清理旧残留安装包（不含 _win7 后缀的旧版本，及同名 win7 旧产物）
+  for (const f of files) {
+    if (f.endsWith(".exe") && (f.includes("_win7") || f === installer)) {
+      const old = join(BUNDLE_DIR, f);
+      unlinkSync(old);
+      console.log(`[build-win7] 已删除旧产物: ${f}`);
+    }
+  }
+
   const src = join(BUNDLE_DIR, installer);
-  const dstName = installer.replace(/_x64-setup\.exe$/, `_${version}_win7_x64-setup.exe`);
+  const dstName = `知识库_Setup_${version}_win7_x64-setup.exe`;
   const dst = join(BUNDLE_DIR, dstName);
 
-  if (src !== dst) {
-    renameSync(src, dst);
-    console.log(`[build-win7] 产物已重命名: ${dstName}`);
-  }
+  renameSync(src, dst);
+  console.log(`[build-win7] 产物已重命名: ${dstName}`);
 }
 
 // ─── 主流程 ─────────────────────────────────
