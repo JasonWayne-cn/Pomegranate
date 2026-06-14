@@ -194,42 +194,19 @@ function main() {
   switchConfig();
 
   try {
-    // Phase 1: cargo build（产生 .exe）
-    const profile = isDebug ? "debug" : "release";
-    const cargoCmd = `${CARGO} build --${profile}`;
-    console.log(`[build-win7] Phase 1: ${cargoCmd}`);
-    execSync(cargoCmd, { cwd: SRC_TAURI, stdio: "inherit" });
-
-    // Patch PE：子系统 → 6.1 + Win8+ 导入降级
-    patchAllBinaries();
-
-    // Phase 2: NSIS 打包（tauri build 检测到 Rust 产物已就绪，跳过编译）
-    // 签名失败（无私钥）不影响 NSIS 产物生成，捕获错误继续后续 patch 步骤
+    // tauri.win7.conf.json 已配置 beforeBundleCommand：
+    //   cargo build → scripts/patch-win7-pe.mjs (PE patch) → makensis
+    // PE patch 在 cargo 编译后、NSIS 打包前执行，确保安装包含已补丁 EXE。
     const tauriCmd = `pnpm tauri build --bundles nsis${isDebug ? " --debug" : ""}`;
-    console.log(`[build-win7] Phase 2: ${tauriCmd}`);
+    console.log(`[build-win7] ${tauriCmd}`);
     try {
       execSync(tauriCmd, { cwd: ROOT, stdio: "inherit" });
     } catch (e) {
-      console.warn("[build-win7] tauri build 返回非零退出码（签名缺失为正常情况），继续后处理...");
+      console.warn("[build-win7] tauri build 非零退出码（签名缺失为正常情况），继续验证...");
     }
 
-    // Tauri build 重新编译 Rust + 生成 NSIS（包含未补丁 EXE）。
-    // 构建后重新补丁 EXE，再跑一次 tauri build（Rust 源码未变所以跳过编译，仅重建 NSIS）。
-    patchAllBinaries();
-
+    const profile = isDebug ? "debug" : "release";
     const exePath = join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe");
-    verifyWin7Imports(exePath);
-
-    // 第二次 tauri build：Rust 跳过编译，仅重跑 vite + makensis（含已补丁 EXE）
-    console.log("[build-win7] 第二次 tauri build（含已补丁 EXE）...");
-    try {
-      execSync(tauriCmd, { cwd: ROOT, stdio: "inherit" });
-    } catch (e2) {
-      console.warn("[build-win7] 第二次 tauri build 非零退出码（签名缺失正常），NSIS 已含补丁 EXE");
-    }
-
-    // 第二次 build 后再次验证（tauri 用自己的 EXE 打包，已补丁版本不应被覆盖）
-    // 注意：tauri build 检测到 Rust 无变化会跳过编译，不会覆盖已补丁 EXE
     verifyWin7Imports(exePath);
 
     renameOutput();
