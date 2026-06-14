@@ -96,11 +96,12 @@ function restoreConfig() {
 // ─── PE 补丁 ─────────────────────────────────
 const BLOCKING_IMPORTS = [
   "GetSystemTimePreciseAsFileTime",
-  "api-ms-win-core-synch-l1-2-0.dll",
   "api-ms-win-crt-private-l1-1-0.dll",
+];
+const RISKY_IMPORTS = [
+  "api-ms-win-core-synch-l1-2-0.dll",
   "combase.dll",
 ];
-const RISKY_IMPORTS = [];
 
 function patchPE(exePath) {
   if (!existsSync(exePath)) {
