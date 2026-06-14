@@ -5,84 +5,105 @@
 // 原理: MSVC 链接器对默认库的符号解析优先级为：静态库 > 导入库。
 //       cc crate 将本文件编译为 .lib，链接时桩函数定义优先于 DLL 导入。
 //
-// 限制: windows-sys 0.61+ 使用 #[link(kind = "raw-dylib")] 的导入无法被
-//       C stub 覆盖。如果 combase.dll 依然出现在导入表，需降级 iana-time-zone
-//       到 0.1.45 以切断 windows-core/windows-link 链路。
+// 注意: 本文件不包含 <windows.h>，避免编译时 MSVC include 路径缺失。
+//       需要的 Windows 类型和 API 均通过精简前向声明提供。
 
-// ─── Windows SDK 头 ──────────────────────────
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <ole2.h>
+// ─── 精简类型前向声明 ──────────────────────────
+typedef void *PVOID;
+typedef unsigned int UINT;
+typedef const void *LPCVOID;
+typedef void *LPVOID;
+typedef unsigned int HRESULT;
+typedef unsigned long DWORD;
+typedef unsigned long ULONG;
+typedef unsigned long *PULONG;
+typedef unsigned long long ULONGLONG;
+typedef unsigned long long *PULONGLONG;
+typedef unsigned long long SIZE_T;
+#define WINAPI __stdcall
+#define INFINITE 0xFFFFFFFF
+#define S_OK 0
+#define E_OUTOFMEMER 0x8007000E
+typedef DWORD (WINAPI *PTHREAD_START_ROUTINE)(LPVOID);
+
+// 这些类型仅用于 CoIncrementMTAUsage 的 cookie
+typedef ULONGLONG CO_MTA_USAGE_COOKIE;
+
+// 这些类型仅用于 CoCreateFreeThreadedMarshaler
+typedef void *LPUNKNOWN;
+
+// ─── 动态链接辅助 ─────────────────────────────
+// 使用内部声明代替包含 <windows.h>
+__declspec(dllimport) void *__stdcall LoadLibraryW(const wchar_t *);
+__declspec(dllimport) void *__stdcall GetProcAddress(void *, const char *);
+__declspec(dllimport) void __stdcall Sleep(DWORD);
 
 // ─── api-ms-win-core-synch-l1-2-0.dll 桩 ─────
-// 这组函数来自 Rust std 的 parking_lot / synchronization 依赖。
-// Win7 没有 api-ms-win-core-synch-l1-2-0.dll，这些函数只在 Win8+ kernel32.dll 中。
 
-VOID WINAPI WakeByAddressSingle(PVOID Address) {
-    (VOID)Address;
+void WINAPI WakeByAddressSingle(PVOID Address) {
+    (void)Address;
 }
 
-VOID WINAPI WakeByAddressAll(PVOID Address) {
-    (VOID)Address;
+void WINAPI WakeByAddressAll(PVOID Address) {
+    (void)Address;
 }
 
-BOOL WINAPI WaitOnAddress(
-    VOID volatile *Address,
-    PVOID CompareAddress,
+int WINAPI WaitOnAddress(
+    void volatile *Address,
+    void *CompareAddress,
     SIZE_T AddressSize,
     DWORD dwMilliseconds)
 {
-    (VOID)Address;
-    (VOID)CompareAddress;
-    (VOID)AddressSize;
-    // 退化实现: 用 Sleep 模拟等待。
-    // Rust std 在调用 WaitOnAddress 前会检查 OS 版本，Win7 上不应执行此路径。
+    (void)Address;
+    (void)CompareAddress;
+    (void)AddressSize;
+    // Rust std 先在 Win7 检查版本，不应走这里，万一到了 Sleep 兜底
     if (dwMilliseconds == INFINITE) {
         dwMilliseconds = 1000;
     }
     Sleep(dwMilliseconds);
-    return TRUE;
+    return 1;
 }
 
-// ─── combase.dll 函数 → ole32.dll 转发 ────────
-// Win8+ 将部分 COM 函数从 ole32.dll 移到了新 DLL combase.dll。
-// Win7 的 ole32.dll 仍有这些函数，通过 GetProcAddress 动态查找并转发。
+// ─── combase.dll → ole32.dll 转发 ─────────────
 
-static HMODULE ole32_module(void) {
-    static HMODULE h = NULL;
+static void *ole32_module(void) {
+    static void *h = 0;
     if (!h) h = LoadLibraryW(L"ole32.dll");
     return h;
 }
 
-void WINAPI CoTaskMemFree_stub(LPVOID pv) {
+static void *lookup_ole32(const char *name) {
+    void *mod = ole32_module();
+    return mod ? GetProcAddress(mod, name) : 0;
+}
+
+void WINAPI CoTaskMemFree(LPVOID pv) {
     typedef void (WINAPI *fn)(LPVOID);
-    static fn f = NULL;
-    if (!f) f = (fn)GetProcAddress(ole32_module(), "CoTaskMemFree");
+    fn f = (fn)lookup_ole32("CoTaskMemFree");
     if (f) f(pv);
 }
 
-LPVOID WINAPI CoTaskMemAlloc_stub(SIZE_T cb) {
+LPVOID WINAPI CoTaskMemAlloc(SIZE_T cb) {
     typedef LPVOID (WINAPI *fn)(SIZE_T);
-    static fn f = NULL;
-    if (!f) f = (fn)GetProcAddress(ole32_module(), "CoTaskMemAlloc");
-    return f ? f(cb) : NULL;
+    fn f = (fn)lookup_ole32("CoTaskMemAlloc");
+    return f ? f(cb) : 0;
 }
 
-HRESULT WINAPI CoCreateFreeThreadedMarshaler_stub(
+HRESULT WINAPI CoCreateFreeThreadedMarshaler(
     LPUNKNOWN punkOuter,
     LPUNKNOWN *ppunkMarshal)
 {
     typedef HRESULT (WINAPI *fn)(LPUNKNOWN, LPUNKNOWN*);
-    static fn f = NULL;
-    if (!f) f = (fn)GetProcAddress(ole32_module(), "CoCreateFreeThreadedMarshaler");
-    return f ? f(punkOuter, *ppunkMarshal) : E_OUTOFMEMORY;
+    fn f = (fn)lookup_ole32("CoCreateFreeThreadedMarshaler");
+    if (f) return f(punkOuter, ppunkMarshal);
+    if (ppunkMarshal) *ppunkMarshal = 0;
+    return E_OUTOFMEMER;
 }
 
-// CoIncrementMTAUsage: Win7 上没有此函数。
-// 返回 S_OK 并记录一次 MTA 使用（无实际效果），避免调用方崩溃。
-HRESULT WINAPI CoIncrementMTAUsage_stub(CO_MTA_USAGE_COOKIE *pCookie) {
+HRESULT WINAPI CoIncrementMTAUsage(CO_MTA_USAGE_COOKIE *pCookie) {
     if (pCookie) {
-        *pCookie = (CO_MTA_USAGE_COOKIE)(ULONG_PTR)1;
+        *pCookie = (CO_MTA_USAGE_COOKIE)1;
     }
     return S_OK;
 }
