@@ -165,12 +165,12 @@ function renameOutput() {
     return;
   }
 
-  // 清理旧残留安装包（不含 _win7 后缀的旧版本，及同名 win7 旧产物）
+  // 清理旧 win7 产物，避免残留混淆
   for (const f of files) {
-    if (f.endsWith(".exe") && (f.includes("_win7") || f === installer)) {
+    if (f.endsWith(".exe") && f.includes("_win7") && f !== installer) {
       const old = join(BUNDLE_DIR, f);
       unlinkSync(old);
-      console.log(`[build-win7] 已删除旧产物: ${f}`);
+      console.log(`[build-win7] 已删除旧 win7 产物: ${f}`);
     }
   }
 
