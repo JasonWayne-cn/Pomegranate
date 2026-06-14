@@ -206,9 +206,21 @@ function main() {
     console.log(`[build-win7] Phase 2: ${tauriCmd}`);
     execSync(tauriCmd, { cwd: ROOT, stdio: "inherit" });
 
-    // Tauri build 可能重新 patch/bundle 产物，构建后再次补丁并验证 target exe。
+    // Tauri build 重新编译 Rust + 生成 NSIS（包含未补丁 EXE）。
+    // 构建后重新补丁 EXE，再运行 makensis 重建 NSIS（含已补丁二进制）。
     patchAllBinaries();
-    verifyWin7Imports(join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe"));
+
+    const exePath = join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe");
+    verifyWin7Imports(exePath);
+
+    // 用已补丁 EXE 重新打包 NSIS
+    const nsiFile = join(BUNDLE_DIR, "installer.nsi");
+    if (existsSync(nsiFile)) {
+      console.log("[build-win7] 重建 NSIS（含已补丁 EXE）...");
+      execSync(`makensis "${nsiFile}"`, { cwd: ROOT, stdio: "inherit" });
+    } else {
+      console.warn("[build-win7] 未找到 installer.nsi，跳过 NSIS 重建");
+    }
 
     renameOutput();
     console.log("[build-win7] === 构建成功 ===");
