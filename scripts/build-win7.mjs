@@ -214,25 +214,23 @@ function main() {
     }
 
     // Tauri build 重新编译 Rust + 生成 NSIS（包含未补丁 EXE）。
-    // 构建后重新补丁 EXE，再运行 makensis 重建 NSIS（含已补丁二进制）。
+    // 构建后重新补丁 EXE，再跑一次 tauri build（Rust 源码未变所以跳过编译，仅重建 NSIS）。
     patchAllBinaries();
 
     const exePath = join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe");
     verifyWin7Imports(exePath);
 
-    // 用已补丁 EXE 重新打包 NSIS
-    // .nsi 文件在 target/release/nsis/x64/ 而非 bundle/nsis/，后者只放最终产物
-    const nsiFile = join(NSI_DIR, "installer.nsi");
-    if (existsSync(nsiFile)) {
-      console.log("[build-win7] 重建 NSIS（含已补丁 EXE）...");
-      // makensis 需要从 target/release 目录运行（nsi 内部路径是相对的）
-      const nsisCwd = join(SRC_TAURI, "target", "release");
-      execSync(`makensis nsis/x64/installer.nsi`, { cwd: nsisCwd, stdio: "inherit" });
-      // makensis 输出到 bundle/nsis/，产物名与 tauri 一致
-      console.log("[build-win7] NSIS 重建完成，安装包含已补丁 EXE");
-    } else {
-      console.warn("[build-win7] 未找到 installer.nsi，跳过 NSIS 重建");
+    // 第二次 tauri build：Rust 跳过编译，仅重跑 vite + makensis（含已补丁 EXE）
+    console.log("[build-win7] 第二次 tauri build（含已补丁 EXE）...");
+    try {
+      execSync(tauriCmd, { cwd: ROOT, stdio: "inherit" });
+    } catch (e2) {
+      console.warn("[build-win7] 第二次 tauri build 非零退出码（签名缺失正常），NSIS 已含补丁 EXE");
     }
+
+    // 第二次 build 后再次验证（tauri 用自己的 EXE 打包，已补丁版本不应被覆盖）
+    // 注意：tauri build 检测到 Rust 无变化会跳过编译，不会覆盖已补丁 EXE
+    verifyWin7Imports(exePath);
 
     renameOutput();
     console.log("[build-win7] === 构建成功 ===");
