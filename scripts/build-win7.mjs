@@ -29,6 +29,7 @@ const CONFIG = join(SRC_TAURI, "tauri.conf.json");
 const WIN7_CONFIG = join(SRC_TAURI, "tauri.win7.conf.json");
 const CONFIG_BACKUP = join(SRC_TAURI, "tauri.conf.json.bak");
 const BUNDLE_DIR = join(SRC_TAURI, "target", "release", "bundle", "nsis");
+const NSI_DIR = join(SRC_TAURI, "target", "release", "nsis", "x64");
 
 const argv = process.argv.slice(2);
 const isDebug = argv.includes("--debug");
@@ -220,10 +221,15 @@ function main() {
     verifyWin7Imports(exePath);
 
     // 用已补丁 EXE 重新打包 NSIS
-    const nsiFile = join(BUNDLE_DIR, "installer.nsi");
+    // .nsi 文件在 target/release/nsis/x64/ 而非 bundle/nsis/，后者只放最终产物
+    const nsiFile = join(NSI_DIR, "installer.nsi");
     if (existsSync(nsiFile)) {
       console.log("[build-win7] 重建 NSIS（含已补丁 EXE）...");
-      execSync(`makensis "${nsiFile}"`, { cwd: ROOT, stdio: "inherit" });
+      // makensis 需要从 target/release 目录运行（nsi 内部路径是相对的）
+      const nsisCwd = join(SRC_TAURI, "target", "release");
+      execSync(`makensis nsis/x64/installer.nsi`, { cwd: nsisCwd, stdio: "inherit" });
+      // makensis 输出到 bundle/nsis/，产物名与 tauri 一致
+      console.log("[build-win7] NSIS 重建完成，安装包含已补丁 EXE");
     } else {
       console.warn("[build-win7] 未找到 installer.nsi，跳过 NSIS 重建");
     }
