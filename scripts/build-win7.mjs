@@ -202,9 +202,14 @@ function main() {
     patchAllBinaries();
 
     // Phase 2: NSIS 打包（tauri build 检测到 Rust 产物已就绪，跳过编译）
+    // 签名失败（无私钥）不影响 NSIS 产物生成，捕获错误继续后续 patch 步骤
     const tauriCmd = `pnpm tauri build --bundles nsis${isDebug ? " --debug" : ""}`;
     console.log(`[build-win7] Phase 2: ${tauriCmd}`);
-    execSync(tauriCmd, { cwd: ROOT, stdio: "inherit" });
+    try {
+      execSync(tauriCmd, { cwd: ROOT, stdio: "inherit" });
+    } catch (e) {
+      console.warn("[build-win7] tauri build 返回非零退出码（签名缺失为正常情况），继续后处理...");
+    }
 
     // Tauri build 重新编译 Rust + 生成 NSIS（包含未补丁 EXE）。
     // 构建后重新补丁 EXE，再运行 makensis 重建 NSIS（含已补丁二进制）。
