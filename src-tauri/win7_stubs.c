@@ -87,3 +87,21 @@ HRESULT WINAPI CoIncrementMTAUsage(CO_MTA_USAGE_COOKIE *pCookie)
     }
     return S_OK;
 }
+
+// ─── ProcessPrng (bcryptprimitives.dll, Win8+) → RtlGenRandom (advapi32.dll, XP+) ───
+// getrandom crate (0.2.x/0.3.x/0.4.x) 在 Windows 上默认调用 ProcessPrng。
+// Win7 的 bcryptprimitives.dll 不含此函数，但 advapi32.dll 的 RtlGenRandom
+// (SystemFunction036) 自 XP 起就可用，签名兼容。
+
+__declspec(dllimport) unsigned char WINAPI SystemFunction036(void *, unsigned long);
+
+int WINAPI ProcessPrng(void *pbData, unsigned long long cbData)
+{
+    if (cbData > 0xFFFFFFFFull) {
+        // RtlGenRandom 仅支持 32-bit 长度参数；超大请求不应出现
+        return 0xC000000D; // STATUS_INVALID_PARAMETER
+    }
+    // SystemFunction036/RtlGenRandom: TRUE=成功, FALSE=失败
+    // ProcessPrng: 0=成功, 非0=NTSTATUS错误码
+    return SystemFunction036(pbData, (unsigned long)cbData) ? 0 : 0xC000000F;
+}

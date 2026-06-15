@@ -2823,6 +2823,7 @@ dependencies = [
  "docx-rs",
  "encoding_rs",
  "futures",
+ "getrandom 0.2.17",
  "hostname",
  "html2md",
  "kb-core",
