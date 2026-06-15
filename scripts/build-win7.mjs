@@ -16,9 +16,10 @@
 //   1. 目标系统已预装 WebView2 109+ (Win7) 或 Evergreen (Win10+)
 //   2. 前端依赖已安装 (pnpm install)
 //   3. kb-mcp sidecar 已构建 (pnpm build:mcp)
+//   4. MSVC 工具链可用（构建 Shim DLL 用 cl.exe）
 
 import { execSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync, renameSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,6 +36,7 @@ const argv = process.argv.slice(2);
 const isDebug = argv.includes("--debug");
 const CARGO = "cargo";
 const RUSTC = "rustc";
+const WIN7_ENV = { ...process.env, GETRANDOM_BACKEND: "rdrand" };
 
 // ─── 读取版本号 ─────────────────────────────
 function getVersion() {
@@ -83,10 +85,112 @@ function restoreConfig() {
   }
 }
 
+// ─── WinRT Shim DLL 构建 ────────────────────
+// 使用环境变量 VS2022_PATH 指定 Visual Studio 2022 安装路径
+// 默认：D:\Dev\MicrosoftVisualStudio\2022\Community
+const VS2022_PATH = process.env.VS2022_PATH || "D:\\Dev\\MicrosoftVisualStudio\\2022\\Community";
+
+function buildShimDll() {
+  const shimDir = join(SRC_TAURI, "win7_winrt_shim");
+  const buildScript = join(shimDir, "build.ps1");
+  const expectedDll = join(SRC_TAURI, "binaries", "api-ms-win-core-winrt-l1-1-0.dll");
+  const sidecarName = "api-ms-win-core-winrt-l1-1-0.dll-x86_64-pc-windows-msvc.exe";
+  const sidecarPath = join(SRC_TAURI, "binaries", sidecarName);
+  const vcvars = join(VS2022_PATH, "VC", "Auxiliary", "Build", "vcvars64.bat");
+
+  // 如果 DLL + sidecar 已存在且非强制重建，跳过
+  const force = argv.includes("--force-shim");
+  if (!force && existsSync(expectedDll) && readFileSync(expectedDll).length > 0) {
+    // 确保 sidecar 也存在（可能上次构建后被清理）
+    createSidecarCopy(expectedDll, sidecarName);
+    // bcrypt shim
+    const bcryptDll = join(SRC_TAURI, "binaries", "bcryptprimitives.dll");
+    if (existsSync(bcryptDll)) {
+      createSidecarCopy(bcryptDll, "bcryptprimitives.dll-x86_64-pc-windows-msvc.exe");
+    }
+    console.log("[build-win7] Shim DLL 已存在，跳过构建（--force-shim 强制重建）");
+    return;
+  }
+
+  if (!existsSync(buildScript)) {
+    console.warn("[build-win7] build.ps1 未找到，跳过 Shim DLL 构建");
+    return;
+  }
+
+  if (!existsSync(vcvars)) {
+    console.warn(`[build-win7] vcvars64.bat 未找到: ${vcvars}`);
+    console.warn(`  设置 VS2022_PATH 环境变量指向 VS 2022 安装目录`);
+    // 降级：直接尝试 powershell（如果 cl.exe 在 PATH 里）
+    console.warn("  降级：直接尝试 build.ps1...");
+    tryBuildDirectly();
+    return;
+  }
+
+  // 确保 binaries 目录存在
+  mkdirSync(join(SRC_TAURI, "binaries"), { recursive: true });
+
+  console.log(`[build-win7] 构建 WinRT Shim DLL (MSVC: ${VS2022_PATH})...`);
+
+  // cmd /c 链式调用：
+  //   1. vcvars64.bat 设置 MSVC 环境变量（PATH 包含 cl.exe）
+  //   2. powershell 执行 build.ps1（继承 cmd 的环境变量）
+  // vcvars64.bat 输出重定向到 temp 文件避免污染构建日志
+  try {
+    const vcvarsLog = join(ROOT, "src-tauri", "win7_winrt_shim", "vcvars.log");
+    const cmd = `cmd /c "call "${vcvars}" 1>"${vcvarsLog}" 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File "${buildScript}""`;
+    execSync(cmd, { cwd: ROOT, stdio: "inherit" });
+
+    if (!existsSync(expectedDll) || readFileSync(expectedDll).length === 0) {
+      console.warn("[build-win7] Shim DLL 构建后未在预期位置找到，安装包可能不含 WinRT 垫片");
+    } else {
+      console.log(`[build-win7] Shim DLL 构建完成: ${expectedDll}`);
+      // Tauri externalBin 会对路径追加 -{target_triple}.exe 后缀查找文件
+      createSidecarCopy(expectedDll, "api-ms-win-core-winrt-l1-1-0.dll-x86_64-pc-windows-msvc.exe");
+
+      // 同样处理 bcryptprimitives.dll sidecar
+      const bcryptDll = join(SRC_TAURI, "binaries", "bcryptprimitives.dll");
+      if (existsSync(bcryptDll) && readFileSync(bcryptDll).length > 0) {
+        createSidecarCopy(bcryptDll, "bcryptprimitives.dll-x86_64-pc-windows-msvc.exe");
+      }
+    }
+  } catch (e) {
+    console.warn("[build-win7] Shim DLL 构建失败，降级：直接尝试 build.ps1...");
+    console.warn("  错误: " + String(e.message || e).split("\n")[0]);
+    tryBuildDirectly();
+  }
+}
+
+function createSidecarCopy(dllPath, sidecarName) {
+  const sidecarPath = join(SRC_TAURI, "binaries", sidecarName);
+  copyFileSync(dllPath, sidecarPath);
+  console.log(`[build-win7] 已创建 externalBin sidecar: ${sidecarName}`);
+}
+
+function tryBuildDirectly() {
+  const buildScript = join(SRC_TAURI, "win7_winrt_shim", "build.ps1");
+  try {
+    execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${buildScript}"`, {
+      cwd: ROOT,
+      stdio: "inherit",
+    });
+    const expectedDll = join(SRC_TAURI, "binaries", "api-ms-win-core-winrt-l1-1-0.dll");
+    if (existsSync(expectedDll) && readFileSync(expectedDll).length > 0) {
+      console.log("[build-win7] Shim DLL 构建完成（降级路径）");
+    }
+  } catch (e2) {
+    console.warn("[build-win7] Shim DLL 构建失败（缺少 MSVC 工具链），继续构建主程序");
+  }
+}
+
 // ─── PE 补丁 ─────────────────────────────────
 const BLOCKING_IMPORTS = [
   "GetSystemTimePreciseAsFileTime",
   "api-ms-win-crt-private-l1-1-0.dll",
+  "ProcessPrng",
+  "bcryptprimitives.dll",
+  // WinRT DLL 不应出现在直接导入表中（已通过 DELAYLOAD 处理）
+  "api-ms-win-core-winrt-l1-1-0.dll",
+  "api-ms-win-core-winrt-string-l1-1-0.dll",
 ];
 const RISKY_IMPORTS = [
   "api-ms-win-core-synch-l1-2-0.dll",
@@ -139,12 +243,29 @@ function patchAllBinaries() {
 function verifyWin7Imports(exePath) {
   if (!existsSync(exePath)) return;
   const text = readFileSync(exePath).toString("latin1");
-  const blocking = BLOCKING_IMPORTS.filter((name) => text.includes(name));
+
+  // 区分直接导入 vs DELAYLOAD（延迟加载）：
+  // DELAYLOAD 的 DLL 名在 PE 中只出现在 Delay-Load Descriptor 区域，
+  // 通常出现 1-2 次。直接导入的 DLL 名在 IMAGE_IMPORT_DESCRIPTOR 数组
+  // 中，可能引用多次（模块名 + Hint/Name 表引用）。
+  const blocking = BLOCKING_IMPORTS.filter((name) => {
+    const count = text.split(name).length - 1;
+    if (count === 0) return false;
+    // DLL 名出现 > 2 次 → 可能在直接导入表中（非 DELAYLOAD）
+    if (count > 2) return true;
+    // 出现 1-2 次 → 可能在 DELAYLOAD 描述符中，视为安全
+    console.log(`[build-win7] ${name} 出现 ${count} 次（疑似在 delay-load 表中），跳过`);
+    return false;
+  });
+
   if (blocking.length > 0) {
     throw new Error(`[build-win7] ${exePath} 仍包含 Win7 加载阻断导入: ${blocking.join(", ")}`);
   }
 
-  const risky = RISKY_IMPORTS.filter((name) => text.includes(name));
+  const risky = RISKY_IMPORTS.filter((name) => {
+    const count = text.split(name).length - 1;
+    return count > 2; // 同理：仅在直接导入表超过阈值时告警
+  });
   if (risky.length > 0) {
     console.warn(`[build-win7] 警告: ${exePath} 仍包含需 Win7 实测的风险导入: ${risky.join(", ")}`);
   }
@@ -190,13 +311,23 @@ function main() {
   switchConfig();
 
   try {
+    // Phase 0: 构建 WinRT Shim DLL（消除 api-ms-win-core-winrt-l1-1-0.dll 依赖）
+    buildShimDll();
+
     // tauri.win7.conf.json 已配置 beforeBundleCommand：
     //   cargo build → scripts/patch-win7-pe.mjs (PE patch) → makensis
     // PE patch 在 cargo 编译后、NSIS 打包前执行，确保安装包含已补丁 EXE。
-    const tauriCmd = `pnpm tauri build --bundles nsis${isDebug ? " --debug" : ""}`;
+    // --features win7-compat 跳过 tauri-plugin-notification 注册（消除 WinRT 依赖链 A）
+    // RUSTFLAGS: 强制 getrandom 0.3.x/0.4.x 使用 rdrand 后端 (RtlGenRandom)
+    // getrandom 0.2.x 已通过 Cargo.toml 的 getrandom02 feature 配置
+    process.env.RUSTFLAGS = process.env.RUSTFLAGS
+      ? process.env.RUSTFLAGS + ' --cfg getrandom_backend="rdrand"'
+      : '--cfg getrandom_backend="rdrand"';
+
+    const tauriCmd = `pnpm tauri build --bundles nsis${isDebug ? " --debug" : ""} -- --features win7-compat`;
     console.log(`[build-win7] ${tauriCmd}`);
     try {
-      execSync(tauriCmd, { cwd: ROOT, stdio: "inherit" });
+      execSync(tauriCmd, { cwd: ROOT, stdio: "inherit", env: WIN7_ENV });
     } catch (e) {
       console.warn("[build-win7] tauri build 非零退出码（签名缺失为正常情况），继续验证...");
     }

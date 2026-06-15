@@ -473,6 +473,18 @@ pub fn run() {
         }
     }
 
+    let log_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(std::env::temp_dir);
+    let _ = std::fs::create_dir_all(&log_dir);
+    let log_target = match tauri_plugin_log::fern::log_file(log_dir.join("log.txt")) {
+        Ok(file) => tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Dispatch(
+            tauri_plugin_log::fern::Dispatch::new().chain(file),
+        )),
+        Err(_) => tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+    };
+
     // ─── 跨平台共享插件 ────────────────────────
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
@@ -481,12 +493,20 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
+                .clear_targets()
+                .target(log_target)
                 .build(),
         )
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init());
+
+    // Win7 兼容：通知插件依赖 tauri-winrt-notification → WinRT API，
+    // 在 win7-compat 模式跳过注册（通知功能降级，应用不崩溃）
+    #[cfg(not(feature = "win7-compat"))]
+    {
+        builder = builder.plugin(tauri_plugin_notification::init());
+    }
 
     // ─── 桌面专属插件（移动端不可用：autostart / updater / global-shortcut）────
     #[cfg(desktop)]
