@@ -46,7 +46,10 @@
     "active": true,
     "targets": ["nsis"],
     "createUpdaterArtifacts": "v1Compatible",
-    "externalBin": ["binaries/kb-mcp"],
+    "externalBin": [
+      "binaries/kb-mcp",
+      "binaries/api-ms-win-core-winrt-l1-1-0.dll"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -54,7 +57,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["resources/pdfium/*"],
+    "resources": [
+      "resources/pdfium/*",
+      "binaries/bcryptprimitives.dll"
+    ],
     "fileAssociations": [
       {
         "ext": ["md", "markdown"],
@@ -65,12 +71,11 @@
     ],
     "copyright": "Copyright (c) 2026 AgileFR",
     "category": "Productivity",
-    "shortDescription": "智能桌面随手笔记应用（Windows 7 兼容版）",
-    "longDescription": "基于 Tauri 构建的本地笔记工具，支持 Markdown 编辑、全文搜索、双向链接、知识图谱、AI 问答等功能。\n\n本版本捆绑 WebView2 109 Fixed Runtime，适用于 Windows 7 SP1。",
+    "shortDescription": "智能桌面随手笔记应用（Windows 7 兼容版 · 需预装 WebView2 109+）",
+    "longDescription": "基于 Tauri 构建的本地笔记工具，支持 Markdown 编辑、全文搜索、双向链接、知识图谱、AI 问答等功能。\n\n本版本适用于已预装 WebView2 109+ 的 Windows 7 SP1 系统。",
     "windows": {
       "webviewInstallMode": {
-        "type": "fixedRuntime",
-        "path": "./WebView2-FixedRuntime-109"
+        "type": "skip"
       },
       "nsis": {
         "displayLanguageSelector": true,

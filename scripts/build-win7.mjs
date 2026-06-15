@@ -36,10 +36,10 @@ const argv = process.argv.slice(2);
 const isDebug = argv.includes("--debug");
 const CARGO = "cargo";
 const RUSTC = "rustc";
-const WIN7_RUSTFLAGS = `${process.env.RUSTFLAGS || ""} --cfg getrandom_backend=\"rdrand\"`.trim();
+const WIN7_RUSTFLAGS = `${process.env.RUSTFLAGS || ""} --cfg getrandom_backend=\"windows_legacy\"`.trim();
 const WIN7_ENV = {
   ...process.env,
-  GETRANDOM_BACKEND: "rdrand",
+  GETRANDOM_BACKEND: "windows_legacy",
   RUSTFLAGS: WIN7_RUSTFLAGS,
 };
 
@@ -108,11 +108,6 @@ function buildShimDll() {
   if (!force && existsSync(expectedDll) && readFileSync(expectedDll).length > 0) {
     // 确保 sidecar 也存在（可能上次构建后被清理）
     createSidecarCopy(expectedDll, sidecarName);
-    // bcrypt shim
-    const bcryptDll = join(SRC_TAURI, "binaries", "bcryptprimitives.dll");
-    if (existsSync(bcryptDll)) {
-      createSidecarCopy(bcryptDll, "bcryptprimitives.dll-x86_64-pc-windows-msvc.exe");
-    }
     console.log("[build-win7] Shim DLL 已存在，跳过构建（--force-shim 强制重建）");
     return;
   }
@@ -151,12 +146,6 @@ function buildShimDll() {
       console.log(`[build-win7] Shim DLL 构建完成: ${expectedDll}`);
       // Tauri externalBin 会对路径追加 -{target_triple}.exe 后缀查找文件
       createSidecarCopy(expectedDll, "api-ms-win-core-winrt-l1-1-0.dll-x86_64-pc-windows-msvc.exe");
-
-      // 同样处理 bcryptprimitives.dll sidecar
-      const bcryptDll = join(SRC_TAURI, "binaries", "bcryptprimitives.dll");
-      if (existsSync(bcryptDll) && readFileSync(bcryptDll).length > 0) {
-        createSidecarCopy(bcryptDll, "bcryptprimitives.dll-x86_64-pc-windows-msvc.exe");
-      }
     }
   } catch (e) {
     console.warn("[build-win7] Shim DLL 构建失败，降级：直接尝试 build.ps1...");
@@ -192,13 +181,15 @@ const BLOCKING_IMPORTS = [
   "GetSystemTimePreciseAsFileTime",
   "api-ms-win-crt-private-l1-1-0.dll",
   "ProcessPrng",
-  "bcryptprimitives.dll",
+  // bcryptprimitives.dll 已通过统一 shim 解决（含 ProcessPrng + WaitOnAddress），
+  // PE 补丁也会将 api-ms-win-core-synch-l1-2-0 延迟加载重映射到此 DLL，
+  // 故不计入阻断列表
   // WinRT DLL 不应出现在直接导入表中（已通过 DELAYLOAD 处理）
   "api-ms-win-core-winrt-l1-1-0.dll",
   "api-ms-win-core-winrt-string-l1-1-0.dll",
 ];
 const RISKY_IMPORTS = [
-  "api-ms-win-core-synch-l1-2-0.dll",
+  // api-ms-win-core-synch-l1-2-0.dll 已被 patch-win7-pe.mjs 重映射到 bcryptprimitives.dll
   "combase.dll",
 ];
 
@@ -276,6 +267,40 @@ function verifyWin7Imports(exePath) {
   }
 }
 
+// ─── 检查 bcryptprimitives.dll shim ────────────
+function verifyBcryptShim() {
+  const bcryptDll = join(SRC_TAURI, "binaries", "bcryptprimitives.dll");
+  if (!existsSync(bcryptDll)) {
+    console.warn("[build-win7] WARNING: bcryptprimitives.dll shim 未找到!");
+    console.warn("  安装包可能不含 ProcessPrng shim，Win7 加载器将调用 System32 版本");
+    return;
+  }
+
+  const size = readFileSync(bcryptDll).length;
+  if (size === 0) {
+    console.warn("[build-win7] WARNING: bcryptprimitives.dll shim 文件为空!");
+    return;
+  }
+
+  // 快速 PE 头检查
+  const buf = readFileSync(bcryptDll);
+  const sig = buf.toString("ascii", 0, 2);
+  if (sig !== "MZ") {
+    console.warn("[build-win7] WARNING: bcryptprimitives.dll 可能不是有效的 PE 文件");
+    return;
+  }
+
+  // 检查是否导出 ProcessPrng
+  const text = buf.toString("latin1");
+  if (text.includes("ProcessPrng")) {
+    console.log("[build-win7] bcryptprimitives.dll shim: OK (exports ProcessPrng)");
+  } else {
+    console.warn("[build-win7] WARNING: bcryptprimitives.dll 可能未导出 ProcessPrng!");
+  }
+
+  console.log("[build-win7] 提示: 安装后该 DLL 应位于 EXE 同目录（$INSTDIR\\bcryptprimitives.dll）");
+}
+
 // ─── 重命名产物 ─────────────────────────────
 function renameOutput() {
   if (!existsSync(BUNDLE_DIR)) {
@@ -340,6 +365,7 @@ function main() {
     const profile = isDebug ? "debug" : "release";
     const exePath = join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe");
     verifyWin7Imports(exePath);
+    verifyBcryptShim();
 
     renameOutput();
     console.log("[build-win7] === 构建成功 ===");

@@ -46,6 +46,14 @@
   ; Tauri 默认写入 "Open with ${PRODUCTNAME}"（=Open with Knowledge Base），
   ; 这里改为中文"使用知识库打开"。FILECLASS 取自 tauri.conf.json 的 name 字段。
   WriteRegStr SHCTX "Software\Classes\Markdown 文件\shell\open" "" "使用知识库打开"
+
+  ; ─── bcryptprimitives.dll (统一 Win7 shim) ───
+  ; 提供 ProcessPrng / WaitOnAddress / WakeByAddressSingle / WakeByAddressAll
+  ; PE delay-load 表已在构建期将 api-ms-win-core-synch-l1-2-0.dll 重映射到 bcryptprimitives.dll
+  IfFileExists "$INSTDIR\bcryptprimitives.dll" bcrypt_shim_ok
+    IfFileExists "$INSTDIR\binaries\bcryptprimitives.dll" 0 bcrypt_shim_ok
+    CopyFiles /SILENT "$INSTDIR\binaries\bcryptprimitives.dll" "$INSTDIR\bcryptprimitives.dll"
+  bcrypt_shim_ok:
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
