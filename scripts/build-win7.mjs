@@ -36,7 +36,12 @@ const argv = process.argv.slice(2);
 const isDebug = argv.includes("--debug");
 const CARGO = "cargo";
 const RUSTC = "rustc";
-const WIN7_ENV = { ...process.env, GETRANDOM_BACKEND: "rdrand" };
+const WIN7_RUSTFLAGS = `${process.env.RUSTFLAGS || ""} --cfg getrandom_backend=\"rdrand\"`.trim();
+const WIN7_ENV = {
+  ...process.env,
+  GETRANDOM_BACKEND: "rdrand",
+  RUSTFLAGS: WIN7_RUSTFLAGS,
+};
 
 // ─── 读取版本号 ─────────────────────────────
 function getVersion() {
