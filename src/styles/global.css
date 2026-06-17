@@ -4,17 +4,18 @@
 @import "katex/dist/katex.min.css";
 
 /* ═══════════════════════════════════════════════════════════
-   Safari 15.x / macOS 12 Monterey WKWebView fallback
+   Safari 15.x / macOS 12 Monterey WKWebView + Chromium 109 fallback
    ═══════════════════════════════════════════════════════════
-   Tailwind v4 输出的 --color-* 用 oklch()，Safari 15 不识别会让整条声明
-   丢弃 → 变量为空 → bg-blue-500/text-gray-500 等 utility 全部失效 → 白屏。
-   现代浏览器（Safari 16.4+ / Chrome 111+ / Firefox 113+）@supports not
-   求值 false，整块跳过，零运行时开销。
-   覆盖范围：项目实际用到的色板（slate/gray/blue/violet/emerald/sky/amber）
-   及 antd token 应急色（极端情况下 ConfigProvider 注入晚于首屏渲染）。
-   themes.css 的 --kb-* 主题色板用 hex/rgba，不依赖 oklch，无需兜底。
+   Tailwind v4 输出的 --color-* 用 oklch()，Safari 15 / Chrome<111 不识别
+   会让整条声明丢弃 → 变量为空 → 所有颜色 utility 失效 → 白屏。
+   同时 color-mix()（Safari<16.4 / Chrome<111 不支持）会让大量半透明叠加的
+   background/border 声明丢弃 → 编辑器/代码块/视频块/工具栏/大纲等组件视觉崩溃。
+
+   @supports not ((oklch) and (color-mix)) 意味着只要有一项不支持就激活兜底，
+   覆盖：Safari 15、Chrome 88-110、WebView2 ≤110 → Windows 7/8/8.1 全兼容。
+   现代浏览器（Safari 16.4+ / Chrome 111+ / Firefox 113+）求值 false，零开销。
    ═══════════════════════════════════════════════════════════ */
-@supports not (color: oklch(0% 0 0)) {
+@supports not ((color: oklch(0% 0 0)) and (color: color-mix(in srgb, red, blue))) {
   :root {
     --color-white: #ffffff;
     --color-black: #000000;
@@ -70,12 +71,12 @@
     background: rgba(255, 255, 255, 0.05);
     border-bottom-color: rgba(255, 255, 255, 0.08);
   }
-  /* Callout 4 类（color-mix 失效时退化为单色淡底） */
+  /* ─── Callout 4 类 ─── */
   .tiptap-callout[data-callout="info"]    { background: rgba(22, 119, 255, 0.08); }
   .tiptap-callout[data-callout="tip"]     { background: rgba(82, 196, 26, 0.10); }
   .tiptap-callout[data-callout="warning"] { background: rgba(250, 173, 20, 0.10); }
   .tiptap-callout[data-callout="danger"]  { background: rgba(255, 77, 79, 0.10); }
-  /* 视频时间戳 chip */
+  /* ─── 视频时间戳 chip ─── */
   .video-ts-chip {
     background: rgba(22, 119, 255, 0.12);
     border-color: rgba(22, 119, 255, 0.30);
@@ -83,9 +84,157 @@
   .video-ts-chip:hover {
     background: rgba(22, 119, 255, 0.22);
   }
-  /* Emoji 选择器激活态 */
+  .video-ts-chip-broken {
+    background: rgba(0, 0, 0, 0.08);
+    color: #999;
+    border-color: rgba(0, 0, 0, 0.15);
+  }
+  /* ─── Emoji 选择器激活态 ─── */
   .emoji-cat-btn.active {
     background: rgba(22, 119, 255, 0.12);
+  }
+
+  /* ═══════ 编辑器工具栏（sticky 吸顶）═══════ */
+  .tiptap-toolbar {
+    background: rgba(255, 255, 255, 0.85);
+  }
+
+  /* ═══════ 代码块 pre / code（亮色）═══════ */
+  .tiptap pre,
+  .ai-markdown pre {
+    background: rgba(0, 0, 0, 0.035);
+    border-color: rgba(0, 0, 0, 0.08);
+  }
+  .tiptap code,
+  .ai-markdown code {
+    background: rgba(0, 0, 0, 0.06);
+  }
+
+  /* ═══════ 表格表头 ═══════ */
+  .tiptap table th {
+    background: rgba(0, 0, 0, 0.02);
+  }
+
+  /* ═══════ Wiki 链接 ═══════ */
+  .tiptap .wiki-link {
+    background: rgba(22, 119, 255, 0.08);
+  }
+  .tiptap .wiki-link:hover {
+    background: rgba(22, 119, 255, 0.18);
+  }
+
+  /* ═══════ Mermaid 全屏按钮 ═══════ */
+  .mermaid-preview .mermaid-preview__fullscreen-btn {
+    border-color: rgba(0, 0, 0, 0.10);
+    background: rgba(255, 255, 255, 0.92);
+  }
+  .mermaid-preview__fullscreen-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+  }
+
+  /* ═══════ 大纲面板 hover ═══════ */
+  .editor-outline__item:hover {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  .editor-outline__hide-btn:hover {
+    background: rgba(0, 0, 0, 0.08);
+  }
+
+  /* ═══════ 增强代码块（light）═══════ */
+  .code-block-enhanced {
+    background: rgba(0, 0, 0, 0.035);
+    border-color: rgba(0, 0, 0, 0.08);
+  }
+  .code-block-toolbar {
+    background: rgba(0, 0, 0, 0.02);
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+  }
+  .code-block-line-gutter {
+    border-right-color: rgba(0, 0, 0, 0.06);
+  }
+
+  /* ═══════ 视频块（light）═══════ */
+  .tiptap-video-block {
+    background: rgba(0, 0, 0, 0.035);
+    border-color: rgba(0, 0, 0, 0.08);
+  }
+  .tiptap-video-block[data-highlight="true"] {
+    box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.25);
+  }
+  .tiptap-video-toolbar {
+    background: rgba(0, 0, 0, 0.02);
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+  }
+
+  /* ═══════ 嵌入视频块（light）═══════ */
+  .tiptap-embed-video-block {
+    border-color: rgba(0, 0, 0, 0.08);
+  }
+  .tiptap-embed-video-toolbar {
+    background: rgba(0, 0, 0, 0.03);
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+  }
+
+  /* ═══════ 暗色主题全系覆盖 ═══════ */
+  [data-theme-category="dark"] .tiptap-toolbar {
+    background: rgba(30, 30, 30, 0.85);
+  }
+  [data-theme-category="dark"] .tiptap pre,
+  [data-theme-category="dark"] .ai-markdown pre {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+  [data-theme-category="dark"] .tiptap code,
+  [data-theme-category="dark"] .ai-markdown code {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  [data-theme-category="dark"] .tiptap table th {
+    background: rgba(255, 255, 255, 0.04);
+  }
+  [data-theme-category="dark"] .tiptap .wiki-link {
+    background: rgba(96, 165, 250, 0.12);
+  }
+  [data-theme-category="dark"] .tiptap .wiki-link:hover {
+    background: rgba(96, 165, 250, 0.22);
+  }
+  [data-theme-category="dark"] .mermaid-preview__fullscreen-btn {
+    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(30, 30, 30, 0.92);
+  }
+  [data-theme-category="dark"] .mermaid-preview__fullscreen-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  [data-theme-category="dark"] .editor-outline__item:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  [data-theme-category="dark"] .editor-outline__hide-btn:hover {
+    background: rgba(255, 255, 255, 0.10);
+  }
+  [data-theme-category="dark"] .code-block-enhanced {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+  [data-theme-category="dark"] .code-block-toolbar {
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+  [data-theme-category="dark"] .code-block-line-gutter {
+    border-right-color: rgba(255, 255, 255, 0.08);
+  }
+  [data-theme-category="dark"] .tiptap-video-block {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+  [data-theme-category="dark"] .tiptap-video-toolbar {
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+  [data-theme-category="dark"] .tiptap-embed-video-block {
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+  [data-theme-category="dark"] .tiptap-embed-video-toolbar {
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
   }
 }
 

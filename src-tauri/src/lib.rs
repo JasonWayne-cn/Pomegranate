@@ -6,6 +6,8 @@ mod services;
 mod state;
 #[cfg(desktop)]
 mod tray;
+#[cfg(target_os = "windows")]
+mod win7_stubs;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -473,6 +475,18 @@ pub fn run() {
         }
     }
 
+    let log_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(std::env::temp_dir);
+    let _ = std::fs::create_dir_all(&log_dir);
+    let log_target = match tauri_plugin_log::fern::log_file(log_dir.join("log.txt")) {
+        Ok(file) => tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Dispatch(
+            tauri_plugin_log::fern::Dispatch::new().chain(file),
+        )),
+        Err(_) => tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+    };
+
     // ─── 跨平台共享插件 ────────────────────────
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
@@ -481,12 +495,20 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
+                .clear_targets()
+                .target(log_target)
                 .build(),
         )
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init());
+
+    // Win7 兼容：通知插件依赖 tauri-winrt-notification → WinRT API，
+    // 在 win7-compat 模式跳过注册（通知功能降级，应用不崩溃）
+    #[cfg(not(feature = "win7-compat"))]
+    {
+        builder = builder.plugin(tauri_plugin_notification::init());
+    }
 
     // ─── 桌面专属插件（移动端不可用：autostart / updater / global-shortcut）────
     #[cfg(desktop)]
@@ -602,32 +624,32 @@ pub fn run() {
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
             log::info!("PDF 存储目录: {}", pdfs_dir.display());
 
-            // 绑定 PDFium 动态库（资源目录与实例无关）。各平台用各自的动态库格式：
-            //   Windows: pdfium.dll  / macOS: libpdfium.dylib  / Linux: libpdfium.so
-            // 如果 resources/pdfium/ 下缺对应平台的库文件，仅 log warn —— pdf-extract
-            // 主路径仍可工作，只是失去 PDFium fallback 这条防扫描件兜底。
-            // 仅桌面端：移动端 NDK 加载动态库受沙盒限制，不引入 PDFium
+            // 绑定 PDFium（仅桌面端）。
+            // Windows: 编译时嵌入 EXE，无需外部 DLL。
+            // macOS/Linux: 从资源目录加载动态库。
+            // 失败仅 log warn —— pdf-extract 主路径仍可工作，
+            // 只是失去 PDFium fallback 这条中文 CMap 兜底。
             #[cfg(desktop)]
             {
                 #[cfg(target_os = "windows")]
-                const PDFIUM_LIB: &str = "resources/pdfium/pdfium.dll";
-                #[cfg(target_os = "macos")]
-                const PDFIUM_LIB: &str = "resources/pdfium/libpdfium.dylib";
-                #[cfg(target_os = "linux")]
-                const PDFIUM_LIB: &str = "resources/pdfium/libpdfium.so";
-
-                match app
-                    .path()
-                    .resolve(PDFIUM_LIB, tauri::path::BaseDirectory::Resource)
                 {
-                    Ok(lib_path) => match services::pdf::init_pdfium(&lib_path) {
-                        Ok(()) => log::info!("PDFium 绑定成功: {}", lib_path.display()),
+                    match services::pdf::init_pdfium() {
+                        Ok(()) => log::info!("PDFium 初始化成功（嵌入 EXE，无需外部 DLL）"),
                         Err(e) => log::warn!(
-                            "PDFium 绑定失败（fallback 不可用，仅 pdf-extract 路径可用）: {}",
+                            "PDFium 初始化失败（fallback 不可用，仅 pdf-extract 路径可用）: {}",
                             e
                         ),
-                    },
-                    Err(e) => log::warn!("PDFium 资源路径解析失败: {}", e),
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    match services::pdf::init_pdfium() {
+                        Ok(()) => log::info!("PDFium 绑定成功"),
+                        Err(e) => log::warn!(
+                            "PDFium 绑定失败（fallback 不可用）: {}",
+                            e
+                        ),
+                    }
                 }
             }
 

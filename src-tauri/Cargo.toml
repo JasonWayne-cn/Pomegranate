@@ -24,12 +24,24 @@ license = "AGPL-3.0-or-later"
 name = "intelligent_notebook_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# ─── Win7 兼容构建 feature ────────────────────────
+# 启用后：跳过 tauri-plugin-notification 注册（消除 WinRT 依赖链 A）
+# 用法: cargo build --features win7-compat
+[features]
+win7-compat = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # ─── 跨平台核心依赖（桌面 + 移动端共用）────────────────
 # tauri：tray-icon feature 仅桌面端可用，已下移到 target.desktop dependencies
+
+# Win7 兼容：强制 getrandom 0.2.x 使用 rdrand 后端 (RtlGenRandom via advapi32.dll)
+# 而非 ProcessPrng (bcryptprimitives.dll, Win8+)
+# 0.3.x/0.4.x 通过 .cargo/config.toml 的 RUSTFLAGS cfg 控制
+getrandom02 = { package = "getrandom", version = "0.2", features = ["rdrand"] }
+
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-store = "2"

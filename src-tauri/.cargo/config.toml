@@ -1,3 +1,18 @@
+# Win7 兼容：强制 getrandom crate 使用 RtlGenRandom (advapi32.dll, XP+)
+# 而非 ProcessPrng (bcryptprimitives.dll, Win8+)
+#
+# getrandom 0.2.x 通过 GETRANDOM_BACKEND 环境变量选择后端
+# getrandom 0.3.x/0.4.x 通过 getrandom_backend cfg 选择后端
+# 两者均需设置确保所有版本到位
+[env]
+GETRANDOM_BACKEND = "rdrand"
+
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "--cfg", "getrandom_rdrand",
+  "--cfg", "getrandom_backend=\"rdrand\"",
+]
+
 # Android target linker 配置
 # Tauri 移动端编译时 cargo 需要知道用 NDK 的 clang 当 linker（默认找 `cc` 找不到）
 #
