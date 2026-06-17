@@ -6,6 +6,7 @@
 typedef void *PVOID;
 typedef void *LPVOID;
 typedef void *LPUNKNOWN;
+typedef void *HMODULE;
 typedef unsigned long DWORD;
 typedef unsigned long HRESULT;
 typedef unsigned long long SIZE_T;
@@ -14,15 +15,46 @@ typedef ULONGLONG CO_MTA_USAGE_COOKIE;
 
 __declspec(dllimport) PVOID WINAPI LoadLibraryW(const unsigned short *);
 __declspec(dllimport) PVOID WINAPI GetProcAddress(PVOID, const char *);
-__declspec(dllimport) void WINAPI Sleep(DWORD);
+
+// ═══════════════════════════════════════════════════════
+// 运行时检测：Win7 缺 DLL → stub；Win8+ → 转发真实实现
+// ═══════════════════════════════════════════════════════
+
+// ─── WaitOnAddress / WakeByAddressSingle / WakeByAddressAll ───
+// 来源: api-ms-win-core-synch-l1-2-0.dll (Win8+)
+// Win7 上此 DLL 不存在，Rust std 也不使用这些函数（回退到 SleepConditionVariableCS）
+// 但链接时必须提供符号，否则 DELAYLOAD 失败程序无法启动
+// 修复策略：运行时加载真实 DLL → 转发；加载失败 → stub
+
+static HMODULE synch_dll;
+static int synch_inited;
+
+static void synch_init(void)
+{
+    if (synch_inited) return;
+    synch_dll = LoadLibraryW((const unsigned short *)L"api-ms-win-core-synch-l1-2-0.dll");
+    synch_inited = 1;
+}
 
 void WINAPI WakeByAddressSingle(PVOID Address)
 {
+    synch_init();
+    if (synch_dll) {
+        typedef void (WINAPI *fn)(PVOID);
+        fn f = (fn)GetProcAddress(synch_dll, "WakeByAddressSingle");
+        if (f) { f(Address); return; }
+    }
     (void)Address;
 }
 
 void WINAPI WakeByAddressAll(PVOID Address)
 {
+    synch_init();
+    if (synch_dll) {
+        typedef void (WINAPI *fn)(PVOID);
+        fn f = (fn)GetProcAddress(synch_dll, "WakeByAddressAll");
+        if (f) { f(Address); return; }
+    }
     (void)Address;
 }
 
@@ -32,15 +64,32 @@ int WINAPI WaitOnAddress(
     SIZE_T AddressSize,
     DWORD dwMilliseconds)
 {
+    synch_init();
+    if (synch_dll) {
+        typedef int (WINAPI *fn)(void volatile *, void *, SIZE_T, DWORD);
+        fn f = (fn)GetProcAddress(synch_dll, "WaitOnAddress");
+        if (f) return f(Address, CompareAddress, AddressSize, dwMilliseconds);
+    }
+    // Win7 fallback: Sleep-based wait（Rust std 在 Win7 上不用此函数，
+    // 此 stub 仅为防止链接符号缺失导致程序无法启动）
     (void)Address;
     (void)CompareAddress;
     (void)AddressSize;
     if (dwMilliseconds == INFINITE) {
         dwMilliseconds = 1000;
     }
-    Sleep(dwMilliseconds);
+    typedef void (WINAPI *SleepFn)(DWORD);
+    PVOID k32 = LoadLibraryW((const unsigned short *)L"kernel32.dll");
+    SleepFn fn = k32 ? (SleepFn)GetProcAddress(k32, "Sleep") : 0;
+    if (fn) fn(dwMilliseconds);
     return 1;
 }
+
+// ─── COM runtime (combase.dll / ole32.dll) ───
+// CoTaskMemFree / CoTaskMemAlloc / CoCreateFreeThreadedMarshaler
+//   所有 Windows 版本的 ole32.dll 都提供，直接转发即可
+// CoIncrementMTAUsage
+//   Win8+ 在 combase.dll，Win7 需 stub
 
 static PVOID ole32_module(void)
 {
@@ -82,6 +131,19 @@ HRESULT WINAPI CoCreateFreeThreadedMarshaler(
 
 HRESULT WINAPI CoIncrementMTAUsage(CO_MTA_USAGE_COOKIE *pCookie)
 {
+    // 先试 combase.dll (Win8+)，失败则 stub (Win7)
+    static HMODULE combase;
+    static int combase_inited;
+    if (!combase_inited) {
+        combase = LoadLibraryW((const unsigned short *)L"combase.dll");
+        combase_inited = 1;
+    }
+    if (combase) {
+        typedef HRESULT (WINAPI *fn)(CO_MTA_USAGE_COOKIE *);
+        fn f = (fn)GetProcAddress(combase, "CoIncrementMTAUsage");
+        if (f) return f(pCookie);
+    }
+    // Win7 stub
     if (pCookie) {
         *pCookie = (CO_MTA_USAGE_COOKIE)1;
     }
@@ -89,16 +151,15 @@ HRESULT WINAPI CoIncrementMTAUsage(CO_MTA_USAGE_COOKIE *pCookie)
 }
 
 // ─── ProcessPrng (bcryptprimitives.dll, Win8+) → RtlGenRandom (advapi32.dll, XP+) ───
-// getrandom crate (0.2.x/0.3.x/0.4.x) 在 Windows 上默认调用 ProcessPrng。
-// Win7 的 bcryptprimitives.dll 不含此函数，但 advapi32.dll 的 RtlGenRandom
-// (SystemFunction036) 自 XP 起就可用，签名兼容。
+// getrandom crate 在 Windows 上默认调用 ProcessPrng。
+// Win7 的 bcryptprimitives.dll 不含此函数，但 advapi32.dll 的 SystemFunction036
+// (RtlGenRandom) 自 XP 起就可用，签名兼容。此转发对所有 Windows 版本都是正确且安全的。
 
 __declspec(dllimport) unsigned char WINAPI SystemFunction036(void *, unsigned long);
 
 int WINAPI ProcessPrng(void *pbData, unsigned long long cbData)
 {
     if (cbData > 0xFFFFFFFFull) {
-        // RtlGenRandom 仅支持 32-bit 长度参数；超大请求不应出现
         return 0xC000000D; // STATUS_INVALID_PARAMETER
     }
     // SystemFunction036/RtlGenRandom: TRUE=成功, FALSE=失败

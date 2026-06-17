@@ -2,82 +2,100 @@
 // scripts/patch-win7-pe.mjs
 // Tauri beforeBundleCommand: 在 cargo build 后、makensis 前执行
 //
-// 执行两个补丁：
+// 对主 EXE 和 sidecar 执行 PE 补丁：
 // 1. PE 子系统版本锁定为 6.1 (Win7)
 // 2. GetSystemTimePreciseAsFileTime → GetSystemTimeAsFileTime
 // 3. delay-load DLL 名重映射：
 //    api-ms-win-core-synch-l1-2-0.dll → bcryptprimitives.dll
-//    (避免 Win7 API Set 机制将 Sleep 等函数路由到我们的 shim)
+//    (bcrypt 统一 shim 同时提供 ProcessPrng + WaitOnAddress + WakeByAddress*)
+//    api-ms-win-core-winrt-string-l1-1-0.dll → api-ms-win-core-winrt-l1-1-0.dll
+//    (Win7 上不存在 winrt-string API Set，重映射到 WinRT shim DLL)
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
-const exePath = "src-tauri/target/release/IntelligentNoteBook.exe";
+// ─── 补丁目标列表 ────────────────────────────────
+const TARGETS = [
+  "src-tauri/target/release/IntelligentNoteBook.exe",
+  "src-tauri/binaries/kb-mcp-x86_64-pc-windows-msvc.exe",
+  "src-tauri/resources/pdfium/pdfium.dll",
+];
 
-if (!existsSync(exePath)) {
-  console.warn("[patch-win7-pe] EXE not found at", exePath);
-  process.exit(0);
-}
-
-const buffer = readFileSync(exePath);
-const peOffset = buffer.readUInt32LE(0x3c);
-const opt = peOffset + 24;
-const magic = buffer.readUInt16LE(opt);
-
-// ─── 解析 PE sections（用于 RVA → 文件偏移转换） ───
-const numSections = buffer.readUInt16LE(peOffset + 6);
-const optHdrSize = buffer.readUInt16LE(peOffset + 20);
-const sectionStart = peOffset + 24 + optHdrSize;
-
-const sections = [];
-for (let i = 0; i < numSections; i++) {
-  const so = sectionStart + i * 40;
-  sections.push({
-    name: buffer.toString("ascii", so, so + 8).replace(/\0/g, ""),
-    vrva: buffer.readUInt32LE(so + 12),
-    vsize: buffer.readUInt32LE(so + 8),
-    rawPtr: buffer.readUInt32LE(so + 20),
-    rawSize: buffer.readUInt32LE(so + 16),
-  });
-}
-
-function rvaToOffset(rva) {
-  for (const s of sections) {
-    if (rva >= s.vrva && rva < s.vrva + s.vsize) {
-      return s.rawPtr + (rva - s.vrva);
-    }
+// ─── 对单个 PE 文件执行所有补丁 ──────────────────
+function patchOne(path) {
+  if (!existsSync(path)) {
+    console.warn(`[patch-win7-pe] SKIP (not found): ${path}`);
+    return null;
   }
-  return -1;
+
+  const buffer = readFileSync(path);
+  const peOffset = buffer.readUInt32LE(0x3c);
+  const opt = peOffset + 24;
+
+  // Patch 1: 子系统版本 → 6.1
+  buffer.writeUInt16LE(6, opt + 48);
+  buffer.writeUInt16LE(1, opt + 50);
+
+  // Patch 2: GetSystemTimePreciseAsFileTime → GetSystemTimeAsFileTime
+  const fromGST = Buffer.from("GetSystemTimePreciseAsFileTime\0", "ascii");
+  const toGST = Buffer.from("GetSystemTimeAsFileTime\0", "ascii");
+  let gstPatched = 0, off = buffer.indexOf(fromGST);
+  while (off !== -1) {
+    toGST.copy(buffer, off);
+    buffer.fill(0, off + toGST.length, off + fromGST.length);
+    gstPatched++;
+    off = buffer.indexOf(fromGST, off + fromGST.length);
+  }
+
+  // Patch 3: delay-load DLL 名重映射
+  // api-ms-win-core-synch-l1-2-0.dll → bcryptprimitives.dll (39→20 chars)
+  // 原因: Win7 的 kernel32.dll 不导出 WaitOnAddress（Win8+ API），
+  //       必须重映射到 bcryptprimitives.dll（统一 shim 同时提供
+  //       ProcessPrng + WaitOnAddress + WakeByAddressSingle/All）
+  const synchFrom = Buffer.from("api-ms-win-core-synch-l1-2-0.dll\0", "ascii");
+  const synchTo   = Buffer.from("bcryptprimitives.dll\0", "ascii");
+  let synchPatched = 0;
+  let off2 = buffer.indexOf(synchFrom);
+  while (off2 !== -1) {
+    synchTo.copy(buffer, off2);
+    buffer.fill(0, off2 + synchTo.length, off2 + synchFrom.length);
+    synchPatched++;
+    off2 = buffer.indexOf(synchFrom, off2 + synchFrom.length);
+  }
+
+  // Patch 4: api-ms-win-core-winrt-string-l1-1-0.dll → api-ms-win-core-winrt-l1-1-0.dll
+  // Win7 不存在 winrt-string API Set，重映射到已有的 WinRT shim DLL (39→32 chars)
+  const wrtStrFrom = Buffer.from("api-ms-win-core-winrt-string-l1-1-0.dll\0", "ascii");
+  const wrtStrTo   = Buffer.from("api-ms-win-core-winrt-l1-1-0.dll\0", "ascii");
+  let wrtStrPatched = 0;
+  let off3 = buffer.indexOf(wrtStrFrom);
+  while (off3 !== -1) {
+    wrtStrTo.copy(buffer, off3);
+    buffer.fill(0, off3 + wrtStrTo.length, off3 + wrtStrFrom.length);
+    wrtStrPatched++;
+    off3 = buffer.indexOf(wrtStrFrom, off3 + wrtStrFrom.length);
+  }
+
+  writeFileSync(path, buffer);
+
+  // 验证：确认 GetSystemTimePreciseAsFileTime 已不在二进制中
+  const verify = readFileSync(path);
+  const leftover = verify.indexOf(fromGST);
+  if (leftover !== -1) {
+    console.error(`[patch-win7-pe] ERROR: ${path} 仍残留 GetSystemTimePreciseAsFileTime 引用! 可能导致 Win7 无法启动`);
+  }
+
+  return { path, gst: gstPatched, synch: synchPatched, wrtStr: wrtStrPatched };
 }
 
-// ─── Patch 1: 子系统版本 → 6.1 ──────────────────
-buffer.writeUInt16LE(6, opt + 48);
-buffer.writeUInt16LE(1, opt + 50);
-
-// ─── Patch 2: GetSystemTimePreciseAsFileTime → GetSystemTimeAsFileTime ───
-const fromGST = Buffer.from("GetSystemTimePreciseAsFileTime\0", "ascii");
-const toGST = Buffer.from("GetSystemTimeAsFileTime\0", "ascii");
-let n = 0, off = buffer.indexOf(fromGST);
-while (off !== -1) {
-  toGST.copy(buffer, off);
-  buffer.fill(0, off + toGST.length, off + fromGST.length);
-  n++;
-  off = buffer.indexOf(fromGST, off + fromGST.length);
+// ─── 主流程 ──────────────────────────────────────
+let ok = 0;
+for (const path of TARGETS) {
+  const r = patchOne(path);
+  if (r) {
+    console.log(`[patch-win7-pe] ${path} (subsys=6.1, GST=${r.gst}, synch→bcrypt=${r.synch}, wrtStr→winrt=${r.wrtStr})`);
+    ok++;
+  }
 }
-
-// ─── Patch 3: delay-load DLL 名重映射 ──────────
-// 找到 delay-load 表中引用 api-ms-win-core-synch-l1-2-0.dll 的条目，
-// 将其 DLL 名字符串替换为 bcryptprimitives.dll（更短，零填充）。
-const dlFrom = Buffer.from("api-ms-win-core-synch-l1-2-0.dll\0", "ascii");
-const dlTo = Buffer.from("bcryptprimitives.dll\0", "ascii");
-
-let dlPatched = 0;
-let dlOff = buffer.indexOf(dlFrom);
-while (dlOff !== -1) {
-  dlTo.copy(buffer, dlOff);
-  buffer.fill(0, dlOff + dlTo.length, dlOff + dlFrom.length);
-  dlPatched++;
-  dlOff = buffer.indexOf(dlFrom, dlOff + dlFrom.length);
+if (ok === 0) {
+  console.warn("[patch-win7-pe] WARNING: no targets found");
 }
-
-writeFileSync(exePath, buffer);
-console.log(`[patch-win7-pe] patched (subsys=6.1, imports=${n}, delay-dl-rename=${dlPatched})`);

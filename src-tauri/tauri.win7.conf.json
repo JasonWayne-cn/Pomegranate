@@ -47,8 +47,7 @@
     "targets": ["nsis"],
     "createUpdaterArtifacts": "v1Compatible",
     "externalBin": [
-      "binaries/kb-mcp",
-      "binaries/api-ms-win-core-winrt-l1-1-0.dll"
+      "binaries/kb-mcp"
     ],
     "icon": [
       "icons/32x32.png",
@@ -59,7 +58,9 @@
     ],
     "resources": [
       "resources/pdfium/*",
-      "binaries/bcryptprimitives.dll"
+      "binaries/bcryptprimitives.dll",
+      "binaries/api-ms-win-core-synch-l1-2-0.dll",
+      "binaries/api-ms-win-core-winrt-l1-1-0.dll"
     ],
     "fileAssociations": [
       {

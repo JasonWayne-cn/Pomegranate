@@ -176,20 +176,67 @@ function tryBuildDirectly() {
   }
 }
 
+// ─── Synch Shim DLL 构建 ─────────────────────
+// 创建 api-ms-win-core-synch-l1-2-0.dll，提供 Sleep/SleepEx 转发 + WaitOnAddress 桩
+// 通过 resources 随 NSIS 安装到 EXE 目录，延迟加载时本地目录优先
+
+function buildSynchShimDll() {
+  const shimDir = join(SRC_TAURI, "win7_synch_shim");
+  const buildScript = join(shimDir, "build.ps1");
+  const expectedDll = join(SRC_TAURI, "binaries", "api-ms-win-core-synch-l1-2-0.dll");
+  const vcvars = join(VS2022_PATH, "VC", "Auxiliary", "Build", "vcvars64.bat");
+
+  const force = argv.includes("--force-shim");
+  if (!force && existsSync(expectedDll) && readFileSync(expectedDll).length > 0) {
+    console.log("[build-win7] Synch Shim DLL 已存在，跳过构建（--force-shim 强制重建）");
+    return;
+  }
+
+  if (!existsSync(buildScript)) {
+    console.warn("[build-win7] Synch shim build.ps1 未找到，跳过");
+    return;
+  }
+
+  mkdirSync(join(SRC_TAURI, "binaries"), { recursive: true });
+
+  console.log(`[build-win7] 构建 Synch Shim DLL (MSVC: ${VS2022_PATH})...`);
+
+  try {
+    const vcvarsLog = join(ROOT, "src-tauri", "win7_synch_shim", "vcvars.log");
+    const cmd = `cmd /c "call "${vcvars}" 1>"${vcvarsLog}" 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File "${buildScript}""`;
+    execSync(cmd, { cwd: ROOT, stdio: "inherit" });
+
+    if (!existsSync(expectedDll) || readFileSync(expectedDll).length === 0) {
+      console.warn("[build-win7] Synch Shim DLL 构建后未找到");
+    } else {
+      console.log(`[build-win7] Synch Shim DLL: ${expectedDll}`);
+    }
+  } catch (e) {
+    console.warn("[build-win7] Synch Shim DLL 构建失败: " + String(e.message || e).split("\n")[0]);
+    // 降级：直接尝试 powershell
+    try {
+      execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${buildScript}"`, {
+        cwd: ROOT, stdio: "inherit",
+      });
+    } catch (e2) {
+      console.warn("[build-win7] Synch Shim DLL 降级构建也失败，继续（依赖 PE patch safety net）");
+    }
+  }
+}
+
 // ─── PE 补丁 ─────────────────────────────────
 const BLOCKING_IMPORTS = [
   "GetSystemTimePreciseAsFileTime",
   "api-ms-win-crt-private-l1-1-0.dll",
   "ProcessPrng",
-  // bcryptprimitives.dll 已通过统一 shim 解决（含 ProcessPrng + WaitOnAddress），
-  // PE 补丁也会将 api-ms-win-core-synch-l1-2-0 延迟加载重映射到此 DLL，
-  // 故不计入阻断列表
+  // api-ms-win-core-synch-l1-2-0.dll 已被 patch-win7-pe.mjs 重映射到 bcryptprimitives.dll
+  // bcrypt 统一 shim 同时导出 ProcessPrng + WaitOnAddress + WakeByAddressSingle/All
   // WinRT DLL 不应出现在直接导入表中（已通过 DELAYLOAD 处理）
   "api-ms-win-core-winrt-l1-1-0.dll",
   "api-ms-win-core-winrt-string-l1-1-0.dll",
 ];
 const RISKY_IMPORTS = [
-  // api-ms-win-core-synch-l1-2-0.dll 已被 patch-win7-pe.mjs 重映射到 bcryptprimitives.dll
+  // combase.dll 延迟加载，C 桩提供 CoTaskMemFree/CoTaskMemAlloc 等 ole32 转发
   "combase.dll",
 ];
 
@@ -239,6 +286,16 @@ function patchAllBinaries() {
 function verifyWin7Imports(exePath) {
   if (!existsSync(exePath)) return;
   const text = readFileSync(exePath).toString("latin1");
+
+  // 直接搜索 GetSystemTimePreciseAsFileTime 字符串
+  // 此函数在 Rust std::time 中被调用，Win7 的 kernel32.dll 无此导出 → 必须已通过 PE patch 替换为 GetSystemTimeAsFileTime
+  if (text.includes("GetSystemTimePreciseAsFileTime")) {
+    throw new Error(
+      `[build-win7] ${exePath} 仍包含 GetSystemTimePreciseAsFileTime 导入！\n` +
+      `  此函数仅 Win8+ 可用，Win7 将无法启动（错误：无法定位程序输入点）。\n` +
+      `  请检查 scripts/patch-win7-pe.mjs 是否成功运行。`
+    );
+  }
 
   // 区分直接导入 vs DELAYLOAD（延迟加载）：
   // DELAYLOAD 的 DLL 名在 PE 中只出现在 Delay-Load Descriptor 区域，
@@ -341,8 +398,9 @@ function main() {
   switchConfig();
 
   try {
-    // Phase 0: 构建 WinRT Shim DLL（消除 api-ms-win-core-winrt-l1-1-0.dll 依赖）
-    buildShimDll();
+    // Phase 0: 构建 Shim DLL
+    buildShimDll();          // WinRT shim: api-ms-win-core-winrt-l1-1-0.dll
+    buildSynchShimDll();     // Synch shim: api-ms-win-core-synch-l1-2-0.dll
 
     // tauri.win7.conf.json 已配置 beforeBundleCommand：
     //   cargo build → scripts/patch-win7-pe.mjs (PE patch) → makensis
@@ -364,6 +422,10 @@ function main() {
 
     const profile = isDebug ? "debug" : "release";
     const exePath = join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe");
+
+    // 双保险：beforeBundleCommand 已运行 patch-win7-pe.mjs，
+    // 这里再次 patch 确保所有二进制文件（含 sidecar）无误
+    patchAllBinaries();
     verifyWin7Imports(exePath);
     verifyBcryptShim();
 

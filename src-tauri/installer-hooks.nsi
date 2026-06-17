@@ -54,6 +54,22 @@
     IfFileExists "$INSTDIR\binaries\bcryptprimitives.dll" 0 bcrypt_shim_ok
     CopyFiles /SILENT "$INSTDIR\binaries\bcryptprimitives.dll" "$INSTDIR\bcryptprimitives.dll"
   bcrypt_shim_ok:
+
+  ; ─── api-ms-win-core-synch-l1-2-0.dll (Synch API Set shim) ───
+  ; 提供 Sleep/SleepEx/WaitOnAddress/WakeByAddress
+  ; 必须放在 EXE 同目录（$INSTDIR），Windows DLL 搜索才找得到
+  IfFileExists "$INSTDIR\api-ms-win-core-synch-l1-2-0.dll" synch_shim_ok
+    IfFileExists "$INSTDIR\binaries\api-ms-win-core-synch-l1-2-0.dll" 0 synch_shim_ok
+    CopyFiles /SILENT "$INSTDIR\binaries\api-ms-win-core-synch-l1-2-0.dll" "$INSTDIR\api-ms-win-core-synch-l1-2-0.dll"
+  synch_shim_ok:
+
+  ; ─── api-ms-win-core-winrt-l1-1-0.dll (WinRT shim) ───
+  ; 提供 RoInitialize / WindowsCreateString 等 WinRT 函数桩
+  ; PE delay-load: api-ms-win-core-winrt-string-l1-1-0.dll 重映射到此 DLL
+  IfFileExists "$INSTDIR\api-ms-win-core-winrt-l1-1-0.dll" winrt_shim_ok
+    IfFileExists "$INSTDIR\binaries\api-ms-win-core-winrt-l1-1-0.dll" 0 winrt_shim_ok
+    CopyFiles /SILENT "$INSTDIR\binaries\api-ms-win-core-winrt-l1-1-0.dll" "$INSTDIR\api-ms-win-core-winrt-l1-1-0.dll"
+  winrt_shim_ok:
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
