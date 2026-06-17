@@ -9,7 +9,7 @@
 // 流程：
 //   1. 用 tauri.win7.conf.json 替换 tauri.conf.json（备份原文件）
 //   2. 运行 pnpm tauri build --bundles nsis
-//   3. 产物重命名为 知识库_Setup_x.x.x_win7.exe
+//   3. 产物重命名为 IntelligentNoteBook_Setup_x.x.x_win7.exe
 //   4. 恢复原 tauri.conf.json
 //
 // 前置条件：
@@ -383,7 +383,7 @@ function renameOutput() {
   }
 
   const src = join(BUNDLE_DIR, installer);
-  const dstName = `知识库_Setup_${version}_win7_x64-setup.exe`;
+  const dstName = `IntelligentNoteBook_Setup_${version}_win7_x64-setup.exe`;
   const dst = join(BUNDLE_DIR, dstName);
 
   renameSync(src, dst);

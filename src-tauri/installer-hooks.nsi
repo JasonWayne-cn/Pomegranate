@@ -1,8 +1,7 @@
 ﻿; ============================================================================
 ; 自定义 NSIS 安装钩子
-; 目的：保留 productName="Knowledge Base"（让 CI 产物名/updater URL 全英文，
-;       避免 GitHub Release Asset 中文字符 URL 编码导致更新失败），
-;       同时让用户桌面/开始菜单的快捷方式显示中文"知识库"。
+; 目的：productName="Intelligent NoteBook" 保持英文避免 GitHub Release Asset URL 编码问题，
+;       同时让用户桌面/开始菜单的快捷方式保持一致名称。
 ;
 ; 编码必须为 UTF-8 with BOM，否则 NSIS 编译器无法正确识别中文字面量。
 ; ============================================================================
@@ -39,13 +38,13 @@
   Delete "$DESKTOP\${PRODUCTNAME}.lnk"
   Delete "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk"
 
-  ; 仅在开始菜单创建中文快捷方式（桌面不创建）
-  CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\知识库.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+  ; 仅在开始菜单创建快捷方式（桌面不创建）
+  CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\Intelligent NoteBook.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
 
   ; 覆盖 Tauri fileAssociations 默认生成的右键菜单文字
-  ; Tauri 默认写入 "Open with ${PRODUCTNAME}"（=Open with Knowledge Base），
-  ; 这里改为中文"使用知识库打开"。FILECLASS 取自 tauri.conf.json 的 name 字段。
-  WriteRegStr SHCTX "Software\Classes\Markdown 文件\shell\open" "" "使用知识库打开"
+  ; Tauri 默认写入 "Open with ${PRODUCTNAME}"，这里改为中文"使用 Intelligent NoteBook 打开"。
+  ; FILECLASS 取自 tauri.conf.json 的 name 字段。
+  WriteRegStr SHCTX "Software\Classes\Markdown 文件\shell\open" "" "使用 Intelligent NoteBook 打开"
 
   ; ─── bcryptprimitives.dll (统一 Win7 shim) ───
   ; 提供 ProcessPrng / WaitOnAddress / WakeByAddressSingle / WakeByAddressAll
@@ -73,6 +72,6 @@
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
-  ; 卸载时清理开始菜单中文快捷方式
-  Delete "$SMPROGRAMS\$AppStartMenuFolder\知识库.lnk"
+  ; 卸载时清理开始菜单快捷方式
+  Delete "$SMPROGRAMS\$AppStartMenuFolder\Intelligent NoteBook.lnk"
 !macroend
