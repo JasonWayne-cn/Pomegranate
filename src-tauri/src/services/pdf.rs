@@ -10,7 +10,7 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{Note, NoteInput};
 
-/// PDFium 全局实例（运行时绑定到 pdfium.dll），用作 pdf-extract 的 fallback。
+/// PDFium 全局实例（嵌入 pdfium.dll），用作 pdf-extract 的 fallback。
 ///
 /// pdfium-render 的 `Pdfium` 不实现 Send（内部 `Box<dyn PdfiumLibraryBindings>`），
 /// 但 Tauri Command 在 worker 线程执行，需要跨线程共享。因此用 newtype 包裹并手动声明
@@ -28,14 +28,35 @@ unsafe impl Sync for PdfiumGuard {}
 #[cfg(desktop)]
 static PDFIUM: OnceLock<Mutex<PdfiumGuard>> = OnceLock::new();
 
-/// 应用启动时调用：把 PDFium 绑定到指定路径的动态库（仅桌面端）
+/// 应用启动时调用：初始化 PDFium 全局实例（仅桌面端）。
+///
+/// Windows: 编译时嵌入 pdfium.dll 到 EXE，运行时提取到 %TEMP% 加载。
+/// macOS/Linux: 暂不支持嵌入，需外部提供 pdfium 动态库。
 #[cfg(desktop)]
-pub fn init_pdfium(dll_path: &Path) -> Result<(), String> {
-    let bindings = Pdfium::bind_to_library(dll_path).map_err(|e| e.to_string())?;
-    let pdfium = Pdfium::new(bindings);
-    PDFIUM
-        .set(Mutex::new(PdfiumGuard(pdfium)))
-        .map_err(|_| "PDFium 已被初始化过".to_string())
+pub fn init_pdfium() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        const EMBEDDED_DLL: &[u8] = include_bytes!("../../pdfium/embedded/pdfium.dll");
+        let dll_path = std::env::temp_dir().join("inb_pdfium_embedded.dll");
+        // 每次启动覆盖写入（临时目录在重启后由 OS 清理）
+        std::fs::write(&dll_path, EMBEDDED_DLL)
+            .map_err(|e| format!("PDFium 写入临时目录失败: {}", e))?;
+
+        let bindings = Pdfium::bind_to_library(&dll_path).map_err(|e| e.to_string())?;
+        let pdfium = Pdfium::new(bindings);
+        PDFIUM
+            .set(Mutex::new(PdfiumGuard(pdfium)))
+            .map_err(|_| "PDFium 已被初始化过".to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // 非 Windows：尝试从当前目录加载系统库
+        let bindings = Pdfium::bind_to_system_library().map_err(|e| e.to_string())?;
+        let pdfium = Pdfium::new(bindings);
+        PDFIUM
+            .set(Mutex::new(PdfiumGuard(pdfium)))
+            .map_err(|_| "PDFium 已被初始化过".to_string())
+    }
 }
 
 /// PDF 资产目录名（dev 模式加 dev- 前缀实现数据隔离）

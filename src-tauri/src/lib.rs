@@ -622,32 +622,32 @@ pub fn run() {
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
             log::info!("PDF 存储目录: {}", pdfs_dir.display());
 
-            // 绑定 PDFium 动态库（资源目录与实例无关）。各平台用各自的动态库格式：
-            //   Windows: pdfium.dll  / macOS: libpdfium.dylib  / Linux: libpdfium.so
-            // 如果 resources/pdfium/ 下缺对应平台的库文件，仅 log warn —— pdf-extract
-            // 主路径仍可工作，只是失去 PDFium fallback 这条防扫描件兜底。
-            // 仅桌面端：移动端 NDK 加载动态库受沙盒限制，不引入 PDFium
+            // 绑定 PDFium（仅桌面端）。
+            // Windows: 编译时嵌入 EXE，无需外部 DLL。
+            // macOS/Linux: 从资源目录加载动态库。
+            // 失败仅 log warn —— pdf-extract 主路径仍可工作，
+            // 只是失去 PDFium fallback 这条中文 CMap 兜底。
             #[cfg(desktop)]
             {
                 #[cfg(target_os = "windows")]
-                const PDFIUM_LIB: &str = "resources/pdfium/pdfium.dll";
-                #[cfg(target_os = "macos")]
-                const PDFIUM_LIB: &str = "resources/pdfium/libpdfium.dylib";
-                #[cfg(target_os = "linux")]
-                const PDFIUM_LIB: &str = "resources/pdfium/libpdfium.so";
-
-                match app
-                    .path()
-                    .resolve(PDFIUM_LIB, tauri::path::BaseDirectory::Resource)
                 {
-                    Ok(lib_path) => match services::pdf::init_pdfium(&lib_path) {
-                        Ok(()) => log::info!("PDFium 绑定成功: {}", lib_path.display()),
+                    match services::pdf::init_pdfium() {
+                        Ok(()) => log::info!("PDFium 初始化成功（嵌入 EXE，无需外部 DLL）"),
                         Err(e) => log::warn!(
-                            "PDFium 绑定失败（fallback 不可用，仅 pdf-extract 路径可用）: {}",
+                            "PDFium 初始化失败（fallback 不可用，仅 pdf-extract 路径可用）: {}",
                             e
                         ),
-                    },
-                    Err(e) => log::warn!("PDFium 资源路径解析失败: {}", e),
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    match services::pdf::init_pdfium() {
+                        Ok(()) => log::info!("PDFium 绑定成功"),
+                        Err(e) => log::warn!(
+                            "PDFium 绑定失败（fallback 不可用）: {}",
+                            e
+                        ),
+                    }
                 }
             }
 

@@ -17,7 +17,6 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 const TARGETS = [
   "src-tauri/target/release/IntelligentNoteBook.exe",
   "src-tauri/binaries/kb-mcp-x86_64-pc-windows-msvc.exe",
-  "src-tauri/resources/pdfium/pdfium.dll",
 ];
 
 // ─── 对单个 PE 文件执行所有补丁 ──────────────────
