@@ -12,9 +12,11 @@ fn main() {
         println!("cargo:rustc-link-arg=/DELAYLOAD:api-ms-win-core-winrt-string-l1-1-0.dll");
         println!("cargo:rustc-link-arg=delayimp.lib");
 
-        cc::Build::new()
-            .file("win7_stubs.c")
-            .compile("win7_stubs");
+        // /FORCE:MULTIPLE — libstd / windows crate 的 .rlib 内嵌了这些 DLL
+        // 的 import library thunk 符号，与 win7_stubs.rs 的 #[no_mangle] 定义冲突。
+        // object file（.o）在命令行中排在 .rlib 前面，MULTIPLE 模式下先出现者赢，
+        // 因此我们的 stub 会覆盖 .rlib 中的 import thunk，避免产生 IAT 导入。
+        println!("cargo:rustc-link-arg=/FORCE:MULTIPLE");
     }
 
     tauri_build::build()

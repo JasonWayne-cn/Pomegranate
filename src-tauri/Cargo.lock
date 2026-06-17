@@ -2817,7 +2817,6 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "calamine",
- "cc",
  "chardetng",
  "chrono",
  "docx-rs",

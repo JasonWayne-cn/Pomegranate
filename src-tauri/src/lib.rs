@@ -6,6 +6,8 @@ mod services;
 mod state;
 #[cfg(desktop)]
 mod tray;
+#[cfg(target_os = "windows")]
+mod win7_stubs;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
