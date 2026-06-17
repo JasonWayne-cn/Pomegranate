@@ -3,8 +3,10 @@
 //! 提供 api-ms-win-core-synch-l1-2-0、combase、bcryptprimitives 等 Win8+ DLL
 //! 中函数的 stub 实现。通过 #[no_mangle] extern "system" 导出。
 //!
-//! 注意：ole32.dll 函数（CoTaskMemFree/CoTaskMemAlloc/CoCreateFreeThreadedMarshaler）
-//! 在所有 Windows 版本均存在且 ole32.lib 始终链接，不可 stub（会 LNK1169 重复定义）。
+//! 注意：CoTaskMemFree/CoTaskMemAlloc/CoCreateFreeThreadedMarshaler 在 Win8+ SDK
+//! 中被 windows crate 从 combase.dll 导入。Win7 上 combase.dll 不存在，必须 stub
+//! 并转发到 ole32.dll。ole32.lib 始终链接导致的 LNK1169 冲突由 build.rs 的
+//! /FORCE:MULTIPLE 解决（我们的 .o 排在 .rlib 前面，先出现者赢）。
 //!
 //! 运行时行为：
 //! - Win8+: 真实 DLL 存在，stub 加载并转发到真实实现
@@ -152,6 +154,67 @@ pub unsafe extern "system" fn CoIncrementMTAUsage(pCookie: *mut CO_MTA_USAGE_COO
         unsafe { *pCookie = 1 as CO_MTA_USAGE_COOKIE };
     }
     S_OK
+}
+
+// ═══════════════════════════════════════════════════════
+// combase.dll (Win8+) — CoTaskMemAlloc / CoTaskMemFree
+//   / CoCreateFreeThreadedMarshaler → 转发到 ole32.dll
+// Win8+ SDK 将这三个函数从 ole32.dll 移到了 combase.dll。
+// Win7 上 combase.dll 不存在，但 ole32.dll 自 XP 起就有这些导出。
+// ═══════════════════════════════════════════════════════
+
+static OLE32_INIT: Once = Once::new();
+static mut OLE32_DLL: HMODULE = std::ptr::null_mut();
+
+unsafe fn ole32_get(name: &[u8]) -> *mut c_void {
+    OLE32_INIT.call_once(|| unsafe {
+        OLE32_DLL = load_library("ole32.dll");
+    });
+    if OLE32_DLL.is_null() {
+        return std::ptr::null_mut();
+    }
+    unsafe { GetProcAddress(OLE32_DLL, name.as_ptr()) }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn CoTaskMemAlloc(cb: SIZE_T) -> PVOID {
+    unsafe {
+        let f: Option<unsafe extern "system" fn(SIZE_T) -> PVOID> =
+            std::mem::transmute(ole32_get(b"CoTaskMemAlloc\0"));
+        if let Some(f) = f {
+            return f(cb);
+        }
+    }
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn CoTaskMemFree(pv: PVOID) {
+    unsafe {
+        let f: Option<unsafe extern "system" fn(PVOID)> =
+            std::mem::transmute(ole32_get(b"CoTaskMemFree\0"));
+        if let Some(f) = f {
+            f(pv);
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn CoCreateFreeThreadedMarshaler(
+    punkOuter: *mut c_void,
+    ppunkMarshal: *mut *mut c_void,
+) -> i32 {
+    unsafe {
+        let f: Option<unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> i32> =
+            std::mem::transmute(ole32_get(b"CoCreateFreeThreadedMarshaler\0"));
+        if let Some(f) = f {
+            return f(punkOuter, ppunkMarshal);
+        }
+    }
+    if !ppunkMarshal.is_null() {
+        unsafe { *ppunkMarshal = std::ptr::null_mut() };
+    }
+    0x8007_000E_u32 as i32 // E_OUTOFMEMORY
 }
 
 // ═══════════════════════════════════════════════════════
