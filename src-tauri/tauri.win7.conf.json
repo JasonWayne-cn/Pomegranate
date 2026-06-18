@@ -7,7 +7,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev:clean",
     "devUrl": "http://localhost:2010",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "npm run build:vite",
     "beforeBundleCommand": "node scripts/patch-win7-pe.mjs",
     "frontendDist": "../dist"
   },
