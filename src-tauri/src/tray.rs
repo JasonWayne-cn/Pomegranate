@@ -84,10 +84,10 @@ pub fn setup_tray(
     let icon = app.default_window_icon().ok_or("应用图标未配置")?.clone();
 
     let tooltip: String = match (cfg!(debug_assertions), instance_id) {
-        (true, None) => "知识库 [DEV]".to_string(),
-        (true, Some(n)) => format!("知识库 [DEV 实例 {}]", n),
-        (false, None) => "知识库".to_string(),
-        (false, Some(n)) => format!("知识库 [实例 {}]", n),
+        (true, None) => "Pomegranate [DEV]".to_string(),
+        (true, Some(n)) => format!("Pomegranate [DEV 实例 {}]", n),
+        (false, None) => "Pomegranate".to_string(),
+        (false, Some(n)) => format!("Pomegranate [实例 {}]", n),
     };
 
     TrayIconBuilder::new()

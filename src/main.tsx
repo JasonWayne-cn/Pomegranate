@@ -58,26 +58,27 @@ window.addEventListener(
   true,
 );
 
-loadThemeFromStore().then(() => {
-  // 启动后台拉一次实例信息（多开标识 / 数据目录），不阻塞首屏
-  useAppStore.getState().loadInstanceInfo();
-  // 拉一次"全局新建笔记"的默认文件夹 / 标签偏好，便于第一次按 Ctrl+N 就能用
-  useAppStore.getState().loadNoteDefaults();
-  // 拉一次"启用的侧栏视图"配置（用户在设置里勾选的功能模块开关）
-  void useAppStore.getState().loadEnabledViews();
-  // 拉一次移动端 Dashboard 显示项偏好（仅移动端用，桌面端无害）
-  void useAppStore.getState().loadMobileDashboardItems();
-  // 拉一次移动端底部 Tab 配置
-  void useAppStore.getState().loadMobileTabKeys();
+// 立即渲染 React（使用默认主题），不等待 store 加载。
+// loadThemeFromStore 在后台异步完成后再更新 store 状态，避免启动白屏等待。
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
 
-  // 预热文件夹树：让 NotesPanel 第一次打开时直接命中缓存，避免"点笔记"时的等待
-  // 用 requestIdleCallback 在浏览器空闲时跑，不和首屏渲染抢线程
+// 后台异步：加载持久化偏好 + 预热数据，不阻塞首屏渲染
+loadThemeFromStore().then(() => {
+  const s = useAppStore.getState();
+  s.loadInstanceInfo();
+  s.loadNoteDefaults();
+  void s.loadEnabledViews();
+  void s.loadMobileDashboardItems();
+  void s.loadMobileTabKeys();
+
   const winIdle = window as Window & {
     requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void;
   };
-  const triggerPrefetch = () => useAppStore.getState().prefetchFolders();
-  // 顺便 prefetch 最常用的 NotesPanel chunk —— SidePanel 已 React.lazy 化，
-  // 这里主动把 chunk 拉下来，首次点笔记图标时 Suspense fallback 几乎不会显示。
+  const triggerPrefetch = () => s.prefetchFolders();
   const prefetchNotesPanelChunk = () =>
     import("@/components/layout/panels/NotesPanel").catch(() => {});
   if (typeof winIdle.requestIdleCallback === "function") {
@@ -87,10 +88,4 @@ loadThemeFromStore().then(() => {
     setTimeout(triggerPrefetch, 100);
     setTimeout(prefetchNotesPanelChunk, 300);
   }
-
-  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>,
-  );
 });

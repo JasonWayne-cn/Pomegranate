@@ -289,7 +289,7 @@ fn action_quick_capture(app: AppHandle) {
             let _ = app
                 .notification()
                 .builder()
-                .title("已保存到知识库")
+                .title("已保存到 Pomegranate")
                 .body(&note.title)
                 .show();
             let _ = app.emit("quick_capture:note_created", note);

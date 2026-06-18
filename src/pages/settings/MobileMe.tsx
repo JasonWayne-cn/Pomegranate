@@ -99,7 +99,7 @@ export function MobileMe() {
           <div className="flex-1 min-w-0">
             <h2 className="text-xl font-bold">wenjq</h2>
             <p className="mt-0.5 text-sm text-blue-100">
-              知识库 · 共 {stats?.total_notes ?? 0} 篇
+              Pomegranate · 共 {stats?.total_notes ?? 0} 篇
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
               <span className="rounded bg-white/20 px-2 py-0.5">

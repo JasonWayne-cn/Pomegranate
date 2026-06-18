@@ -598,7 +598,7 @@ export const sourceWritebackApi = {
 /** 导出 API */
 export const exportApi = {
   /** 批量导出笔记。`outputDir` 是用户选择的父目录，
-   *  实际会在其下创建一层 `知识库导出_YYYYMMDD_HHmmss/` 作为导出根（见返回值 root_dir） */
+   *  实际会在其下创建一层 `Pomegranate导出_YYYYMMDD_HHmmss/` 作为导出根（见返回值 root_dir） */
   exportNotes: (outputDir: string, folderId?: number | null) =>
     invoke<ExportResult>("export_notes", { outputDir, folderId }),
   /** 导出单篇笔记。`parentDir` 是用户选择的父目录，

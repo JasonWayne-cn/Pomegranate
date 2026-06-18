@@ -726,10 +726,10 @@ pub fn run() {
             #[cfg(desktop)]
             if let Some(window) = app.get_webview_window("main") {
                 let title = match (cfg!(debug_assertions), instance_id) {
-                    (true, None) => Some("知识库 [DEV]".to_string()),
-                    (true, Some(n)) => Some(format!("知识库 [DEV 实例 {}]", n)),
+                    (true, None) => Some("Pomegranate [DEV]".to_string()),
+                    (true, Some(n)) => Some(format!("Pomegranate [DEV 实例 {}]", n)),
                     (false, None) => None,
-                    (false, Some(n)) => Some(format!("知识库 [实例 {}]", n)),
+                    (false, Some(n)) => Some(format!("Pomegranate [实例 {}]", n)),
                 };
                 if let Some(t) = title {
                     let _ = window.set_title(&t);

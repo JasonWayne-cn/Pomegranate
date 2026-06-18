@@ -13,7 +13,7 @@ use crate::state::AppState;
 /// 批量导出笔记为 Markdown 文件
 ///
 /// 入参 `output_dir` 是用户选择的父目录；服务会在其下自动创建一层
-/// `知识库导出_YYYYMMDD_HHmmss/` 作为实际导出根（结果中的 `root_dir`）。
+/// `Pomegranate导出_YYYYMMDD_HHmmss/` 作为实际导出根（结果中的 `root_dir`）。
 #[tauri::command]
 pub fn export_notes(
     state: tauri::State<'_, AppState>,

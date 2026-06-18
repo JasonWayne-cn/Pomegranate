@@ -9,7 +9,7 @@
 // 流程：
 //   1. 用 tauri.win7.conf.json 替换 tauri.conf.json（备份原文件）
 //   2. 运行 pnpm tauri build --bundles nsis
-//   3. 产物重命名为 IntelligentNoteBook_Setup_x.x.x_win7.exe
+//   3. 产物重命名为 Pomegranate_Setup_x.x.x_win7.exe
 //   4. 恢复原 tauri.conf.json
 //
 // 前置条件：
@@ -274,6 +274,7 @@ function patchPE(exePath) {
 function patchAllBinaries() {
   const profile = isDebug ? "debug" : "release";
   patchPE(join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe"));
+  patchPE(join(SRC_TAURI, "target", profile, "Pomegranate.exe"));
 
   const binariesDir = join(SRC_TAURI, "binaries");
   if (existsSync(binariesDir)) {
@@ -383,7 +384,7 @@ function renameOutput() {
   }
 
   const src = join(BUNDLE_DIR, installer);
-  const dstName = `IntelligentNoteBook_Setup_${version}_win7_x64-setup.exe`;
+  const dstName = `Pomegranate_Setup_${version}_win7_x64-setup.exe`;
   const dst = join(BUNDLE_DIR, dstName);
 
   renameSync(src, dst);
@@ -422,11 +423,13 @@ function main() {
 
     const profile = isDebug ? "debug" : "release";
     const exePath = join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe");
+    const pomegranatePath = join(SRC_TAURI, "target", profile, "Pomegranate.exe");
 
     // 双保险：beforeBundleCommand 已运行 patch-win7-pe.mjs，
     // 这里再次 patch 确保所有二进制文件（含 sidecar）无误
     patchAllBinaries();
     verifyWin7Imports(exePath);
+    verifyWin7Imports(pomegranatePath);
     verifyBcryptShim();
 
     renameOutput();

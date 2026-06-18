@@ -16,6 +16,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 // ─── 补丁目标列表 ────────────────────────────────
 const TARGETS = [
   "src-tauri/target/release/IntelligentNoteBook.exe",
+  "src-tauri/target/release/Pomegranate.exe",
   "src-tauri/binaries/kb-mcp-x86_64-pc-windows-msvc.exe",
 ];
 
@@ -30,7 +31,14 @@ function patchOne(path) {
   const peOffset = buffer.readUInt32LE(0x3c);
   const opt = peOffset + 24;
 
-  // Patch 1: 子系统版本 → 6.1
+  // Patch 1: 子系统类型 → GUI (2)，消除 Console (3) 产生的 DOS 窗口
+  // PE Optional Header offset 0x44(68): Subsystem field
+  const curSubsystem = buffer.readUInt16LE(opt + 68);
+  if (curSubsystem === 3) {
+    buffer.writeUInt16LE(2, opt + 68);
+  }
+
+  // Patch 2: 子系统版本 → 6.1
   buffer.writeUInt16LE(6, opt + 48);
   buffer.writeUInt16LE(1, opt + 50);
 
@@ -83,7 +91,7 @@ function patchOne(path) {
     console.error(`[patch-win7-pe] ERROR: ${path} 仍残留 GetSystemTimePreciseAsFileTime 引用! 可能导致 Win7 无法启动`);
   }
 
-  return { path, gst: gstPatched, synch: synchPatched, wrtStr: wrtStrPatched };
+  return { path, gst: gstPatched, synch: synchPatched, wrtStr: wrtStrPatched, gui: curSubsystem === 3 };
 }
 
 // ─── 主流程 ──────────────────────────────────────
@@ -91,7 +99,7 @@ let ok = 0;
 for (const path of TARGETS) {
   const r = patchOne(path);
   if (r) {
-    console.log(`[patch-win7-pe] ${path} (subsys=6.1, GST=${r.gst}, synch→bcrypt=${r.synch}, wrtStr→winrt=${r.wrtStr})`);
+    console.log(`[patch-win7-pe] ${path} (gui=${r.gui ? 'YES' : 'no'}, subsys=6.1, GST=${r.gst}, synch→bcrypt=${r.synch}, wrtStr→winrt=${r.wrtStr})`);
     ok++;
   }
 }

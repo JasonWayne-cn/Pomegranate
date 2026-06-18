@@ -718,7 +718,7 @@ export function Sidebar() {
           color: token.colorText,
         }}
       >
-        知识库{import.meta.env.DEV ? " [DEV]" : ""}
+        Pomegranate{import.meta.env.DEV ? " [DEV]" : ""}
       </div>
 
       {/* 全局"新建笔记"+ "打开 md 文件"按钮 */}

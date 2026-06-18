@@ -926,7 +926,7 @@ function DesktopSettingsPage() {
             </p>
             <p style={{ marginBottom: 4 }}>结构如下：</p>
             <pre style={{ fontSize: 12, background: "var(--ant-color-fill-tertiary)", padding: 8, borderRadius: 4, margin: 0 }}>
-{`📁 知识库导出_YYYYMMDD_HHmmss/
+{`📁 Pomegranate导出_YYYYMMDD_HHmmss/
   ├─ <文件夹>/
   │   ├─ <笔记>.md
   │   └─ <笔记>.assets/   (图片+附件)
@@ -1880,7 +1880,7 @@ function DesktopSettingsPage() {
                     <div>
                       <div>开机自动启动</div>
                       <Text type="secondary" style={{ fontSize: 12 }}>
-                        登录系统后自动打开知识库，用于定时提醒等后台任务
+                        登录系统后自动打开 Pomegranate，用于定时提醒等后台任务
                       </Text>
                     </div>
                     <Switch
