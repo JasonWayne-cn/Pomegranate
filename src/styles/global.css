@@ -54,22 +54,22 @@
   .code-block-enhanced,
   .tiptap-video-block {
     background: rgba(0, 0, 0, 0.035);
-    border-color: rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.08);
   }
   .code-block-toolbar,
   .tiptap-video-toolbar {
     background: rgba(0, 0, 0, 0.02);
-    border-bottom-color: rgba(0, 0, 0, 0.06);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   }
   [data-theme-category="dark"] .code-block-enhanced,
   [data-theme-category="dark"] .tiptap-video-block {
     background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.12);
   }
   [data-theme-category="dark"] .code-block-toolbar,
   [data-theme-category="dark"] .tiptap-video-toolbar {
     background: rgba(255, 255, 255, 0.05);
-    border-bottom-color: rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
   /* ─── Callout 4 类 ─── */
   .tiptap-callout[data-callout="info"]    { background: rgba(22, 119, 255, 0.08); }
@@ -79,7 +79,7 @@
   /* ─── 视频时间戳 chip ─── */
   .video-ts-chip {
     background: rgba(22, 119, 255, 0.12);
-    border-color: rgba(22, 119, 255, 0.30);
+    border: 1px solid rgba(22, 119, 255, 0.30);
   }
   .video-ts-chip:hover {
     background: rgba(22, 119, 255, 0.22);
@@ -87,7 +87,7 @@
   .video-ts-chip-broken {
     background: rgba(0, 0, 0, 0.08);
     color: #999;
-    border-color: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(0, 0, 0, 0.15);
   }
   /* ─── Emoji 选择器激活态 ─── */
   .emoji-cat-btn.active {
@@ -103,7 +103,7 @@
   .tiptap pre,
   .ai-markdown pre {
     background: rgba(0, 0, 0, 0.035);
-    border-color: rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.08);
   }
   .tiptap code,
   .ai-markdown code {
@@ -125,7 +125,7 @@
 
   /* ═══════ Mermaid 全屏按钮 ═══════ */
   .mermaid-preview .mermaid-preview__fullscreen-btn {
-    border-color: rgba(0, 0, 0, 0.10);
+    border: 1px solid rgba(0, 0, 0, 0.10);
     background: rgba(255, 255, 255, 0.92);
   }
   .mermaid-preview__fullscreen-btn:hover {
@@ -143,36 +143,36 @@
   /* ═══════ 增强代码块（light）═══════ */
   .code-block-enhanced {
     background: rgba(0, 0, 0, 0.035);
-    border-color: rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.08);
   }
   .code-block-toolbar {
     background: rgba(0, 0, 0, 0.02);
-    border-bottom-color: rgba(0, 0, 0, 0.06);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   }
   .code-block-line-gutter {
-    border-right-color: rgba(0, 0, 0, 0.06);
+    border-right: 1px solid rgba(0, 0, 0, 0.06);
   }
 
   /* ═══════ 视频块（light）═══════ */
   .tiptap-video-block {
     background: rgba(0, 0, 0, 0.035);
-    border-color: rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.08);
   }
   .tiptap-video-block[data-highlight="true"] {
     box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.25);
   }
   .tiptap-video-toolbar {
     background: rgba(0, 0, 0, 0.02);
-    border-bottom-color: rgba(0, 0, 0, 0.06);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   }
 
   /* ═══════ 嵌入视频块（light）═══════ */
   .tiptap-embed-video-block {
-    border-color: rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.08);
   }
   .tiptap-embed-video-toolbar {
     background: rgba(0, 0, 0, 0.03);
-    border-bottom-color: rgba(0, 0, 0, 0.06);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   }
 
   /* ═══════ 暗色主题全系覆盖 ═══════ */
@@ -182,7 +182,7 @@
   [data-theme-category="dark"] .tiptap pre,
   [data-theme-category="dark"] .ai-markdown pre {
     background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
   [data-theme-category="dark"] .tiptap code,
   [data-theme-category="dark"] .ai-markdown code {
@@ -198,7 +198,7 @@
     background: rgba(96, 165, 250, 0.22);
   }
   [data-theme-category="dark"] .mermaid-preview__fullscreen-btn {
-    border-color: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     background: rgba(30, 30, 30, 0.92);
   }
   [data-theme-category="dark"] .mermaid-preview__fullscreen-btn:hover {
@@ -212,29 +212,29 @@
   }
   [data-theme-category="dark"] .code-block-enhanced {
     background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.12);
   }
   [data-theme-category="dark"] .code-block-toolbar {
     background: rgba(255, 255, 255, 0.05);
-    border-bottom-color: rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
   [data-theme-category="dark"] .code-block-line-gutter {
-    border-right-color: rgba(255, 255, 255, 0.08);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
   }
   [data-theme-category="dark"] .tiptap-video-block {
     background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.12);
   }
   [data-theme-category="dark"] .tiptap-video-toolbar {
     background: rgba(255, 255, 255, 0.05);
-    border-bottom-color: rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
   [data-theme-category="dark"] .tiptap-embed-video-block {
-    border-color: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.12);
   }
   [data-theme-category="dark"] .tiptap-embed-video-toolbar {
     background: rgba(255, 255, 255, 0.05);
-    border-bottom-color: rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
 }
 
