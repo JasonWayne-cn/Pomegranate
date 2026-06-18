@@ -41,7 +41,19 @@ extern "system" {
     fn GetProcAddress(hModule: HMODULE, lpProcName: *const u8) -> *mut c_void;
     fn Sleep(dwMilliseconds: DWORD);
     fn SystemFunction036(RandomBuffer: PVOID, RandomBufferLength: u32) -> u8;
+    fn GetSystemTimeAsFileTime(lpSystemTimeAsFileTime: *mut FILETIME);
 }
+
+/// FILETIME 结构体定义（与 Windows API 兼容）
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FILETIME {
+    pub(crate) dw_low_date_time: u32,
+    pub(crate) dw_high_date_time: u32,
+}
+
+/// LPFILETIME 类型别名
+type LPFILETIME = *mut FILETIME;
 
 // ─── 辅助函数 ───
 
@@ -232,5 +244,39 @@ pub unsafe extern "system" fn ProcessPrng(pbData: PVOID, cbData: ULONGLONG) -> B
         0 // STATUS_SUCCESS
     } else {
         0xC000_000F_u32 as i32 // STATUS_UNSUCCESSFUL
+    }
+}
+
+// ═══════════════════════════════════════════════════════
+// kernel32.dll (Win8+) — GetSystemTimePreciseAsFileTime
+// 转发到 GetSystemTimeAsFileTime（Win7 可用）
+// ═══════════════════════════════════════════════════════
+
+static KERNEL32_INIT: Once = Once::new();
+static mut KERNEL32_DLL: HMODULE = std::ptr::null_mut();
+
+#[no_mangle]
+pub unsafe extern "system" fn GetSystemTimePreciseAsFileTime(lpSystemTimeAsFileTime: LPFILETIME) {
+    unsafe {
+        KERNEL32_INIT.call_once(|| {
+            KERNEL32_DLL = load_library("kernel32.dll");
+        });
+
+        if !KERNEL32_DLL.is_null() {
+            let f: Option<unsafe extern "system" fn(LPFILETIME)> =
+                std::mem::transmute(GetProcAddress(
+                    KERNEL32_DLL,
+                    b"GetSystemTimePreciseAsFileTime\0".as_ptr(),
+                ));
+            if let Some(f) = f {
+                f(lpSystemTimeAsFileTime);
+                return;
+            }
+        }
+    }
+
+    // Win7 fallback: 使用 GetSystemTimeAsFileTime
+    unsafe {
+        GetSystemTimeAsFileTime(lpSystemTimeAsFileTime);
     }
 }
