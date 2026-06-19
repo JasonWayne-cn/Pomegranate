@@ -44,12 +44,6 @@ const IS_MAC =
   typeof navigator !== "undefined" && /Mac OS X|Macintosh/.test(navigator.userAgent);
 const HEADER_LEFT_PADDING = IS_MAC ? 80 : 16;
 
-// Win7 (NT 6.1) 上 decorations:false 无边框窗口在 DWM 下客户区计算异常，
-// 导致自定义标题栏渲染错位。Win7 构建使用 decorations:true（原生标题栏），
-// 前端配合隐藏自绘 DragRegion / WindowControls 避免双重标题栏。
-const IS_WIN7 =
-  typeof navigator !== "undefined" && /Windows NT 6\.1/.test(navigator.userAgent);
-
 function getAppWindow(): Window | null {
   try {
     return getCurrentWindow();
@@ -569,11 +563,9 @@ export function AppLayout() {
               />
             </Tooltip>
           </div>
-          {/* DragRegion 拆成左右两半，InstanceBadge 居中显示当前多开实例
-              Win7 有原生标题栏可拖拽，无需自绘 DragRegion */}
-          {!IS_WIN7 && <DragRegion />}
+          <DragRegion />
           <InstanceBadge />
-          {!IS_WIN7 && <DragRegion />}
+          <DragRegion />
           <div style={{ display: "flex", alignItems: "center" }}>
             <UpdateBadge update={update} onClick={openModal} />
             <RibbonBar />
@@ -604,7 +596,7 @@ export function AppLayout() {
                 style={alwaysOnTop ? { color: token.colorPrimary } : undefined}
               />
             </Tooltip>
-            {!IS_MAC && !IS_WIN7 && <WindowControls />}
+            {!IS_MAC && <WindowControls />}
           </div>
         </Header>
         )}

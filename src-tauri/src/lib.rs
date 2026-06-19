@@ -9,6 +9,15 @@ mod tray;
 #[cfg(target_os = "windows")]
 mod win7_stubs;
 
+/// 强制链接器保留 win7_stubs 模块中的符号
+/// 这确保 stub 函数不会被优化掉
+#[cfg(target_os = "windows")]
+#[no_mangle]
+#[allow(dead_code)]
+pub extern "C" fn force_link_win7_stubs() {
+    // 这里不需要实际代码，只要符号被导出即可
+}
+
 use std::fs::File;
 use std::path::{Path, PathBuf};
 

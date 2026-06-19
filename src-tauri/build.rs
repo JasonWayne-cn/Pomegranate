@@ -10,7 +10,12 @@ fn main() {
         println!("cargo:rustc-link-arg=/DELAYLOAD:bcryptprimitives.dll");
         println!("cargo:rustc-link-arg=/DELAYLOAD:api-ms-win-core-winrt-l1-1-0.dll");
         println!("cargo:rustc-link-arg=/DELAYLOAD:api-ms-win-core-winrt-string-l1-1-0.dll");
+        // kernel32.dll 中 Win8+ 函数的延迟加载
+        println!("cargo:rustc-link-arg=/DELAYLOAD:kernel32.dll");
         println!("cargo:rustc-link-arg=delayimp.lib");
+
+        // 使用 .def 文件强制导出 stub 函数
+        println!("cargo:rustc-link-arg=/DEF:win7_stubs.def");
 
         // /FORCE:MULTIPLE — libstd / windows crate 的 .rlib 内嵌了这些 DLL
         // 的 import library thunk 符号，与 win7_stubs.rs 的 #[no_mangle] 定义冲突。

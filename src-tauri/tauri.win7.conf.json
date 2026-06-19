@@ -21,10 +21,7 @@
         "minWidth": 1000,
         "minHeight": 600,
         "center": true,
-        "decorations": true,
-        "closable": false,
-        "minimizable": false,
-        "maximizable": false,
+        "decorations": false,
         "dragDropEnabled": false,
         "visible": false
       }
