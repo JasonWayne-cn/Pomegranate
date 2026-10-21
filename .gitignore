@@ -45,3 +45,6 @@ output/
 # B 站调试产物（本地保留，不进任何远程仓库）
 bili_*.json
 .claude/scheduled_tasks.lock
+
+# 合并过程产物（三方合并脚本输出）
+*.merged
