@@ -14,6 +14,8 @@ interface Props {
   markdown: string;
   /** 笔记标题（用作根节点 fallback / 导出文件名） */
   title: string;
+  /** standalone = 独立窗口模式（当前仅作兼容） */
+  variant?: string;
 }
 
 /**
@@ -29,7 +31,7 @@ interface Props {
  */
 const transformer = new Transformer();
 
-export function MindMapView({ open, onClose, markdown, title }: Props) {
+export function MindMapView({ open, onClose, markdown, title, variant: _variant }: Props) {
   const { token } = antdTheme.useToken();
   const { message } = AntdApp.useApp();
   const svgRef = useRef<SVGSVGElement | null>(null);

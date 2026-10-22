@@ -15,6 +15,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { aiChatApi, aiModelApi } from "@/lib/api";
 import type { AiConversation, AiMessage, AiModel } from "@/types";
 import { MobileAiModelModal } from "@/components/ai/MobileAiModelModal";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
+import { stripPseudoToolCalls } from "@/lib/aiFilter";
+import { compactTurnText } from "@/components/ai/turnModel";
 
 /**
  * 移动端 AI 对话页（设计稿：07-ai-chat.html）
@@ -36,6 +39,7 @@ export function MobileAiChat() {
   const navigate = useNavigate();
   const { id: idParam } = useParams<{ id: string }>();
   const convId = Number(idParam);
+  const keyboardInset = useKeyboardInset(); // 键盘弹出时顶起输入栏，避免遮挡
 
   const [conv, setConv] = useState<AiConversation | null>(null);
   const [model, setModel] = useState<AiModel | null>(null);
@@ -48,6 +52,17 @@ export function MobileAiChat() {
   const [addModelOpen, setAddModelOpen] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // convId 的 ref 镜像 —— 给 mount-once 的 ai:* 事件 handler 用，避免路由参数变化后闭包陷阱
+  const convIdRef = useRef(convId);
+  useEffect(() => {
+    convIdRef.current = convId;
+  }, [convId]);
+  // streaming 的同步镜像：setStreaming 异步，连点发送时旧闭包读到 streaming=false 会重复发送。
+  // sendingRef 在 send() 里同步置位做「渲染前」再入锁；done/error 复位 streaming 后由下面 effect 回落。
+  const sendingRef = useRef(false);
+  useEffect(() => {
+    sendingRef.current = streaming;
+  }, [streaming]);
 
   // 自动滚到底
   function scrollToBottom() {
@@ -85,23 +100,34 @@ export function MobileAiChat() {
     let unlistens: UnlistenFn[] = [];
     let cancelled = false;
     (async () => {
-      const tokenU = await listen<string>("ai:token", (e) => {
-        setStreamingText((prev) => {
-          const next = prev + e.payload;
-          scrollToBottom();
-          return next;
-        });
-      });
-      const doneU = await listen("ai:done", async () => {
+      // ai:token / ai:error payload 带 conversationId（后端改造）；按当前路由的会话过滤，
+      // 避免别的会话（如桌面端）的流式 token 串到这里。
+      const tokenU = await listen<{ conversationId: number; content: string }>(
+        "ai:token",
+        (e) => {
+          if (e.payload.conversationId !== convIdRef.current) return;
+          setStreamingText((prev) => {
+            const next = prev + e.payload.content;
+            scrollToBottom();
+            return next;
+          });
+        },
+      );
+      const doneU = await listen<number>("ai:done", async (e) => {
+        if (e.payload !== convIdRef.current) return;
         setStreaming(false);
         setStreamingText("");
         await loadAll();
       });
-      const errU = await listen<string>("ai:error", (e) => {
-        setStreaming(false);
-        setStreamingText("");
-        message.error(`AI 错误: ${e.payload}`);
-      });
+      const errU = await listen<{ conversationId: number; error: string }>(
+        "ai:error",
+        (e) => {
+          if (e.payload.conversationId !== convIdRef.current) return;
+          setStreaming(false);
+          setStreamingText("");
+          message.error(`AI 错误: ${e.payload.error}`);
+        },
+      );
       if (cancelled) {
         tokenU();
         doneU();
@@ -119,7 +145,9 @@ export function MobileAiChat() {
 
   async function send() {
     const text = input.trim();
-    if (!text || !convId || streaming) return;
+    // sendingRef 是 streaming 的同步镜像，挡住「按钮还没翻成停止」时的重复发送
+    if (!text || !convId || sendingRef.current) return;
+    sendingRef.current = true;
     setInput("");
     setStreaming(true);
     setStreamingText("");
@@ -139,6 +167,7 @@ export function MobileAiChat() {
       await aiChatApi.sendMessage(convId, text);
     } catch (e) {
       setStreaming(false);
+      sendingRef.current = false;
       message.error(`发送失败: ${e}`);
     }
   }
@@ -203,7 +232,10 @@ export function MobileAiChat() {
   return (
     <div
       className="fixed inset-0 flex flex-col bg-slate-50 z-50"
-      style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+      style={{
+        paddingTop: "env(safe-area-inset-top, 0px)",
+        paddingBottom: keyboardInset,
+      }}
     >
       {/* 顶栏 */}
       <header className="flex h-12 items-center justify-between border-b border-slate-200 bg-white px-2 shrink-0">
@@ -330,7 +362,7 @@ export function MobileAiChat() {
         <div className="flex flex-col gap-2">
           {allModels.length === 0 && (
             <div className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-              手机端还没有配置 AI 模型
+              手机端还没有配置模型服务
               <br />
               <span className="text-xs text-slate-400">
                 （手机数据库与桌面独立，需要单独配置）
@@ -369,7 +401,7 @@ export function MobileAiChat() {
             onClick={openAddModel}
             className="mt-2 flex items-center justify-center gap-1 rounded-xl border border-dashed border-orange-300 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700 active:bg-orange-100"
           >
-            <Plus size={16} /> 新增 AI 模型（DeepSeek 等）
+            <Plus size={16} /> 新建模型服务（DeepSeek 等）
           </button>
         </div>
       </Drawer>
@@ -409,7 +441,8 @@ function MessageBubble({
       </div>
       <div className="flex-1 min-w-0">
         <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-slate-700 shadow-sm whitespace-pre-wrap break-words">
-          {msg.content}
+          {/* 失败 / 停止的回复正文可能是空的，补一句结局说明 */}
+          {compactTurnText(msg)}
         </div>
         <div className="mt-1.5 flex items-center gap-3 px-1 text-[11px] text-slate-400">
           <button
@@ -438,7 +471,8 @@ function StreamingBubble({ text }: { text: string }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-slate-700 shadow-sm whitespace-pre-wrap break-words">
-          {text}
+          {/* 与桌面端一致：剥掉伪工具调用残文与引用标记，两者都不该展示给用户 */}
+          {stripPseudoToolCalls(text)}
           <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-[#FA8C16] align-middle" />
         </div>
       </div>

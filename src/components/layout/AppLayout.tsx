@@ -332,7 +332,8 @@ export function AppLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [asrCaptureOpen, setAsrCaptureOpen] = useState(false);
-  const { update, modalOpen, openModal, closeModal, checkManually } = useUpdateChecker();
+  const { update, phase, progress, modalOpen, openModal, closeModal, checkManually } =
+    useUpdateChecker();
 
   // 启动时静默 pull：让用户从其他设备做的修改自动拉到本地，避免后续编辑产生冲突。
   // 只主窗（label === 'main'）跑一次：pop-out 子窗共用同一个 DB，没必要重复 pull。
@@ -567,7 +568,13 @@ export function AppLayout() {
           <InstanceBadge />
           <DragRegion />
           <div style={{ display: "flex", alignItems: "center" }}>
-            <UpdateBadge update={update} onClick={openModal} />
+            <UpdateBadge
+              update={update}
+              phase={phase}
+              progress={progress}
+              onClick={openModal}
+              onCheck={() => void checkManually()}
+            />
             <RibbonBar />
             <Tooltip title="搜索 (Ctrl+K)">
               <Button

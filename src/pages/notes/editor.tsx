@@ -1180,19 +1180,19 @@ function DesktopNoteEditorPage() {
   async function handleWikiLinkClick(wikiTitle: string) {
     try {
       const results = await linkApi.searchTargets(wikiTitle, 20);
-      const exactMatches = results.filter(([, name]) => name === wikiTitle);
+      const exactMatches = results.filter((item) => item.title === wikiTitle);
 
       // 精确命中 1 条：直接跳
       if (exactMatches.length === 1) {
         await ensureSavedBeforeNavigate();
-        navigate(`/notes/${exactMatches[0][0]}`);
+        navigate(`/notes/${exactMatches[0].id}`);
         return;
       }
 
       // 精确命中多条：弹消歧 Modal
       if (exactMatches.length > 1) {
         const notes = await Promise.all(
-          exactMatches.map(([id]) => noteApi.get(id).catch(() => null)),
+          exactMatches.map((item) => noteApi.get(item.id).catch(() => null)),
         );
         const valid = notes.filter((n): n is Note => n !== null);
         if (valid.length === 1) {
@@ -1209,8 +1209,8 @@ function DesktopNoteEditorPage() {
       // 无精确匹配但有模糊匹配：跳转相近的第一条
       if (results.length > 0) {
         await ensureSavedBeforeNavigate();
-        navigate(`/notes/${results[0][0]}`);
-        message.info(`未找到同名文档，跳转到相近的「${results[0][1]}」`);
+        navigate(`/notes/${results[0].id}`);
+        message.info(`未找到同名文档，跳转到相近的「${results[0].title}」`);
         return;
       }
 

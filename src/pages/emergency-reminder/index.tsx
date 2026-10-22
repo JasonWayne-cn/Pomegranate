@@ -5,7 +5,11 @@ import { AlertOctagon, Bell, BellOff, Check, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { taskApi } from "@/lib/api";
 import type { Task } from "@/types";
-import { startBeepLoop } from "@/lib/audio/beep";
+import { describeRepeat } from "@/lib/taskRepeat";
+import { startUrgentReminderLoop } from "@/lib/audio/reminderSound";
+
+/** 紧急提醒响铃封顶时长：5 分钟。到点自动停声，但弹窗仍保留显示。 */
+const MAX_BEEP_MS = 5 * 60 * 1000;
 
 /**
  * 紧急待办「置顶弹窗」承载页面（参考 Outlook 会议提醒交互）。
@@ -27,6 +31,8 @@ export default function EmergencyReminderPage() {
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
+  // 响铃超过封顶时长后自动停声（窗口仍保留）。与 muted（用户手动静音）区分。
+  const [soundStopped, setSoundStopped] = useState(false);
   const [acting, setActing] = useState(false);
   const stopBeepRef = useRef<(() => void) | null>(null);
 
@@ -55,16 +61,31 @@ export default function EmergencyReminderPage() {
     };
   }, [taskId]);
 
-  // 启动循环铃（任务加载后再响）
+  // 启动循环铃（任务加载后再响）。响铃最长 MAX_BEEP_MS（5 分钟），到点自动停声，
+  // 但窗口仍保留显示——避免声音无限循环吵人。
+  //
+  // 铃声音色 / 音量走设置页「待办提醒 → 紧急提醒铃声」，所以要先异步读配置再起循环：
+  // 读配置期间用户可能已经点了静音 / 关窗，用 cancelled 标志兜住，避免起了个停不掉的铃。
   useEffect(() => {
-    if (!task || muted) return;
-    const stop = startBeepLoop(1500);
-    stopBeepRef.current = stop;
+    if (!task || muted || soundStopped) return;
+    let cancelled = false;
+    let stop: (() => void) | null = null;
+    void startUrgentReminderLoop(MAX_BEEP_MS, () => setSoundStopped(true)).then(
+      (fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
+        stop = fn;
+        stopBeepRef.current = fn;
+      },
+    );
     return () => {
-      stop();
+      cancelled = true;
+      stop?.();
       stopBeepRef.current = null;
     };
-  }, [task, muted]);
+  }, [task, muted, soundStopped]);
 
   useEffect(() => {
     return () => {
@@ -170,11 +191,25 @@ export default function EmergencyReminderPage() {
         <div className="flex items-center gap-1">
           <button
             data-tauri-drag-region={false}
-            onClick={() => setMuted((m) => !m)}
-            title={muted ? "恢复响铃" : "静音"}
+            onClick={() => {
+              // 静音中 / 已自动停声 → 点击恢复响铃；正在响 → 点击静音
+              if (muted || soundStopped) {
+                setMuted(false);
+                setSoundStopped(false);
+              } else {
+                setMuted(true);
+              }
+            }}
+            title={
+              soundStopped
+                ? "响铃已超过 5 分钟自动停止，点击重新响铃"
+                : muted
+                  ? "恢复响铃"
+                  : "静音"
+            }
             style={titleBtnStyle}
           >
-            {muted ? <BellOff size={14} /> : <Bell size={14} />}
+            {muted || soundStopped ? <BellOff size={14} /> : <Bell size={14} />}
           </button>
           <button
             data-tauri-drag-region={false}
@@ -375,24 +410,4 @@ function formatMinutes(m: number): string {
   if (m < 60) return `${m} 分钟`;
   if (m < 1440) return `${Math.round(m / 60)} 小时`;
   return `${Math.round(m / 1440)} 天`;
-}
-
-const WEEKDAY_LABELS = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-
-function describeRepeat(task: Task): string {
-  const { repeat_kind, repeat_interval, repeat_weekdays } = task;
-  if (repeat_kind === "none") return "";
-  const iv = Math.max(1, repeat_interval);
-  if (repeat_kind === "daily") return iv === 1 ? "每天" : `每 ${iv} 天`;
-  if (repeat_kind === "monthly") return iv === 1 ? "每月" : `每 ${iv} 月`;
-  if (repeat_weekdays) {
-    const days = repeat_weekdays
-      .split(",")
-      .map((s) => Number(s.trim()))
-      .filter((n) => n >= 1 && n <= 7)
-      .sort((a, b) => a - b);
-    if (days.length === 5 && days.join(",") === "1,2,3,4,5") return "工作日";
-    return days.map((d) => WEEKDAY_LABELS[d]).join("/");
-  }
-  return iv === 1 ? "每周" : `每 ${iv} 周`;
 }

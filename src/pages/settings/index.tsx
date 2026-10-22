@@ -1671,8 +1671,13 @@ function DesktopSettingsPage() {
                         (key) => ({
                           value: key,
                           label: (
-                            <span style={{ fontFamily: EDITOR_FONT_STACKS[key] || undefined }}>
-                              {EDITOR_FONT_LABELS[key]}
+                            <span
+                              style={{
+                                fontFamily:
+                                  (EDITOR_FONT_STACKS as Record<string, string>)[key] || undefined,
+                              }}
+                            >
+                              {(EDITOR_FONT_LABELS as Record<string, string>)[key]}
                             </span>
                           ),
                         }),
@@ -1822,7 +1827,9 @@ function DesktopSettingsPage() {
                         background: "var(--ant-color-fill-quaternary, #fafafa)",
                         border: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
                         borderRadius: 6,
-                        fontFamily: EDITOR_FONT_STACKS[editorFontFamily] || undefined,
+                        fontFamily:
+                          (EDITOR_FONT_STACKS as Record<string, string>)[editorFontFamily] ||
+                          undefined,
                         fontSize: editorFontSize,
                         lineHeight: editorLineHeight,
                       }}

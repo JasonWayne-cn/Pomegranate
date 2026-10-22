@@ -5,10 +5,19 @@ import { X, ListTree } from "lucide-react";
 import { useTabsStore, type NoteTab } from "@/store/tabs";
 import { FileTypeIcon } from "@/components/FileTypeIcon";
 import { noteApi } from "@/lib/api";
+import { useAppStore } from "@/store";
 
 export function TabBar() {
-  const { tabs, activeId, closeTab, closeOtherTabs, closeTabsToRight, getDraft, clearDraft } =
-    useTabsStore();
+  const {
+    tabs,
+    activeId,
+    closeTab,
+    closeOtherTabs,
+    closeTabsToRight,
+    closeAllTabs,
+    getDraft,
+    clearDraft,
+  } = useTabsStore();
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = antdTheme.useToken();
@@ -68,6 +77,8 @@ export function TabBar() {
     setClosing(true);
     try {
       await noteApi.update(confirmTab.id, { title: draft.title.trim(), content: draft.content });
+      // 标题可能被改过，让左侧 NotesPanel / 笔记列表重拉同步新标题
+      useAppStore.getState().bumpNotesRefresh();
       clearDraft(confirmTab.id);
       doClose(confirmTab.id);
       setConfirmTab(null);
@@ -107,6 +118,32 @@ export function TabBar() {
     }
   }, [activeId, tabs.length]);
 
+  /** 关闭全部：清空所有 tab；若正在看某笔记则跳回列表。有未保存草稿时先确认。
+   *  🔴 必须放在下方 `if (tabs.length === 0) return null` 这个 early return **之前**——
+   *  否则无 tab 时提前 return 会跳过这个 useCallback，导致两次渲染 hook 数量不一致
+   *  （"Rendered more hooks than during the previous render" 崩溃）。 */
+  const handleCloseAll = useCallback(() => {
+    const doIt = () => {
+      const viewingNote = location.pathname.startsWith("/notes/");
+      closeAllTabs();
+      tabRefs.current.clear();
+      if (viewingNote) navigate("/notes");
+    };
+    const hasDirty = tabs.some((t) => t.dirty);
+    if (hasDirty) {
+      Modal.confirm({
+        title: "关闭全部标签页",
+        content: "有标签页存在未保存的修改，关闭全部会丢弃这些草稿。是否继续？",
+        okText: "全部关闭",
+        okButtonProps: { danger: true },
+        cancelText: "取消",
+        onOk: doIt,
+      });
+    } else {
+      doIt();
+    }
+  }, [tabs, closeAllTabs, navigate, location.pathname]);
+
   if (tabs.length === 0) return null;
 
   const menuFor = (id: number): MenuProps["items"] => [
@@ -117,16 +154,20 @@ export function TabBar() {
       label: "关闭右侧",
       disabled: tabs.findIndex((t) => t.id === id) >= tabs.length - 1,
     },
+    { type: "divider" },
+    { key: "close-all", label: "关闭全部", disabled: tabs.length === 0 },
   ];
 
   function onMenuClick(id: number, key: string) {
     if (key === "close") handleClose(id);
     else if (key === "close-others") closeOtherTabs(id);
     else if (key === "close-right") closeTabsToRight(id);
+    else if (key === "close-all") handleCloseAll();
   }
 
   return (
     <div
+      className="kb-surface"
       style={{
         display: "flex",
         alignItems: "flex-end",
@@ -243,8 +284,13 @@ export function TabBar() {
                   color: isActive ? token.colorPrimary : token.colorTextSecondary,
                   fontSize: 13,
                   whiteSpace: "nowrap",
-                  maxWidth: 200,
-                  minWidth: 100,
+                  // tab 在 flex 容器里默认可收缩，标签一多就被压到 minWidth，
+                  // 中文只剩一两个字看不出是哪篇。改成禁止收缩 + 抬高下限：
+                  // 宽度只由标题内容在 [160, 240] 之间决定，超出总宽由外层横向滚动
+                  // （容器已是 overflowX:auto，且切换 tab 会 scrollIntoView）。
+                  flexShrink: 0,
+                  maxWidth: 240,
+                  minWidth: 160,
                   borderRadius: 8,
                   border: `1px solid ${isActive ? token.colorPrimary : "transparent"}`,
                   userSelect: "none",

@@ -100,7 +100,9 @@ function DesktopCardsPage() {
   }, [refreshStats]);
 
   return (
-    <div className="px-6 py-4 max-w-4xl mx-auto">
+    // 去掉 max-w + 自带的 px-6：横向留白统一交给 AppLayout Content 的 padding，
+    // 否则这页会比别的列表页多缩进 24px
+    <div className="py-1">
       <div className="mb-3 flex items-center gap-2">
         <Sparkles size={18} />
         <h1 className="text-lg font-semibold m-0">卡片复习</h1>
@@ -134,7 +136,7 @@ function StatsBar({ stats }: { stats: CardStats }) {
   const { token } = antdTheme.useToken();
   return (
     <div
-      className="grid grid-cols-4 gap-3 px-5 py-3 rounded-lg mb-3"
+      className="grid grid-cols-4 gap-3 px-5 py-3 rounded-lg mb-3 kb-surface"
       style={{
         background: token.colorBgContainer,
         border: `1px solid ${token.colorBorderSecondary}`,
@@ -286,11 +288,11 @@ function ReviewTab({ onChanged }: { onChanged: () => void }) {
         )}
       </div>
 
-      {/* 卡片正反面 */}
-      <AntCard
-        className="mb-3"
-        styles={{ body: { minHeight: 180, padding: "28px 24px" } }}
-      >
+      {/* 卡片正反面。
+          ⚠️ 这里**不留 margin-bottom**：卡片与下方操作区的间距统一由操作区的 mt 控制。
+          两边都写外边距的话，相邻兄弟会发生外边距折叠、取两者最大值 ——
+          再去调操作区的 mt 就会出现"调小了却没反应"（被卡片的 mb 兜住）。 */}
+      <AntCard styles={{ body: { minHeight: 180, padding: "28px 24px" } }}>
         <div className="text-center text-base whitespace-pre-wrap break-words">
           {current.front}
         </div>
@@ -307,15 +309,15 @@ function ReviewTab({ onChanged }: { onChanged: () => void }) {
         )}
       </AntCard>
 
-      {/* 操作区 */}
+      {/* 操作区 —— 与卡片的间距在这里统一控制（卡片侧不留 mb，见上方注释） */}
       {!showBack ? (
-        <div className="flex justify-center">
+        <div className="flex justify-center mt-6">
           <Button type="primary" size="large" onClick={() => setShowBack(true)}>
             显示答案 (空格)
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-4 gap-2 mt-6">
           <RateBtn label="忘了" interval={previews?.again} color="#ff4d4f" onClick={() => rate(Rating.Again)} />
           <RateBtn label="模糊" interval={previews?.hard} color="#fa8c16" onClick={() => rate(Rating.Hard)} />
           <RateBtn label="还行" interval={previews?.good} color="#1677ff" onClick={() => rate(Rating.Good)} />
@@ -494,6 +496,9 @@ function ListTab({ onChanged }: { onChanged: () => void }) {
         }}
       />
       <CardEditModal
+        // key 必须落在持有 useForm 的组件上：只给内部 <Modal> 加 key 无法重建
+        // form 仓库，导致打开下一张卡时仓库残留上一张的 front/back（编辑串内容）。
+        key={editing ? `edit-${editing.id}` : "edit-empty"}
         open={!!editing}
         editing={editing}
         onClose={() => setEditing(null)}
@@ -521,11 +526,10 @@ function CardEditModal({
   const [saving, setSaving] = useState(false);
 
   /**
-   * 关键：destroyOnHidden + form.setFieldsValue 在 useEffect 里有时序问题
-   * （Form 子树重新挂载前 setFieldsValue 没生效）。改用 Modal 的 key
-   * 强制 remount + Form initialValues 初始化，是 antd 推荐的稳妥写法。
+   * 表单初值。本组件由父级 `key={edit-<id>}` 按卡片整组重建（含 useForm
+   * 实例），所以每次打开都是全新 form 仓库，initialValues 能可靠生效，
+   * 不会出现「打开 B 却显示上一张 A」的串内容问题。
    */
-  const modalKey = editing ? `edit-${editing.id}` : "create";
   const initialValues = {
     front: editing?.front ?? "",
     back: editing?.back ?? "",
@@ -554,7 +558,6 @@ function CardEditModal({
 
   return (
     <Modal
-      key={modalKey}
       open={open}
       title={editing ? "编辑卡片" : "新建卡片"}
       onCancel={onClose}

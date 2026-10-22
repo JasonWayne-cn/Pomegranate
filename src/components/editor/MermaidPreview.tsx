@@ -53,9 +53,12 @@ let renderCounter = 0;
 export function MermaidPreview({
   code,
   onClick,
+  variant: _variant,
 }: {
   code: string;
   onClick?: () => void;
+  /** standalone = 独立窗口模式（当前不改变渲染，仅兼容调用方） */
+  variant?: string;
 }) {
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

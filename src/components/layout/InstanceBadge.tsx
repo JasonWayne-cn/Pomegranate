@@ -37,8 +37,9 @@ export function InstanceBadge() {
   // 启动后 ~50ms 内 info 还没拉到，先什么都不渲染（避免闪烁）
   if (!info) return null;
 
-  const isDefault = info.instanceId === null;
-  const fullLabel = instanceFullLabel(info.instanceId);
+  const instanceId = info.instanceId ?? null;
+  const isDefault = instanceId === null;
+  const fullLabel = instanceFullLabel(instanceId);
 
   async function handleOpenDataDir(e?: React.MouseEvent) {
     e?.stopPropagation();

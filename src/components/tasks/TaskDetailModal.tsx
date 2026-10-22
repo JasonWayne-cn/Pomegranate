@@ -1,7 +1,12 @@
+import { useEffect, useRef, useState } from "react";
 import { Modal, Button, Tag, Typography, theme as antdTheme } from "antd";
 import { Star, Edit3 } from "lucide-react";
-import type { Task } from "@/types";
+import type { Project, Task } from "@/types";
+import { projectApi, taskApi } from "@/lib/api";
+import { taskTimeLines } from "@/lib/taskTimestamps";
+import { CopyButton } from "@/components/ui/CopyButton";
 import { SubtaskList } from "./SubtaskList";
+import TaskAttachments, { type TaskAttachmentsHandle } from "./TaskAttachments";
 
 const { Text, Paragraph } = Typography;
 
@@ -30,6 +35,8 @@ interface Props {
    * 未传时不渲染编辑按钮。
    */
   onEdit?: (task: Task) => void;
+  /** 附件增删后回调（带最新数量），父级用来局部 patch 列表里的回形针角标 */
+  onAttachmentsChanged?: (taskId: number, count: number) => void;
 }
 
 /**
@@ -44,9 +51,39 @@ export function TaskDetailModal({
   onToggleStatus,
   onSubtaskChanged,
   onEdit,
+  onAttachmentsChanged,
 }: Props) {
   const { token } = antdTheme.useToken();
+  const attachmentsRef = useRef<TaskAttachmentsHandle>(null);
+
+  // 详情弹窗里没有描述输入框，粘贴截图挂在 document 上：只在弹窗打开、且焦点不在
+  // 输入框（子任务编辑框要正常粘文本）时接管带文件的粘贴
+  const openTaskId = task?.id ?? null;
+  useEffect(() => {
+    if (openTaskId == null) return;
+    const onPaste = (e: ClipboardEvent) => {
+      // 子任务附件区已经接手（React onPaste 先于 document 监听执行并 preventDefault），
+      // 不判断会把同一张图同时挂到主任务上
+      if (e.defaultPrevented) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      // 详情页没有可写的描述框：图文混合时只收图片，文字丢弃
+      attachmentsRef.current?.handlePaste(e);
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [openTaskId]);
   const isMain = task && task.parent_task_id == null;
+
+  // 任务有 project_id 时拉项目名展示（按需，只在打开 Modal 时拉一次全量）
+  const [projects, setProjects] = useState<Project[]>([]);
+  useEffect(() => {
+    if (!task || task.project_id == null) return;
+    projectApi.list(true).then(setProjects).catch(() => setProjects([]));
+  }, [task]);
+  const project = task?.project_id != null
+    ? projects.find((p) => p.id === task.project_id) ?? null
+    : null;
 
   return (
     <Modal
@@ -105,8 +142,39 @@ export function TaskDetailModal({
                   fill={token.colorWarning}
                 />
               )}
+              <CopyButton text={task.title} title="复制标题" />
             </div>
           </div>
+
+          <div>
+            <div className="flex items-center gap-1">
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                备注
+              </Text>
+              {task.description?.trim() && (
+                <CopyButton text={task.description} title="复制备注" />
+              )}
+            </div>
+            <Paragraph
+              style={{
+                marginTop: 4,
+                marginBottom: 0,
+                fontSize: 13,
+                whiteSpace: "pre-wrap",
+                color: task.description?.trim()
+                  ? token.colorText
+                  : token.colorTextQuaternary,
+              }}
+            >
+              {task.description?.trim() || "暂无备注"}
+            </Paragraph>
+          </div>
+          {/* 附件：详情里也能直接粘贴截图 / 拖入 / 删除，不必进编辑弹窗 */}
+          <TaskAttachments
+            ref={attachmentsRef}
+            taskId={task.id}
+            onCountChange={(n) => onAttachmentsChanged?.(task.id, n)}
+          />
 
           <div className="flex gap-6">
             <div>
@@ -147,6 +215,37 @@ export function TaskDetailModal({
                 </div>
               </div>
             )}
+            {task.start_date && (
+              <div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  起始
+                </Text>
+                <div className="mt-1" style={{ fontSize: 13 }}>
+                  {task.start_date}
+                </div>
+              </div>
+            )}
+            {project && (
+              <div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  项目
+                </Text>
+                <div
+                  className="mt-1 inline-flex items-center gap-2"
+                  style={{ fontSize: 13 }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 2,
+                      background: project.color,
+                    }}
+                  />
+                  {project.name}
+                </div>
+              </div>
+            )}
             {task.repeat_kind && task.repeat_kind !== "none" && (
               <div>
                 <Text type="secondary" style={{ fontSize: 12 }}>
@@ -160,25 +259,6 @@ export function TaskDetailModal({
             )}
           </div>
 
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              备注
-            </Text>
-            <Paragraph
-              style={{
-                marginTop: 4,
-                marginBottom: 0,
-                fontSize: 13,
-                whiteSpace: "pre-wrap",
-                color: task.description?.trim()
-                  ? token.colorText
-                  : token.colorTextQuaternary,
-              }}
-            >
-              {task.description?.trim() || "暂无备注"}
-            </Paragraph>
-          </div>
-
           {/* 子任务（仅主任务显示） */}
           {isMain && (
             <div
@@ -188,17 +268,35 @@ export function TaskDetailModal({
                 borderTop: `1px solid ${token.colorBorderSecondary}`,
               }}
             >
-              <Text
-                type="secondary"
-                style={{ fontSize: 12, display: "block", marginBottom: 6 }}
+              <div
+                className="flex items-center gap-1"
+                style={{ marginBottom: 6 }}
               >
-                子任务
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  子任务
+                  {task.subtask_total > 0 && (
+                    <span
+                      style={{ color: token.colorTextTertiary, marginLeft: 6 }}
+                    >
+                      {task.subtask_done}/{task.subtask_total} 已完成
+                    </span>
+                  )}
+                </Text>
                 {task.subtask_total > 0 && (
-                  <span style={{ color: token.colorTextTertiary, marginLeft: 6 }}>
-                    {task.subtask_done}/{task.subtask_total} 已完成
-                  </span>
+                  <CopyButton
+                    // 点击时才现拉一遍：子任务可在本弹窗内增删改，用最新数据才不会复制到旧内容。
+                    // 输出 Markdown 待办格式，粘到笔记 / 聊天窗里勾选状态一眼可见。
+                    text={async () => {
+                      const list = await taskApi.listSubtasks(task.id);
+                      return list
+                        .map((t) => `- [${t.status === 1 ? "x" : " "}] ${t.title}`)
+                        .join("\n");
+                    }}
+                    title="复制全部子任务"
+                    successText="已复制全部子任务"
+                  />
                 )}
-              </Text>
+              </div>
               <SubtaskList
                 parentTaskId={task.id}
                 compact
@@ -206,6 +304,31 @@ export function TaskDetailModal({
                   onSubtaskChanged?.(task.id, done, total);
                 }}
               />
+            </div>
+          )}
+
+          {/* 创建 / 完成时间 —— 数据一直在记（tasks.created_at / completed_at），
+              只是此前没有任何界面展示。带年份，详情页看的是准确时间。 */}
+          {taskTimeLines(task, true).length > 0 && (
+            <div
+              style={{
+                marginTop: 4,
+                paddingTop: 10,
+                borderTop: `1px solid ${token.colorBorderSecondary}`,
+                display: "flex",
+                gap: 16,
+                flexWrap: "wrap",
+              }}
+            >
+              {taskTimeLines(task, true).map((line) => (
+                <Text
+                  key={line.label}
+                  type="secondary"
+                  style={{ fontSize: 12 }}
+                >
+                  {line.label}于 {line.value}
+                </Text>
+              ))}
             </div>
           )}
         </div>

@@ -10,20 +10,31 @@ import {
   Tag,
   Dropdown,
   Select,
+  TreeSelect,
   App as AntdApp,
   Space,
   Typography,
   theme as antdTheme,
 } from "antd";
-import type { MenuProps, RefSelectProps } from "antd";
+import type { InputRef, MenuProps, RefSelectProps } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { Plus, NotebookText, Folder as FolderIcon, File as FileIcon, Link as LinkIcon } from "lucide-react";
+import { Plus, NotebookText, Folder as FolderIcon, File as FileIcon, Link as LinkIcon, X, Settings } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "react-router-dom";
-import { taskApi, taskCategoryApi, noteApi, configApi } from "@/lib/api";
+import { taskApi, taskCategoryApi, noteApi, configApi, projectApi, aiPlanApi } from "@/lib/api";
+import { recognizeTask, type DueTime, type RecognizedTask } from "@/lib/taskTextParser";
+import RecognizeResultCard, { type RecognizeSource } from "./RecognizeResultCard";
+import {
+  TASK_RECOGNIZE_MODE_KEY,
+  normalizeRecognizeMode,
+  type TaskRecognizeMode,
+} from "@/components/settings/TaskRecognizeModeRow";
+import type { AiRecognizedTask } from "@/types";
+import { categoryTreeSelectData } from "@/lib/categoryTree";
 import { relativeTime } from "@/lib/utils";
 import type {
   Note,
+  Project,
   Task,
   TaskCategory,
   TaskLinkInput,
@@ -33,11 +44,31 @@ import type {
   CreateTaskInput,
 } from "@/types";
 import { SubtaskList } from "./SubtaskList";
+import { ProjectManageModal } from "./ProjectManageModal";
 import { MicButton } from "@/components/MicButton";
+import TaskAttachments, {
+  flushDraftAttachments,
+  type DraftAttachment,
+  type TaskAttachmentsHandle,
+} from "./TaskAttachments";
 
 type RepeatMode = "none" | "daily" | "weekdays" | "weekly" | "monthly" | "custom";
 type EndMode = "never" | "until" | "count";
 type CustomUnit = "day" | "week" | "month";
+
+/**
+ * 标题按**单行文本**存：粘贴 / 语音带进来的换行、制表一律折成空格。
+ *
+ * 标题输入框虽然会随字数自动长高（视觉折行，最多 5 行），但存的仍是一行 ——
+ * 列表行、TaskCard、日历、搜索结果的 white-space 都是默认值，真换行只会被折叠成
+ * 空格白改一场；导出 Markdown 的 `- [ ] ${title}` 更会被换行拆断成两条。
+ * 需要分行陈述的内容请写进"备注"。
+ *
+ * 只折叠不 trim：首尾空格得留着，否则用户正打字时空格会被吞。保存时另有 title.trim()。
+ */
+function normalizeTaskTitle(v: string): string {
+  return v.replace(/[\r\n\t]+/g, " ");
+}
 
 interface Props {
   open: boolean;
@@ -91,6 +122,19 @@ export function CreateTaskModal({
   const [remindBefore, setRemindBefore] = useState<number | null>(null);
   const [links, setLinks] = useState<TaskLinkInput[]>([]);
   const [saving, setSaving] = useState(false);
+  const [aiRecognizing, setAiRecognizing] = useState(false);
+  /** 粘贴识别结果（卡片展示 + 换时间 / 撤销用）；null = 没有识别或已收起 */
+  const [recognized, setRecognized] = useState<{
+    r: RecognizedTask;
+    source: RecognizeSource;
+    picked: number;
+    aiNote: string | null;
+    /** 被识别的原文（「应用 AI 结果」时判断是不是同一段，决定子任务去重） */
+    text: string;
+    /** AI 返回时用户已改过表单：结果先挂在这里，等用户点「应用」，不自动覆盖 */
+    pendingAi?: RecognizedTask | null;
+  } | null>(null);
+  const [recognizeMode, setRecognizeMode] = useState<TaskRecognizeMode>("auto");
   const [continuous, setContinuous] = useState(false);
   // ─── 循环提醒状态 ─────────────────────────
   const [repeatMode, setRepeatMode] = useState<RepeatMode>("none");
@@ -107,6 +151,56 @@ export function CreateTaskModal({
   // ─── 分类 ─────────────────────────────────
   const [categories, setCategories] = useState<TaskCategory[]>([]);
   const [categoryId, setCategoryId] = useState<number | null>(null);
+  // ─── 项目 + 起始日（v41） ─────────────────────
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState<number | null>(null);
+  /** 项目下拉内联新建：是否展开输入框 / 输入值 / 创建中 */
+  const [projectCreating, setProjectCreating] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [projectSaving, setProjectSaving] = useState(false);
+  /** 项目管理弹窗（改名/改色/归档/删除）；从下拉 footer 的"管理"打开 */
+  const [projectManageOpen, setProjectManageOpen] = useState(false);
+  /** 甘特图起始日；可单独存在（没截止也行）或与 dueDate 组成区间 */
+  const [startDate, setStartDate] = useState<Dayjs | null>(null);
+  /**
+   * 时间输入模式（滴答清单同款）：
+   * - single「日期」：只有一个截止时刻，日历上落在那一天（老行为）
+   * - range「时间段」：起止区间，甘特图画成条、日历跨天显示
+   * 只是同一组字段（start_date / due_date）的两种录入形态，不新增后端字段。
+   */
+  const [dateMode, setDateMode] = useState<"single" | "range">("single");
+  // ─── 草稿子任务（仅新建模式用） ────────────────
+  /** 新建态尚无主任务 id，子任务先在本地草稿数组里堆着；保存时拿到 newId 后批量 create */
+  /** due：'YYYY-MM-DD HH:mm:ss'，粘贴识别出的子任务会带上自己的截止时间 */
+  const [draftSubtasks, setDraftSubtasks] = useState<{ title: string; due?: string }[]>([]);
+  const [draftSubInput, setDraftSubInput] = useState("");
+  /** 新建态的附件同理：先暂存 File，主任务落库后再上传 */
+  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
+  /** 附件条还在读取外链 / 本地图片：此时保存会漏掉这些图，所以保存按钮先禁用 */
+  const [attachmentsBusy, setAttachmentsBusy] = useState(false);
+  /** 关弹窗 / 卸载时要释放草稿的 blob: 预览地址，effect 里拿最新值用 */
+  const draftAttachmentsRef = useRef<DraftAttachment[]>([]);
+  draftAttachmentsRef.current = draftAttachments;
+  const attachmentsRef = useRef<TaskAttachmentsHandle>(null);
+
+  /** 释放草稿预览 blob 并清空（关弹窗、重新打开、卸载都会走） */
+  const discardDraftAttachments = useCallback(() => {
+    draftAttachmentsRef.current.forEach(
+      (d) => d.previewUrl && URL.revokeObjectURL(d.previewUrl),
+    );
+    draftAttachmentsRef.current = [];
+    setDraftAttachments([]);
+  }, []);
+  useEffect(() => {
+    if (open) return;
+    discardDraftAttachments();
+    // 关弹窗时 AI 识别可能还在跑：作废它，免得结果回来写进下一次打开的表单
+    resetRecognition();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, discardDraftAttachments]);
+  useEffect(() => () => discardDraftAttachments(), [discardDraftAttachments]);
+  /** 回车追加草稿子任务后，保持焦点在输入框（连续录入体验） */
+  const draftSubInputRef = useRef<InputRef>(null);
 
   // 拉分类列表（一次即可；管理弹窗变更后由父组件 onSaved 触发列表刷新）
   useEffect(() => {
@@ -115,6 +209,11 @@ export function CreateTaskModal({
       .list()
       .then(setCategories)
       .catch(() => setCategories([]));
+    // 项目列表：默认不要归档项目（用户给已归档项目挂新任务的场景极少）
+    projectApi
+      .list(false)
+      .then(setProjects)
+      .catch(() => setProjects([]));
   }, [open]);
 
   // 组件首次挂载时拉一次默认时分；早于用户打开弹窗加载，避免首屏跳变
@@ -124,6 +223,10 @@ export function CreateTaskModal({
       .then((v) => {
         if (v && /^\d{2}:\d{2}/.test(v)) setDefaultTime(v.slice(0, 5));
       })
+      .catch(() => {});
+    configApi
+      .get(TASK_RECOGNIZE_MODE_KEY)
+      .then((v) => setRecognizeMode(normalizeRecognizeMode(v)))
       .catch(() => {});
   }, []);
 
@@ -173,6 +276,10 @@ export function CreateTaskModal({
       }
       setRemindBefore(editing.remind_before_minutes);
       setCategoryId(editing.category_id);
+      setProjectId(editing.project_id);
+      setStartDate(editing.start_date ? dayjs(editing.start_date) : null);
+      // 有起始日 = 这条任务本来就是个区间，打开时直接停在「时间段」页签
+      setDateMode(editing.start_date ? "range" : "single");
       setLinks(
         editing.links.map((l) => ({
           kind: l.kind,
@@ -213,6 +320,9 @@ export function CreateTaskModal({
       }
       setRemindBefore(null);
       setCategoryId(presetCategoryId ?? null);
+      setProjectId(null);
+      setStartDate(null);
+      setDateMode("single");
       setLinks([]);
       // 循环默认清零
       setRepeatMode("none");
@@ -229,6 +339,12 @@ export function CreateTaskModal({
     setNotePickerOpen(false);
     setNoteQuery("");
     setNoteOptions([]);
+    setDraftSubtasks([]);
+    discardDraftAttachments();
+    resetRecognition();
+    setDraftSubInput("");
+    setProjectCreating(false);
+    setNewProjectName("");
   }, [open, editing, presetPriority, presetImportant, presetDueDate, presetCategoryId]);
 
   /** 拉候选笔记：keyword 空 → 最近 8 条，非空 → 模糊搜前 10 条 */
@@ -313,6 +429,35 @@ export function CreateTaskModal({
     }
   }
 
+  /**
+   * 下拉内联新建项目：只收名称，颜色按现有项目数轮转取预设色（避免清一色）。
+   * 起始/结束日期、描述等高级字段留给甘特图视图的"项目管理"补充。
+   * 创建成功后刷新项目列表并自动选中新项目。
+   */
+  async function handleCreateProject() {
+    const name = newProjectName.trim();
+    if (!name) {
+      message.warning("请输入项目名称");
+      return;
+    }
+    setProjectSaving(true);
+    try {
+      const color =
+        PROJECT_PRESET_COLORS[projects.length % PROJECT_PRESET_COLORS.length];
+      const newId = await projectApi.create({ name, color });
+      const list = await projectApi.list(false);
+      setProjects(list);
+      setProjectId(newId);
+      setNewProjectName("");
+      setProjectCreating(false);
+      message.success("项目已创建并选中");
+    } catch (e) {
+      message.error(`创建项目失败: ${e}`);
+    } finally {
+      setProjectSaving(false);
+    }
+  }
+
   function handleAddUrlLink() {
     const trimmed = urlInput.trim();
     if (!trimmed) return;
@@ -333,9 +478,15 @@ export function CreateTaskModal({
       message.warning("请填写任务标题");
       return;
     }
+    // 按钮已禁用，这里兜住标题框回车保存的入口
+    if (attachmentsBusy) {
+      message.info("图片还在读取，稍等片刻再保存");
+      return;
+    }
     setSaving(true);
     try {
       const dueStr = dueDate ? dueDate.format("YYYY-MM-DD HH:mm:ss") : null;
+      const startStr = startDate ? startDate.format("YYYY-MM-DD") : null;
       const repeatPayload = buildRepeatPayload({
         mode: repeatMode,
         unit: customUnit,
@@ -357,6 +508,10 @@ export function CreateTaskModal({
           clear_remind_before_minutes: remindBefore === null,
           category_id: categoryId ?? undefined,
           clear_category_id: categoryId === null,
+          project_id: projectId ?? undefined,
+          clear_project_id: projectId === null,
+          start_date: startStr ?? undefined,
+          clear_start_date: !startStr,
           ...repeatPayload.update,
         });
         // 更新 links：简单策略——删除所有旧的，再加新的
@@ -368,7 +523,7 @@ export function CreateTaskModal({
         }
         message.success("已保存");
       } else {
-        await taskApi.create({
+        const newTaskId = await taskApi.create({
           title: title.trim(),
           description: description.trim() || null,
           priority,
@@ -376,16 +531,52 @@ export function CreateTaskModal({
           due_date: dueStr,
           remind_before_minutes: remindBefore,
           category_id: categoryId,
+          project_id: projectId,
+          start_date: startStr,
           links,
           ...repeatPayload.create,
         });
-        message.success("已创建");
+        if (draftAttachments.length > 0) {
+          const flushed = draftAttachments;
+          const failedAtt = await flushDraftAttachments(newTaskId, flushed);
+          // 只移除已上传的那批：上传期间用户若又粘了图（连续新建场景），留给下一条
+          setDraftAttachments((prev) => prev.filter((d) => !flushed.includes(d)));
+          if (failedAtt > 0) message.warning(`${failedAtt} 个附件上传失败`);
+        }
+        // 草稿子任务：主任务落库后顺序创建，失败也不阻断主任务（仅 warn）
+        if (draftSubtasks.length > 0) {
+          let failed = 0;
+          for (const sub of draftSubtasks) {
+            try {
+              await taskApi.create({
+                title: sub.title,
+                priority: 1,
+                parent_task_id: newTaskId,
+                // 子任务的时间就是「到点提醒」（与 SubtaskList 同语义）
+                ...(sub.due ? { due_date: sub.due, remind_before_minutes: 0 } : {}),
+              });
+            } catch {
+              failed++;
+            }
+          }
+          if (failed > 0) {
+            message.warning(`已创建主任务，但 ${failed} 条子任务创建失败`);
+          } else {
+            message.success(`已创建（含 ${draftSubtasks.length} 条子任务）`);
+          }
+        } else {
+          message.success("已创建");
+        }
       }
       if (continuous && !isEdit) {
-        // 连续新建：保留紧急度和截止时间，清空标题/描述/关联
+        // 连续新建：保留紧急度和截止时间，清空标题/描述/关联/草稿子任务
         setTitle("");
         setDescription("");
         setLinks([]);
+        setDraftSubtasks([]);
+        setDraftSubInput("");
+        // 上一条的识别卡片 / 撤销快照不能带到下一条，否则撤销会把上一条的内容还原回来
+        resetRecognition();
         onSaved();
       } else {
         onSaved();
@@ -394,6 +585,263 @@ export function CreateTaskModal({
       message.error(`保存失败: ${e}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  type DraftSub = { title: string; due?: string };
+  type FormSnapshot = {
+    title: string;
+    dueDate: Dayjs | null;
+    startDate: Dayjs | null;
+    dateMode: "single" | "range";
+    remindBefore: number | null;
+    important: boolean;
+    priority: TaskPriority;
+    draftSubtasks: DraftSub[];
+  };
+
+  /**
+   * 当前表单的实时值。AI 识别是异步的，回来时闭包里的 state 早就旧了，
+   * 要判断「用户在等 AI 期间有没有改过表单」只能读这里。渲染时同步赋值，保证总是最新。
+   */
+  const formRef = useRef<FormSnapshot>(null as unknown as FormSnapshot);
+  formRef.current = {
+    title,
+    dueDate,
+    startDate,
+    dateMode,
+    remindBefore,
+    important,
+    priority,
+    draftSubtasks,
+  };
+
+  /** 最近一次识别前的表单快照：撤销时整体还原（只回到最近一次识别前） */
+  const preRecognizeRef = useRef<FormSnapshot | null>(null);
+  /**
+   * 最近一次识别实际写进表单的值：与 formRef 比较即可知道用户之后有没有手动改过。
+   * `added` 是这次识别新加的草稿子任务对象（按引用识别），重新识别同一段文字时据此去重。
+   */
+  const appliedRef = useRef<{
+    title: string;
+    due: string | null;
+    start: string | null;
+    subtasks: DraftSub[] | null;
+    added: DraftSub[];
+    text: string;
+  } | null>(null);
+  /**
+   * 识别请求序号：每次新识别 / 撤销 / 收起 / 关弹窗 / 连续新建都会 +1。
+   * AI 返回时序号对不上就说明这次结果已经过期，直接丢弃，避免慢请求覆盖用户后来的操作。
+   */
+  const recognizeSeqRef = useRef(0);
+
+  const fmtDay = (d: Dayjs | null) => (d ? d.format("YYYY-MM-DD HH:mm") : null);
+
+  /** 用户在最近一次识别回填之后是否改过标题 / 时间 / 子任务 */
+  function formChangedSinceApplied(): boolean {
+    const a = appliedRef.current;
+    if (!a) return false;
+    const cur = formRef.current;
+    if (cur.title !== a.title) return true;
+    if (fmtDay(cur.dueDate) !== a.due) return true;
+    if (fmtDay(cur.startDate) !== a.start) return true;
+    if (a.subtasks) {
+      if (cur.draftSubtasks.length !== a.subtasks.length) return true;
+      if (cur.draftSubtasks.some((s, i) => s !== a.subtasks![i])) return true;
+    }
+    return false;
+  }
+
+  /** 作废进行中的识别并清掉卡片 / 快照（不改表单内容） */
+  function resetRecognition() {
+    recognizeSeqRef.current++;
+    setAiRecognizing(false);
+    setRecognized(null);
+    preRecognizeRef.current = null;
+    appliedRef.current = null;
+  }
+
+  /**
+   * 开始一次新识别，返回作为回填基准的快照：
+   * - 上次识别后表单没动过 → 沿用上次的快照（本次只是替换上次的识别结果，撤销仍回到最初）
+   * - 动过 → 以当前表单为基准重拍，用户在两次识别之间的手动修改不会被吞掉；
+   *   若识别的是同一段文字，先剔除上次识别加进来的子任务，避免重复
+   */
+  function beginRecognition(text: string): FormSnapshot {
+    const prevBase = preRecognizeRef.current;
+    const applied = appliedRef.current;
+    if (prevBase && applied && !formChangedSinceApplied()) return prevBase;
+    const cur = formRef.current;
+    const base: FormSnapshot = {
+      ...cur,
+      draftSubtasks:
+        applied && applied.text === text
+          ? cur.draftSubtasks.filter((s) => !applied.added.includes(s))
+          : cur.draftSubtasks,
+    };
+    preRecognizeRef.current = base;
+    return base;
+  }
+
+  function dueToDayjs(d: DueTime): Dayjs {
+    // 原文没写几点就用设置里的默认时间，与手动选日期一致
+    const [h, m] = (d.time ?? defaultTime).split(":").map(Number);
+    return dayjs(d.date).hour(h ?? 9).minute(m ?? 0).second(0);
+  }
+
+  /** 只改时间（卡片上点别的候选时间也走这里） */
+  function applyDue(due: DueTime | null, start: string | null | undefined) {
+    const base = preRecognizeRef.current;
+    if (!due) return;
+    setDueDate(dueToDayjs(due));
+    if (start) {
+      setStartDate(dayjs(start));
+      setDateMode("range");
+    } else if (base) {
+      setStartDate(base.startDate);
+      setDateMode(base.dateMode);
+    }
+  }
+
+  /** 把识别结果回填表单：只填识别出的项；子任务只在新建时加（编辑时子任务是真实数据） */
+  function applyRecognition(
+    r: RecognizedTask,
+    source: RecognizeSource,
+    base: FormSnapshot,
+    text: string,
+    aiNote: string | null = null,
+  ) {
+    const nextTitle = r.title ? normalizeTaskTitle(r.title) : base.title;
+    const nextDue = r.due ? dueToDayjs(r.due) : base.dueDate;
+    const nextStart = r.due ? (r.start ? dayjs(r.start) : base.startDate) : base.startDate;
+    setTitle(nextTitle);
+    setDueDate(nextDue);
+    setStartDate(nextStart);
+    setDateMode(r.due && r.start ? "range" : base.dateMode);
+    setRemindBefore(r.due && r.remindBefore != null ? r.remindBefore : base.remindBefore);
+    setImportant(r.important || base.important);
+    setPriority(r.urgent ? 0 : base.priority);
+    let subtasks: DraftSub[] | null = null;
+    let added: DraftSub[] = [];
+    if (!isEdit) {
+      added = r.subtasks.map((st) => ({
+        title: st.title,
+        due: st.due ? dueToDayjs(st.due).format("YYYY-MM-DD HH:mm:ss") : undefined,
+      }));
+      subtasks = [...base.draftSubtasks, ...added];
+      setDraftSubtasks(subtasks);
+    }
+    appliedRef.current = {
+      title: nextTitle,
+      due: fmtDay(nextDue),
+      start: fmtDay(nextStart),
+      subtasks,
+      added,
+      text,
+    };
+    setRecognized({ r, source, picked: 0, aiNote, text, pendingAi: null });
+  }
+
+  function undoRecognition() {
+    const base = preRecognizeRef.current;
+    if (base) {
+      setTitle(base.title);
+      setDueDate(base.dueDate);
+      setStartDate(base.startDate);
+      setDateMode(base.dateMode);
+      setRemindBefore(base.remindBefore);
+      setImportant(base.important);
+      setPriority(base.priority);
+      setDraftSubtasks(base.draftSubtasks);
+    }
+    resetRecognition();
+  }
+
+  /**
+   * AI 结构化结果 → 与本地同形，好共用卡片；本地的日期候选保留，方便用户在两者间切换。
+   * AI 没给出的字段（没识别出时间、没拆子任务等）沿用本地规则结果，
+   * 不能因为 AI 漏了一项就把本地已回填的值退回到识别前。
+   */
+  function fromAi(ai: AiRecognizedTask, local: RecognizedTask, text: string): RecognizedTask {
+    const toDue = (s?: string | null): DueTime | null =>
+      s ? { date: s.slice(0, 10), time: s.length > 10 ? s.slice(11, 16) : null } : null;
+    const aiDue = toDue(ai.dueDate);
+    const due = aiDue ?? local.due;
+    const start = aiDue ? (ai.startDate ? ai.startDate.slice(0, 10) : null) : local.start;
+    const aiCandidate = aiDue
+      ? [
+          {
+            ...aiDue,
+            start: start ?? undefined,
+            role: start ? ("range" as const) : ("deadline" as const),
+            past: false,
+            label: "AI 判断",
+            score: 99,
+          },
+        ]
+      : [];
+    const aiSubtasks = (ai.subtasks ?? []).map((st) => ({ title: st.title, due: toDue(st.dueDate) }));
+    return {
+      title: ai.title?.trim() || local.title,
+      due,
+      start,
+      remindBefore: aiDue ? (ai.remindBefore ?? local.remindBefore) : local.remindBefore,
+      important: !!ai.important || local.important,
+      // AI 常把「务必按时」当成紧急：只有原文写了紧急类词语，或截止就在两天内，才采纳 priority=0
+      urgent:
+        local.urgent ||
+        (ai.priority === 0 &&
+          (/紧急|加急|特急|立即|马上|尽快|火速/.test(text) ||
+            (!!due && dayjs(due.date).diff(dayjs().startOf("day"), "day") <= 2))),
+      location: ai.location ?? local.location,
+      subtasks: aiSubtasks.length > 0 ? aiSubtasks : local.subtasks,
+      candidates: [...aiCandidate, ...local.candidates],
+      confident: true,
+    };
+  }
+
+  /** 应用挂起的 AI 结果（AI 返回时用户已改过表单，由用户点按钮决定） */
+  function applyPendingAi() {
+    const cur = recognized;
+    if (!cur?.pendingAi) return;
+    recognizeSeqRef.current++;
+    applyRecognition(cur.pendingAi, "ai", beginRecognition(cur.text), cur.text);
+  }
+
+  /**
+   * 识别一段通知：本地规则立刻回填；按设置决定是否再走 AI。
+   * auto 模式下 AI 失败（没配模型 / 网络）不打扰用户，保留本地结果并在卡片上轻提示。
+   */
+  async function runRecognize(text: string, forceAi = false) {
+    const seq = ++recognizeSeqRef.current;
+    const base = beginRecognition(text);
+    const local = recognizeTask(text);
+    applyRecognition(local, "local", base, text);
+    const useAi = forceAi || recognizeMode === "ai" || (recognizeMode === "auto" && !local.confident);
+    if (!useAi) return;
+    setAiRecognizing(true);
+    try {
+      const ai = await aiPlanApi.recognizeTask(text);
+      // 期间又识别了一次 / 撤销 / 收起 / 关了弹窗：这份结果已过期
+      if (seq !== recognizeSeqRef.current) return;
+      const merged = fromAi(ai, local, text);
+      if (formChangedSinceApplied()) {
+        // 用户在等 AI 时已经动手改了：不覆盖，挂到卡片下方让用户自己决定
+        setRecognized((prev) => (prev ? { ...prev, pendingAi: merged } : prev));
+      } else {
+        applyRecognition(merged, "ai", base, text);
+      }
+    } catch (e) {
+      if (seq !== recognizeSeqRef.current) return;
+      if (forceAi || recognizeMode === "ai") {
+        message.error(`AI 识别失败：${e}（需先在设置里配置模型服务）`);
+      }
+      setRecognized((prev) =>
+        prev ? { ...prev, aiNote: "AI 暂不可用，已使用本地规则结果" } : prev,
+      );
+    } finally {
+      if (seq === recognizeSeqRef.current) setAiRecognizing(false);
     }
   }
 
@@ -415,16 +863,21 @@ export function CreateTaskModal({
   };
 
   return (
+    <>
     <Modal
       title={isEdit ? "编辑任务" : "新建任务"}
       open={open}
       onCancel={onClose}
-      width={520}
+      // 720：附件条 / 识别卡片 / 时间区按钮一行放得下，分类与项目可并排；
+      // 再宽在 1280 宽的笔记本上会显得空。高度随窗口走，少滚动
+      width={720}
       destroyOnHidden
       // 编辑型 Modal 防误关：点遮罩不关闭（避免填到一半误点关 Modal 丢失编辑）；
       // Esc 仍可关（桌面应用预期行为，配合"取消"按钮）
       maskClosable={false}
-      styles={{ body: { maxHeight: "65vh", overflowY: "auto", paddingRight: 12 } }}
+      styles={{
+        body: { maxHeight: "calc(100vh - 240px)", overflowY: "auto", paddingRight: 12 },
+      }}
       footer={
         <div className="flex items-center justify-between">
           <Checkbox
@@ -436,7 +889,14 @@ export function CreateTaskModal({
           </Checkbox>
           <Space>
             <Button onClick={onClose}>取消</Button>
-            <Button type="primary" loading={saving} onClick={handleSave}>
+            <Button
+              type="primary"
+              loading={saving}
+              // 附件条还在读外链 / 本地图片时先等它读完，否则这些图不会随任务保存
+              disabled={attachmentsBusy}
+              title={attachmentsBusy ? "图片读取中…" : undefined}
+              onClick={handleSave}
+            >
               保存
             </Button>
           </Space>
@@ -444,6 +904,43 @@ export function CreateTaskModal({
       }
     >
       <div className="flex flex-col gap-4 pt-1">
+        {recognized && (
+          <RecognizeResultCard
+            result={recognized.r}
+            source={recognized.source}
+            picked={recognized.picked}
+            onPick={(i) => {
+              const c = recognized.r.candidates[i];
+              if (!c) return;
+              applyDue({ date: c.date, time: c.time }, c.start);
+              setRecognized({ ...recognized, picked: i });
+            }}
+            onUndo={undoRecognition}
+            // 收起 = 认可当前内容：作废还在跑的 AI，免得它回来又改表单
+            onClose={resetRecognition}
+            // 用卡片对应的那段原文重识别（标题框粘贴时描述里可能还有别的内容）
+            onAiRetry={() => void runRecognize(recognized.text, true)}
+            aiLoading={aiRecognizing}
+            aiNote={recognized.aiNote}
+            subtasksApplied={!isEdit}
+          />
+        )}
+        {recognized?.pendingAi && (
+          <div
+            className="-mt-2 flex items-center gap-2 text-xs"
+            style={{ color: token.colorTextSecondary }}
+          >
+            <span>AI 结果已返回，因你修改过表单未自动覆盖</span>
+            <Button
+              type="link"
+              size="small"
+              style={{ fontSize: 12, padding: 0, height: 20 }}
+              onClick={applyPendingAi}
+            >
+              应用 AI 结果
+            </Button>
+          </div>
+        )}
         {/* 标题 */}
         <div>
           <div
@@ -452,23 +949,113 @@ export function CreateTaskModal({
           >
             标题 <span style={{ color: token.colorError }}>*</span>
           </div>
-          <Input
-            autoFocus
-            placeholder="做什么？"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onPressEnter={handleSave}
-            style={{ fontSize: 15 }}
-            allowClear
-            suffix={
+          {/* 标题框随字数自动长高，5 行封顶后内部滚动——长标题不用再在单行里左右拖着看。
+              TextArea 不支持 suffix，麦克风改成绝对定位钉在右下角（paddingRight 给它留位）。 */}
+          <div className="relative">
+            <Input.TextArea
+              autoFocus
+              placeholder="做什么？"
+              value={title}
+              onChange={(e) => setTitle(normalizeTaskTitle(e.target.value))}
+              onKeyDown={(e) => {
+                // Enter 保存，沿用单行框的肌肉记忆；preventDefault 挡掉 TextArea 默认的插入换行。
+                // isComposing 判断不能省：中文输入法选词时的回车不该把半截拼音存成任务。
+                if (
+                  e.key === "Enter" &&
+                  !e.shiftKey &&
+                  !e.nativeEvent.isComposing
+                ) {
+                  e.preventDefault();
+                  void handleSave();
+                }
+              }}
+              // 像快递地址识别：往标题粘一整段通知 → 原文进描述，标题 / 截止时间自动回填
+              onPaste={(e) => {
+                const text = e.clipboardData.getData("text/plain").trim();
+                if (text.length < 30 && !text.includes("\n")) return;
+                attachmentsRef.current?.handlePaste(e, { keepText: true });
+                e.preventDefault();
+                setDescription((prev) => (prev.trim() ? `${prev}\n${text}` : text));
+                void runRecognize(text);
+              }}
+              autoSize={{ minRows: 1, maxRows: 5 }}
+              style={{ fontSize: 15, paddingRight: 32, resize: "none" }}
+              // 不用 allowClear：TextArea 的清除图标钉死在右上角，框只有一行高（32px）时
+              // 正好压住右下角的麦克风。标题清空用 Ctrl+A 退格即可，语音入口更值得留。
+            />
+            {/* 定位套在外层 span 上而不是直接给 MicButton 加 .absolute：
+                antd 的 .ant-btn 自带 position:relative（波纹要用），同为单类选择器时
+                谁赢取决于 CSS 注入顺序，不可靠；内联样式没有这个问题。 */}
+            <span style={{ position: "absolute", right: 4, bottom: 4 }}>
               <MicButton
                 stripTrailingPunctuation
                 onTranscribed={(text) =>
-                  setTitle((prev) => (prev ? `${prev} ${text}` : text))
+                  setTitle((prev) =>
+                    normalizeTaskTitle(prev ? `${prev} ${text}` : text),
+                  )
                 }
               />
-            }
+            </span>
+          </div>
+        </div>
+
+        {/* 描述 + 附件：紧跟标题，读任务时先看到「做什么」再看「细节」 */}
+        <div>
+          <div
+            className="text-[11px] mb-1 flex items-center justify-between"
+            style={{ color: token.colorTextSecondary }}
+          >
+            <span>描述（可选，可直接粘贴截图）</span>
+            <span className="flex items-center gap-1">
+              {description.trim() && (
+                <>
+                  <Button
+                    type="link"
+                    size="small"
+                    style={{ fontSize: 11, paddingInline: 4, height: 20 }}
+                    title="从描述里识别标题、时间、子任务（按设置里的识别方式）"
+                    onClick={() => void runRecognize(description)}
+                  >
+                    识别
+                  </Button>
+                  <Button
+                    type="link"
+                    size="small"
+                    loading={aiRecognizing}
+                    style={{ fontSize: 11, paddingInline: 4, height: 20 }}
+                    title="用 AI 识别标题、时间、子任务、紧急度（需配置模型服务）"
+                    onClick={() => void runRecognize(description, true)}
+                  >
+                    AI 识别
+                  </Button>
+                </>
+              )}
+              <MicButton
+                onTranscribed={(text) =>
+                  setDescription((prev) => (prev ? `${prev}\n${text}` : text))
+                }
+              />
+            </span>
+          </div>
+          <Input.TextArea
+            autoSize={{ minRows: 2, maxRows: 8 }}
+            placeholder="备注 / 上下文"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            // 粘贴截图 / 文件 → 进附件条；图文混合（网页、微信）→ 文字进描述、图片进附件条
+            onPaste={(e) => {
+              attachmentsRef.current?.handlePaste(e, { keepText: true });
+            }}
           />
+          <div className="mt-2">
+            <TaskAttachments
+              ref={attachmentsRef}
+              taskId={editing?.id ?? null}
+              drafts={draftAttachments}
+              onDraftsChange={setDraftAttachments}
+              onBusyChange={setAttachmentsBusy}
+            />
+          </div>
         </div>
 
         {/* 紧急度 + 重要性 */}
@@ -533,46 +1120,207 @@ export function CreateTaskModal({
           </div>
         </div>
 
-        {/* 分类 */}
-        <div>
+        {/* 分类 + 项目并排（弹窗加宽后一行放得下，少一屏滚动） */}
+        <div className="grid grid-cols-2 gap-4">
+        <div className="min-w-0">
           <div className="text-[11px] mb-1" style={{ color: token.colorTextSecondary }}>
             分类（可选）
           </div>
-          <Select
-            value={categoryId}
-            onChange={(v) => setCategoryId(v ?? null)}
+          {/* v66 多级分类：树形选择，父子都能选 */}
+          <TreeSelect
+            value={categoryId ?? undefined}
+            onChange={(v) => setCategoryId((v as number | undefined) ?? null)}
             allowClear
             placeholder="未分类"
-            style={{ minWidth: 200 }}
-            options={[
-              { value: null, label: <span style={{ color: token.colorTextTertiary }}>未分类</span> },
-              ...categories.map((c) => ({
-                value: c.id,
-                label: (
-                  <span className="inline-flex items-center gap-2">
-                    <span
-                      style={{
-                        display: "inline-block",
-                        width: 10,
-                        height: 10,
-                        borderRadius: 999,
-                        background: c.color,
-                      }}
-                    />
-                    {c.name}
-                  </span>
-                ),
-              })),
-            ]}
+            style={{ width: "100%" }}
+            treeDefaultExpandAll
+            treeData={categoryTreeSelectData(categories)}
+            treeTitleRender={(n) => (
+              <span className="inline-flex items-center gap-2">
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: 10,
+                    height: 10,
+                    borderRadius: 999,
+                    background: (n as { color?: string }).color,
+                  }}
+                />
+                {String((n as { title?: unknown }).title ?? "")}
+              </span>
+            )}
           />
         </div>
 
-        {/* 截止时间 */}
-        <div>
-          <div className="text-[11px] mb-1" style={{ color: token.colorTextSecondary }}>
-            截止时间
+        {/* 项目（v41）— 配合甘特图。起始日已并入下方「时间」区（时间段模式） */}
+        <div className="min-w-0">
+          <div>
+            <div className="text-[11px] mb-1" style={{ color: token.colorTextSecondary }}>
+              项目（可选，配合甘特图）
+            </div>
+            <Select
+              value={projectId}
+              onChange={(v) => setProjectId(v ?? null)}
+              allowClear
+              placeholder="无项目"
+              style={{ width: "100%" }}
+              options={[
+                {
+                  value: null,
+                  label: <span style={{ color: token.colorTextTertiary }}>无项目</span>,
+                },
+                ...projects.map((p) => ({
+                  value: p.id,
+                  label: (
+                    <span className="inline-flex items-center gap-2">
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 10,
+                          height: 10,
+                          borderRadius: 2,
+                          background: p.color,
+                        }}
+                      />
+                      {p.name}
+                    </span>
+                  ),
+                })),
+              ]}
+              popupRender={(menu) => (
+                <div>
+                  {menu}
+                  <div
+                    style={{
+                      borderTop: `1px solid ${token.colorBorderSecondary}`,
+                      marginTop: 4,
+                      paddingTop: 4,
+                    }}
+                  >
+                    {projectCreating ? (
+                      <div
+                        className="flex items-center gap-1 px-2 py-1"
+                        // 阻止 mousedown 冒泡，避免点输入框时下拉收起
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        <Input
+                          autoFocus
+                          size="small"
+                          value={newProjectName}
+                          onChange={(e) => setNewProjectName(e.target.value)}
+                          onPressEnter={(e) => {
+                            e.stopPropagation();
+                            void handleCreateProject();
+                          }}
+                          placeholder="项目名称，回车创建"
+                          maxLength={64}
+                          disabled={projectSaving}
+                        />
+                        <Button
+                          size="small"
+                          type="primary"
+                          loading={projectSaving}
+                          onClick={() => void handleCreateProject()}
+                        >
+                          创建
+                        </Button>
+                        <Button
+                          size="small"
+                          type="text"
+                          onClick={() => {
+                            setProjectCreating(false);
+                            setNewProjectName("");
+                          }}
+                        >
+                          取消
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-1">
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<Plus size={12} />}
+                          style={{ flex: 1, justifyContent: "flex-start" }}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => setProjectCreating(true)}
+                        >
+                          新建项目
+                        </Button>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<Settings size={12} />}
+                          style={{ color: token.colorTextTertiary }}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => setProjectManageOpen(true)}
+                          title="项目管理（改名 / 改色 / 归档 / 删除）"
+                        >
+                          管理
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            />
           </div>
+        </div>
+        </div>
+
+        {/* 时间：日期（单个截止时刻）/ 时间段（起止区间）—— 同一组字段的两种录入形态 */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-[11px]" style={{ color: token.colorTextSecondary }}>
+              {dateMode === "range" ? "时间段" : "截止时间"}
+            </div>
+            <Segmented
+              size="small"
+              value={dateMode}
+              onChange={(v) => {
+                const next = v as "single" | "range";
+                setDateMode(next);
+                // 切回「日期」时清掉开始日：否则会留下一个界面上看不见、
+                // 却仍然生效（甘特图 / 日历跨天条会用到）的区间左端
+                if (next === "single") setStartDate(null);
+              }}
+              options={[
+                { label: "日期", value: "single" },
+                { label: "时间段", value: "range" },
+              ]}
+            />
+          </div>
+
+          {dateMode === "range" && (
+            <div className="flex items-center gap-2 mb-2">
+              <span
+                className="text-xs shrink-0"
+                style={{ color: token.colorTextSecondary, width: 28 }}
+              >
+                开始
+              </span>
+              <DatePicker
+                value={startDate}
+                onChange={(v) => setStartDate(v)}
+                format="YYYY-MM-DD"
+                placeholder="开始日期"
+                style={{ flex: 1, minWidth: 160 }}
+                allowClear
+                // 开始日只存日期（后端 start_date 是 'YYYY-MM-DD'，甘特图条左端）
+                disabledDate={(d) => (dueDate ? d.isAfter(dueDate, "day") : false)}
+              />
+            </div>
+          )}
+
           <div className="flex items-center gap-2 flex-wrap">
+            {dateMode === "range" && (
+              <span
+                className="text-xs shrink-0"
+                style={{ color: token.colorTextSecondary, width: 28 }}
+              >
+                结束
+              </span>
+            )}
             <DatePicker
               value={dueDate}
               onChange={(v) => setDueDate(v ? applyDate(v) : null)}
@@ -780,27 +1528,6 @@ export function CreateTaskModal({
           )}
         </div>
 
-        {/* 描述 */}
-        <div>
-          <div
-            className="text-[11px] mb-1 flex items-center justify-between"
-            style={{ color: token.colorTextSecondary }}
-          >
-            <span>描述（可选）</span>
-            <MicButton
-              onTranscribed={(text) =>
-                setDescription((prev) => (prev ? `${prev}\n${text}` : text))
-              }
-            />
-          </div>
-          <Input.TextArea
-            rows={2}
-            placeholder="备注 / 上下文"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
-
         {/* 关联 */}
         <div>
           <div className="text-[11px] mb-1" style={{ color: token.colorTextSecondary }}>
@@ -938,15 +1665,117 @@ export function CreateTaskModal({
           </div>
         </div>
 
-        {/* 子任务区——仅编辑现有"主任务"时显示（子任务不嵌套） */}
+        {/* 子任务区：
+            - 编辑现有主任务：用 SubtaskList 直接操作真实子任务
+            - 新建主任务：草稿模式（本地数组，主任务落库后批量创建）
+            - 编辑子任务（parent_task_id != null）：不展示（子任务不嵌套） */}
         {isEdit && editing && !editing.parent_task_id && (
           <SubtaskList
             parentTaskId={editing.id}
             onChanged={onSubtaskChanged}
           />
         )}
+        {!isEdit && (
+          <div className="flex flex-col gap-1">
+            <div
+              className="text-[11px]"
+              style={{ color: token.colorTextSecondary }}
+            >
+              子任务（可选，主任务保存后一并创建）
+              {draftSubtasks.length > 0 && (
+                <span
+                  className="ml-1"
+                  style={{ color: token.colorTextTertiary }}
+                >
+                  · {draftSubtasks.length} 条
+                </span>
+              )}
+            </div>
+            {draftSubtasks.length > 0 && (
+              <div className="flex flex-col gap-1">
+                {draftSubtasks.map((sub, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-2 group"
+                    style={{
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      background: token.colorFillQuaternary,
+                    }}
+                  >
+                    <span
+                      className="flex-1 truncate"
+                      style={{ fontSize: 13 }}
+                      title={sub.title}
+                    >
+                      {sub.title}
+                    </span>
+                    {sub.due && (
+                      <span style={{ fontSize: 11, color: token.colorTextTertiary }}>
+                        {sub.due.slice(5, 16).replace("-", "/")}
+                      </span>
+                    )}
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<X size={12} />}
+                      onClick={() =>
+                        setDraftSubtasks((prev) =>
+                          prev.filter((_, i) => i !== idx),
+                        )
+                      }
+                      className="opacity-0 group-hover:opacity-100"
+                      style={{ color: token.colorTextTertiary }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+            <Input
+              ref={draftSubInputRef}
+              size="small"
+              value={draftSubInput}
+              onChange={(e) => setDraftSubInput(e.target.value)}
+              onPressEnter={(e) => {
+                // 阻止冒泡到 Modal 标题 onPressEnter 触发保存
+                e.stopPropagation();
+                const t = draftSubInput.trim();
+                if (!t) return;
+                setDraftSubtasks((prev) => [...prev, { title: t }]);
+                setDraftSubInput("");
+                // 保险：保持焦点在输入框，回车可连续录入
+                requestAnimationFrame(() =>
+                  draftSubInputRef.current?.focus(),
+                );
+              }}
+              placeholder="新增子任务（回车连续录入）"
+              prefix={
+                <Plus size={12} style={{ color: token.colorTextTertiary }} />
+              }
+              allowClear
+            />
+          </div>
+        )}
       </div>
     </Modal>
+    {/* 项目管理弹窗：从项目下拉 footer 的"管理"打开；关闭后刷新项目列表（改名/删除/归档需即时反映到下拉） */}
+    <ProjectManageModal
+      open={projectManageOpen}
+      onClose={() => setProjectManageOpen(false)}
+      onChanged={() => {
+        projectApi
+          .list(false)
+          .then((list) => {
+            setProjects(list);
+            // 当前选中的项目若已被删除/归档（不在列表里），清掉失效选中避免下拉显示空 id
+            setProjectId((prev) =>
+              prev != null && !list.some((p) => p.id === prev) ? null : prev,
+            );
+          })
+          .catch(() => {});
+      }}
+    />
+    </>
   );
 }
 
@@ -961,6 +1790,19 @@ function formatReminderAt(t: Dayjs): string {
   if (diff === -1) return `昨天 ${hm}`;
   return `${t.format("YYYY-MM-DD")} ${hm}`;
 }
+
+/** 项目预设色（与 ProjectManageModal 一致）：内联新建项目时按项目数轮转取色 */
+const PROJECT_PRESET_COLORS = [
+  "#1677ff",
+  "#52c41a",
+  "#faad14",
+  "#ff4d4f",
+  "#722ed1",
+  "#13c2c2",
+  "#eb2f96",
+  "#fa8c16",
+  "#8c8c8c",
+];
 
 /** 星期选项：ISO 1=Mon..7=Sun */
 const WEEKDAY_OPTIONS = [

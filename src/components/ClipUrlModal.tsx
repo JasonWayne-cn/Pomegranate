@@ -4,6 +4,7 @@ import { Globe } from "lucide-react";
 import { noteApi } from "@/lib/api";
 import { useAppStore } from "@/store";
 import { useNavigate } from "react-router-dom";
+import { extractFirstUrl } from "@/lib/extractUrl";
 
 const { Text } = Typography;
 
@@ -17,13 +18,16 @@ interface Props {
 /**
  * T-014 网页剪藏 Modal
  *
- * 输入 URL → 后端走 r.jina.ai 抓 markdown → 创建笔记 → 跳转到编辑器。
+ * 输入 URL → 后端直连原网页、readability 提正文转 markdown → 创建笔记 → 跳转到编辑器。
  * 失败时保留输入框，提示用户重试或换 URL。
  */
 export function ClipUrlModal({ open, folderId, onClose }: Props) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  // 实时识别粘贴文本里的链接：既用于回显确认，也用于禁用提交按钮
+  const detected = extractFirstUrl(url.trim());
 
   function reset() {
     setUrl("");
@@ -36,13 +40,15 @@ export function ClipUrlModal({ open, folderId, onClose }: Props) {
       message.warning("请输入网页 URL");
       return;
     }
-    if (!/^https?:\/\//i.test(trimmed)) {
-      message.warning("URL 必须以 http:// 或 https:// 开头");
+    // 允许直接粘贴「标题 - 站点 - 作者 https://...」这类分享文本，自动把链接捞出来
+    const target = extractFirstUrl(trimmed);
+    if (!target) {
+      message.warning("没找到链接，请粘贴以 http:// 或 https:// 开头的网址");
       return;
     }
     setLoading(true);
     try {
-      const note = await noteApi.clipUrl(trimmed, folderId ?? null);
+      const note = await noteApi.clipUrl(target, folderId ?? null);
       useAppStore.getState().bumpNotesRefresh();
       useAppStore.getState().bumpFoldersRefresh();
       message.success(`剪藏成功：${note.title}`);
@@ -51,6 +57,8 @@ export function ClipUrlModal({ open, folderId, onClose }: Props) {
       navigate(`/notes/${note.id}`);
     } catch (e) {
       message.error(`剪藏失败：${e}`);
+      // 只关 loading、不关弹窗：URL 还留在输入框里，用户直接再点一次就是重试。
+      // 剪藏失败多是临时的（对方限流 / 需要登录 / 网络抖动），不需要额外的排队机制。
       setLoading(false);
     }
   }
@@ -82,7 +90,9 @@ export function ClipUrlModal({ open, folderId, onClose }: Props) {
           showIcon
           message={
             <span className="text-[12px]">
-              通过 <Text code style={{ fontSize: 11 }}>r.jina.ai</Text> 提取正文为 markdown，自动剥离侧栏 / 广告。需联网。
+              直连原网页提取正文为 markdown，自动剥离侧栏 / 广告；正文图片一并下载到本地，离线可看。需联网。
+              <br />
+              可直接粘贴「标题 + 链接」的整段分享文本，会自动识别其中的网址。
             </span>
           }
         />
@@ -101,6 +111,12 @@ export function ClipUrlModal({ open, folderId, onClose }: Props) {
             }
           }}
         />
+        {/* 粘了整段文本时回显识别结果，让用户提交前就能确认抓的是不是那条链接 */}
+        {detected && detected !== url.trim() && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            将剪藏：<Text code style={{ fontSize: 11 }}>{detected}</Text>
+          </Text>
+        )}
         <Text type="secondary" style={{ fontSize: 12 }}>
           快捷键：<Text code style={{ fontSize: 11 }}>Ctrl/⌘ + Enter</Text> 直接提交
         </Text>
