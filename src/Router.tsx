@@ -31,6 +31,11 @@ const FeatureTogglePage = lazy(() => import("@/pages/feature-toggle"));
 const MigrationSplash = lazy(() => import("@/pages/migration-splash"));
 const EmergencyReminderPage = lazy(() => import("@/pages/emergency-reminder"));
 const TaskSessionPage = lazy(() => import("@/pages/task-session"));
+const PushPage = lazy(() => import("@/pages/push"));
+const WhiteboardPage = lazy(() => import("@/pages/whiteboard"));
+const PushPopupPage = lazy(() => import("@/pages/push-popup"));
+const MindMapPopoutPage = lazy(() => import("@/pages/mindmap-popout"));
+const QuickAddPage = lazy(() => import("@/pages/quick-add"));
 
 /** 懒加载页面统一 Suspense fallback */
 function LazyPage({ children }: { children: React.ReactNode }) {
@@ -61,6 +66,24 @@ const router = createHashRouter([
   {
     path: "/emergency-reminder/:id",
     element: <LazyPage><EmergencyReminderPage /></LazyPage>,
+    errorElement: <RouteErrorFallback />,
+  },
+  // 定时推送居中弹窗：独立 URL，不挂 AppLayout
+  {
+    path: "/push-popup/:logId",
+    element: <LazyPage><PushPopupPage /></LazyPage>,
+    errorElement: <RouteErrorFallback />,
+  },
+  // 思维导图独立弹窗：纯导图视图，不挂 AppLayout
+  {
+    path: "/mindmap-popout/:noteId",
+    element: <LazyPage><MindMapPopoutPage /></LazyPage>,
+    errorElement: <RouteErrorFallback />,
+  },
+  // 快速记一笔：独立悬浮窗，不挂 AppLayout
+  {
+    path: "/quick-add",
+    element: <LazyPage><QuickAddPage /></LazyPage>,
     errorElement: <RouteErrorFallback />,
   },
   // 移动端 AI 聊天页：独立全屏路由（不走 MobileLayout / AppLayout）
@@ -95,6 +118,8 @@ const router = createHashRouter([
       { index: true, element: <HomePage /> },
       { path: "notes", element: <NoteListPage /> },
       { path: "notes/:id", element: <NoteEditorPage /> },
+      // 白板本质是 note_type='whiteboard' 的笔记
+      { path: "whiteboard/:id", element: <LazyPage><WhiteboardPage /></LazyPage> },
       { path: "search", element: <SearchPage /> },
       { path: "tags", element: <TagsPage /> },
       { path: "trash", element: <TrashPage /> },
@@ -103,6 +128,7 @@ const router = createHashRouter([
       { path: "graph", element: <LazyPage><GraphPage /></LazyPage> },
       { path: "ai", element: <LazyPage><AiChatPage /></LazyPage> },
       { path: "prompts", element: <LazyPage><PromptsPage /></LazyPage> },
+      { path: "push", element: <LazyPage><PushPage /></LazyPage> },
       { path: "plugins", element: <LazyPage><PluginsPage /></LazyPage> },
       { path: "plugin-view/:viewId", element: <LazyPage><PluginPanelViewPage /></LazyPage> },
       { path: "tasks", element: <LazyPage><TasksPage /></LazyPage> },

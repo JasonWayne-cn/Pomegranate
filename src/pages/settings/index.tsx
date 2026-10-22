@@ -24,7 +24,7 @@ import {
   Tooltip,
 } from "antd";
 import { SyncOutlined, PlusOutlined, CheckCircleFilled, CheckCircleOutlined, PictureOutlined } from "@ant-design/icons";
-import { Trash2, Pencil, FolderInput, FolderOutput, FolderOpen, LayoutTemplate, Power, Type, Zap, Palette, Bot, Cog, UserRound, Monitor, Rocket, Info, AppWindow } from "lucide-react";
+import { Trash2, Pencil, FolderInput, FolderOutput, FolderOpen, LayoutTemplate, Power, Type, Zap, Palette, Bot, Cog, UserRound, Monitor, Rocket, Info, AppWindow, Layers } from "lucide-react";
 import dayjs, { type Dayjs } from "dayjs";
 import { TimePicker } from "antd";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -58,6 +58,11 @@ import OrphanAssetsPanel from "@/components/settings/OrphanAssetsPanel";
 import { HiddenPinSection } from "@/components/hidden/HiddenPinSection";
 import { ShortcutsSection } from "@/components/settings/ShortcutsSection";
 import { MCPServerSection } from "@/components/settings/MCPServerSection";
+import { OcrSection } from "@/components/settings/OcrSection";
+import { SnapshotSection } from "@/components/settings/SnapshotSection";
+import { ReminderSoundSection } from "@/components/settings/ReminderSoundSection";
+import { AppLockSection } from "@/components/applock/AppLockSection";
+import { McpHttpSection } from "@/components/settings/McpHttpSection";
 import ClaudeAgentRunnerCard from "@/components/ai/ClaudeAgentRunnerCard";
 import { TiptapEditor } from "@/components/editor";
 import { pluginManager } from "@/services/pluginManager";
@@ -220,6 +225,7 @@ const TAB_KEYS = {
   ai: "ai",
   apps: "apps",
   appConfig: "app-config",
+  extras: "extras",
   personal: "personal",
   display: "display",
   startup: "startup",
@@ -232,6 +238,7 @@ function sectionIdToTab(sectionId: string): TabKey | null {
   if (/^settings-(ai-provider|ai-models|asr|mcp)$/.test(sectionId)) return TAB_KEYS.ai;
   if (/^settings-(daily-md-path|data-dir|orphan-assets|import|export|sync|auto-save)$/.test(sectionId)) return TAB_KEYS.appConfig;
   if (sectionId.startsWith("settings-plugin-")) return TAB_KEYS.appConfig;
+  if (/^settings-(ocr|snapshots|reminder-sound|app-lock|mcp-http)$/.test(sectionId)) return TAB_KEYS.extras;
   if (/^settings-(task-reminder|templates|hidden-pin|shortcuts)$/.test(sectionId)) return TAB_KEYS.personal;
   if (/^settings-(appearance|editor)$/.test(sectionId)) return TAB_KEYS.display;
   if (/^settings-(update|startup|features)$/.test(sectionId)) return TAB_KEYS.startup;
@@ -1269,7 +1276,21 @@ function DesktopSettingsPage() {
               </div>
             ),
           },
-          // ─── Tab 3: 应用配置 ──────────────────────────
+          // ─── Tab 3: 功能扩展 ──────────────────────────
+          {
+            key: TAB_KEYS.extras,
+            label: <span className="flex items-center gap-2"><Layers size={16} />功能扩展</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                <OcrSection />
+                <SnapshotSection />
+                <ReminderSoundSection />
+                <AppLockSection />
+                <McpHttpSection />
+              </div>
+            ),
+          },
+          // ─── Tab 4: 应用配置 ──────────────────────────
           {
             key: TAB_KEYS.appConfig,
             label: <span className="flex items-center gap-2"><Cog size={16} />应用配置</span>,

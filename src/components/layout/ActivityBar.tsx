@@ -14,6 +14,7 @@ import {
   GitBranch,
   Bot,
   Sparkles,
+  Bell,
   Plug,
   Trash2,
   Info,
@@ -79,6 +80,7 @@ const MAIN_GROUPS: ActivityItem[][] = [
   [
     { view: "ai", route: "/ai", label: "AI 问答", icon: <Bot size={18} /> },
     { view: "prompts", route: "/prompts", label: "提示词", icon: <Sparkles size={18} /> },
+    { view: "push", route: "/push", label: "定时推送", icon: <Bell size={18} /> },
     { view: "plugins", route: "/plugins", label: "插件", icon: <Plug size={18} /> },
   ],
 ];
@@ -101,6 +103,7 @@ const ROUTE_TO_VIEW: Array<[string, ActiveView]> = [
   ["/graph", "graph"],
   ["/ai", "ai"],
   ["/prompts", "prompts"],
+  ["/push", "push"],
   ["/plugins", "plugins"],
   ["/hidden", "hidden"],
   ["/trash", "trash"],
