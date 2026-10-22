@@ -7,9 +7,11 @@ pub mod mcp_servers;
 pub mod notes;
 pub mod plugins;
 pub mod prompt;
+pub mod push;
 pub mod schema;
 pub mod search;
 pub mod session;
+pub mod snapshots;
 pub mod sync;
 pub mod sync_v1;
 pub mod tags;
@@ -18,6 +20,7 @@ pub mod tasks;
 pub mod templates;
 pub mod text_health;
 pub mod url_mapping;
+pub mod whiteboard;
 
 use std::sync::Mutex;
 

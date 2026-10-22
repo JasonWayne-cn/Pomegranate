@@ -222,6 +222,9 @@ pub struct Note {
     pub is_hidden: bool,
     /// T-007: 是否加密。前端据此决定是否显示"已加密"/"解锁查看"按钮
     pub is_encrypted: bool,
+    /// 临时编辑（外部 .md 临时打开，不入主列表/搜索/双链）
+    #[serde(default)]
+    pub is_scratch: bool,
     pub word_count: i64,
     pub created_at: String,
     pub updated_at: String,
@@ -232,6 +235,13 @@ pub struct Note {
     /// 同一 folder 内的自定义排序值，越小越靠前（间隔 1000 留空隙）
     /// 默认按 updated_at DESC 初始化；只有用户在"自定义排序"模式下拖拽过才与时间序偏离
     pub sort_order: i64,
+    /// 笔记类型："markdown"（默认）/ "whiteboard"
+    #[serde(default = "default_note_type")]
+    pub note_type: String,
+}
+
+fn default_note_type() -> String {
+    "markdown".to_string()
 }
 
 // ─── T-007 笔记加密保险库 ──────────────────────
@@ -1905,4 +1915,145 @@ pub struct ClaudeAgentEvent {
 pub struct AppLockStatus {
     pub enabled: bool,
     pub auto_lock_minutes: i64,
+}
+
+// ═══════════════════════════════════════════════════════════════
+// KB 2.0 合并：白板 / 快照 / 定时推送模型
+// ═══════════════════════════════════════════════════════════════
+
+/// 笔记类型常量。值直接进 SQL、front-matter 与前端 JSON，保持字符串。
+pub mod note_type {
+    /// 普通 Markdown 笔记（存量默认值）。
+    #[allow(dead_code)]
+    pub const MARKDOWN: &str = "markdown";
+    /// 白板笔记：`notes.content` 存 Excalidraw 场景 JSON。
+    pub const WHITEBOARD: &str = "whiteboard";
+}
+
+/// 笔记内嵌白板保存后的资源路径（相对 data_dir 的 POSIX 路径）。
+#[derive(Debug, Clone, Serialize)]
+pub struct EmbeddedWhiteboardSaved {
+    /// Excalidraw 场景 JSON 文件
+    pub scene_path: String,
+    /// 供笔记里直接显示的 PNG 预览图
+    pub preview_path: String,
+}
+
+/// 快照元信息（列表用，不含正文）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteSnapshotMeta {
+    pub id: i64,
+    pub note_id: i64,
+    pub byte_size: i64,
+    pub reason: String,
+    pub created_at: String,
+}
+
+/// 快照完整内容（预览 / 回滚用）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteSnapshot {
+    pub id: i64,
+    pub note_id: i64,
+    pub content: String,
+    pub byte_size: i64,
+    pub reason: String,
+    pub created_at: String,
+}
+
+/// 单条笔记的快照占用。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotNoteUsage {
+    pub note_id: i64,
+    pub title: String,
+    pub note_type: String,
+    pub count: i64,
+    pub byte_size: i64,
+}
+
+/// 全库快照用量总览。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotUsage {
+    pub total_count: i64,
+    pub total_bytes: i64,
+    pub top_notes: Vec<SnapshotNoteUsage>,
+}
+
+/// 白板「笔记卡片」展示的笔记摘要。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteExcerpt {
+    pub note_id: i64,
+    pub title: String,
+    pub excerpt: String,
+    pub missing: bool,
+}
+
+/// 一条定时推送（订阅）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushJob {
+    pub id: i64,
+    pub name: String,
+    pub prompt: String,
+    pub model_id: Option<i64>,
+    pub source_kind: String,
+    pub source_config: String,
+    pub schedule_time: String,
+    pub repeat_kind: String,
+    pub repeat_weekdays: Option<String>,
+    pub channels: String,
+    pub enabled: bool,
+    pub last_run_at: Option<String>,
+    pub next_run_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// 新建推送入参。
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreatePushJobInput {
+    pub name: String,
+    pub prompt: String,
+    pub model_id: Option<i64>,
+    pub source_kind: Option<String>,
+    pub source_config: Option<String>,
+    pub schedule_time: String,
+    pub repeat_kind: Option<String>,
+    pub repeat_weekdays: Option<String>,
+    pub channels: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+/// 更新推送入参。
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdatePushJobInput {
+    pub name: String,
+    pub prompt: String,
+    pub model_id: Option<i64>,
+    pub source_kind: Option<String>,
+    pub source_config: Option<String>,
+    pub schedule_time: String,
+    pub repeat_kind: Option<String>,
+    pub repeat_weekdays: Option<String>,
+    pub channels: Option<String>,
+    pub enabled: Option<bool>,
+}
+
+/// 一次推送执行记录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PushRunLog {
+    pub id: i64,
+    pub job_id: i64,
+    pub run_at: String,
+    pub status: String,
+    pub item_count: i32,
+    pub payload: Option<String>,
+    pub error: Option<String>,
+}
+
+/// 居中弹窗页所需的一次性数据。
+#[derive(Debug, Clone, Serialize)]
+pub struct PushPopupData {
+    pub name: String,
+    pub content: String,
+    pub status: String,
+    pub run_at: String,
 }

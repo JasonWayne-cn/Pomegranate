@@ -57,3 +57,40 @@ pub fn open_note(app: &AppHandle, note_id: i64) -> Result<(), AppError> {
 
     Ok(())
 }
+
+/// 定时推送居中弹窗（KB 2.0）：`push-popup-{log_id}`。
+pub fn open_push_popup(app: &AppHandle, log_id: i64) -> Result<(), AppError> {
+    let label = format!("push-popup-{}", log_id);
+
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.unminimize();
+        let _ = existing.show();
+        let _ = existing.set_always_on_top(true);
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+
+    let url = format!("index.html#/push-popup/{}", log_id);
+
+    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        .title("定时推送")
+        .inner_size(440.0, 300.0)
+        .min_inner_size(360.0, 240.0)
+        .center()
+        .resizable(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(false)
+        .focused(true)
+        .shadow(true)
+        .visible(true);
+
+    #[cfg(debug_assertions)]
+    let builder = builder.devtools(true);
+
+    builder
+        .build()
+        .map_err(|e| AppError::Custom(format!("定时推送弹窗创建失败: {}", e)))?;
+
+    Ok(())
+}

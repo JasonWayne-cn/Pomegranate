@@ -28,12 +28,14 @@ pub mod plugin_proxy;
 pub mod plugin_runtime;
 pub mod plugins;
 pub mod prompt;
+pub mod push;
 pub mod reminder_sound;
 pub mod search;
 pub mod session;
 // 全局快捷键仅桌面端可用（移动端无此概念）
 #[cfg(desktop)]
 pub mod shortcut;
+pub mod snapshot;
 pub mod source_file;
 pub mod source_writeback;
 pub mod sync;
@@ -45,6 +47,7 @@ pub mod template;
 pub mod trash;
 pub mod vault;
 pub mod videos;
+pub mod whiteboard;
 // 主窗口尺寸相关命令（仅桌面端）
 #[cfg(desktop)]
 pub mod window;

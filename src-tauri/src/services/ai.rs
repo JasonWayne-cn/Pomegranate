@@ -466,6 +466,25 @@ impl AiService {
         }
     }
 
+    /// 一次性同步生成（KB 2.0 定时推送使用）：不发送事件，只返回完整文本。
+    pub async fn complete_once(
+        db: &Database,
+        prompt: &str,
+        model_id: Option<i64>,
+    ) -> Result<String, AppError> {
+        let model = match model_id {
+            Some(id) => db.get_ai_model(id)?,
+            None => db.get_default_ai_model()?,
+        };
+        let messages = vec![json!({ "role": "user", "content": prompt })];
+        let (_tx, cancel_rx) = tokio::sync::watch::channel(false);
+        let emitter = NoopAiEmitter;
+        match model.provider.as_str() {
+            "ollama" => Self::stream_ollama_generic(&emitter, &model, &messages, cancel_rx).await,
+            _ => Self::stream_openai_generic(&emitter, &model, &messages, cancel_rx).await,
+        }
+    }
+
     /// AI 写作辅助：选中文本 + 操作指令 → 流式返回结果
     ///
     /// 事件前缀 `ai-write:token` / `ai-write:done` / `ai-write:error`

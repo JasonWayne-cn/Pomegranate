@@ -828,6 +828,12 @@ pub fn run() {
                 services::task_reminder::run_reminder_loop(app_handle_reminder).await;
             });
 
+            // 定时推送调度器（KB 2.0）：每个实例独立
+            let app_handle_push = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                services::push::scheduler::run_push_loop(app_handle_push).await;
+            });
+
             // setup 末尾再 show + set_focus 抢焦点：
             // - 主窗已在 setup 第一步 show 过，这里 show 是幂等的
             // - 真正作用是 set_focus：迁移 splash 关闭后 / 多窗口创建后把焦点拉回主窗
@@ -1243,6 +1249,41 @@ pub fn run() {
             commands::mobile_update::can_install_mobile_update,
             #[cfg(mobile)]
             commands::mobile_update::open_install_permission_settings,
+            // ─── KB 2.0 合并：白板 ───
+            commands::whiteboard::create_whiteboard,
+            commands::whiteboard::get_whiteboard_scene,
+            commands::whiteboard::save_embedded_whiteboard,
+            commands::whiteboard::load_embedded_whiteboard,
+            commands::whiteboard::save_whiteboard_scene,
+            commands::whiteboard::list_whiteboard_snapshots,
+            commands::whiteboard::get_whiteboard_snapshot_scene,
+            commands::whiteboard::create_whiteboard_snapshot,
+            commands::whiteboard::restore_whiteboard_snapshot,
+            commands::whiteboard::get_whiteboard_library,
+            commands::whiteboard::save_whiteboard_library,
+            commands::whiteboard::get_note_excerpts,
+            commands::whiteboard::list_embedded_whiteboard_snapshots,
+            commands::whiteboard::get_embedded_whiteboard_snapshot_scene,
+            commands::whiteboard::restore_embedded_whiteboard_snapshot,
+            // ─── KB 2.0 合并：笔记快照 ───
+            commands::snapshot::list_note_snapshots,
+            commands::snapshot::get_note_snapshot,
+            commands::snapshot::create_note_snapshot,
+            commands::snapshot::restore_note_snapshot,
+            commands::snapshot::get_snapshot_usage,
+            commands::snapshot::clear_note_snapshots,
+            commands::snapshot::clear_snapshots_older_than,
+            commands::snapshot::clear_all_snapshots,
+            // ─── KB 2.0 合并：定时推送 ───
+            commands::push::list_push_jobs,
+            commands::push::get_push_job,
+            commands::push::create_push_job,
+            commands::push::update_push_job,
+            commands::push::delete_push_job,
+            commands::push::set_push_job_enabled,
+            commands::push::run_push_job_now,
+            commands::push::get_push_popup_data,
+            commands::push::list_push_run_logs,
         ])
         // ─── 窗口事件处理 ─────────────────────────
         .on_window_event(|window, event| {

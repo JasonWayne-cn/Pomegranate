@@ -39,6 +39,58 @@ pub(crate) fn normalize_title(s: &str) -> String {
         .to_lowercase()
 }
 
+/// 从笔记 HTML 内容里提取所有 `[[标题]]` / `[[标题|ID]]`（KB 2.0）。
+pub(crate) fn extract_wiki_refs(html: &str) -> Vec<(String, Option<i64>)> {
+    let mut text = String::with_capacity(html.len());
+    let mut in_tag = false;
+    for c in html.chars() {
+        if in_tag {
+            if c == '>' {
+                in_tag = false;
+            }
+        } else if c == '<' {
+            in_tag = true;
+        } else {
+            text.push(c);
+        }
+    }
+    let text = text.replace("&nbsp;", " ");
+    let text = unescape_md(&text);
+
+    let mut refs: Vec<(String, Option<i64>)> = Vec::new();
+    let mut seen: std::collections::HashSet<(String, Option<i64>)> =
+        std::collections::HashSet::new();
+    let mut rest: &str = text.as_str();
+    while let Some(open) = rest.find("[[") {
+        let after = &rest[open + 2..];
+        match after.find("]]") {
+            Some(close) => {
+                let inside = &after[..close];
+                let (title_part, id_part) = match inside.rfind('|') {
+                    Some(p) => {
+                        let id_str = inside[p + 1..].trim();
+                        if !id_str.is_empty() && id_str.chars().all(|c| c.is_ascii_digit()) {
+                            (inside[..p].trim(), id_str.parse::<i64>().ok())
+                        } else {
+                            (inside.trim(), None)
+                        }
+                    }
+                    None => (inside.trim(), None),
+                };
+                if !title_part.is_empty() {
+                    let key = (normalize_title(title_part), id_part);
+                    if seen.insert(key) {
+                        refs.push((title_part.to_string(), id_part));
+                    }
+                }
+                rest = &after[close + 2..];
+            }
+            None => break,
+        }
+    }
+    refs
+}
+
 /// 从笔记 HTML 内容里提取所有 `[[标题]]` —— 与前端 `extractWikiLinks` 对齐。
 ///
 /// 实现：极简 stripHtml → markdown 反转义 → 扫描 `[[ ... ]]` 配对 → trim + 去重。
@@ -98,6 +150,47 @@ impl super::Database {
             }
         }
         Ok(())
+    }
+
+    /// 从正文重建出链（KB 2.0）：先解析 wiki 引用，再校验目标可见性。
+    pub fn rebuild_note_links_from_content(
+        &self,
+        source_id: i64,
+        content: &str,
+    ) -> Result<(), AppError> {
+        let refs = extract_wiki_refs(content);
+        if refs.is_empty() {
+            return self.sync_note_links(source_id, Vec::new());
+        }
+        let mut target_ids: Vec<i64> = Vec::with_capacity(refs.len());
+        let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        for (title, explicit_id) in refs {
+            let candidate = match explicit_id {
+                Some(id) => {
+                    let conn = self
+                        .conn
+                        .lock()
+                        .map_err(|e| AppError::Custom(e.to_string()))?;
+                    let visible: Option<i64> = conn
+                        .query_row(
+                            "SELECT id FROM notes
+                             WHERE id = ?1 AND is_deleted = 0 AND is_hidden = 0 AND is_scratch = 0",
+                            rusqlite::params![id],
+                            |row| row.get(0),
+                        )
+                        .ok();
+                    drop(conn);
+                    visible
+                }
+                None => self.find_note_id_by_title_loose(&title)?,
+            };
+            if let Some(tid) = candidate {
+                if tid != source_id && seen.insert(tid) {
+                    target_ids.push(tid);
+                }
+            }
+        }
+        self.sync_note_links(source_id, target_ids)
     }
 
     /// 获取反向链接（哪些笔记链接到了 target_id）
