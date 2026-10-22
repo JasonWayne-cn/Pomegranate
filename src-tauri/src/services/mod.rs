@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod app_lock;
 pub mod asr;
 pub mod asset_path;
 pub mod cards;
@@ -9,6 +10,7 @@ pub mod converter;
 pub mod crypto;
 pub mod daily;
 pub mod data_dir;
+pub mod excel_import;
 // 紧急待办全屏窗口仅桌面端（移动端无多窗口概念）
 #[cfg(desktop)]
 pub mod emergency_window;
@@ -30,8 +32,11 @@ pub mod image_download;
 pub mod import;
 pub mod import_attachments;
 pub mod import_video_attachments;
+pub mod legacy_api_url;
 pub mod links;
+pub mod mac_ocr;
 pub mod markdown;
+pub mod ocr;
 // 外部 MCP server 子进程管理仅桌面端：rmcp transport-child-process 在桌面端 dependencies
 // 移动端 fork/spawn 受限，砍掉外部 MCP，仅保留 in-memory 内置 server（kb-core）
 #[cfg(desktop)]
@@ -49,6 +54,7 @@ pub mod popout_window;
 pub mod prompt;
 pub mod provider_registry;
 pub mod quick_capture;
+pub mod reminder_sound;
 pub mod safe_filename;
 pub mod search;
 pub mod session_manager;
@@ -72,3 +78,4 @@ pub mod vault;
 pub mod video;
 pub mod web_clip;
 pub mod webdav;
+pub mod window_size;

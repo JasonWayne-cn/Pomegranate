@@ -3,7 +3,10 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 42;
+pub const SCHEMA_VERSION: i32 = 75;
+
+/// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
+pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
 
 /// 获取数据库版本
 pub fn get_version(conn: &Connection) -> Result<i32, AppError> {
@@ -72,6 +75,39 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             39 => migrate_v39_to_v40(conn)?,
             40 => migrate_v40_to_v41(conn)?,
             41 => migrate_v41_to_v42(conn)?,
+            42 => migrate_v42_to_v43(conn)?,
+            43 => migrate_v43_to_v44(conn)?,
+            44 => migrate_v44_to_v45(conn)?,
+            45 => migrate_v45_to_v46(conn)?,
+            46 => migrate_v46_to_v47(conn)?,
+            47 => migrate_v47_to_v48(conn)?,
+            48 => migrate_v48_to_v49(conn)?,
+            49 => migrate_v49_to_v50(conn)?,
+            50 => migrate_v50_to_v51(conn)?,
+            51 => migrate_v51_to_v52(conn)?,
+            52 => migrate_v52_to_v53(conn)?,
+            53 => migrate_v53_to_v54(conn)?,
+            54 => migrate_v54_to_v55(conn)?,
+            55 => migrate_v55_to_v56(conn)?,
+            56 => migrate_v56_to_v57(conn)?,
+            57 => migrate_v57_to_v58(conn)?,
+            58 => migrate_v58_to_v59(conn)?,
+            59 => migrate_v59_to_v60(conn)?,
+            60 => migrate_v60_to_v61(conn)?,
+            61 => migrate_v61_to_v62(conn)?,
+            62 => migrate_v62_to_v63(conn)?,
+            63 => migrate_v63_to_v64(conn)?,
+            64 => migrate_v64_to_v65(conn)?,
+            65 => migrate_v65_to_v66(conn)?,
+            66 => migrate_v66_to_v67(conn)?,
+            67 => migrate_v67_to_v68(conn)?,
+            68 => migrate_v68_to_v69(conn)?,
+            69 => migrate_v69_to_v70(conn)?,
+            70 => migrate_v70_to_v71(conn)?,
+            71 => migrate_v71_to_v72(conn)?,
+            72 => migrate_v72_to_v73(conn)?,
+            73 => migrate_v73_to_v74(conn)?,
+            74 => migrate_v74_to_v75(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -1672,3 +1708,1125 @@ fn migrate_v41_to_v42(conn: &Connection) -> Result<(), AppError> {
     set_version(conn, 42)?;
     Ok(())
 }
+
+// ═══════════════════════════════════════════════════════════════
+// KB 2.0 合并迁移（原 KB v35–v67，重编号为 v43–v75）
+// 基准：KB v1.8.0 (schema 34) 与本项目 v34 完全一致
+// ═══════════════════════════════════════════════════════════════
+
+fn migrate_v42_to_v43(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v34 -> v35 (folders.color 自定义颜色)");
+
+    let cols = list_columns(conn, "folders")?;
+    if !cols.iter().any(|c| c == "color") {
+        conn.execute_batch("ALTER TABLE folders ADD COLUMN color TEXT;")?;
+    }
+
+    set_version(conn, 43)?;
+    Ok(())
+}
+
+
+fn migrate_v43_to_v44(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v35 -> v36 (notes.stable_uuid 多端稳定标识)");
+
+    let cols = list_columns(conn, "notes")?;
+    if !cols.iter().any(|c| c == "stable_uuid") {
+        conn.execute_batch("ALTER TABLE notes ADD COLUMN stable_uuid TEXT;")?;
+    }
+
+    // backfill：对 stable_uuid IS NULL 的行（幂等可重跑）生成 UUID v4
+    let mut stmt = conn.prepare("SELECT id FROM notes WHERE stable_uuid IS NULL")?;
+    let ids: Vec<i64> = stmt
+        .query_map([], |r| r.get::<_, i64>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(stmt);
+
+    log::info!("[v36] 准备回填 {} 条笔记的 stable_uuid", ids.len());
+    let tx = conn.unchecked_transaction()?;
+    for id in &ids {
+        let uuid = uuid::Uuid::new_v4().to_string();
+        tx.execute(
+            "UPDATE notes SET stable_uuid = ?1 WHERE id = ?2",
+            rusqlite::params![uuid, id],
+        )?;
+    }
+    tx.commit()?;
+
+    // 部分唯一索引：只对非 NULL 行强制唯一（NULL 行被排除，防御性的，正常路径不会出现）
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_stable_uuid
+         ON notes(stable_uuid) WHERE stable_uuid IS NOT NULL;",
+    )?;
+
+    set_version(conn, 44)?;
+    Ok(())
+}
+
+
+fn migrate_v44_to_v45(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v36 -> v37 (note_attachments 索引表 - sidecar CAS)");
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS note_attachments (
+            note_id        INTEGER NOT NULL,
+            local_rel_path TEXT NOT NULL,
+            sha256_hex     TEXT NOT NULL,
+            size           INTEGER NOT NULL DEFAULT 0,
+            mime           TEXT,
+            created_at     TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            PRIMARY KEY (note_id, local_rel_path),
+            FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_note_attachments_hash
+            ON note_attachments(sha256_hex);
+
+        CREATE INDEX IF NOT EXISTS idx_note_attachments_note
+            ON note_attachments(note_id);",
+    )?;
+
+    set_version(conn, 45)?;
+    Ok(())
+}
+
+
+fn migrate_v45_to_v46(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v37 -> v38 (notes.attachment_scan_at 增量扫描标记)");
+
+    let cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(notes)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !cols.iter().any(|c| c == "attachment_scan_at") {
+        conn.execute_batch("ALTER TABLE notes ADD COLUMN attachment_scan_at TEXT;")?;
+    }
+
+    set_version(conn, 46)?;
+    Ok(())
+}
+
+
+fn migrate_v46_to_v47(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v38 -> v39 (tags.parent_id 树形结构支持)");
+
+    let cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(tags)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !cols.iter().any(|c| c == "parent_id") {
+        conn.execute_batch(
+            "ALTER TABLE tags ADD COLUMN parent_id INTEGER;
+             CREATE INDEX IF NOT EXISTS idx_tags_parent ON tags(parent_id);",
+        )?;
+    }
+
+    set_version(conn, 47)?;
+    Ok(())
+}
+
+
+fn migrate_v47_to_v48(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v39 -> v40 (tasks.kanban_stage 工作流看板)");
+
+    let cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(tasks)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !cols.iter().any(|c| c == "kanban_stage") {
+        conn.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN kanban_stage TEXT NOT NULL DEFAULT 'todo';
+             CREATE INDEX IF NOT EXISTS idx_tasks_kanban_stage ON tasks(kanban_stage);",
+        )?;
+        // 老的已完成任务回填到 done 列
+        conn.execute_batch(
+            "UPDATE tasks SET kanban_stage = 'done' WHERE status = 1;",
+        )?;
+    }
+
+    set_version(conn, 48)?;
+    Ok(())
+}
+
+
+fn migrate_v48_to_v49(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v40 -> v41 (projects 表 + tasks.project_id / start_date)");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS projects (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            description TEXT,
+            color       TEXT NOT NULL DEFAULT '#1677ff',
+            start_date  TEXT,
+            end_date    TEXT,
+            archived    INTEGER NOT NULL DEFAULT 0,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(archived, sort_order);
+        ",
+    )?;
+
+    let task_cols = list_columns(conn, "tasks")?;
+    if !task_cols.iter().any(|c| c == "project_id") {
+        conn.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN project_id INTEGER
+                REFERENCES projects(id) ON DELETE SET NULL;
+             CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)
+                WHERE project_id IS NOT NULL;",
+        )?;
+    }
+    if !task_cols.iter().any(|c| c == "start_date") {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN start_date TEXT;")?;
+    }
+
+    set_version(conn, 49)?;
+    Ok(())
+}
+
+
+fn migrate_v49_to_v50(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v41 -> v42 (projects 跨端同步：stable_uuid + is_deleted + sync_remote_state_project)");
+
+    let cols = list_columns(conn, "projects")?;
+    if !cols.iter().any(|c| c == "stable_uuid") {
+        conn.execute_batch("ALTER TABLE projects ADD COLUMN stable_uuid TEXT;")?;
+    }
+    if !cols.iter().any(|c| c == "is_deleted") {
+        conn.execute_batch(
+            "ALTER TABLE projects ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+
+    // backfill：对 stable_uuid IS NULL 的项目（幂等可重跑）生成 UUID v4
+    let mut stmt = conn.prepare("SELECT id FROM projects WHERE stable_uuid IS NULL")?;
+    let ids: Vec<i64> = stmt
+        .query_map([], |r| r.get::<_, i64>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(stmt);
+    log::info!("[v42] 准备回填 {} 个项目的 stable_uuid", ids.len());
+    let tx = conn.unchecked_transaction()?;
+    for id in &ids {
+        let uuid = uuid::Uuid::new_v4().to_string();
+        tx.execute(
+            "UPDATE projects SET stable_uuid = ?1 WHERE id = ?2",
+            rusqlite::params![uuid, id],
+        )?;
+    }
+    tx.commit()?;
+
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_stable_uuid
+            ON projects(stable_uuid) WHERE stable_uuid IS NOT NULL;
+         CREATE INDEX IF NOT EXISTS idx_projects_is_deleted
+            ON projects(is_deleted);
+
+         CREATE TABLE IF NOT EXISTS sync_remote_state_project (
+            backend_id        INTEGER NOT NULL,
+            project_id        INTEGER NOT NULL,
+            remote_path       TEXT NOT NULL,
+            last_synced_hash  TEXT NOT NULL,
+            last_synced_at    TEXT NOT NULL,
+            last_synced_tombstone INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (backend_id, project_id)
+         );",
+    )?;
+
+    set_version(conn, 50)?;
+    Ok(())
+}
+
+
+fn migrate_v50_to_v51(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v42 -> v43 (tasks 跨端同步：stable_uuid + is_deleted + sync_remote_state_task)");
+
+    let cols = list_columns(conn, "tasks")?;
+    if !cols.iter().any(|c| c == "stable_uuid") {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN stable_uuid TEXT;")?;
+    }
+    if !cols.iter().any(|c| c == "is_deleted") {
+        conn.execute_batch(
+            "ALTER TABLE tasks ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+
+    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE stable_uuid IS NULL")?;
+    let ids: Vec<i64> = stmt
+        .query_map([], |r| r.get::<_, i64>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(stmt);
+    log::info!("[v43] 准备回填 {} 个任务的 stable_uuid", ids.len());
+    let tx = conn.unchecked_transaction()?;
+    for id in &ids {
+        let uuid = uuid::Uuid::new_v4().to_string();
+        tx.execute(
+            "UPDATE tasks SET stable_uuid = ?1 WHERE id = ?2",
+            rusqlite::params![uuid, id],
+        )?;
+    }
+    tx.commit()?;
+
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_stable_uuid
+            ON tasks(stable_uuid) WHERE stable_uuid IS NOT NULL;
+         CREATE INDEX IF NOT EXISTS idx_tasks_is_deleted
+            ON tasks(is_deleted);
+
+         CREATE TABLE IF NOT EXISTS sync_remote_state_task (
+            backend_id        INTEGER NOT NULL,
+            task_id           INTEGER NOT NULL,
+            remote_path       TEXT NOT NULL,
+            last_synced_hash  TEXT NOT NULL,
+            last_synced_at    TEXT NOT NULL,
+            last_synced_tombstone INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (backend_id, task_id)
+         );",
+    )?;
+
+    set_version(conn, 51)?;
+    Ok(())
+}
+
+
+fn migrate_v51_to_v52(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v43 -> v44 (task_categories.stable_uuid 跨端识别)");
+
+    let cols = list_columns(conn, "task_categories")?;
+    if !cols.iter().any(|c| c == "stable_uuid") {
+        conn.execute_batch("ALTER TABLE task_categories ADD COLUMN stable_uuid TEXT;")?;
+    }
+
+    let mut stmt = conn.prepare("SELECT id FROM task_categories WHERE stable_uuid IS NULL")?;
+    let ids: Vec<i64> = stmt
+        .query_map([], |r| r.get::<_, i64>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(stmt);
+    log::info!("[v44] 准备回填 {} 个任务分类的 stable_uuid", ids.len());
+    let tx = conn.unchecked_transaction()?;
+    for id in &ids {
+        let uuid = uuid::Uuid::new_v4().to_string();
+        tx.execute(
+            "UPDATE task_categories SET stable_uuid = ?1 WHERE id = ?2",
+            rusqlite::params![uuid, id],
+        )?;
+    }
+    tx.commit()?;
+
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_task_categories_stable_uuid
+            ON task_categories(stable_uuid) WHERE stable_uuid IS NOT NULL;",
+    )?;
+
+    set_version(conn, 52)?;
+    Ok(())
+}
+
+
+fn migrate_v52_to_v53(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v44 -> v45 (tags.sort_order 自定义排序)");
+
+    let cols = list_columns(conn, "tags")?;
+    if !cols.iter().any(|c| c == "sort_order") {
+        conn.execute_batch("ALTER TABLE tags ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;")?;
+    }
+
+    // 已有数据初始化：同一 parent 内按 name COLLATE NOCASE 升序分配 0/1000/2000...
+    conn.execute_batch(
+        "
+        WITH ranked AS (
+            SELECT id,
+                   (ROW_NUMBER() OVER (
+                        PARTITION BY COALESCE(parent_id, -1)
+                        ORDER BY name COLLATE NOCASE ASC, id ASC
+                   ) - 1) * 1000 AS new_order
+            FROM tags
+        )
+        UPDATE tags
+        SET sort_order = (SELECT new_order FROM ranked WHERE ranked.id = tags.id)
+        WHERE id IN (SELECT id FROM ranked);
+        ",
+    )?;
+
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_tags_parent_sort
+            ON tags(parent_id, sort_order);",
+    )?;
+
+    set_version(conn, 53)?;
+    Ok(())
+}
+
+
+fn migrate_v53_to_v54(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v45 -> v46 (ai_conversations.scope_folder_id 文件夹范围问答)");
+
+    // scope_folder_id：对话级 RAG 范围限定。
+    // NULL = 全库检索（默认旧行为）；有值 = RAG 只在该文件夹及其所有子孙文件夹内检索。
+    // 存文件夹 id 而非展开后的 id 列表：文件夹结构/笔记归属变化后范围能自动跟上。
+    let cols = list_columns(conn, "ai_conversations")?;
+    if !cols.iter().any(|c| c == "scope_folder_id") {
+        conn.execute_batch(
+            "ALTER TABLE ai_conversations ADD COLUMN scope_folder_id INTEGER;",
+        )?;
+    }
+
+    set_version(conn, 54)?;
+    Ok(())
+}
+
+
+fn migrate_v54_to_v55(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v46 -> v47 (定时推送 push_jobs / push_run_logs)");
+
+    // 定时推送独立子系统。push_jobs 存订阅本体，push_run_logs 存每次执行快照。
+    // next_run_at 物化存表（而非每次算）：调度器只需 SELECT MIN(next_run_at) 即知下次该睡到几点，
+    // 空闲时零计算。建 (enabled, next_run_at) 复合索引让 peek/list_due 走索引。
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS push_jobs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT NOT NULL,
+            prompt          TEXT NOT NULL,
+            model_id        INTEGER,
+            source_kind     TEXT NOT NULL DEFAULT 'none',
+            source_config   TEXT NOT NULL DEFAULT '{}',
+            schedule_time   TEXT NOT NULL,
+            repeat_kind     TEXT NOT NULL DEFAULT 'daily',
+            repeat_weekdays TEXT,
+            channels        TEXT NOT NULL DEFAULT '[\"notification\"]',
+            enabled         INTEGER NOT NULL DEFAULT 1,
+            last_run_at     TEXT,
+            next_run_at     TEXT,
+            created_at      DATETIME DEFAULT (datetime('now','localtime')),
+            updated_at      DATETIME DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_push_jobs_next ON push_jobs(enabled, next_run_at);
+        CREATE TABLE IF NOT EXISTS push_run_logs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id      INTEGER NOT NULL,
+            run_at      TEXT NOT NULL,
+            status      TEXT NOT NULL,
+            item_count  INTEGER NOT NULL DEFAULT 0,
+            payload     TEXT,
+            error       TEXT,
+            FOREIGN KEY(job_id) REFERENCES push_jobs(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_push_run_logs_job ON push_run_logs(job_id, run_at);",
+    )?;
+
+    set_version(conn, 55)?;
+    Ok(())
+}
+
+
+fn migrate_v55_to_v56(conn: &Connection) -> Result<(), AppError> {
+    // v48 原为「Rhai 脚本插件 scripts 表」，该功能已撤销（与内置 AI 文本转换重叠、
+    // 价值边际）。版本号**保留 48 不回退**——否则装过 dev v48 的库会「版本高于应用」报错。
+    // 空迁移即可：装过旧 dev 版的库里残留的 scripts 表无害（不再被任何代码引用），新库不建表。
+    log::info!("数据库迁移: v47 -> v48 (脚本插件已撤销，空迁移占位)");
+
+    set_version(conn, 56)?;
+    Ok(())
+}
+
+
+fn migrate_v56_to_v57(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v48 -> v49 (修复附件链接 kb-asset:// URL 裸空格)");
+
+    let mut stmt = conn
+        .prepare("SELECT id, content FROM notes WHERE content IS NOT NULL AND content != ''")?;
+    let rows: Vec<(i64, String)> = stmt
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(stmt);
+
+    log::info!("[v49] 扫描 {} 条笔记里的 kb-asset:// URL", rows.len());
+
+    let mut touched = 0usize;
+    let tx = conn.unchecked_transaction()?;
+    for (id, content) in &rows {
+        let (new_content, changed) = encode_kb_asset_whitespace(content);
+        if changed {
+            tx.execute(
+                "UPDATE notes SET content = ?1, attachment_scan_at = NULL WHERE id = ?2",
+                rusqlite::params![new_content, id],
+            )?;
+            touched += 1;
+        }
+    }
+    tx.commit()?;
+
+    log::info!("[v49] 修复完成：{} 条笔记的附件链接 URL 空格已编码", touched);
+
+    set_version(conn, 57)?;
+    Ok(())
+}
+
+
+fn migrate_v57_to_v58(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v49 -> v50 (AI 对话角色预设)");
+
+    let has_col = conn
+        .prepare("SELECT preset_id FROM ai_conversations LIMIT 1")
+        .is_ok();
+    if !has_col {
+        conn.execute_batch("ALTER TABLE ai_conversations ADD COLUMN preset_id INTEGER;")?;
+    }
+
+    set_version(conn, 58)?;
+    Ok(())
+}
+
+
+fn migrate_v58_to_v59(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v50 -> v51 (max_context 默认值 32000 -> 128000，Ollama 除外)");
+
+    conn.execute_batch(
+        "UPDATE ai_models SET max_context = 128000
+         WHERE max_context = 32000 AND provider <> 'ollama';",
+    )?;
+
+    set_version(conn, 59)?;
+    Ok(())
+}
+
+
+fn migrate_v59_to_v60(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v51 -> v52 (notes.note_type + search_text — 白板笔记)");
+
+    conn.execute_batch(
+        "ALTER TABLE notes ADD COLUMN note_type TEXT NOT NULL DEFAULT 'markdown';
+
+         -- 白板专用的「可搜索文本」；普通笔记恒为 NULL
+         ALTER TABLE notes ADD COLUMN search_text TEXT;
+
+         -- 列表页要按类型过滤/加图标，未删笔记量大时全表扫不划算
+         CREATE INDEX IF NOT EXISTS idx_notes_type ON notes(note_type);
+
+         -- FTS 触发器改喂 COALESCE(search_text, content)。
+         -- 三个触发器必须同批改：delete 端用的键要和 insert 端写进去的值**逐字一致**，
+         -- 否则 fts5 的 'delete' 命令删不掉旧行，索引会越积越脏（v6 踩过这个坑）。
+         DROP TRIGGER IF EXISTS notes_fts_insert;
+         DROP TRIGGER IF EXISTS notes_fts_update;
+         DROP TRIGGER IF EXISTS notes_fts_delete;
+
+         CREATE TRIGGER notes_fts_insert AFTER INSERT ON notes BEGIN
+             INSERT INTO notes_fts(rowid, title, content)
+             VALUES (new.id, new.title, COALESCE(new.search_text, new.content));
+         END;
+
+         -- 监听列表要带上 search_text：白板保存时变的是它，不带的话索引不会刷新
+         CREATE TRIGGER notes_fts_update AFTER UPDATE OF title, content, search_text ON notes BEGIN
+             INSERT INTO notes_fts(notes_fts, rowid, title, content)
+             VALUES('delete', old.id, old.title, COALESCE(old.search_text, old.content));
+             INSERT INTO notes_fts(rowid, title, content)
+             VALUES (new.id, new.title, COALESCE(new.search_text, new.content));
+         END;
+
+         CREATE TRIGGER notes_fts_delete AFTER DELETE ON notes BEGIN
+             INSERT INTO notes_fts(notes_fts, rowid, title, content)
+             VALUES('delete', old.id, old.title, COALESCE(old.search_text, old.content));
+         END;",
+    )?;
+
+    set_version(conn, 60)?;
+    Ok(())
+}
+
+
+fn migrate_v60_to_v61(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v52 -> v53 (FTS external-content 一致性：fts_body 生成列)");
+
+    conn.execute_batch(
+        "-- 1) 生成列：fts5 回读的就是它，与触发器写入的表达式逐字相同
+         ALTER TABLE notes ADD COLUMN fts_body TEXT
+             GENERATED ALWAYS AS (COALESCE(search_text, content)) VIRTUAL;
+
+         -- 2) 重建 fts5 表，把第二列绑到 fts_body。
+         --    列的**位置**不变（0=title, 1=正文），所以 search.rs 里的
+         --    snippet(notes_fts, 1, ...) 和 bm25(notes_fts, 5.0, 1.0) 都不用改。
+         DROP TRIGGER IF EXISTS notes_fts_insert;
+         DROP TRIGGER IF EXISTS notes_fts_update;
+         DROP TRIGGER IF EXISTS notes_fts_delete;
+         DROP TABLE IF EXISTS notes_fts;
+
+         CREATE VIRTUAL TABLE notes_fts USING fts5(
+             title, fts_body, content=notes, content_rowid=id,
+             tokenize='unicode61'
+         );
+
+         -- 3) 触发器写入同一个表达式。三个必须同批改：delete 端的键要和
+         --    insert 端写的值逐字一致，否则删不掉旧行（v6 踩过这个坑）。
+         CREATE TRIGGER notes_fts_insert AFTER INSERT ON notes BEGIN
+             INSERT INTO notes_fts(rowid, title, fts_body)
+             VALUES (new.id, new.title, COALESCE(new.search_text, new.content));
+         END;
+
+         CREATE TRIGGER notes_fts_update AFTER UPDATE OF title, content, search_text ON notes BEGIN
+             INSERT INTO notes_fts(notes_fts, rowid, title, fts_body)
+             VALUES('delete', old.id, old.title, COALESCE(old.search_text, old.content));
+             INSERT INTO notes_fts(rowid, title, fts_body)
+             VALUES (new.id, new.title, COALESCE(new.search_text, new.content));
+         END;
+
+         CREATE TRIGGER notes_fts_delete AFTER DELETE ON notes BEGIN
+             INSERT INTO notes_fts(notes_fts, rowid, title, fts_body)
+             VALUES('delete', old.id, old.title, COALESCE(old.search_text, old.content));
+         END;
+
+         -- 4) 从原表重建索引。现在 rebuild 读的是 fts_body，白板拿到的是画布文字，
+         --    与触发器口径一致 —— 这一步以后再跑多少次都是安全的。
+         INSERT INTO notes_fts(notes_fts) VALUES('rebuild');",
+    )?;
+
+    set_version(conn, 61)?;
+    Ok(())
+}
+
+
+fn migrate_v61_to_v62(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v53 -> v54 (笔记素材路径全量归一化 → kb-asset://<相对路径>)");
+
+    let mut stmt =
+        conn.prepare("SELECT id, content FROM notes WHERE content IS NOT NULL AND content != ''")?;
+    let rows: Vec<(i64, String)> = stmt
+        .query_map([], |r| {
+            // 降级读：坏库不该让迁移整体失败（见 database::text_health）
+            Ok((
+                r.get::<_, i64>(0)?,
+                crate::database::text_health::get_text_lossy(r, 1, "notes.content")?,
+            ))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+    drop(stmt);
+
+    log::info!("[v54] 扫描 {} 条笔记的素材路径", rows.len());
+
+    let mut touched_notes = 0usize;
+    let mut rewritten_urls = 0usize;
+
+    let tx = conn.unchecked_transaction()?;
+    for (id, content) in &rows {
+        let (new_content, n) = normalize_asset_urls_in_content(content);
+        if n == 0 {
+            continue;
+        }
+        tx.execute(
+            "UPDATE notes SET content = ?1 WHERE id = ?2",
+            rusqlite::params![new_content, id],
+        )?;
+        // content 变了，content_hash 必须跟着重算，否则同步 diff 会与远端永久对不上
+        tx.execute(
+            "UPDATE notes SET content_hash = ?1 WHERE id = ?2",
+            rusqlite::params![crate::services::hash::sha256_hex(&new_content), id],
+        )?;
+        touched_notes += 1;
+        rewritten_urls += n;
+    }
+    tx.commit()?;
+
+    // 清空增量附件扫描标记，强制下次 push 前全库重扫一遍。
+    //
+    // **必须做**，否则本次修复对存量数据无效：
+    // - 同批修复给 `attachment_scan::KNOWN_PREFIXES` 补了 `attachments/`（此前整个目录
+    //   从未参与同步）。但增量扫描只挑 `attachment_scan_at <> updated_at` 的笔记，
+    //   老笔记的标记早已对齐 → 新前缀永远不会被应用到它们身上。
+    // - 上面的 URL 归一化只改 `content`，不动 `updated_at`，同样不会触发重扫。
+    //
+    // 代价：升级后第一次 push 会全库扫一遍附件（1 万条笔记约几秒），之后恢复增量。
+    let cleared = conn.execute("UPDATE notes SET attachment_scan_at = NULL", [])?;
+
+    log::info!(
+        "[v54] 归一化完成：触达 {} 条笔记，改写 {} 个素材 URL；已清空 {} 条笔记的附件扫描标记（下次 push 全库重扫）",
+        touched_notes,
+        rewritten_urls,
+        cleared
+    );
+
+    set_version(conn, 62)?;
+    Ok(())
+}
+
+
+fn migrate_v62_to_v63(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v54 -> v55 (日记脱离日期文件夹，修「看着空、删了却带走日记」)");
+
+    let detached = conn.execute(
+        "UPDATE notes SET folder_id = NULL WHERE is_daily = 1 AND folder_id IS NOT NULL",
+        [],
+    )?;
+
+    if detached > 0 {
+        log::info!(
+            "[v55] {} 篇日记已移出所在文件夹（内容与日期不变）；空掉的文件夹可在笔记侧栏「清理空文件夹」里批量删除",
+            detached
+        );
+    }
+
+    set_version(conn, 63)?;
+    Ok(())
+}
+
+
+fn migrate_v63_to_v64(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v55 -> v56 (notes.is_scratch 临时编辑标记)");
+
+    let cols = list_columns(conn, "notes")?;
+    if !cols.iter().any(|c| c == "is_scratch") {
+        conn.execute_batch("ALTER TABLE notes ADD COLUMN is_scratch INTEGER NOT NULL DEFAULT 0;")?;
+    }
+
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_notes_scratch
+         ON notes(is_scratch, updated_at DESC) WHERE is_deleted = 0;",
+    )?;
+
+    set_version(conn, 64)?;
+    Ok(())
+}
+
+
+fn migrate_v64_to_v65(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v56 -> v57 (note_snapshots 内容快照)");
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS note_snapshots (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_id      INTEGER NOT NULL,
+            content      TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            byte_size    INTEGER NOT NULL,
+            reason       TEXT NOT NULL DEFAULT 'auto',
+            created_at   DATETIME DEFAULT (datetime('now', 'localtime')),
+            FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE CASCADE
+        );
+         CREATE INDEX IF NOT EXISTS idx_note_snapshots_note
+         ON note_snapshots(note_id, created_at DESC);",
+    )?;
+
+    set_version(conn, 65)?;
+    Ok(())
+}
+
+
+fn migrate_v65_to_v66(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v57 -> v58 (note_snapshots.target_path 内嵌白板)");
+
+    let cols = list_columns(conn, "note_snapshots")?;
+    if !cols.iter().any(|c| c == "target_path") {
+        conn.execute_batch("ALTER TABLE note_snapshots ADD COLUMN target_path TEXT;")?;
+    }
+
+    // 查询一律带 target_path 条件，索引跟着带上，否则一条笔记有多块白板时会全表扫
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_note_snapshots_target
+         ON note_snapshots(note_id, target_path, created_at DESC);",
+    )?;
+
+    set_version(conn, 66)?;
+    Ok(())
+}
+
+
+fn migrate_v66_to_v67(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v58 -> v59 (API Key 加密入库)");
+
+    // ── ai_models.api_key ──
+    let models: Vec<(i64, String)> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, api_key FROM ai_models
+             WHERE api_key IS NOT NULL AND TRIM(api_key) <> ''",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+
+    let mut done = 0usize;
+    for (id, stored) in models {
+        if crate::crypto::is_encrypted_field(&stored) {
+            continue; // 幂等：已加密
+        }
+        match crate::crypto::encrypt_field(stored.trim()) {
+            Ok(enc) => {
+                conn.execute(
+                    "UPDATE ai_models SET api_key = ?1 WHERE id = ?2",
+                    rusqlite::params![enc, id],
+                )?;
+                done += 1;
+            }
+            Err(e) => {
+                log::warn!("[migrate v59] AI 模型 #{} 的 Key 加密失败，保持明文: {}", id, e);
+            }
+        }
+    }
+
+    // ── app_config['asr.api_key'] ──
+    let asr_key: Option<String> = conn
+        .query_row(
+            "SELECT value FROM app_config WHERE key = 'asr.api_key'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    if let Some(stored) = asr_key {
+        let trimmed = stored.trim();
+        if !trimmed.is_empty() && !crate::crypto::is_encrypted_field(trimmed) {
+            match crate::crypto::encrypt_field(trimmed) {
+                Ok(enc) => {
+                    conn.execute(
+                        "UPDATE app_config SET value = ?1 WHERE key = 'asr.api_key'",
+                        rusqlite::params![enc],
+                    )?;
+                    done += 1;
+                }
+                Err(e) => log::warn!("[migrate v59] ASR Key 加密失败，保持明文: {}", e),
+            }
+        }
+    }
+
+    log::info!("数据库迁移: v58 -> v59 完成，已加密 {} 条 Key", done);
+    set_version(conn, 67)?;
+    Ok(())
+}
+
+
+fn migrate_v67_to_v68(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v59 -> v60 (Excel 二维数据集)");
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS datasets (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            -- 相对 data_dir 的附件路径（kb-asset:// 后那段），附件本身没有 DB 表
+            source_path   TEXT    NOT NULL,
+            sheet_name    TEXT    NOT NULL,
+            region_index  INTEGER NOT NULL,
+            -- 表头在原始行数组里的下标；无表头为 NULL（列名回退 A列/B列）
+            header_row    INTEGER,
+            row_count     INTEGER NOT NULL,
+            col_count     INTEGER NOT NULL,
+            -- 源文件内容哈希：变了就重建，防止库里留着旧数据
+            source_hash   TEXT    NOT NULL,
+            created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE (source_path, sheet_name, region_index)
+        );
+
+        CREATE TABLE IF NOT EXISTS dataset_fields (
+            dataset_id     INTEGER NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+            col_index      INTEGER NOT NULL,
+            name           TEXT    NOT NULL,
+            -- number / date / boolean / text（90% 投票推断）
+            inferred_type  TEXT    NOT NULL,
+            -- time / measure / identifier / status / category，可为 NULL
+            semantic_role  TEXT,
+            -- 非空率 0.0~1.0
+            completeness   REAL    NOT NULL,
+            distinct_count INTEGER NOT NULL,
+            PRIMARY KEY (dataset_id, col_index)
+        );
+
+        CREATE TABLE IF NOT EXISTS dataset_rows (
+            dataset_id INTEGER NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+            row_index  INTEGER NOT NULL,
+            -- JSON1 对象：{\"列名\": \"值\"}
+            data_json  TEXT    NOT NULL,
+            PRIMARY KEY (dataset_id, row_index)
+        );
+
+        -- 按源文件查/删是最高频操作（重新导入时先清后建）
+        CREATE INDEX IF NOT EXISTS idx_datasets_source ON datasets(source_path);",
+    )?;
+
+    set_version(conn, 68)?;
+    Ok(())
+}
+
+
+fn migrate_v68_to_v69(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v60 -> v61 (ai_models.max_tokens)");
+
+    conn.execute_batch(
+        "ALTER TABLE ai_models ADD COLUMN max_tokens INTEGER;",
+    )?;
+
+    // Ollama 存量模型统一给 -1（无限生成）—— 本地推理零成本，
+    // 且这是消除"默认 128 截断"那个坑最直接的办法
+    let n = conn.execute(
+        "UPDATE ai_models SET max_tokens = -1 WHERE provider = 'ollama'",
+        [],
+    )?;
+    log::info!("数据库迁移: v60 -> v61 完成，{} 个 Ollama 模型设为无限输出", n);
+
+    set_version(conn, 69)?;
+    Ok(())
+}
+
+
+fn migrate_v69_to_v70(conn: &Connection) -> Result<(), AppError> {
+    use crate::services::legacy_api_url::{legacy_provider_key, normalize_legacy_api_url};
+
+    log::info!("数据库迁移: v61 -> v62 (模型服务接入 ai-profile)");
+    // drop 未 commit 的 tx 会自动回滚
+    let tx = conn.unchecked_transaction()?;
+    let conn: &Connection = &tx;
+
+    conn.execute_batch(
+        "ALTER TABLE ai_models ADD COLUMN limits_source TEXT;
+         ALTER TABLE ai_models ADD COLUMN max_output INTEGER;",
+    )?;
+
+    let rows: Vec<(i64, String, String, i64)> = {
+        let mut stmt = conn.prepare("SELECT id, provider, api_url, max_context FROM ai_models")?;
+        let it = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+        it.collect::<Result<_, _>>()?
+    };
+
+    for (id, provider, api_url, max_context) in &rows {
+        let (context, source): (i64, Option<&str>) =
+            if *max_context <= 0 || *max_context == LEGACY_DEFAULT_MAX_CONTEXT {
+                (0, None)
+            } else {
+                (*max_context, Some("user"))
+            };
+        conn.execute(
+            "UPDATE ai_models SET provider = ?1, api_url = ?2, max_context = ?3, limits_source = ?4
+             WHERE id = ?5",
+            rusqlite::params![
+                legacy_provider_key(provider),
+                normalize_legacy_api_url(api_url),
+                context,
+                source,
+                id
+            ],
+        )?;
+    }
+
+    set_version(conn, 70)?;
+    tx.commit()?;
+    log::info!("数据库迁移: v61 -> v62 完成，修正 {} 个模型配置", rows.len());
+    Ok(())
+}
+
+
+fn migrate_v70_to_v71(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v62 -> v63 (ai_messages.turn_meta_json)");
+
+    let cols = list_columns(conn, "ai_messages")?;
+    if !cols.iter().any(|c| c == "turn_meta_json") {
+        conn.execute_batch("ALTER TABLE ai_messages ADD COLUMN turn_meta_json TEXT;")?;
+    }
+
+    set_version(conn, 71)?;
+    Ok(())
+}
+
+
+fn migrate_v71_to_v72(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v63 -> v64 (回填 notes / tasks 缺失的 stable_uuid)");
+
+    let tx = conn.unchecked_transaction()?;
+    // 表名只来自这里的字面量，不会有外部输入拼进 SQL
+    for table in ["notes", "tasks"] {
+        let ids: Vec<i64> = {
+            let mut stmt =
+                tx.prepare(&format!("SELECT id FROM {table} WHERE stable_uuid IS NULL"))?;
+            let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        if !ids.is_empty() {
+            log::info!("[v64] 回填 {} 行 {}.stable_uuid", ids.len(), table);
+        }
+        let mut update = tx.prepare(&format!("UPDATE {table} SET stable_uuid = ?1 WHERE id = ?2"))?;
+        for id in ids {
+            update.execute(rusqlite::params![uuid::Uuid::new_v4().to_string(), id])?;
+        }
+    }
+    tx.commit()?;
+
+    set_version(conn, 72)?;
+    Ok(())
+}
+
+
+fn migrate_v72_to_v73(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v64 -> v65 (task_attachments)");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS task_attachments (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            rel_path    TEXT NOT NULL,
+            file_name   TEXT NOT NULL,
+            mime        TEXT NOT NULL DEFAULT 'application/octet-stream',
+            size        INTEGER NOT NULL DEFAULT 0,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_task_attachments_task
+            ON task_attachments(task_id, sort_order);
+        ",
+    )?;
+
+    set_version(conn, 73)?;
+    Ok(())
+}
+
+
+fn migrate_v73_to_v74(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v65 -> v66 (task_categories.parent_id 多级分类)");
+
+    let cols = list_columns(conn, "task_categories")?;
+    if !cols.iter().any(|c| c == "parent_id") {
+        conn.execute_batch("ALTER TABLE task_categories ADD COLUMN parent_id INTEGER;")?;
+    }
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_task_categories_parent
+            ON task_categories(parent_id) WHERE parent_id IS NOT NULL;",
+    )?;
+
+    set_version(conn, 74)?;
+    Ok(())
+}
+
+
+fn migrate_v74_to_v75(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v66 -> v67 (tasks.snooze_until 稍后提醒)");
+
+    let cols = list_columns(conn, "tasks")?;
+    if !cols.iter().any(|c| c == "snooze_until") {
+        conn.execute_batch("ALTER TABLE tasks ADD COLUMN snooze_until TEXT;")?;
+    }
+
+    set_version(conn, 75)?;
+    Ok(())
+}
+
+
+fn encode_kb_asset_whitespace(content: &str) -> (String, bool) {
+    use regex::Regex;
+    use std::sync::OnceLock;
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r#"kb-asset://[^"'`)\]<>\r\n]*"#)
+            .expect("正则字面量恒定，编译失败属于代码 BUG")
+    });
+
+    let mut changed = false;
+    let new = re.replace_all(content, |caps: &regex::Captures<'_>| -> String {
+        let m = caps.get(0).map(|x| x.as_str()).unwrap_or("");
+        if m.contains(' ') || m.contains('\t') {
+            changed = true;
+            m.replace(' ', "%20").replace('\t', "%09")
+        } else {
+            m.to_string()
+        }
+    });
+    (new.into_owned(), changed)
+}
+
+
+fn normalize_asset_urls_in_content(content: &str) -> (String, usize) {
+    use regex::Regex;
+    use std::sync::OnceLock;
+
+    // `src="…"` / `href='…'`：引号种类分两个正则，因为 Rust regex 不支持反向引用配对引号
+    static RE_ATTR_DQ: OnceLock<Regex> = OnceLock::new();
+    static RE_ATTR_SQ: OnceLock<Regex> = OnceLock::new();
+    // markdown 链接 / 图片目标：`](url)` 或 `](url "title")`
+    static RE_MD: OnceLock<Regex> = OnceLock::new();
+
+    let re_attr_dq = RE_ATTR_DQ.get_or_init(|| {
+        Regex::new(r#"((?:src|href)\s*=\s*")([^"]+)(")"#)
+            .expect("正则字面量恒定，编译失败属于代码 BUG")
+    });
+    let re_attr_sq = RE_ATTR_SQ.get_or_init(|| {
+        Regex::new(r#"((?:src|href)\s*=\s*')([^']+)(')"#)
+            .expect("正则字面量恒定，编译失败属于代码 BUG")
+    });
+    let re_md = RE_MD.get_or_init(|| {
+        Regex::new(r#"(\]\()([^)\s]+)((?:\s+"[^"]*")?\))"#)
+            .expect("正则字面量恒定，编译失败属于代码 BUG")
+    });
+
+    let mut count = 0usize;
+    let mut out = content.to_string();
+
+    for re in [re_attr_dq, re_attr_sq, re_md] {
+        out = re
+            .replace_all(&out, |caps: &regex::Captures<'_>| {
+                let whole = caps.get(0).map(|m| m.as_str()).unwrap_or("").to_string();
+                let (pre, url, post) = match (caps.get(1), caps.get(2), caps.get(3)) {
+                    (Some(a), Some(b), Some(c)) => (a.as_str(), b.as_str(), c.as_str()),
+                    _ => return whole,
+                };
+                match normalize_one_asset_url(url) {
+                    Some(fixed) => {
+                        count += 1;
+                        format!("{}{}{}", pre, fixed, post)
+                    }
+                    None => whole,
+                }
+            })
+            .into_owned();
+    }
+
+    (out, count)
+}
+
+
+fn normalize_one_asset_url(url: &str) -> Option<String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // 已经是 kb-asset://：只在 rel 仍是**绝对路径**时才修（v29 遗留的坏数据）
+    if let Some(rel) = trimmed.strip_prefix("kb-asset://") {
+        let decoded = urlencoding::decode(rel)
+            .map(|c| c.into_owned())
+            .unwrap_or_else(|_| rel.to_string());
+        if !looks_absolute_path(&decoded) {
+            return None; // 干净的相对路径，不动
+        }
+        let fixed = crate::services::asset_path::abs_to_rel(
+            std::path::Path::new(&decoded),
+            std::path::Path::new(""),
+        )?;
+        // 收敛后没变化 → 不计入改写
+        if fixed == decoded {
+            return None;
+        }
+        return Some(format!("kb-asset://{}", fixed));
+    }
+
+    // 剥协议 → 拿到本地绝对路径。`resolve_content_url` 已覆盖
+    // file:// / asset://localhost/ / http://asset.localhost/ / 裸路径，
+    // 并对真外链 / data: / blob: / 锚点 / mailto: 返回 None（这些不该动）。
+    //
+    // 传空 data_dir：迁移期拿不到运行期数据目录，也不需要——真正要的是
+    // 下一步 abs_to_rel 按已知资产段截取。
+    let abs = crate::services::asset_path::resolve_content_url(trimmed, std::path::Path::new(""))?;
+    let rel = crate::services::asset_path::abs_to_rel(&abs, std::path::Path::new(""))?;
+    Some(format!("kb-asset://{}", rel))
+}
+
+
+fn looks_absolute_path(s: &str) -> bool {
+    let b = s.as_bytes();
+    let has_drive =
+        b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'/' || b[2] == b'\\');
+    has_drive || s.starts_with('/') || s.starts_with(r"\\")
+}
+
+

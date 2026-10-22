@@ -97,6 +97,17 @@ kb-core = { path = "kb-core" }
 # rmcp client：in-memory transport 调用同进程 KbServer（双端通用）
 # transport-child-process 仅桌面端用（spawn 外部 MCP server），移到 target.desktop
 rmcp = { version = "1.5", features = ["client"] }
+# ─── KB 2.0 合并：模型服务 / S3 / 数据集 / 网页正文提取 ─────
+# ai-profile：模型预置、协议拼写、端点拼接、限额与 ai.profile 协议
+ai-profile = { version = "0.1.7", features = ["chat", "client"] }
+# 纯 Rust SigV4 签名，零 HTTP/TLS 依赖（KB sync_v1 的 S3 backend 使用）
+rusty-s3 = "0.10"
+# Excel/CSV 二维数据集导入
+csv = "1"
+# 网页正文提取（Readability 算法，替代已停更的 readability crate）
+dom_smoothie = "0.18"
+# dom_smoothie 同源 DOM 操作库，保证依赖版本一致
+dom_query = "0.28"
 # Excel / ODS 解析、Word 导出、txt 编码识别 — 双端通用纯 Rust 工具
 # 这些在原文件上面已声明 calamine / docx-rs / chardetng / encoding_rs 等，保持位置不变
 
@@ -108,6 +119,10 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-updater = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
+# 窗口大小/位置/最大化状态记忆（仅 main 窗口）
+tauri-plugin-window-state = "2"
+# 系统字体枚举（Windows=DirectWrite / macOS=CoreText / Linux=fontconfig，无 C 依赖）
+font-enumeration = "0.9"
 # PDFium fallback（pdf-extract 对中文 CMap 不支持，运行时动态加载 pdfium.dll 兜底）
 # 移动端 NDK 加载动态库受沙盒限制，暂不支持，待 T-M012 决策
 pdfium-render = "0.8"

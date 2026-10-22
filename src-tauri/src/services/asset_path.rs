@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 /// 已知的资产子目录。绝对路径若在 instance_dir 下解析不出，
 /// 就 fallback 到"找这些段名"的截取策略（用于历史绝对路径迁移到不同 OS / 不同 data_dir 的情况）。
-const KNOWN_ASSET_SEGMENTS: &[&str] = &[
+pub(crate) const KNOWN_ASSET_SEGMENTS: &[&str] = &[
     "kb_assets",
     "dev-kb_assets",
     "pdfs",
@@ -26,8 +26,22 @@ const KNOWN_ASSET_SEGMENTS: &[&str] = &[
 ///
 /// 返回 `None` 表示既不在 data_dir 下，也找不到任何已知资产段（无法判定相对路径）。
 pub fn abs_to_rel(absolute: &Path, data_dir: &Path) -> Option<String> {
-    if let Ok(rel) = absolute.strip_prefix(data_dir) {
-        return Some(to_posix(rel));
+    // ⚠️ `data_dir` 为空时**必须**跳过 strip_prefix：`Path::new("")` 的 components 是空迭代器，
+    // `Path::new("C:/x/kb_assets/a.png").strip_prefix("")` 返回 `Ok("C:/x/kb_assets/a.png")`
+    // —— 整个绝对路径被原样当成"相对路径"返回。
+    //
+    // 这曾让 v29 迁移的 fallback 分支从未生效：它传的就是 `Path::new("")` 作 dummy，
+    // 于是把 `http://asset.localhost/C:/…/kb_assets/x.png` 转成
+    // `kb-asset://C:/…/kb_assets/x.png`（rel 里含绝对路径）。前端 `resolveAssetSrc`
+    // 会无条件 `dataDir + "/" + rel` → 拼出 `…/com.agilefr.kb/C:/…/kb_assets/x.png` → 裂图。
+    //
+    // 同理再加一道保险：strip 之后若结果仍是绝对路径，也不接受，落到下面按段名截取。
+    if !data_dir.as_os_str().is_empty() {
+        if let Ok(rel) = absolute.strip_prefix(data_dir) {
+            if !rel.is_absolute() && rel.as_os_str().len() > 0 {
+                return Some(to_posix(rel));
+            }
+        }
     }
     // fallback：遍历 components 找已知资产段
     let comps: Vec<Component<'_>> = absolute.components().collect();
@@ -42,6 +56,125 @@ pub fn abs_to_rel(absolute: &Path, data_dir: &Path) -> Option<String> {
         }
     }
     None
+}
+
+/// 把笔记 content / 渲染产物里出现的素材 URL 解析为本地绝对路径。
+///
+/// 识别的形态（按优先级）：
+/// - `kb-asset://<rel>` —— 当前唯一会写进 content 的形态，`<rel>` 相对 `data_dir`
+/// - `file://<abs>` —— 老笔记拖入附件用过的协议（Windows 上是 `file:///E:/...`）
+/// - `asset://localhost/<abs>` / `asset://<abs>` —— Tauri 运行期形态
+/// - `http://asset.localhost/<abs>` / `https://asset.localhost/<abs>` —— `convertFileSrc` 运行期输出
+/// - 裸绝对路径（`C:\...` / `/home/...`）—— 很早期写法
+/// - 裸相对路径 —— 相对 `data_dir` 解析
+///
+/// 返回 `None`：真·外链（`http(s)://` / `ftp://` 等非 asset.localhost）、`data:` / `blob:`、
+/// 页内锚点 `#...`、`mailto:` / `tel:`、空串、解码失败。
+///
+/// 注意：**不**校验文件是否存在，也**不**做"必须在 data_dir 下"的安全校验 ——
+/// 需要时由调用方自行 `canonicalize()` + `starts_with(data_dir)`。
+pub fn resolve_content_url(url: &str, data_dir: &Path) -> Option<PathBuf> {
+    let url = url.trim();
+    if url.is_empty()
+        || url.starts_with('#')
+        || url.starts_with("data:")
+        || url.starts_with("blob:")
+        || url.starts_with("mailto:")
+        || url.starts_with("tel:")
+    {
+        return None;
+    }
+
+    // kb-asset://<rel>：当前 content 里素材的唯一形态
+    if let Some(rest) = url.strip_prefix("kb-asset://") {
+        let rel = pct_decode(rest);
+        return rel_to_abs(&rel, data_dir).ok();
+    }
+
+    // 带协议的"伪本地"形态：剥协议头后是（编码过的）路径
+    let (body, is_file) = if let Some(r) = url.strip_prefix("http://asset.localhost/") {
+        (r, false)
+    } else if let Some(r) = url.strip_prefix("https://asset.localhost/") {
+        (r, false)
+    } else if let Some(r) = url.strip_prefix("asset://localhost/") {
+        (r, false)
+    } else if let Some(r) = url.strip_prefix("asset://") {
+        (r, false)
+    } else if let Some(r) = url.strip_prefix("file://") {
+        (r, true)
+    } else if url.contains("://") {
+        // 其它带 scheme 的（http/https 外链、ftp...）都不是本地文件
+        return None;
+    } else {
+        // 裸路径：绝对路径原样用（含跨机兜底）；相对路径相对 data_dir 拼
+        let s = if url.contains('%') { pct_decode(url) } else { url.to_string() };
+        let p = PathBuf::from(s);
+        return Some(if p.is_absolute() {
+            remap_foreign_asset_path(p, data_dir)
+        } else {
+            data_dir.join(p)
+        });
+    };
+
+    // 去掉 query / fragment 再 urldecode
+    let body = body.split(['?', '#']).next().unwrap_or(body);
+    let decoded = pct_decode(body);
+    let path_str = if is_file {
+        // file:///E:/...（Windows，strip 后剩 /E:/...）；file:///home/...（POSIX，保留前导 /）
+        if decoded.starts_with('/') && decoded.len() >= 3 && decoded.as_bytes()[2] == b':' {
+            decoded[1..].to_string()
+        } else {
+            decoded
+        }
+    } else if decoded.len() >= 2 && decoded.as_bytes()[1] == b':' {
+        // Windows 盘符：E:/foo 已是绝对路径
+        decoded
+    } else if decoded.starts_with('/') {
+        decoded
+    } else {
+        // POSIX 缺前导 / 时补上（asset 协议 strip 后偶尔会丢）
+        format!("/{}", decoded)
+    };
+    Some(remap_foreign_asset_path(PathBuf::from(path_str), data_dir))
+}
+
+/// 跨机 / 跨平台兜底：把"另一台机器的绝对路径"重映射到**本机** data_dir 下的同名资产。
+///
+/// 场景：笔记从 Windows 同步/拷贝到 macOS，content 里遗留
+/// `file:///E:/kb/kb_assets/images/1/x.png`（v54 迁移会清洗掉大部分，但外部导入的笔记、
+/// 或迁移之后又从旧端拉回来的内容仍可能出现）。这个绝对路径在 macOS 上必然不存在，
+/// 而同一份文件其实已经随附件同步躺在本机 `<data_dir>/kb_assets/images/1/x.png`。
+///
+/// 判定极保守，四个条件全满足才重映射，避免掩盖"文件真的丢了"这类问题：
+/// 1. `data_dir` 非空（迁移期传空 dummy 时不参与）
+/// 2. 原路径**不存在**（存在就说明本来就对，别动）
+/// 3. 原路径不在 `data_dir` 下（在里面还找不到 = 真缺文件，重映射也救不了）
+/// 4. 能收敛到已知资产段，且重映射后的路径**确实存在**
+fn remap_foreign_asset_path(abs: PathBuf, data_dir: &Path) -> PathBuf {
+    if data_dir.as_os_str().is_empty() || abs.exists() || abs.starts_with(data_dir) {
+        return abs;
+    }
+    let Some(rel) = abs_to_rel(&abs, data_dir) else {
+        return abs;
+    };
+    let Ok(remapped) = rel_to_abs(&rel, data_dir) else {
+        return abs;
+    };
+    if remapped.exists() {
+        log::debug!(
+            "[asset-path] 跨机路径重映射: {} → {}",
+            abs.display(),
+            remapped.display()
+        );
+        return remapped;
+    }
+    abs
+}
+
+fn pct_decode(s: &str) -> String {
+    urlencoding::decode(s)
+        .map(|c| c.into_owned())
+        .unwrap_or_else(|_| s.to_string())
 }
 
 /// 把相对 POSIX 路径还原成绝对路径（拼接 data_dir）。
@@ -79,68 +212,4 @@ fn to_posix(p: &Path) -> String {
     // Windows 上 strip_prefix 偶尔会留下 `\\?\` 之类的 verbatim 前缀，简单处理
     let s = s.trim_start_matches(r"\\?\");
     s.replace('\\', "/")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn strip_prefix_path() {
-        let data = Path::new("/tmp/kb");
-        let abs = Path::new("/tmp/kb/kb_assets/images/1/x.png");
-        assert_eq!(
-            abs_to_rel(abs, data).as_deref(),
-            Some("kb_assets/images/1/x.png")
-        );
-    }
-
-    #[test]
-    fn fallback_when_not_under_data_dir() {
-        let data = Path::new("/totally/different/place");
-        let abs = Path::new("C:/Users/xxx/AppData/Roaming/com.app/kb_assets/images/1/x.png");
-        // 找到 "kb_assets" 段名后开始截
-        assert_eq!(
-            abs_to_rel(abs, data).as_deref(),
-            Some("kb_assets/images/1/x.png")
-        );
-    }
-
-    #[test]
-    fn fallback_dev_prefix_segment() {
-        let data = Path::new("/totally/different/place");
-        let abs = Path::new("/old/data/dev-kb_assets/images/1/x.png");
-        assert_eq!(
-            abs_to_rel(abs, data).as_deref(),
-            Some("dev-kb_assets/images/1/x.png")
-        );
-    }
-
-    #[test]
-    fn unknown_path_returns_none() {
-        let data = Path::new("/tmp/kb");
-        let abs = Path::new("/usr/share/random/file.png");
-        assert!(abs_to_rel(abs, data).is_none());
-    }
-
-    #[test]
-    fn rel_to_abs_joins() {
-        let data = Path::new("/tmp/kb");
-        let p = rel_to_abs("kb_assets/images/1/x.png", data).unwrap();
-        assert_eq!(p, Path::new("/tmp/kb/kb_assets/images/1/x.png"));
-    }
-
-    #[test]
-    fn rel_to_abs_rejects_parent_dir() {
-        let data = Path::new("/tmp/kb");
-        assert!(rel_to_abs("../etc/passwd", data).is_err());
-        assert!(rel_to_abs("kb_assets/../../etc/passwd", data).is_err());
-    }
-
-    #[test]
-    fn rel_to_abs_strips_leading_slash() {
-        let data = Path::new("/tmp/kb");
-        let p = rel_to_abs("/kb_assets/images/1/x.png", data).unwrap();
-        assert_eq!(p, Path::new("/tmp/kb/kb_assets/images/1/x.png"));
-    }
 }

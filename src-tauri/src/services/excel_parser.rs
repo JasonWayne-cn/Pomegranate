@@ -41,6 +41,14 @@ pub struct ExcelSummary {
     pub truncated_sheet_names: Vec<String>,
 }
 
+/// KB 2.0 数据集入库：全量读取。
+///
+/// 当前 `read_workbook` 本就全量读取，没有 ForLlm 截断逻辑；保留独立入口，
+/// 便于后续与 KB 的 ReadMode::Full 语义对齐。
+pub fn read_workbook_full(path: &str) -> Result<ExcelSummary, AppError> {
+    read_workbook(path)
+}
+
 /// 读取 Excel/ODS 文件为多 Sheet 快照。
 ///
 /// 支持扩展名：xlsx / xls / xlsm / xlsb / ods（calamine `open_workbook_auto` 自动判别）。

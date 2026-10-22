@@ -1899,3 +1899,10 @@ pub struct ClaudeAgentEvent {
     pub content: String,
     pub created_at: String,
 }
+
+/// 应用锁状态（KB 2.0 合并）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppLockStatus {
+    pub enabled: bool,
+    pub auto_lock_minutes: i64,
+}

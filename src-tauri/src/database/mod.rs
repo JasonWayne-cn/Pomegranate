@@ -16,6 +16,7 @@ pub mod tags;
 pub mod task_categories;
 pub mod tasks;
 pub mod templates;
+pub mod text_health;
 pub mod url_mapping;
 
 use std::sync::Mutex;

@@ -1,4 +1,5 @@
 mod commands;
+mod crypto;
 mod database;
 mod error;
 mod models;
@@ -529,7 +530,18 @@ pub fn run() {
                 Some(vec!["--start-minimized"]),
             ))
             .plugin(tauri_plugin_updater::Builder::new().build())
-            .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+            // 窗口状态记忆：只跟踪 main 的尺寸/位置/最大化，避免弹窗按上次位置错位
+            .plugin(
+                tauri_plugin_window_state::Builder::default()
+                    .with_state_flags(
+                        tauri_plugin_window_state::StateFlags::SIZE
+                            | tauri_plugin_window_state::StateFlags::POSITION
+                            | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                    )
+                    .with_filter(|label| label == "main")
+                    .build(),
+            );
     }
 
     builder
@@ -1201,6 +1213,36 @@ pub fn run() {
             commands::session::get_project_session_context,
             commands::session::append_project_session_message,
             commands::session::list_project_session_messages,
+            // ─── KB 2.0 合并：系统字体 / OCR / 提醒音 / 应用锁 / Excel 导入 ───
+            commands::font::list_system_fonts,
+            commands::ocr::ocr_available,
+            commands::ocr::ocr_image,
+            commands::ocr::ocr_pdf,
+            commands::reminder_sound::import_reminder_sound,
+            commands::reminder_sound::list_reminder_sounds,
+            commands::reminder_sound::resolve_reminder_sound,
+            commands::reminder_sound::delete_reminder_sound,
+            commands::app_lock::app_lock_status,
+            commands::app_lock::app_lock_set_password,
+            commands::app_lock::app_lock_verify,
+            commands::app_lock::app_lock_disable,
+            commands::app_lock::app_lock_get_hint,
+            commands::app_lock::app_lock_set_auto_minutes,
+            commands::excel_import::import_excel_files,
+            // 主窗口尺寸（仅桌面端）
+            #[cfg(desktop)]
+            commands::window::reset_window_size,
+            // 移动端检查更新
+            #[cfg(mobile)]
+            commands::mobile_update::check_mobile_update,
+            #[cfg(mobile)]
+            commands::mobile_update::download_mobile_update,
+            #[cfg(mobile)]
+            commands::mobile_update::install_mobile_update,
+            #[cfg(mobile)]
+            commands::mobile_update::can_install_mobile_update,
+            #[cfg(mobile)]
+            commands::mobile_update::open_install_permission_settings,
         ])
         // ─── 窗口事件处理 ─────────────────────────
         .on_window_event(|window, event| {
