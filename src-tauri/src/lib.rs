@@ -834,6 +834,15 @@ pub fn run() {
                 services::push::scheduler::run_push_loop(app_handle_push).await;
             });
 
+            // 文件夹自动导入（KB 2.0）：默认关闭，循环内读配置
+            #[cfg(desktop)]
+            {
+                let app_handle_watch = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    services::folder_watch::run_folder_watch_loop(app_handle_watch).await;
+                });
+            }
+
             // setup 末尾再 show + set_focus 抢焦点：
             // - 主窗已在 setup 第一步 show 过，这里 show 是幂等的
             // - 真正作用是 set_focus：迁移 splash 关闭后 / 多窗口创建后把焦点拉回主窗
@@ -1249,6 +1258,19 @@ pub fn run() {
             commands::mobile_update::can_install_mobile_update,
             #[cfg(mobile)]
             commands::mobile_update::open_install_permission_settings,
+            // ─── KB 2.0 合并：项目 / 任务附件 ───
+            commands::projects::list_projects,
+            commands::projects::get_project,
+            commands::projects::create_project,
+            commands::projects::update_project,
+            commands::projects::delete_project,
+            commands::task_attachment::list_task_attachments,
+            commands::task_attachment::add_task_attachment,
+            commands::task_attachment::add_task_attachment_from_path,
+            commands::task_attachment::add_task_attachment_from_url,
+            commands::task_attachment::load_paste_image,
+            commands::task_attachment::delete_task_attachment,
+            commands::task_attachment::reorder_task_attachments,
             // ─── KB 2.0 合并：数据集 / 数据视图 ───
             commands::dataset::import_attachment_datasets,
             commands::dataset::list_attachment_datasets,

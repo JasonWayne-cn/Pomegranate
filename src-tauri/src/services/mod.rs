@@ -9,6 +9,7 @@ pub mod config;
 pub mod converter;
 pub mod crypto;
 pub mod daily;
+pub mod daily_import;
 pub mod data_dir;
 pub mod dataset;
 pub mod dataset_detect;
@@ -27,6 +28,7 @@ pub mod export_html;
 #[cfg(desktop)]
 pub mod export_word;
 pub mod folder;
+pub mod folder_watch;
 pub mod hash;
 pub mod hidden_pin;
 pub mod http_client;
@@ -55,6 +57,7 @@ pub mod plugins;
 // 笔记 pop-out 窗口仅桌面端（移动端改 Modal）
 #[cfg(desktop)]
 pub mod popout_window;
+pub mod project;
 pub mod prompt;
 pub mod provider_registry;
 pub mod push;
@@ -76,6 +79,7 @@ pub mod sync_scheduler;
 pub mod sync_v1;
 pub mod sync_v1_scheduler;
 pub mod tag;
+pub mod task_attachment;
 pub mod task_reminder;
 pub mod tasks;
 pub mod template;

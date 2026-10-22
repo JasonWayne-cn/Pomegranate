@@ -1,7 +1,7 @@
 use rusqlite::{params, params_from_iter, OptionalExtension};
 
 use crate::error::AppError;
-use crate::models::{Note, NoteInput};
+use crate::models::{DailyEntry, Note, NoteInput};
 
 use super::Database;
 
@@ -1007,6 +1007,129 @@ impl Database {
         })?;
 
         Ok(note)
+    }
+
+    /// 把笔记从所在文件夹摘出（KB 2.0 日记导入使用），返回涉及的 folder_id。
+    pub fn detach_notes_from_folders(&self, ids: &[i64]) -> Result<Vec<i64>, AppError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let mut folder_ids: Vec<i64> = Vec::new();
+        for chunk in ids.chunks(500) {
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let args: Vec<rusqlite::types::Value> = chunk
+                .iter()
+                .map(|id| rusqlite::types::Value::Integer(*id))
+                .collect();
+
+            let select_sql = format!(
+                "SELECT DISTINCT folder_id FROM notes
+                 WHERE id IN ({}) AND folder_id IS NOT NULL",
+                placeholders
+            );
+            {
+                let mut stmt = tx.prepare(&select_sql)?;
+                let rows = stmt
+                    .query_map(params_from_iter(args.iter()), |row| row.get::<_, i64>(0))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                folder_ids.extend(rows);
+            }
+
+            let update_sql = format!(
+                "UPDATE notes SET folder_id = NULL WHERE id IN ({})",
+                placeholders
+            );
+            tx.execute(&update_sql, params_from_iter(args.iter()))?;
+        }
+        tx.commit()?;
+        folder_ids.sort_unstable();
+        folder_ids.dedup();
+        Ok(folder_ids)
+    }
+
+    /// 列出所有日记（daily_import 去重使用）。
+    pub fn list_all_dailies(&self) -> Result<Vec<DailyEntry>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, title, daily_date, updated_at
+             FROM notes
+             WHERE is_daily = 1 AND is_deleted = 0 AND is_hidden = 0
+                   AND daily_date IS NOT NULL
+             ORDER BY daily_date DESC",
+        )?;
+
+        let entries = stmt
+            .query_map([], |row| {
+                Ok(DailyEntry {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    daily_date: row.get(2)?,
+                    updated_at: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(entries)
+    }
+
+    /// 列出所有活跃笔记及其文件夹路径（daily_import 识别日期文件夹使用）。
+    pub fn list_notes_with_folder_path(&self) -> Result<Vec<(i64, String, String)>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+
+        let mut stmt = conn.prepare(
+            "WITH RECURSIVE folder_path(id, path) AS (
+                 SELECT id, name FROM folders WHERE parent_id IS NULL
+                 UNION ALL
+                 SELECT f.id, fp.path || '/' || f.name
+                 FROM folders f JOIN folder_path fp ON f.parent_id = fp.id
+             )
+             SELECT n.id, n.title, COALESCE(fp.path, '')
+             FROM notes n
+             LEFT JOIN folder_path fp ON n.folder_id = fp.id
+             WHERE n.is_deleted = 0 AND n.is_daily = 0
+             ORDER BY n.id",
+        )?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// 把一条普通笔记就地认领为某天的日记。
+    pub fn mark_note_as_daily(&self, id: i64, date: &str) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE notes SET is_daily = 1, daily_date = ?1,
+                    updated_at = datetime('now','localtime')
+             WHERE id = ?2 AND is_deleted = 0",
+            params![date, id],
+        )?;
+        if affected == 0 {
+            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+        }
+        Ok(())
     }
 
     /// 更新笔记的源文件路径与类型

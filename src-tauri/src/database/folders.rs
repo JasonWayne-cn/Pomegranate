@@ -239,6 +239,40 @@ impl Database {
         Ok(())
     }
 
+    /// 删除候选中的空文件夹（无子文件夹且无笔记），返回删除数。
+    pub fn prune_empty_folders(&self, candidate_ids: &[i64]) -> Result<usize, AppError> {
+        if candidate_ids.is_empty() {
+            return Ok(0);
+        }
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let mut deleted = 0usize;
+        for id in candidate_ids {
+            let has_child: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM folders WHERE parent_id = ?1)",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )? != 0;
+            if has_child {
+                continue;
+            }
+            let has_note: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM notes WHERE folder_id = ?1 AND is_deleted = 0)",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )? != 0;
+            if has_note {
+                continue;
+            }
+            deleted += tx.execute("DELETE FROM folders WHERE id = ?1", params![id])?;
+        }
+        tx.commit()?;
+        Ok(deleted)
+    }
+
     /// 获取所有文件夹（平铺查询，含每个文件夹的笔记数），构建为树形结构
     pub fn list_folders_tree(&self) -> Result<Vec<Folder>, AppError> {
         let conn = self

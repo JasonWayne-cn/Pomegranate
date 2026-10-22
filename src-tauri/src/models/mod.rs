@@ -2234,3 +2234,86 @@ pub struct DataviewRow {
     #[serde(default)]
     pub extra: Option<serde_json::Value>,
 }
+
+/// 任务附件（v65 `task_attachments`）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskAttachment {
+    pub id: i64,
+    pub task_id: i64,
+    /// 相对 data_dir 的 POSIX 路径
+    pub rel_path: String,
+    pub file_name: String,
+    pub mime: String,
+    pub size: i64,
+    pub sort_order: i32,
+    pub created_at: String,
+}
+
+/// 项目（任务的工作流容器）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    pub id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub color: String,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub archived: bool,
+    pub sort_order: i32,
+    pub created_at: String,
+    pub updated_at: String,
+    #[serde(default)]
+    pub active_task_count: i64,
+    #[serde(default)]
+    pub done_task_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stable_uuid: Option<String>,
+    #[serde(default)]
+    pub is_deleted: bool,
+}
+
+/// 创建项目入参。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectInput {
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+}
+
+/// 更新项目入参（字段缺省表示不改）。
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProjectInput {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub clear_description: Option<bool>,
+    pub color: Option<String>,
+    pub start_date: Option<String>,
+    pub clear_start_date: Option<bool>,
+    pub end_date: Option<String>,
+    pub clear_end_date: Option<bool>,
+    pub archived: Option<bool>,
+    pub sort_order: Option<i32>,
+}
+
+/// 粘贴图文时 HTML 里引用的图片（草稿预览用）。
+#[derive(Debug, Clone, Serialize)]
+pub struct PasteImage {
+    pub file_name: String,
+    pub mime: String,
+    pub base64: String,
+}
+
+/// 日记条目（daily_import 与日记页共用）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyEntry {
+    pub id: i64,
+    pub title: String,
+    /// YYYY-MM-DD
+    pub daily_date: String,
+    pub updated_at: String,
+}
