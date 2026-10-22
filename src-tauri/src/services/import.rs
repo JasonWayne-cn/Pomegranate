@@ -115,6 +115,11 @@ impl ImportService {
                         ("new".to_string(), None)
                     });
 
+                // 日期识别：文件夹名优先、文件名兜底。让前端预览能显示
+                // 「其中 N 个将作为日记导入」，导入时也据此落 is_daily。
+                let (detected_date, date_conflict) =
+                    crate::services::daily_import::detect_date(&relative_dir, &name);
+
                 Some(ScannedFile {
                     path: path.to_string_lossy().to_string(),
                     relative_dir,
@@ -122,6 +127,8 @@ impl ImportService {
                     size,
                     match_kind,
                     existing_note_id: existing_id,
+                    detected_date,
+                    date_conflict,
                 })
             })
             .collect();
@@ -142,6 +149,10 @@ impl ImportService {
     /// - `root_path`: 扫描的根路径。传了才能按相对路径重建目录树；不传则全部平铺到 base
     /// - `preserve_root`: 是否在 base 下多套一层"源文件夹名"。需要 root_path 存在
     /// - `policy`: 已存在的文件怎么办（Skip / Duplicate）
+    /// - `daily_mode`: true = 按「日期文件夹/笔记.md」结构把笔记标记成日记
+    ///   （日期由 `ScannedFile.detected_date` 同一套逻辑识别）。
+    ///   同一天有多篇时**只认领第一篇** —— 日记是一天一篇，多认会让日记页出现重复日期。
+    ///   其余篇保持普通笔记，用户可事后在日记页用「整理历史日记」按冲突策略合并进当天。
     ///
     /// 同名文件夹按 (parent_id, name) 复用已有记录，避免重复创建。
     /// 每条成功导入的笔记都会写入 canonical `source_file_path`，方便下次导入时去重。
@@ -152,10 +163,17 @@ impl ImportService {
         root_path: Option<&str>,
         preserve_root: bool,
         policy: ImportConflictPolicy,
+        daily_mode: bool,
         app_data_dir: &Path,
         emitter: &E,
     ) -> Result<ImportResult, AppError> {
         let total = file_paths.len();
+        // 本批已认领的日期 —— 保证「一天一篇」，同一天的后续文件不再认领
+        let mut claimed_dates: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // 被认领成日记的笔记 id —— 导入结束后统一摘出日期文件夹（见循环后的收尾）
+        let mut claimed_note_ids: Vec<i64> = Vec::new();
+        let mut daily_marked = 0usize;
+        let mut daily_extra_notes = 0usize;
         let mut imported = 0usize;
         let mut skipped = 0usize;
         let mut duplicated = 0usize;
@@ -170,12 +188,17 @@ impl ImportService {
         let mut note_ids: Vec<i64> = Vec::new();
         let mut existing_note_ids: Vec<i64> = Vec::new();
 
-        // 提供了 root_path 时，在那里建附件索引（OB vault 模式）；
-        // 没传则不索引（用户只是导入零散 .md 文件，没 vault 上下文）
+        // 提供了 root_path 时，在那里建附件索引（OB vault 模式，全库共享一份）；
+        // 没传则按"每个 .md 同级目录"现场建索引（覆盖用户选零散文件、但每个文件
+        // 旁边有 attachments/ 子目录或同级散图的 OB 单文件场景）。
         let attachment_index = match root_path {
             Some(rp) => crate::services::import_attachments::AttachmentIndex::build(Path::new(rp)),
             None => crate::services::import_attachments::AttachmentIndex::empty(),
         };
+        // 零散文件场景下的 per-dir 索引缓存：parent_dir → 该目录下扫到的图片索引。
+        // 多个文件来自同一目录时复用，避免重复 walkdir。
+        let mut per_dir_index_cache: HashMap<PathBuf, crate::services::import_attachments::AttachmentIndex> =
+            HashMap::new();
 
         // 预先算好根扫描路径（用于对每个文件算相对目录）+ 预先建"保留根"文件夹
         let root_canonical: Option<PathBuf> = root_path
@@ -332,23 +355,56 @@ impl ImportService {
                     };
                     let _ = db.set_note_source_file(note.id, Some(&canonical_path), Some(src_type));
 
-                    // ─── T-009: 把 frontmatter 中的标签关联到这条笔记 ───
+                    // ─── 日记识别：日期文件夹 / 日期文件名 → 标记成当天日记 ───
+                    if daily_mode {
+                        let rel_dir = root_canonical
+                            .as_ref()
+                            .map(|rc| compute_relative_dir(file_path, rc))
+                            .unwrap_or_default();
+                        if let (Some(date), _) =
+                            crate::services::daily_import::detect_date(&rel_dir, &final_title)
+                        {
+                            // 一天一篇：本批已认领过该日期，或库里已有该天的日记，都不再认领
+                            let already = claimed_dates.contains(&date)
+                                || db.get_daily(&date).ok().flatten().is_some();
+                            if already {
+                                daily_extra_notes += 1;
+                            } else if db.mark_note_as_daily(note.id, &date).is_ok() {
+                                claimed_dates.insert(date);
+                                claimed_note_ids.push(note.id);
+                                daily_marked += 1;
+                            }
+                        }
+                    }
+
+                    // ─── T-009 + #9 Obsidian: 标签来源汇总（去重）───
+                    // 1) frontmatter 里的 tags（YAML 显式列出）
+                    // 2) body 里的行内 `#tag`（Obsidian 风格，支持嵌套 `#工作/周报`）
+                    // 都走 get_or_create_tag_path，嵌套路径会自动建父子链（复用 v39 树形标签）
+                    let mut tag_paths: Vec<String> = Vec::new();
                     if let Some(fm) = &front_matter {
-                        for tag_name in &fm.tags {
-                            match db.get_or_create_tag_by_name(tag_name) {
-                                Ok(tag_id) => {
-                                    if db.add_tag_to_note(note.id, tag_id).is_ok() {
-                                        tags_attached += 1;
-                                    }
+                        tag_paths.extend(fm.tags.iter().cloned());
+                    }
+                    for inline_tag in extract_inline_hashtags(&body_content) {
+                        tag_paths.push(inline_tag);
+                    }
+                    // 简单去重（保持首次出现顺序）
+                    let mut seen_tags: std::collections::HashSet<String> =
+                        std::collections::HashSet::new();
+                    for tag_path in tag_paths.into_iter().filter(|t| seen_tags.insert(t.clone())) {
+                        match db.get_or_create_tag_path(&tag_path) {
+                            Ok(tag_id) => {
+                                if db.add_tag_to_note(note.id, tag_id).is_ok() {
+                                    tags_attached += 1;
                                 }
-                                Err(e) => {
-                                    log::warn!(
-                                        "[import] 处理 frontmatter 标签失败 ({}/{}): {}",
-                                        final_title,
-                                        tag_name,
-                                        e
-                                    );
-                                }
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "[import] 处理标签失败 ({}/{}): {}",
+                                    final_title,
+                                    tag_path,
+                                    e
+                                );
                             }
                         }
                     }
@@ -363,13 +419,35 @@ impl ImportService {
                         .as_ref()
                         .map(|p| p.as_path())
                         .unwrap_or_else(|| note_dir_for_local.as_path());
+                    // 索引选择：
+                    // - vault 模式：全库共享的 `attachment_index`（root_path 提供时已建）
+                    // - 零散文件模式：按 .md 同级目录按需建（命中缓存就复用）
+                    //
+                    // 这样 OB 用户从"导入 Markdown / TXT"选单个 .md 文件时，
+                    // 同级 `attachments/` 子目录里的图片也能被 wiki 嵌入命中。
+                    let per_file_index = if root_canonical.is_none() {
+                        Some(
+                            per_dir_index_cache
+                                .entry(note_dir_for_local.clone())
+                                .or_insert_with(|| {
+                                    crate::services::import_attachments::AttachmentIndex::build_for_single_file(
+                                        &note_dir_for_local,
+                                    )
+                                }),
+                        )
+                    } else {
+                        None
+                    };
+                    let index_ref = per_file_index
+                        .as_deref()
+                        .unwrap_or(&attachment_index);
                     let mut current_body = input.content.clone();
                     match crate::services::import_attachments::rewrite_image_paths(
                         &current_body,
                         note.id,
                         &note_dir_for_local,
                         local_root,
-                        &attachment_index,
+                        index_ref,
                         app_data_dir,
                     ) {
                         Ok(rewrite) => {
@@ -470,6 +548,23 @@ impl ImportService {
             }
         }
 
+        // 日记收尾：把认领成日记的笔记摘出日期文件夹，再清掉因此变空的日期文件夹。
+        //
+        // 不这么做的话，`2020-05-26/日记.md` 导进来会留下一个"用户视角是空的"文件夹
+        // （笔记列表强制过滤 is_daily=0），删它时反被告知"还有 1 篇笔记"，
+        // 确认后当天日记进了回收站 —— 真实用户反馈的坑。日记只由 daily_date 组织即可。
+        // 同一天有多篇时只有被认领的那篇会摘走，其余普通笔记仍留在原文件夹（文件夹也就不空）。
+        if !claimed_note_ids.is_empty() {
+            match db.detach_notes_from_folders(&claimed_note_ids) {
+                Ok(folder_ids) => {
+                    if let Err(e) = db.prune_empty_folders(&folder_ids) {
+                        errors.push(format!("清理空日期文件夹失败: {}", e));
+                    }
+                }
+                Err(e) => errors.push(format!("把日记移出日期文件夹失败: {}", e)),
+            }
+        }
+
         let result = ImportResult {
             imported,
             skipped,
@@ -481,6 +576,8 @@ impl ImportService {
             attachments_missing,
             note_ids,
             existing_note_ids,
+            daily_marked,
+            daily_extra_notes,
         };
 
         let _ = emitter.emit("import:done", &result);
@@ -494,10 +591,18 @@ impl ImportService {
     ///
     /// 返回 (note_id, was_synced)：was_synced=true 表示发生了内容同步，
     /// 前端可据此显示轻量 toast。
+    /// 打开单个外部 .md / .txt（入库 + 建立双向同步关联）
+    ///
+    /// `as_scratch`：这次打开是否按"临时编辑"处理。
+    /// - 首次打开 → 直接写入 is_scratch
+    /// - 复用已有笔记 → **只升不降**：临时笔记可以被提升为正式笔记，
+    ///   但已经是正式笔记的绝不会因为这次选了"临时"而被悄悄移出主列表
+    ///   （用户可能只是随手点错，代价是他以为笔记丢了）
     pub async fn import_single_markdown(
         db: &Database,
         file_path: &str,
         app_data_dir: &Path,
+        as_scratch: bool,
     ) -> Result<OpenMarkdownResult, AppError> {
         let path = Path::new(file_path);
 
@@ -545,10 +650,34 @@ impl ImportService {
                     canonical,
                     existing_id
                 );
+            } else {
+                // 外部文件没变 + DB body 也跟磁盘一致；但 DB body 可能含历史
+                // 未解析的图片引用（旧版本附件索引为空时遗留的 ![[IMG.png]] 死链）。
+                // 用当前索引规则补跑一次：rewrite 对已是 asset URL 的引用是幂等的，
+                // 没命中也是无副作用；只有真有"现在能命中但当时没命中"的情况才会改 body。
+                // 不重置 mtime（外部 .md 确实没变）。
+                let (processed, mappings) =
+                    process_single_md_images(&existing_content, existing_id, path, app_data_dir)
+                        .await;
+                if processed != existing_content {
+                    let _ = db.update_note_content(existing_id, &processed);
+                    let _ = db.clear_url_mappings(existing_id);
+                    let _ = db.insert_url_mappings(existing_id, &mappings);
+                    log::info!(
+                        "[open-md] 笔记 #{} 用当前索引规则补处理了历史未解析图片引用",
+                        existing_id
+                    );
+                }
+            }
+            // 复用已有笔记时"只升不降"：选了「加入知识库」就把临时标记摘掉，
+            // 选了「临时编辑」却撞上一条正式笔记则保持原样（详见函数头注释）
+            if !as_scratch {
+                let _ = db.set_note_scratch(existing_id, false);
             }
             return Ok(OpenMarkdownResult {
                 note_id: existing_id,
                 was_synced,
+                is_scratch: db.get_note_scratch(existing_id).unwrap_or(false),
             });
         }
 
@@ -565,6 +694,11 @@ impl ImportService {
             _ => "md",
         };
         let _ = db.set_note_source_file(note.id, Some(&canonical), Some(src_type));
+        // 首次打开：按调用方选择打临时标记。写回原文件 / 冲突检测等能力不受影响，
+        // 只是这条笔记不进主列表 / 搜索 / 双链
+        if as_scratch {
+            let _ = db.set_note_scratch(note.id, true);
+        }
 
         // 处理图片：本地相对路径（同级目录） + 外链下载（绕开微信防盗链等）
         let (processed, mappings) =
@@ -583,6 +717,7 @@ impl ImportService {
         Ok(OpenMarkdownResult {
             note_id: note.id,
             was_synced: false,
+            is_scratch: as_scratch,
         })
     }
 }
@@ -618,9 +753,14 @@ async fn process_single_md_images(
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| md_path.to_path_buf());
 
-    // 单文件场景没有 vault 根；用 .md 同级目录兼当 vault 根，
-    // OB 附件索引为空（`AttachmentIndex::empty()`），仅靠相对路径解析
-    let empty_index = crate::services::import_attachments::AttachmentIndex::empty();
+    // 单文件场景没有 vault 根；用 .md 同级目录兼当 vault 根。
+    //
+    // 附件索引走 `build_for_single_file`（轻量）：扫 note_dir 自身（非递归）
+    // + note_dir 下 attachments/assets/images/_resources 子目录（递归）。
+    // 这样 OB 单文件场景里的 `![[IMG-xxx.png]]` 写法（按 basename 全局查）也能命中，
+    // 不再只能靠相对路径解析。
+    let single_file_index =
+        crate::services::import_attachments::AttachmentIndex::build_for_single_file(&note_dir);
     let mut current = body.to_string();
     let mut all_mappings: Vec<(String, String)> = Vec::new();
     if let Ok(rewrite) = crate::services::import_attachments::rewrite_image_paths(
@@ -628,7 +768,7 @@ async fn process_single_md_images(
         note_id,
         &note_dir,
         &note_dir,
-        &empty_index,
+        &single_file_index,
         app_data_dir,
     ) {
         current = rewrite.new_body;
@@ -809,6 +949,92 @@ fn detect_existing_match_with_content(
     Ok(("new".to_string(), None))
 }
 
+/// #9 Obsidian 导入：从 markdown 正文中提取行内 `#hashtag` 标签。
+///
+/// 识别规则（与 Obsidian 行为对齐）：
+/// - `#` 前面必须是行首或空白字符（避免 `path/#anchor` / `color:#fff` 误识别）
+/// - 标签内容支持中英数字 / `_` / `-` / `/`（嵌套用 `/`）
+/// - **不能全是数字**（避免 `#123` 这种 markdown 标题或颜色 hex 被误识别）
+/// - 必须以**字母**开头（包括汉字）
+/// - 跳过代码块（``` ... ```）和行内代码（`...`）里的 `#`
+///
+/// 返回的 path 形如 `"工作"` 或 `"工作/周报"`，可直接喂给 `get_or_create_tag_path`。
+/// 不去重 —— 上层负责。
+pub fn extract_inline_hashtags(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_fence = false; // ``` 代码块状态
+    for raw_line in body.split('\n') {
+        let trimmed = raw_line.trim_start();
+        // fence 切换（行首三个反引号，允许语言标识）
+        if trimmed.starts_with("```") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        scan_line_hashtags(raw_line, &mut out);
+    }
+    out
+}
+
+/// 扫描一行文本，把 `#tag` 模式提取出来；跳过行内 \`code\` 段
+fn scan_line_hashtags(line: &str, out: &mut Vec<String>) {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut in_inline_code = false;
+    let mut prev_is_boundary = true; // 行首视为边界
+    while i < bytes.len() {
+        let b = bytes[i];
+        // 处理行内代码反引号开关（简单匹配，不处理双反引号边界场景）
+        if b == b'`' {
+            in_inline_code = !in_inline_code;
+            prev_is_boundary = false;
+            i += 1;
+            continue;
+        }
+        if in_inline_code {
+            prev_is_boundary = false;
+            i += 1;
+            continue;
+        }
+        if b == b'#' && prev_is_boundary {
+            // 找标签字符序列
+            let start = i + 1;
+            let mut end = start;
+            while end < bytes.len() && is_tag_char(bytes[end]) {
+                end += 1;
+            }
+            if end > start {
+                // 用 char_indices 检查首字符是否字母（不是纯数字）
+                let raw = &line[start..end];
+                if raw.chars().next().map_or(false, |c| c.is_alphabetic()) {
+                    // 去掉前后多余 `/`
+                    let clean = raw.trim_matches('/');
+                    if !clean.is_empty() {
+                        out.push(clean.to_string());
+                    }
+                }
+            }
+            i = end.max(i + 1);
+            prev_is_boundary = false;
+            continue;
+        }
+        prev_is_boundary = (b as char).is_whitespace();
+        i += 1;
+    }
+}
+
+/// 是否是 hashtag 内容字符。汉字 / 字母 / 数字 / `_` `-` `/` 都接受。
+fn is_tag_char(b: u8) -> bool {
+    // ASCII 字母数字 + `_-/`
+    if b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'/' {
+        return true;
+    }
+    // 非 ASCII 字节（UTF-8 多字节序列开头）认为是合法（汉字等）
+    b >= 0x80
+}
+
 /// T-009: 遍历时是否应跳过该目录条目
 ///
 /// 跳过：
@@ -834,6 +1060,40 @@ fn should_skip_dir_entry(entry: &walkdir::DirEntry) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hashtag_basic_extract() {
+        let tags = extract_inline_hashtags("今天写了 #工作 和 #学习/英语 笔记");
+        assert_eq!(tags, vec!["工作".to_string(), "学习/英语".to_string()]);
+    }
+
+    #[test]
+    fn hashtag_ignore_pure_number() {
+        // #123 / #4 不该被识别（避免误识别 markdown 编号或颜色 hex）
+        let tags = extract_inline_hashtags("看看 #123 这条");
+        assert!(tags.is_empty());
+    }
+
+    #[test]
+    fn hashtag_ignore_color_hex_and_anchor() {
+        // 紧贴在 `:` `/` 后的 # 不算（行内非空白）
+        let tags = extract_inline_hashtags("color:#fff 还有 path/#anchor");
+        assert!(tags.is_empty());
+    }
+
+    #[test]
+    fn hashtag_ignore_in_code_block() {
+        // 反引号代码块和行内代码里的 #tag 不识别
+        let md = "正文 #正常\n```\n#代码块里的 不算\n```\n再来个 `#行内代码` 也不算\n#后续";
+        let tags = extract_inline_hashtags(md);
+        assert_eq!(tags, vec!["正常".to_string(), "后续".to_string()]);
+    }
+
+    #[test]
+    fn hashtag_at_line_start() {
+        let tags = extract_inline_hashtags("#行首\n中间 #也行");
+        assert_eq!(tags, vec!["行首".to_string(), "也行".to_string()]);
+    }
 
     #[test]
     fn skip_dot_dirs() {

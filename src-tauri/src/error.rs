@@ -15,6 +15,9 @@ pub enum AppError {
     #[error("ZIP 错误: {0}")]
     Zip(#[from] zip::result::ZipError),
 
+    #[error("数据库版本({db})高于当前应用支持的版本({app})，请升级应用后再打开")]
+    SchemaTooNew { db: i32, app: i32 },
+
     #[error("未找到: {0}")]
     NotFound(String),
 

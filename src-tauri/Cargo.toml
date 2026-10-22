@@ -127,7 +127,12 @@ font-enumeration = "0.9"
 # 移动端 NDK 加载动态库受沙盒限制，暂不支持，待 T-M012 决策
 pdfium-render = "0.8"
 # rmcp 桌面端额外能力：spawn 外部 MCP server 子进程（移动端 fork/spawn 受限）
-rmcp = { version = "1.5", features = ["transport-child-process"] }
+rmcp = { version = "1.5", features = [
+    "transport-child-process",
+    "transport-streamable-http-server",
+] }
+# 承载 rmcp 的 streamable HTTP tower::Service
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 # rust-s3 S3 协议 backend：rust-s3 0.34 强引入 openssl，移动端编译失败
 rust-s3 = { version = "0.34", default-features = false, features = ["tokio-rustls-tls"] }
 # Excel / ODS 解析（calamine 在 Android target 编译失败，先桌面端独享；

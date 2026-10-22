@@ -1610,7 +1610,9 @@ impl AiService {
                 // 执行：dispatch_with_mcp 会按前缀路由（mcp__<id>__<name> → mcp_external，否则原 skills）
                 // P1: tool 失败时把错误包装为友好提示，避免部分模型遇到 "ERROR: ..." 直接放弃
                 let (result_text, status) =
-                    match skills::dispatch_with_mcp(&app, db, &tc.name, &tc.args_json).await {
+                    match skills::dispatch_with_mcp(&app, db, &tc.name, &tc.args_json, None, 20)
+                        .await
+                    {
                         Ok(r) => (r, "ok"),
                         Err(e) => (
                             format!(

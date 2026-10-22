@@ -9,6 +9,34 @@ use crate::models::{
     TaskSearchHit, TaskStats, UpdateTaskCategoryInput, UpdateTaskInput,
 };
 
+fn validate_category_parent(
+    all: &[TaskCategory],
+    self_id: Option<i64>,
+    parent_id: i64,
+) -> Result<(), AppError> {
+    if !all.iter().any(|c| c.id == parent_id) {
+        return Err(AppError::InvalidInput("父分类不存在".into()));
+    }
+    let Some(me) = self_id else {
+        return Ok(());
+    };
+    let mut cur = Some(parent_id);
+    let mut guard = 0;
+    while let Some(id) = cur {
+        if id == me {
+            return Err(AppError::InvalidInput(
+                "不能把分类移到它自己或它的子分类下".into(),
+            ));
+        }
+        cur = all.iter().find(|c| c.id == id).and_then(|c| c.parent_id);
+        guard += 1;
+        if guard > 1000 {
+            break;
+        }
+    }
+    Ok(())
+}
+
 pub struct TaskService;
 
 impl TaskService {
@@ -165,6 +193,11 @@ impl TaskService {
             }
             if n.chars().count() > 30 {
                 return Err(AppError::InvalidInput("分类名称不能超过 30 字".into()));
+            }
+        }
+        if !input.clear_parent.unwrap_or(false) {
+            if let Some(pid) = input.parent_id {
+                validate_category_parent(&db.list_task_categories()?, Some(id), pid)?;
             }
         }
         db.update_task_category(id, input)

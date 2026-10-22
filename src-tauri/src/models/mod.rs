@@ -341,6 +341,7 @@ pub struct SearchResult {
     pub snippet: String,
     pub updated_at: String,
     pub folder_id: Option<i64>,
+    pub note_type: String,
 }
 
 // ─── 回收站 ───────────────────────────────────
@@ -535,6 +536,10 @@ pub struct ScannedFile {
     pub match_kind: String,
     /// match_kind 非 "new" 时，指向已存在笔记的 id
     pub existing_note_id: Option<i64>,
+    /// 从文件夹名/文件名识别出的日期 YYYY-MM-DD
+    pub detected_date: Option<String>,
+    /// 文件夹名与文件名解析出的日期不一致
+    pub date_conflict: bool,
 }
 
 /// 导入冲突策略：遇到已存在的文件怎么处理
@@ -586,6 +591,12 @@ pub struct ImportResult {
     /// 前端"重复命中也跳"逻辑用：用户拖个旧文件想打开它，能直达。
     #[serde(default, rename = "existingNoteIds")]
     pub existing_note_ids: Vec<i64>,
+    /// 按「日期文件夹」识别并标记为日记的篇数
+    #[serde(default)]
+    pub daily_marked: usize,
+    /// 同一天多篇时，未成为日记的篇数
+    #[serde(default)]
+    pub daily_extra_notes: usize,
 }
 
 /// 导入进度（通过事件推送）
@@ -603,6 +614,8 @@ pub struct OpenMarkdownResult {
     pub note_id: i64,
     /// true = 检测到源文件内容有变化，已覆盖回笔记（前端可据此提示）
     pub was_synced: bool,
+    /// 这条笔记当前是否为「临时编辑」状态
+    pub is_scratch: bool,
 }
 
 // ─── 附件 ─────────────────────────────────────
@@ -837,6 +850,9 @@ pub struct SyncManifest {
     /// `Option`：None = 老版本导出（在引入校验之前），按宽容模式放行 + 日志告警。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_dev: Option<bool>,
+    /// 导出端数据库 schema 版本（恢复时检查是否过高）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub db_user_version: Option<i32>,
 }
 
 /// 同步数据统计
@@ -2434,6 +2450,36 @@ pub struct DailyEntry {
     pub updated_at: String,
 }
 
+/// 搜索筛选条件（fail-closed 语义）。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFilters {
+    pub folder_ids: Option<Vec<i64>>,
+    pub tag_ids: Option<Vec<i64>>,
+    pub updated_after: Option<String>,
+    pub updated_before: Option<String>,
+    pub note_types: Option<Vec<String>>,
+    pub created_after: Option<String>,
+    pub created_before: Option<String>,
+    pub title_only: Option<bool>,
+}
+
+impl SearchFilters {
+    pub fn has_empty_selection(&self) -> bool {
+        matches!(&self.folder_ids, Some(v) if v.is_empty())
+            || matches!(&self.tag_ids, Some(v) if v.is_empty())
+            || matches!(&self.note_types, Some(v) if v.is_empty())
+    }
+}
+
+/// AI 引用笔记里抽出的图片清单。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoteImageRef {
+    pub note_id: i64,
+    pub title: String,
+    pub images: Vec<String>,
+}
+
 // ═══════════════════════════════════════════════════════════════
 // KB 2.0 合并：sync_v1 附件与项目/任务清单条目
 // ═══════════════════════════════════════════════════════════════
@@ -2530,4 +2576,17 @@ pub struct TaskCategoryManifestEntry {
     pub sort_order: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_stable_id: Option<String>,
+}
+
+/// Claude Code CLI 安装与版本信息（POM 专有）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeCodeCliInfo {
+    pub available: bool,
+    pub version: Option<String>,
+    pub config_path: Option<String>,
+    pub config_exists: bool,
+    pub mcp_installed: bool,
+    pub mcp_writable: bool,
+    pub error: Option<String>,
 }

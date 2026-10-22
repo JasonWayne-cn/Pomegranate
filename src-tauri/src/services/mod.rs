@@ -12,6 +12,7 @@ pub mod daily;
 pub mod daily_import;
 pub mod data_dir;
 pub mod dataset;
+pub mod db_recovery;
 pub mod dataset_detect;
 pub mod dataview;
 pub mod excel_import;
@@ -24,6 +25,7 @@ pub mod emergency_window;
 pub mod excel_parser;
 pub mod export;
 pub mod export_html;
+pub mod export_merge;
 // Word 导出仅桌面端：docx_rs 在 Android target 编译失败
 #[cfg(desktop)]
 pub mod export_word;
@@ -46,10 +48,12 @@ pub mod ocr;
 // 移动端 fork/spawn 受限，砍掉外部 MCP，仅保留 in-memory 内置 server（kb-core）
 #[cfg(desktop)]
 pub mod mcp_client;
+pub mod mcp_http;
 pub mod note;
 pub mod note_excerpt;
 pub mod orphan_scan;
 pub mod pdf;
+pub mod plugin;
 pub mod plugin_token;
 pub mod plugin_rate_limit;
 // 插件系统：元数据管理、manifest 校验、安装/卸载
@@ -84,6 +88,7 @@ pub mod task_reminder;
 pub mod tasks;
 pub mod template;
 pub mod trash;
+pub mod url_safety;
 pub mod vault;
 pub mod video;
 pub mod web_clip;

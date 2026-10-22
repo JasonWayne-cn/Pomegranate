@@ -8,12 +8,11 @@
 //!     → SQL on shared db
 //!
 //! 看似绕了一圈，但好处：
-//!   1) 自家 AI 对话页和外部 Claude Desktop 用完全同一份工具实现（kb-core 12 工具）
+//!   1) 自家 AI 对话页和外部 Claude Desktop 用完全同一份工具实现（kb-core 27 工具）
 //!   2) 后续接外部 MCP server 时（GitHub / Filesystem / 高德地图…）可以走同样的 client API
 //!   3) 协议统一，UI 不需要区分"原生工具"和"外部工具"
 
 use std::path::PathBuf;
-use std::process::Command;
 
 use rmcp::model::CallToolRequestParams;
 use serde::Serialize;
@@ -25,6 +24,45 @@ use crate::state::AppState;
 /// 主应用编译时被 tauri-build 注入的 target triple，
 /// 用来构造 sidecar binary 名字（与 scripts/build-mcp.mjs 的命名一致）
 const TARGET_TRIPLE: &str = env!("TAURI_ENV_TARGET_TRIPLE");
+
+/// app_config 里持久化"AI 是否允许写"的 key。默认值缺失视为 true，
+/// 兼容老版本——升级前 in-memory MCP 永远 writable，不能升级后突然把用户的 AI 锁死。
+const AI_WRITABLE_KEY: &str = "ai_writable";
+
+/// kb-core 14 个写工具的精确名单。命中即在 in-memory MCP 入口处拦截。
+/// 不用前缀匹配是怕将来加只读但前缀冲突的工具（如 add_search_filter）误伤。
+/// 🔴 kb-core 新增写工具时必须同步加到这里，否则关掉「AI 写权限」也拦不住它。
+const KB_WRITE_TOOLS: &[&str] = &[
+    "create_note",
+    "create_note_from_template",
+    "create_folder",
+    "rename_folder",
+    "move_folder",
+    "reorder_folders",
+    "create_task",
+    "update_note",
+    "update_task",
+    "delete_note",
+    "restore_note_from_trash",
+    "move_notes_batch",
+    "add_tag_to_note",
+    "remove_tag_from_note",
+];
+
+/// 是否是 kb-core 写工具之一。
+/// 暴露给 `services::skills::dispatch_kb_internal` 共用同一份名单。
+pub(crate) fn is_kb_write_tool(name: &str) -> bool {
+    KB_WRITE_TOOLS.contains(&name)
+}
+
+/// 读 app_config 里的 ai_writable 标志，缺失/解析失败按 true 处理（向后兼容）。
+/// 暴露给 `services::skills::dispatch_kb_internal` 在 AI 对话路径上同样拦截写工具。
+pub(crate) fn read_ai_writable(state: &AppState) -> bool {
+    match state.db.get_config(AI_WRITABLE_KEY) {
+        Ok(Some(v)) => v != "0",
+        _ => true,
+    }
+}
 
 /// 编译时把 docs/mcp-setup.md 内嵌进 binary，供前端「详细文档」弹窗用。
 /// 路径相对当前文件：src/commands/mcp.rs → ../../../docs/mcp-setup.md
@@ -130,7 +168,7 @@ fn build_claude_md_template() -> String {
 - `list_templates` — 笔记模板（会议记录/读书笔记/周报 等）
 - `list_trash(limit?)` — 回收站里的笔记（可恢复）
 
-**写工具（需 `--writable` 启动开关，需用户授权，11 个）**：
+**写工具（需 `--writable` 启动开关，需用户授权，14 个）**：
 
 *笔记类*：
 - `create_note(title, content, folder_id?)` — 创建空白笔记
@@ -142,6 +180,9 @@ fn build_claude_md_template() -> String {
 
 *文件夹类*：
 - `create_folder(name, parent_id?)` — 建归档桶（parent_id=null 顶级）
+- `rename_folder(id, name)` — 重命名文件夹
+- `move_folder(id, parent_id?)` — 把文件夹移到另一个父文件夹下（parent_id=null 移到顶级）
+- `reorder_folders(ordered_ids)` — 调整同一父文件夹下兄弟文件夹的顺序（先 list_folders 看 parent_id）
 
 *标签类*：
 - `add_tag_to_note(note_id, tag)` — 给笔记加标签（标签不存在自动建）
@@ -302,7 +343,7 @@ pub struct McpToolInfo {
     pub input_schema: JsonValue,
 }
 
-/// 列出 in-memory MCP server 暴露的所有工具（kb-core 的 12 个）
+/// 列出 in-memory MCP server 暴露的所有工具（kb-core 的 27 个）
 #[tauri::command]
 pub async fn mcp_internal_list_tools(
     state: tauri::State<'_, AppState>,
@@ -334,13 +375,23 @@ pub async fn mcp_internal_list_tools(
 /// 调用 in-memory MCP server 的工具，返回 LLM 拿到的原始 JSON 字符串
 ///
 /// 前端传 arguments 用 JSON object（serde_json::Value::Object）；
-/// 返回 content 列表里的第一个 text block（kb-core 12 工具都返回单段 text）
+/// 返回 content 列表里的第一个 text block（kb-core 27 工具都返回单段 text）
 #[tauri::command]
 pub async fn mcp_internal_call_tool(
     state: tauri::State<'_, AppState>,
     name: String,
     arguments: Option<JsonValue>,
 ) -> Result<String, String> {
+    // 写工具拦截：用户在设置页/AI 问答页关掉了"允许 AI 修改"时，写工具一律拒掉
+    // 不去重启 KbServer（成本高），而是在 in-memory client 调用前网关拦截
+    if is_kb_write_tool(&name) && !read_ai_writable(&state) {
+        return Err(format!(
+            "AI 写权限已关闭。要让 AI 修改你的知识库，请到 设置 → MCP 服务器 \
+             或 AI 问答页顶部 打开「允许 AI 修改我的知识库」开关。\
+             被拦截的工具：{name}"
+        ));
+    }
+
     let client = state
         .mcp_internal
         .as_ref()
@@ -370,7 +421,7 @@ pub async fn mcp_internal_call_tool(
         .await
         .map_err(|e| format!("call_tool({name}) 失败: {e}"))?;
 
-    // 把 content 列表里的 text block 拼起来返回（12 工具都是单段 text）
+    // 把 content 列表里的 text block 拼起来返回（27 工具都是单段 text）
     let mut out = String::new();
     for c in &result.content {
         if let Some(text) = c.as_text() {
@@ -381,6 +432,75 @@ pub async fn mcp_internal_call_tool(
         return Err(format!("工具返回错误: {out}"));
     }
     Ok(out)
+}
+
+// ─── 内置 in-memory MCP 写权限开关（前端控制） ──────────────────
+
+/// 读当前 in-memory MCP 是否允许 AI 调用写工具。默认 true（兼容旧版）
+#[tauri::command]
+pub fn mcp_get_ai_writable(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    Ok(read_ai_writable(&state))
+}
+
+/// 切换内置 in-memory MCP 的 AI 写权限。立即生效（下一次 call_tool 会读最新值）
+#[tauri::command]
+pub fn mcp_set_ai_writable(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .set_config(AI_WRITABLE_KEY, if enabled { "1" } else { "0" })
+        .map_err(|e| e.to_string())
+}
+
+// ─── #5: 工具白名单（按需裁剪工具集省 token，内部 + 外部都生效） ──────
+
+/// app_config 里持久化「保留哪些 MCP 工具」的 key。value = JSON 字符串数组。
+/// 空数组 / 缺失 = 不过滤（保留全部 27 个）。
+const TOOL_WHITELIST_KEY: &str = "mcp_tool_whitelist";
+
+/// 工具目录条目（给设置页勾选用）
+#[derive(Serialize)]
+pub struct McpToolCatalogItem {
+    pub name: String,
+    pub description: String,
+}
+
+/// 全量工具目录（27 个，name + description），不受白名单影响。
+/// 设置页用它渲染勾选清单——必须拿全集，不能用已裁剪的 in-memory tools/list。
+#[tauri::command]
+pub fn mcp_list_all_tools() -> Vec<McpToolCatalogItem> {
+    kb_core::KbServer::all_tools_catalog()
+        .into_iter()
+        .map(|(name, description)| McpToolCatalogItem { name, description })
+        .collect()
+}
+
+/// 读当前工具白名单（保留哪些工具）。空数组 = 不过滤（全部 27 个）。
+#[tauri::command]
+pub fn mcp_get_tool_whitelist(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    match state.db.get_config(TOOL_WHITELIST_KEY) {
+        Ok(Some(v)) => serde_json::from_str(&v).map_err(|e| e.to_string()),
+        Ok(None) => Ok(vec![]),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// 设置工具白名单（保留哪些工具）。空数组 = 清除过滤、保留全部。
+/// 生效时机：自家 AI 对话 = 重启应用；外部客户端 = 重连 kb-mcp（无需改客户端配置）。
+#[tauri::command]
+pub fn mcp_set_tool_whitelist(
+    state: tauri::State<'_, AppState>,
+    tools: Vec<String>,
+) -> Result<(), String> {
+    let json = serde_json::to_string(&tools).map_err(|e| e.to_string())?;
+    state
+        .db
+        .set_config(TOOL_WHITELIST_KEY, &json)
+        .map_err(|e| e.to_string())
 }
 
 // ─── M5-2: 外部 MCP server CRUD + 调用代理 ─────────────────────
@@ -401,6 +521,48 @@ pub fn mcp_create_server(
         .db
         .create_mcp_server(&input)
         .map_err(|e| e.to_string())
+}
+
+// ─── #8 插件层（方案 A：插件 = 外部 MCP server，进程隔离） ──────────
+
+/// 从 kb-plugin.json 清单一键安装插件（= 创建一个外部 MCP server）。
+/// `base_dir` = 清单文件所在目录，用于把清单 args/env 里的 `${PLUGIN_DIR}` 还原成绝对路径。
+#[tauri::command]
+pub fn plugin_install_from_manifest(
+    state: tauri::State<'_, AppState>,
+    manifest_json: String,
+    base_dir: Option<String>,
+) -> Result<McpServer, String> {
+    let input = crate::services::plugin::PluginService::manifest_to_input(
+        &manifest_json,
+        base_dir.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+    state.db.create_mcp_server(&input).map_err(|e| e.to_string())
+}
+
+/// 从 kb-plugin.json 文件路径一键安装：读文件 → base_dir = 文件父目录 → 解析 → 创建 server。
+/// 前端选好清单文件后直接传路径即可，无需前端读文件。
+#[tauri::command]
+pub fn plugin_install_from_file(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<McpServer, String> {
+    let p = std::path::Path::new(&path);
+    let manifest = std::fs::read_to_string(p).map_err(|e| format!("读取插件清单失败: {e}"))?;
+    let base_dir = p.parent().map(|d| d.to_string_lossy().to_string());
+    let input = crate::services::plugin::PluginService::manifest_to_input(
+        &manifest,
+        base_dir.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+    state.db.create_mcp_server(&input).map_err(|e| e.to_string())
+}
+
+/// 生成插件脚手架（Node stdio MCP server 模板），返回创建的插件目录绝对路径。
+#[tauri::command]
+pub fn plugin_scaffold(parent_dir: String, name: String) -> Result<String, String> {
+    crate::services::plugin::PluginService::scaffold(&parent_dir, &name).map_err(|e| e.to_string())
 }
 
 /// 更新已有 server 配置；同时让正在运行的 client 失效（下次访问会用新配置 spawn）
@@ -782,51 +944,47 @@ pub fn mcp_uninstall_from_client(target: InstallTarget) -> Result<UninstallResul
     })
 }
 
-/// 检查指定客户端是否已安装 knowledge-base，前端拿来决定按钮状态
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClientInstallStatus {
-    pub config_path: String,
-    pub config_exists: bool,
-    pub installed: bool,
-    /// 已装的话，args 里是否带 --writable
-    pub writable: bool,
-}
-
-/// Claude Code CLI + MCP 安装状态，设置页用。
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClaudeCodeCliInfo {
-    pub available: bool,
-    pub version: Option<String>,
-    pub config_path: Option<String>,
-    pub config_exists: bool,
-    pub mcp_installed: bool,
-    pub mcp_writable: bool,
-    pub error: Option<String>,
-}
-
+/// Claude Code CLI 安装与版本信息（POM 专有命令）。
 #[tauri::command]
-pub fn mcp_check_install_status(target: InstallTarget) -> Result<ClientInstallStatus, String> {
-    let config_path = locate_client_config(&target)?;
-    read_client_install_status(config_path)
-}
-
-#[tauri::command]
-pub fn mcp_claude_code_cli_info() -> ClaudeCodeCliInfo {
+pub fn mcp_claude_code_cli_info() -> crate::models::ClaudeCodeCliInfo {
     let config_path = locate_claude_code_config();
-    let install_status = config_path
-        .clone()
-        .map(read_client_install_status)
-        .transpose();
+    let status = mcp_check_install_status(InstallTarget::ClaudeCode).ok();
+    let (available, version, cli_error) = run_claude_version();
 
-    let cli_result = run_claude_version();
-    let (available, version, cli_error) = match cli_result {
+    let (config_exists, mcp_installed, mcp_writable, status_error) = match status {
+        Some(s) => (s.config_exists, s.installed, s.writable, None),
+        None => (
+            false,
+            false,
+            false,
+            Some("无法定位 Claude Code 配置文件".to_string()),
+        ),
+    };
+
+    crate::models::ClaudeCodeCliInfo {
+        available,
+        version,
+        config_path: config_path.map(|p| p.to_string_lossy().into_owned()),
+        config_exists,
+        mcp_installed,
+        mcp_writable,
+        error: cli_error.or(status_error),
+    }
+}
+
+fn run_claude_version() -> (bool, Option<String>, Option<String>) {
+    let mut cmd = std::process::Command::new("claude");
+    cmd.arg("--version");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    match cmd.output() {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let text = if stdout.is_empty() { stderr } else { stdout };
-            (true, Some(text), None)
+            (true, Some(if stdout.is_empty() { stderr } else { stdout }), None)
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -843,93 +1001,32 @@ pub fn mcp_claude_code_cli_info() -> ClaudeCodeCliInfo {
             )
         }
         Err(e) => (false, None, Some(e.to_string())),
-    };
-
-    let (config_exists, mcp_installed, mcp_writable, status_error) = match install_status {
-        Ok(Some(status)) => (
-            status.config_exists,
-            status.installed,
-            status.writable,
-            None,
-        ),
-        Ok(None) => (
-            false,
-            false,
-            false,
-            Some("无法定位 Claude Code 配置文件".to_string()),
-        ),
-        Err(e) => (false, false, false, Some(e)),
-    };
-
-    ClaudeCodeCliInfo {
-        available,
-        version,
-        config_path: config_path.map(|p| p.to_string_lossy().into_owned()),
-        config_exists,
-        mcp_installed,
-        mcp_writable,
-        error: cli_error.or(status_error),
     }
 }
 
-fn run_claude_version() -> std::io::Result<std::process::Output> {
-    let mut last_err = None;
-    for program in claude_command_candidates() {
-        let mut cmd = Command::new(&program);
-        cmd.arg("--version");
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-        match cmd.output() {
-            Ok(output) => return Ok(output),
-            Err(e) => last_err = Some(e),
-        }
-    }
-    Err(last_err
-        .unwrap_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "program not found")))
+/// 检查指定客户端是否已安装 knowledge-base，前端拿来决定按钮状态
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientInstallStatus {
+    pub config_path: String,
+    pub config_exists: bool,
+    pub installed: bool,
+    /// 已装的话，args 里是否带 --writable
+    pub writable: bool,
 }
 
-fn claude_command_candidates() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            let npm_dir = PathBuf::from(appdata).join("npm");
-            candidates.push(npm_dir.join("claude.cmd"));
-            candidates.push(npm_dir.join("claude.exe"));
-            candidates.push(npm_dir.join("claude"));
-        }
-        if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
-            let npm_dir = PathBuf::from(localappdata).join("npm");
-            candidates.push(npm_dir.join("claude.cmd"));
-            candidates.push(npm_dir.join("claude.exe"));
-            candidates.push(npm_dir.join("claude"));
-        }
-        candidates.push(PathBuf::from("claude.cmd"));
-        candidates.push(PathBuf::from("claude.exe"));
-    }
-
-    candidates.push(PathBuf::from("claude"));
-    candidates
-}
-
-fn locate_client_config(target: &InstallTarget) -> Result<PathBuf, String> {
-    match target {
+#[tauri::command]
+pub fn mcp_check_install_status(target: InstallTarget) -> Result<ClientInstallStatus, String> {
+    let config_path = match target {
         InstallTarget::ClaudeDesktop => locate_claude_desktop_config()
-            .ok_or_else(|| "无法定位 Claude Desktop 配置目录".to_string()),
+            .ok_or_else(|| "无法定位 Claude Desktop 配置目录".to_string())?,
         InstallTarget::Cursor => {
-            locate_cursor_config().ok_or_else(|| "无法定位 Cursor 配置目录".to_string())
+            locate_cursor_config().ok_or_else(|| "无法定位 Cursor 配置目录".to_string())?
         }
         InstallTarget::ClaudeCode => locate_claude_code_config()
-            .ok_or_else(|| "无法定位 Claude Code (CLI) 配置文件 ~/.claude.json".to_string()),
-    }
-}
+            .ok_or_else(|| "无法定位 Claude Code (CLI) 配置文件 ~/.claude.json".to_string())?,
+    };
 
-fn read_client_install_status(config_path: PathBuf) -> Result<ClientInstallStatus, String> {
     let config_path_str = config_path.to_string_lossy().into_owned();
     if !config_path.exists() {
         return Ok(ClientInstallStatus {
@@ -940,13 +1037,8 @@ fn read_client_install_status(config_path: PathBuf) -> Result<ClientInstallStatu
         });
     }
 
-    let raw = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("读取 {} 失败: {}", config_path.display(), e))?;
-    let root: serde_json::Value = if raw.trim().is_empty() {
-        serde_json::json!({})
-    } else {
-        serde_json::from_str(&raw).map_err(|e| format!("解析 JSON 失败: {}", e))?
-    };
+    let raw = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let root: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
 
     let kb_entry = root.get("mcpServers").and_then(|s| s.get("knowledge-base"));
 
@@ -957,7 +1049,7 @@ fn read_client_install_status(config_path: PathBuf) -> Result<ClientInstallStatu
                 .and_then(|a| a.as_array())
                 .map(|arr| {
                     arr.iter()
-                        .any(|v| v.as_str().is_some_and(|s| s == "--writable"))
+                        .any(|v| v.as_str().map(|s| s == "--writable").unwrap_or(false))
                 })
                 .unwrap_or(false);
             (true, writable)
@@ -971,4 +1063,101 @@ fn read_client_install_status(config_path: PathBuf) -> Result<ClientInstallStatu
         installed,
         writable,
     })
+}
+
+// ─── MCP HTTP 服务（把自家知识库暴露给外部 agent）─────────────
+//
+// 与上面那套 in-memory 的区别：in-memory 是"自家 AI 消费自家工具"，
+// 这套是"别人的 agent 通过 HTTP 消费我们的工具"。共用同一份 KbServer 实现。
+// 仅桌面端：移动端不该开监听端口。
+
+/// 读 HTTP 服务配置（供设置页回显）
+#[cfg(desktop)]
+#[tauri::command]
+pub fn get_mcp_http_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    use crate::services::mcp_http as h;
+    let get = |k: &str| state.db.get_config(k).ok().flatten().unwrap_or_default();
+    Ok(serde_json::json!({
+        "enabled": get(h::KEY_ENABLED) == "1",
+        "port": get(h::KEY_PORT).parse::<u16>().unwrap_or(h::DEFAULT_PORT),
+        "token": get(h::KEY_TOKEN),
+        "writable": get(h::KEY_WRITABLE) == "1",
+        "bindLan": get(h::KEY_BIND_LAN) == "1",
+    }))
+}
+
+/// 查询运行状态
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn get_mcp_http_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::services::mcp_http::McpHttpStatus, String> {
+    Ok(state.mcp_http.status().await)
+}
+
+/// 重新生成访问 Token（旧 token 立即作废；服务在跑的话需要重启才生效）
+#[cfg(desktop)]
+#[tauri::command]
+pub fn regenerate_mcp_http_token(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    use crate::services::mcp_http as h;
+    let token = h::generate_token();
+    state
+        .db
+        .set_config(h::KEY_TOKEN, &token)
+        .map_err(|e| e.to_string())?;
+    Ok(token)
+}
+
+/// 启动 / 重启 HTTP 服务。配置从入参落库后再按新配置起。
+///
+/// 没有 token 时会自动生成一个 —— 不给"裸奔"的可能。
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn start_mcp_http(
+    state: tauri::State<'_, AppState>,
+    port: u16,
+    writable: bool,
+    bind_lan: bool,
+) -> Result<crate::services::mcp_http::McpHttpStatus, String> {
+    use crate::services::mcp_http as h;
+
+    let mut token = state
+        .db
+        .get_config(h::KEY_TOKEN)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    if token.trim().is_empty() {
+        token = h::generate_token();
+        state
+            .db
+            .set_config(h::KEY_TOKEN, &token)
+            .map_err(|e| e.to_string())?;
+    }
+
+    // 先落库再启动：这样即使启动失败，用户改的配置也留住了，不用重填
+    let set = |k: &str, v: &str| state.db.set_config(k, v).map_err(|e| e.to_string());
+    set(h::KEY_PORT, &port.to_string())?;
+    set(h::KEY_WRITABLE, if writable { "1" } else { "0" })?;
+    set(h::KEY_BIND_LAN, if bind_lan { "1" } else { "0" })?;
+    set(h::KEY_ENABLED, "1")?;
+
+    let db_path = state.data_dir.join(crate::db_file_name());
+    h::start(&state.mcp_http, db_path, port, token, writable, bind_lan)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 停止 HTTP 服务
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn stop_mcp_http(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::services::mcp_http::McpHttpStatus, String> {
+    use crate::services::mcp_http as h;
+    let _ = state.db.set_config(h::KEY_ENABLED, "0");
+    state.mcp_http.stop().await;
+    Ok(state.mcp_http.status().await)
 }

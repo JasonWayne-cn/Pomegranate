@@ -140,6 +140,11 @@ fn app_data_dir_name() -> String {
 /// Tauri 内置 `app.path().app_data_dir()` 永远返回 prod 名（基于 tauri.conf.json
 /// 的 identifier），所有运行期 Command 拿 framework_app_data_dir 都要经过本函数，
 /// 否则 dev 单实例锁 / multi_instance flag / 指针文件 等会落到 prod 目录里。
+pub(crate) fn db_file_name() -> String {
+    let prefix = if cfg!(debug_assertions) { "dev-" } else { "" };
+    format!("{prefix}app.db")
+}
+
 pub(crate) fn framework_app_data_dir(handle: &tauri::AppHandle) -> Result<PathBuf, tauri::Error> {
     let from_tauri = handle.path().app_data_dir()?;
     // 桌面端：dev 模式重写到 -dev 兄弟目录（应用对 OS 的 app_data_dir 父目录有写权限）

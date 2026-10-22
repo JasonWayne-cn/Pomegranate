@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use base64::Engine;
 use regex::Regex;
 use walkdir::WalkDir;
 
@@ -97,6 +98,91 @@ impl AttachmentIndex {
             total_indexed: total,
         }
     }
+
+    /// 单文件 `open_markdown_file` 场景的轻量索引
+    ///
+    /// 与 `build` 区别：没有 vault 概念，锚点是 .md 同级目录。
+    /// 扫描范围（仅图片扩展名）：
+    ///   1. note_dir **自身**：非递归（只扫直接子文件，避免误吸下层无关图片）
+    ///   2. note_dir 下的 OB 约定附件子目录（`attachments/` `assets/` `images/` `_resources/`）：递归
+    ///
+    /// 这样能识别两种常见 OB 单文件布局：
+    ///   - `xxx.md` + 同级图片散落：`note_dir/IMG.png`
+    ///   - `xxx.md` + 同级 `attachments/`：`note_dir/attachments/IMG.png`（用户实测场景）
+    ///
+    /// 同名先到先得（与 `build` 一致）；note_dir 自身的图片优先于子目录里的同名图片。
+    pub fn build_for_single_file(note_dir: &Path) -> Self {
+        let mut by_basename: HashMap<String, PathBuf> = HashMap::new();
+        let mut total = 0usize;
+
+        // pass 1：note_dir 自身（非递归）
+        if note_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(note_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        continue;
+                    }
+                    let ext = path
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_ascii_lowercase())
+                        .unwrap_or_default();
+                    if !IMAGE_EXTS.contains(&ext.as_str()) {
+                        continue;
+                    }
+                    let key = match path.file_name().and_then(|s| s.to_str()) {
+                        Some(n) => n.to_ascii_lowercase(),
+                        None => continue,
+                    };
+                    total += 1;
+                    by_basename.entry(key).or_insert(path);
+                }
+            }
+        }
+
+        // pass 2：note_dir/<attach-dir>/**（递归，复用 build 的约定目录列表）
+        for dir_name in ATTACHMENT_DIR_NAMES {
+            let dir = note_dir.join(dir_name);
+            if !dir.is_dir() {
+                continue;
+            }
+            for entry in WalkDir::new(&dir).into_iter().filter_map(|e| e.ok()) {
+                if !entry.file_type().is_file() {
+                    continue;
+                }
+                let path = entry.path();
+                let ext = path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_ascii_lowercase())
+                    .unwrap_or_default();
+                if !IMAGE_EXTS.contains(&ext.as_str()) {
+                    continue;
+                }
+                let key = match path.file_name().and_then(|s| s.to_str()) {
+                    Some(n) => n.to_ascii_lowercase(),
+                    None => continue,
+                };
+                total += 1;
+                if let Some(existing) = by_basename.get(&key) {
+                    log::warn!(
+                        "[import-single] 同名附件：'{}' 已索引 {}, 忽略 {}（先到先得）",
+                        key,
+                        existing.display(),
+                        path.display()
+                    );
+                    continue;
+                }
+                by_basename.insert(key, path.to_path_buf());
+            }
+        }
+
+        Self {
+            by_basename,
+            total_indexed: total,
+        }
+    }
 }
 
 /// 单篇笔记 body 重写结果
@@ -129,10 +215,62 @@ impl RewriteResult {
 fn md_image_regex() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| {
-        // 标准 markdown 图片：`![alt](url)`，url 不含右括号；alt 可能有方括号转义
-        // 这个 regex 不处理嵌套 `()`，与 markdown 标准基本一致
-        Regex::new(r#"!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)"#).unwrap()
+        // 标准 markdown 图片：`![alt](dest)`。
+        //
+        // 这里**只负责框出 `(...)` 的全部内容**，具体怎么切出 URL 交给
+        // `parse_md_destination`。原实现直接用 `([^)\s]+)` 捕获 URL，等于要求
+        // 路径不含空格 —— 飞书 / 语雀导出的图片文件名带空格是常态
+        // （`![](images/截图 2026-08-11.png)`），regex 整条匹配不上，那个引用
+        // 既不会被改写也不会计入 missing，用户端毫无提示、图静默变死链。
+        //
+        // 仍不支持路径里出现 `)`（与放宽前一致，markdown 本身也要求那种情况转义）。
+        Regex::new(r#"!\[([^\]]*)\]\(([^)]*)\)"#).unwrap()
     })
+}
+
+/// HTML `<img src="...">` 标签（飞书 / 语雀把富文本导出成 .md 时，图片经常
+/// 退化成 HTML 标签而不是 `![]()` 语法）。捕获组 1 = src 属性值。
+///
+/// 属性值支持双引号 / 单引号；`src` 在标签里的位置任意。
+fn html_img_regex() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| Regex::new(r#"(?is)<img\s[^>]*?src\s*=\s*("[^"]*"|'[^']*')[^>]*>"#).unwrap())
+}
+
+/// 从 markdown 图片的 `(...)` 内容里切出真正的 URL（destination）。
+///
+/// 处理三种形态：
+/// - `<images/a b.png>` —— CommonMark 里承载「含空格路径」的标准写法，取尖括号内部
+/// - `images/a.png "标题"` —— 尾部可选 title（双引号 / 单引号 / 圆括号三种都算）
+/// - `images/a b.png` —— 未转义空格的裸路径，整体保留（导出器的常见不规范写法）
+///
+/// 判定顺序很重要：先剥尖括号，再剥 title，剩下的**不做空格切分**，
+/// 这样 `a b.png` 不会被截成 `a`。
+fn parse_md_destination(inner: &str) -> &str {
+    let s = inner.trim();
+
+    // `<...>` 包裹：内部原样就是路径（含空格）
+    if let Some(rest) = s.strip_prefix('<') {
+        if let Some(end) = rest.find('>') {
+            return rest[..end].trim();
+        }
+    }
+
+    // 尾部 title：` "..."` / ` '...'` / ` (...)`
+    for (open, close) in [('"', '"'), ('\'', '\''), ('(', ')')] {
+        if s.ends_with(close) {
+            // 从右往左找 title 的起始引号，且它前面必须是空白 —— 否则
+            // `a(1).png` 这种文件名会被误当成 title
+            if let Some(idx) = s[..s.len() - close.len_utf8()].rfind(open) {
+                let before = s[..idx].trim_end();
+                if idx > 0 && before.len() < idx && !before.is_empty() {
+                    return before;
+                }
+            }
+        }
+    }
+
+    s
 }
 
 fn ob_wiki_embed_regex() -> &'static Regex {
@@ -206,9 +344,37 @@ pub fn rewrite_image_paths(
         .replace_all(body, |caps: &regex::Captures| {
             let full_match = caps.get(0).unwrap().as_str().to_string();
             let alt = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-            let raw_url = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim();
+            // 捕获组 2 是 `(...)` 的全部内容，需再解析出 destination
+            // （剥尖括号 / 尾部 title，保留路径内部空格）
+            let raw_url = parse_md_destination(caps.get(2).map(|m| m.as_str()).unwrap_or(""));
+            if raw_url.is_empty() {
+                return full_match;
+            }
 
-            // 跳过外链 / data URL / 已经是 asset URL（重复运行幂等）
+            // 内联 data URL 图片（`data:image/png;base64,...`）：解码落盘 + 改写为 asset URL。
+            // 必须在 is_external_or_asset_url 之前判断（后者会把 data: 当外链跳过）。
+            // 不记 mapping —— 目的就是永久消除这串超大 base64，写回 .md 时不该还原。
+            if let Some((ext, bytes)) = try_decode_image_data_url(raw_url) {
+                let fname = format!("inline.{}", ext);
+                match ImageService::save_bytes(app_data_dir, note_id, &fname, &bytes) {
+                    Ok(new_abs) => {
+                        copied += 1;
+                        let url = path_to_asset_url(Path::new(&new_abs));
+                        return format!("![{}]({})", alt, url);
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "[import-attach] 笔记 {} 内联 data URL 图片落盘失败: {}",
+                            note_id,
+                            e
+                        );
+                        missing.push("data:image (内联 base64 图)".to_string());
+                        return full_match;
+                    }
+                }
+            }
+
+            // 跳过外链 / 已经是 asset URL（重复运行幂等）
             if is_external_or_asset_url(raw_url) {
                 return full_match;
             }
@@ -303,6 +469,82 @@ pub fn rewrite_image_paths(
         })
         .into_owned();
 
+    // ─── pass 3：替换 HTML `<img src="...">` ───
+    // 飞书 / 语雀导出富文本 .md 时，图片常退化成 HTML 标签而不是 `![]()` 语法。
+    // 只换 src 属性值，标签其余属性（width / alt / style）原样保留。
+    let html_re = html_img_regex();
+    let after_html = html_re
+        .replace_all(&after_wiki, |caps: &regex::Captures| {
+            let full_match = caps.get(0).unwrap().as_str().to_string();
+            let quoted = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            // 去掉外层引号（正则已保证成对）
+            let raw_url = quoted
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .or_else(|| quoted.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                .unwrap_or(quoted)
+                .trim();
+            if raw_url.is_empty() {
+                return full_match;
+            }
+
+            // 内联 data URL：解码落盘（与 pass 1 同策略，不记 mapping）
+            if let Some((ext, bytes)) = try_decode_image_data_url(raw_url) {
+                let fname = format!("inline.{}", ext);
+                match ImageService::save_bytes(app_data_dir, note_id, &fname, &bytes) {
+                    Ok(new_abs) => {
+                        copied += 1;
+                        let url = path_to_asset_url(Path::new(&new_abs));
+                        return full_match.replace(quoted, &format!("\"{}\"", url));
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "[import-attach] 笔记 {} HTML img 内联 data URL 落盘失败: {}",
+                            note_id,
+                            e
+                        );
+                        missing.push("data:image (内联 base64 图)".to_string());
+                        return full_match;
+                    }
+                }
+            }
+
+            // 外链 / 已是 asset URL：留给 rewrite_external_images 或幂等跳过
+            if is_external_or_asset_url(raw_url) {
+                return full_match;
+            }
+
+            let decoded = urlencoding::decode(raw_url)
+                .map(|s| s.into_owned())
+                .unwrap_or_else(|_| raw_url.to_string());
+
+            match resolve_local_image(&decoded, note_file_dir, vault_root, index) {
+                Some(src) => match copy_to_image_store(app_data_dir, note_id, &src) {
+                    Ok(new_abs) => {
+                        copied += 1;
+                        let url = path_to_asset_url(Path::new(&new_abs));
+                        mappings.push((raw_url.to_string(), url.clone()));
+                        full_match.replace(quoted, &format!("\"{}\"", url))
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "[import-attach] 笔记 {} HTML img 复制失败 ({}): {}",
+                            note_id,
+                            src.display(),
+                            e
+                        );
+                        missing.push(raw_url.to_string());
+                        full_match
+                    }
+                },
+                None => {
+                    missing.push(raw_url.to_string());
+                    full_match
+                }
+            }
+        })
+        .into_owned();
+
     // missing 去重（保持插入顺序）
     let mut seen: HashMap<String, ()> = HashMap::new();
     let dedup_missing: Vec<String> = missing
@@ -311,7 +553,7 @@ pub fn rewrite_image_paths(
         .collect();
 
     Ok(RewriteResult {
-        new_body: after_wiki,
+        new_body: after_html,
         copied,
         missing: dedup_missing,
         mappings,
@@ -327,6 +569,53 @@ fn is_external_or_asset_url(url: &str) -> bool {
         || lower.starts_with("data:")
         || lower.starts_with("file://")
         || lower.starts_with("kb-image://")
+}
+
+/// 尝试把 `data:image/<subtype>;base64,<payload>` 解码成 `(扩展名, 字节)`。
+///
+/// 仅识别 `image/*` 且 base64 编码的 data URL（Notion / 飞书 / 网页剪藏导出的 .md
+/// 常把图片内联成这种形式）。非 data URL / 非图片 / 非 base64 / 解码失败都返回 None，
+/// 调用方据此回退到"按外链跳过"的原逻辑。
+///
+/// base64 payload 里可能夹换行/空白（某些导出器会折行），统一剔除后再解码。
+fn try_decode_image_data_url(url: &str) -> Option<(String, Vec<u8>)> {
+    // 去掉 "data:" 前缀；rest 形如 "image/png;base64,iVBOR..."
+    let rest = url.strip_prefix("data:").or_else(|| url.strip_prefix("DATA:"))?;
+    let comma = rest.find(',')?;
+    let (meta, payload_with_comma) = rest.split_at(comma);
+    let payload = &payload_with_comma[1..]; // 跳过逗号
+
+    let meta_lower = meta.to_ascii_lowercase();
+    if !meta_lower.starts_with("image/") || !meta_lower.contains("base64") {
+        return None;
+    }
+
+    // 取子类型：image/png;base64 → "png"
+    let subtype = meta_lower["image/".len()..]
+        .split(';')
+        .next()
+        .unwrap_or("png");
+    let ext = match subtype {
+        "jpeg" | "jpg" => "jpg",
+        "png" => "png",
+        "gif" => "gif",
+        "webp" => "webp",
+        "svg+xml" | "svg" => "svg",
+        "bmp" => "bmp",
+        "x-icon" | "vnd.microsoft.icon" | "ico" => "ico",
+        "avif" => "avif",
+        _ => "png",
+    };
+
+    // 剔除 payload 内的换行/空白后再解码
+    let cleaned: String = payload.chars().filter(|c| !c.is_whitespace()).collect();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(cleaned.as_bytes())
+        .ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    Some((ext.to_string(), bytes))
 }
 
 fn is_image_filename(name: &str) -> bool {
@@ -402,7 +691,19 @@ fn resolve_local_image(
 // 单独提供一个 async 函数，与同步的 `rewrite_image_paths`（处理本地相对路径）
 // 串联使用：先跑同步版处理本地文件，再跑这个 async 版处理外链。
 
-/// 单独处理 body 中所有 http(s):// 图片引用（标准 markdown `![alt](url)`）。
+/// 一条待下载的外链图片引用在原文里的形态 —— 决定下载成功后怎么把它写回去。
+enum ExternalRefKind {
+    /// markdown `![alt](url)`：整段按新 URL 重建
+    Markdown { alt: String },
+    /// HTML `<img … src="url" …>`：只替换 src 属性值，其余属性原样保留
+    Html { full: String, quoted: String },
+}
+
+/// 单独处理 body 中所有 http(s):// 图片引用。
+///
+/// 覆盖 markdown `![alt](url)` 与 HTML `<img src="url">` 两种写法 —— 飞书 / 语雀
+/// 导出的 .md 里两者都会出现，只认 markdown 会让 HTML 那批外链图永远留在原站，
+/// 离线或对方防盗链时就是一片裂图。
 ///
 /// 为已经是 asset URL 的引用做幂等保护；下载失败的引用保留原样并记入 missing。
 /// 执行顺序：从后往前替换字符串，避免位置漂移。
@@ -415,27 +716,53 @@ pub async fn rewrite_external_images(
         return Ok(RewriteResult::unchanged(String::new()));
     }
 
-    let md_re = md_image_regex();
-    // (start, end, alt, url) — 仅收集真正的 http(s):// 外链
-    let mut matches: Vec<(usize, usize, String, String)> = Vec::new();
-    for caps in md_re.captures_iter(body) {
+    /// 这个 URL 是否是需要下载的真外链（排除已本地化的 asset 形态）
+    fn is_downloadable(url: &str) -> bool {
+        let lower = url.to_ascii_lowercase();
+        if lower.starts_with("http://asset.localhost/") || lower.starts_with("asset://") {
+            return false;
+        }
+        lower.starts_with("http://") || lower.starts_with("https://")
+    }
+
+    // (start, end, kind, url) — 仅收集真正的 http(s):// 外链
+    let mut matches: Vec<(usize, usize, ExternalRefKind, String)> = Vec::new();
+
+    for caps in md_image_regex().captures_iter(body) {
         let m = caps.get(0).unwrap();
         let alt = caps.get(1).map(|x| x.as_str()).unwrap_or("").to_string();
-        let raw_url = caps
-            .get(2)
-            .map(|x| x.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let lower = raw_url.to_ascii_lowercase();
-        // asset.localhost 已经是本地化结果，跳过；其余 https:// / http:// 统一处理
-        if lower.starts_with("http://asset.localhost/") || lower.starts_with("asset://") {
-            continue;
-        }
-        if lower.starts_with("http://") || lower.starts_with("https://") {
-            matches.push((m.start(), m.end(), alt, raw_url));
+        let raw_url =
+            parse_md_destination(caps.get(2).map(|x| x.as_str()).unwrap_or("")).to_string();
+        if is_downloadable(&raw_url) {
+            matches.push((m.start(), m.end(), ExternalRefKind::Markdown { alt }, raw_url));
         }
     }
+
+    for caps in html_img_regex().captures_iter(body) {
+        let m = caps.get(0).unwrap();
+        let quoted = caps.get(1).map(|x| x.as_str()).unwrap_or("").to_string();
+        let raw_url = quoted
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .or_else(|| quoted.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+            .unwrap_or(&quoted)
+            .trim()
+            .to_string();
+        if is_downloadable(&raw_url) {
+            matches.push((
+                m.start(),
+                m.end(),
+                ExternalRefKind::Html {
+                    full: m.as_str().to_string(),
+                    quoted,
+                },
+                raw_url,
+            ));
+        }
+    }
+
+    // 两轮扫描各自有序，合并后必须按位置重排 —— 后面的倒序替换依赖这个顺序
+    matches.sort_by_key(|(start, _, _, _)| *start);
 
     if matches.is_empty() {
         return Ok(RewriteResult::unchanged(body.to_string()));
@@ -492,10 +819,16 @@ pub async fn rewrite_external_images(
     let mut new_body = body.to_string();
     let mut mappings: Vec<(String, String)> = Vec::new();
     for (i, repl) in replacements.iter().enumerate().rev() {
-        let (start, end, alt, raw_url) = &matches[i];
+        let (start, end, kind, raw_url) = &matches[i];
         match repl {
             Some(new_url) => {
-                let replacement = format!("![{}]({})", alt, new_url);
+                // 按原形态回写：markdown 重建整段，HTML 只换 src 值保住其余属性
+                let replacement = match kind {
+                    ExternalRefKind::Markdown { alt } => format!("![{}]({})", alt, new_url),
+                    ExternalRefKind::Html { full, quoted } => {
+                        full.replace(quoted.as_str(), &format!("\"{}\"", new_url))
+                    }
+                };
                 new_body.replace_range(*start..*end, &replacement);
                 // 写回原 .md 时按 internal_url 反查回原始 https://... 链接
                 mappings.push((raw_url.clone(), new_url.clone()));
@@ -748,6 +1081,246 @@ mod tests {
         assert_eq!(r.copied, 0);
         assert!(r.missing.is_empty());
         assert_eq!(r.new_body, body);
+    }
+
+    /// 构造一个"单文件"目录布局：note_dir/note.md + note_dir/IMG-flat.png
+    /// + note_dir/attachments/IMG-sub.png；返回 (note_dir, app_data)
+    fn make_single_file_layout() -> (PathBuf, PathBuf) {
+        let root = temp_root();
+        let note_dir = root.join("note_dir");
+        let app_data = root.join("app_data");
+        std::fs::create_dir_all(note_dir.join("attachments")).unwrap();
+        std::fs::create_dir_all(&app_data).unwrap();
+        let png: &[u8] = b"\x89PNG\r\n\x1a\n";
+        // 同级散落
+        std::fs::write(note_dir.join("IMG-flat.png"), png).unwrap();
+        // attachments 子目录
+        std::fs::write(note_dir.join("attachments/IMG-sub.png"), png).unwrap();
+        (note_dir, app_data)
+    }
+
+    #[test]
+    fn single_file_index_picks_up_sibling_and_attachments() {
+        let (note_dir, _) = make_single_file_layout();
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+        assert_eq!(idx.total_indexed, 2, "应同时扫到 flat + attachments");
+        assert!(idx.by_basename.contains_key("img-flat.png"));
+        assert!(idx.by_basename.contains_key("img-sub.png"));
+    }
+
+    #[test]
+    fn single_file_wiki_embed_hits_attachments_subdir() {
+        let (note_dir, app_data) = make_single_file_layout();
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+        // OB wiki 写法 + 图片在 attachments/ 子目录 → 走 basename 索引命中
+        let body = "正文 ![[IMG-sub.png]] 后文";
+        let r = rewrite_image_paths(body, 99, &note_dir, &note_dir, &idx, &app_data).unwrap();
+        assert_eq!(r.copied, 1, "应命中并复制：{}", r.new_body);
+        assert!(r.missing.is_empty(), "missing 应空：{:?}", r.missing);
+        assert!(
+            r.new_body.contains("asset.localhost") || r.new_body.contains("asset://localhost"),
+            "应改写为 asset URL：{}",
+            r.new_body
+        );
+    }
+
+    #[test]
+    fn single_file_wiki_embed_hits_sibling_image() {
+        let (note_dir, app_data) = make_single_file_layout();
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+        // OB wiki 写法 + 图片就在 .md 同级 → 走 basename 索引也命中
+        let body = "![[IMG-flat.png]]";
+        let r = rewrite_image_paths(body, 99, &note_dir, &note_dir, &idx, &app_data).unwrap();
+        assert_eq!(r.copied, 1, "同级图片应命中：{}", r.new_body);
+        assert!(r.missing.is_empty());
+    }
+
+    #[test]
+    fn single_file_index_non_recursive_for_note_dir() {
+        // 验证 note_dir 自身只扫直接子文件，不递归（递归仅限附件子目录）
+        let root = temp_root();
+        let note_dir = root.join("nd");
+        // 在 note_dir 下又建一个非约定子目录 sub_misc/，放图片
+        std::fs::create_dir_all(note_dir.join("sub_misc")).unwrap();
+        let png: &[u8] = b"\x89PNG\r\n\x1a\n";
+        std::fs::write(note_dir.join("sub_misc/should_not_be_indexed.png"), png).unwrap();
+        std::fs::write(note_dir.join("ok.png"), png).unwrap();
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+        assert!(idx.by_basename.contains_key("ok.png"));
+        assert!(!idx.by_basename.contains_key("should_not_be_indexed.png"));
+    }
+
+    #[test]
+    fn decode_data_url_png() {
+        // 1x1 透明 PNG 的标准 base64
+        let url = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMCAYG2pY3mAAAAAElFTkSuQmCC";
+        let r = try_decode_image_data_url(url);
+        assert!(r.is_some(), "应能解码 1x1 png data URL");
+        let (ext, bytes) = r.unwrap();
+        assert_eq!(ext, "png");
+        assert!(bytes.starts_with(b"\x89PNG"), "解码出的字节应是 PNG 头");
+    }
+
+    #[test]
+    fn decode_data_url_rejects_non_image() {
+        assert!(try_decode_image_data_url("data:text/plain;base64,aGVsbG8=").is_none());
+        assert!(try_decode_image_data_url("https://x.com/a.png").is_none());
+        assert!(try_decode_image_data_url("attachments/foo.png").is_none());
+        // 非 base64 编码的 data URL（如 svg 文本）暂不支持
+        assert!(try_decode_image_data_url("data:image/svg+xml,<svg></svg>").is_none());
+    }
+
+    #[test]
+    fn rewrite_inline_data_url_image() {
+        let (vault, app_data) = make_vault();
+        let idx = AttachmentIndex::build(&vault);
+        let body = "前文 ![Image](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMCAYG2pY3mAAAAAElFTkSuQmCC) 后文";
+        let r = rewrite_image_paths(body, 555, &vault, &vault, &idx, &app_data).unwrap();
+        assert_eq!(r.copied, 1, "内联 base64 图应被落盘：{}", r.new_body);
+        assert!(r.missing.is_empty());
+        assert!(
+            r.new_body.contains("asset.localhost") || r.new_body.contains("asset://localhost"),
+            "应改写为 asset URL：{}",
+            r.new_body
+        );
+        // 原始超大 base64 串应已从正文消失
+        assert!(!r.new_body.contains("base64,"), "正文不应再含 base64 串");
+        // alt 文本保留
+        assert!(r.new_body.contains("![Image]"));
+        // data URL 不记 mapping（避免写回 .md 时还原巨大 base64）
+        assert!(r.mappings.is_empty(), "data URL 不应记 mapping");
+    }
+
+    /// 造一个飞书 / 语雀导出的典型布局：note.md + 同级 images/，
+    /// 图片名含空格（导出器常见）。返回 (note_dir, app_data)
+    fn make_feishu_layout() -> (PathBuf, PathBuf) {
+        let root = temp_root();
+        let note_dir = root.join("feishu");
+        let app_data = root.join("app_data");
+        std::fs::create_dir_all(note_dir.join("images")).unwrap();
+        std::fs::create_dir_all(&app_data).unwrap();
+        let png: &[u8] = b"\x89PNG\r\n\x1a\n";
+        std::fs::write(note_dir.join("images/plain.png"), png).unwrap();
+        std::fs::write(note_dir.join("images/with space.png"), png).unwrap();
+        (note_dir, app_data)
+    }
+
+    /// 回归：路径含**未编码空格**（`![](images/with space.png)`）。
+    ///
+    /// 旧 regex 的 URL 捕获是 `([^)\s]+)` —— 遇到空格整条匹配不上，那个引用既不被
+    /// 改写也不计入 missing，用户端毫无提示、图静默变死链。飞书 / 语雀导出的图片
+    /// 文件名带空格是常态，这是「导入后图片不显示」的头号成因。
+    #[test]
+    fn rewrite_md_path_with_unencoded_space() {
+        let (note_dir, app_data) = make_feishu_layout();
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+        let body = "![](images/with space.png)";
+        let r = rewrite_image_paths(body, 1, &note_dir, &note_dir, &idx, &app_data).unwrap();
+        assert_eq!(r.copied, 1, "含空格路径应被识别并复制：{}", r.new_body);
+        assert!(r.missing.is_empty(), "不该记缺失：{:?}", r.missing);
+        assert!(
+            r.new_body.contains("asset.localhost") || r.new_body.contains("asset://localhost"),
+            "应改写为 asset URL：{}",
+            r.new_body
+        );
+    }
+
+    /// 回归：CommonMark 承载含空格路径的标准写法 `![](<a b.png>)`
+    #[test]
+    fn rewrite_md_angle_bracket_destination() {
+        let (note_dir, app_data) = make_feishu_layout();
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+        let body = "![图](<images/with space.png>)";
+        let r = rewrite_image_paths(body, 1, &note_dir, &note_dir, &idx, &app_data).unwrap();
+        assert_eq!(r.copied, 1, "尖括号包裹应被识别：{}", r.new_body);
+        assert!(r.missing.is_empty());
+        assert!(!r.new_body.contains('<'), "尖括号不该残留：{}", r.new_body);
+        assert!(r.new_body.contains("![图]"), "alt 应保留：{}", r.new_body);
+    }
+
+    /// 回归：HTML `<img src>` 写法（飞书 / 语雀导出富文本时图片常退化成标签）
+    #[test]
+    fn rewrite_html_img_tag() {
+        let (note_dir, app_data) = make_feishu_layout();
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+        let body = r#"<img src="images/plain.png" width="600" alt="示意" />"#;
+        let r = rewrite_image_paths(body, 1, &note_dir, &note_dir, &idx, &app_data).unwrap();
+        assert_eq!(r.copied, 1, "HTML img 应被识别：{}", r.new_body);
+        assert!(r.missing.is_empty());
+        assert!(
+            r.new_body.contains("asset.localhost") || r.new_body.contains("asset://localhost"),
+            "src 应被改写：{}",
+            r.new_body
+        );
+        // 其余属性必须原样保留，否则宽度 / alt 会在导入后丢失
+        assert!(r.new_body.contains(r#"width="600""#), "width 应保留：{}", r.new_body);
+        assert!(r.new_body.contains(r#"alt="示意""#), "alt 应保留：{}", r.new_body);
+    }
+
+    /// HTML img 单引号属性 + 内联 data URL 也要能处理
+    #[test]
+    fn rewrite_html_img_single_quote_and_data_url() {
+        let (note_dir, app_data) = make_feishu_layout();
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+
+        let body = "<img src='images/plain.png'>";
+        let r = rewrite_image_paths(body, 1, &note_dir, &note_dir, &idx, &app_data).unwrap();
+        assert_eq!(r.copied, 1, "单引号属性应被识别：{}", r.new_body);
+
+        let data = "<img src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMCAYG2pY3mAAAAAElFTkSuQmCC\">";
+        let r2 = rewrite_image_paths(data, 2, &note_dir, &note_dir, &idx, &app_data).unwrap();
+        assert_eq!(r2.copied, 1, "HTML img 内联 base64 应落盘：{}", r2.new_body);
+        assert!(!r2.new_body.contains("base64,"), "base64 串应从正文消失");
+    }
+
+    /// 放宽 destination 捕获后，带 title 的老写法仍要正确切出 URL（不能把 title 也吞进路径）
+    #[test]
+    fn md_title_still_stripped_after_relaxing_regex() {
+        let (note_dir, app_data) = make_feishu_layout();
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+        let body = "![](images/plain.png \"这是标题\")";
+        let r = rewrite_image_paths(body, 1, &note_dir, &note_dir, &idx, &app_data).unwrap();
+        assert_eq!(r.copied, 1, "带 title 仍应命中：{}", r.new_body);
+        assert!(r.missing.is_empty(), "不该把 title 当成路径的一部分：{:?}", r.missing);
+    }
+
+    /// 文件名本身含圆括号（`shot(1).png`）不能被误当成 title 而截断
+    #[test]
+    fn md_filename_with_parens_not_treated_as_title() {
+        let root = temp_root();
+        let note_dir = root.join("nd");
+        let app_data = root.join("app_data");
+        std::fs::create_dir_all(&note_dir).unwrap();
+        std::fs::create_dir_all(&app_data).unwrap();
+        std::fs::write(note_dir.join("shot(1).png"), b"\x89PNG\r\n\x1a\n").unwrap();
+
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+        // 注意：`)` 会提前终止 regex，这里验证的是 parse_md_destination 不会再截一刀
+        assert_eq!(parse_md_destination("shot(1).png"), "shot(1).png");
+        let _ = (idx, app_data);
+    }
+
+    /// 空 destination（`![]()`）不该 panic，也不该记成缺失
+    #[test]
+    fn md_empty_destination_is_ignored() {
+        let (note_dir, app_data) = make_feishu_layout();
+        let idx = AttachmentIndex::build_for_single_file(&note_dir);
+        let body = "![]()";
+        let r = rewrite_image_paths(body, 1, &note_dir, &note_dir, &idx, &app_data).unwrap();
+        assert_eq!(r.copied, 0);
+        assert!(r.missing.is_empty(), "空引用不该记缺失：{:?}", r.missing);
+        assert_eq!(r.new_body, body);
+    }
+
+    #[test]
+    fn parse_destination_forms() {
+        assert_eq!(parse_md_destination("a.png"), "a.png");
+        assert_eq!(parse_md_destination("  a.png  "), "a.png");
+        assert_eq!(parse_md_destination("images/a b.png"), "images/a b.png");
+        assert_eq!(parse_md_destination("<images/a b.png>"), "images/a b.png");
+        assert_eq!(parse_md_destination("a.png \"标题\""), "a.png");
+        assert_eq!(parse_md_destination("a.png '标题'"), "a.png");
+        assert_eq!(parse_md_destination(""), "");
     }
 
     #[test]

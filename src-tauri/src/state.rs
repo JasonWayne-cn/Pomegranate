@@ -50,6 +50,9 @@ pub struct AppState {
     /// 仅桌面端：移动端 fork/spawn 受限，没有外部 MCP 概念
     #[cfg(desktop)]
     pub mcp_external: Arc<crate::services::mcp_client::McpClientManager>,
+    /// 内置 MCP HTTP server 状态（默认不启动）
+    #[cfg(desktop)]
+    pub mcp_http: Arc<crate::services::mcp_http::McpHttpState>,
     /// 实例锁文件句柄（保持存活以维持独占锁，进程退出时自动释放）
     _lock_file: Option<File>,
     /// 插件运行时令牌注册表（T1: 内存存储，进程退出自动清空）
@@ -83,6 +86,8 @@ impl AppState {
             mcp_internal,
             #[cfg(desktop)]
             mcp_external: Arc::new(crate::services::mcp_client::McpClientManager::new()),
+            #[cfg(desktop)]
+            mcp_http: Arc::new(crate::services::mcp_http::McpHttpState::default()),
             _lock_file: lock_file,
             plugin_tokens: PluginTokenRegistry::default(),
             plugin_rate_limiter: PluginRateLimiter::new(),
