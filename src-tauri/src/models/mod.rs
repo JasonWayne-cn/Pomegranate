@@ -311,6 +311,16 @@ pub struct Tag {
     pub name: String,
     pub color: Option<String>,
     pub note_count: usize,
+    #[serde(default)]
+    pub parent_id: Option<i64>,
+}
+
+/// 笔记列表「标签」列用的轻量标签。
+#[derive(Debug, Clone, Serialize)]
+pub struct NoteTagBrief {
+    pub id: i64,
+    pub name: String,
+    pub color: Option<String>,
 }
 
 /// 创建/更新标签的入参
@@ -920,13 +930,38 @@ pub struct Task {
     pub category_id: Option<i64>,
     /// 父任务 ID；None = 主任务，Some(id) = 子任务
     pub parent_task_id: Option<i64>,
+    /// 工作流看板列：'todo' / 'doing' / 'done'
+    #[serde(default = "default_kanban_stage")]
+    pub kanban_stage: String,
+    /// 所属项目 ID；None = 未挂项目
+    #[serde(default)]
+    pub project_id: Option<i64>,
+    /// 甘特图开始日期 'YYYY-MM-DD'
+    #[serde(default)]
+    pub start_date: Option<String>,
+    /// 跨端同步稳定标识
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stable_uuid: Option<String>,
+    /// 软删墓碑标记
+    #[serde(default)]
+    pub is_deleted: bool,
     /// 已完成子任务数（仅主任务有意义；子任务恒为 0）
     #[serde(default)]
     pub subtask_done: i32,
     /// 总子任务数（同上）
     #[serde(default)]
     pub subtask_total: i32,
+    /// 附件数（列表角标）
+    #[serde(default)]
+    pub attachment_count: i32,
+    /// 「稍后提醒」时间
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snooze_until: Option<String>,
     pub links: Vec<TaskLink>,
+}
+
+fn default_kanban_stage() -> String {
+    "todo".to_string()
 }
 
 /// 创建任务入参
@@ -951,6 +986,10 @@ pub struct CreateTaskInput {
     pub category_id: Option<i64>,
     /// 父任务 ID（创建子任务时传）；None = 创建主任务
     pub parent_task_id: Option<i64>,
+    /// 所属项目 ID；None = 无项目
+    pub project_id: Option<i64>,
+    /// 甘特图开始日期 'YYYY-MM-DD'
+    pub start_date: Option<String>,
 }
 
 /// 更新任务入参（字段缺省表示不改动）
@@ -979,6 +1018,14 @@ pub struct UpdateTaskInput {
     pub category_id: Option<i64>,
     /// 传 true 显式清空 category_id（落到"未分类"）
     pub clear_category_id: Option<bool>,
+    /// 所属项目 ID；None 不动；传 Some(id) 改
+    pub project_id: Option<i64>,
+    /// 传 true 显式清空 project_id（落到"无项目"）
+    pub clear_project_id: Option<bool>,
+    /// 甘特图开始日期 'YYYY-MM-DD'；None 不动
+    pub start_date: Option<String>,
+    /// 传 true 显式清空 start_date
+    pub clear_start_date: Option<bool>,
 }
 
 /// 任务关联入参（新建任务时一起传）
@@ -1032,6 +1079,12 @@ pub struct TaskCategory {
     pub icon: Option<String>,
     pub sort_order: i32,
     pub created_at: String,
+    /// 跨端同步稳定标识
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stable_uuid: Option<String>,
+    /// 父分类 id（多级分类）；None = 顶层
+    #[serde(default)]
+    pub parent_id: Option<i64>,
 }
 
 /// 创建分类入参
@@ -1041,6 +1094,8 @@ pub struct CreateTaskCategoryInput {
     pub color: Option<String>,
     pub icon: Option<String>,
     pub sort_order: Option<i32>,
+    #[serde(default)]
+    pub parent_id: Option<i64>,
 }
 
 /// 更新分类入参（字段缺省 = 不改）
@@ -1051,6 +1106,10 @@ pub struct UpdateTaskCategoryInput {
     pub icon: Option<String>,
     pub clear_icon: Option<bool>,
     pub sort_order: Option<i32>,
+    #[serde(default)]
+    pub parent_id: Option<i64>,
+    #[serde(default)]
+    pub clear_parent: Option<bool>,
 }
 
 /// 任务统计（首页卡片 / 侧边栏徽章）
@@ -1468,7 +1527,7 @@ pub struct ManifestEntry {
     /// 稳定 ID（v1 临时 = 本地笔记 id 的字符串形式）
     pub stable_id: String,
     pub title: String,
-    /// SHA-256(title + "\n" + content)，hex 小写
+    /// 笔记内容指纹，hex 小写
     pub content_hash: String,
     /// ISO-8601 / 本地时间字符串（来自 notes.updated_at）
     pub updated_at: String,
@@ -1477,9 +1536,35 @@ pub struct ManifestEntry {
     /// 是否已删除（tombstone）
     #[serde(default)]
     pub tombstone: bool,
-    /// 文件夹路径（如 "工作/周报"）；根层为空串。导入时用来重建文件夹树
+    /// 文件夹路径（如 "工作/周报"）；根层为空串。
     #[serde(default)]
     pub folder_path: String,
+    /// 是否加密笔记
+    #[serde(default)]
+    pub encrypted: bool,
+    /// 是否每日笔记
+    #[serde(default)]
+    pub is_daily: bool,
+    /// 每日笔记日期
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daily_date: Option<String>,
+    /// 是否隐藏笔记
+    #[serde(default)]
+    pub is_hidden: bool,
+    /// 标签名列表；None = 旧客户端（不动本地关联）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    /// 笔记类型："markdown" / "whiteboard"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_type: Option<String>,
+}
+
+/// V1 同步顶层携带的 vault 元数据。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultMeta {
+    pub salt: String,
+    pub verifier: String,
 }
 
 /// V1 同步 manifest（远端 manifest.json 全文）
@@ -1496,10 +1581,29 @@ pub struct SyncManifestV1 {
     pub generated_at: String,
     /// 全部笔记条目（含 tombstone）
     pub entries: Vec<ManifestEntry>,
+    /// hash 算法标识："v2" = SHA-256(title + "\n" + notes.content_hash)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash_algo: Option<String>,
+    /// vault 元数据（salt + verifier）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault: Option<VaultMeta>,
+    /// sidecar CAS 附件清单
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<AttachmentEntry>,
+    /// 项目跨端同步条目（必须排在 tasks 之前）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub projects: Vec<ProjectManifestEntry>,
+    /// 任务跨端同步条目
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<TaskManifestEntry>,
+    /// 任务分类条目
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub task_categories: Vec<TaskCategoryManifestEntry>,
 }
 
 impl SyncManifestV1 {
     pub const VERSION: u32 = 1;
+    pub const HASH_ALGO_V2: &'static str = "v2";
 }
 
 /// 推送结果
@@ -1512,6 +1616,12 @@ pub struct SyncPushResult {
     pub deleted_remote: usize,
     /// 跳过（无变更）数
     pub skipped: usize,
+    /// 上传的附件数
+    #[serde(default)]
+    pub attachments_uploaded: usize,
+    /// 跳过的附件数
+    #[serde(default)]
+    pub attachments_skipped: usize,
     /// 错误清单
     pub errors: Vec<String>,
 }
@@ -1526,6 +1636,12 @@ pub struct SyncPullResult {
     pub deleted_local: usize,
     /// 冲突数（远端有变更 + 本地也有变更 → 走 last-write-wins，落败方进 .conflicts/）
     pub conflicts: usize,
+    /// 下载的附件数
+    #[serde(default)]
+    pub attachments_downloaded: usize,
+    /// 因 vault meta 不匹配而跳过的加密笔记数
+    #[serde(default)]
+    pub encrypted_skipped: usize,
     /// 错误清单
     pub errors: Vec<String>,
 }
@@ -2316,4 +2432,102 @@ pub struct DailyEntry {
     /// YYYY-MM-DD
     pub daily_date: String,
     pub updated_at: String,
+}
+
+// ═══════════════════════════════════════════════════════════════
+// KB 2.0 合并：sync_v1 附件与项目/任务清单条目
+// ═══════════════════════════════════════════════════════════════
+
+/// 远端 CAS 附件条目。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentEntry {
+    pub hash: String,
+    pub size: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ext: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectManifestEntry {
+    pub stable_id: String,
+    pub name: String,
+    pub content_hash: String,
+    pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub color: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_date: Option<String>,
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub sort_order: i32,
+    #[serde(default)]
+    pub tombstone: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskManifestEntry {
+    pub stable_id: String,
+    pub title: String,
+    pub content_hash: String,
+    pub updated_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub priority: i32,
+    #[serde(default)]
+    pub important: bool,
+    #[serde(default)]
+    pub status: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+    #[serde(default)]
+    pub kanban_stage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_task_uuid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_uuid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category_uuid: Option<String>,
+    #[serde(default)]
+    pub repeat_kind: String,
+    #[serde(default)]
+    pub repeat_interval: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_weekdays: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_until: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_count: Option<i32>,
+    #[serde(default)]
+    pub tombstone: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskCategoryManifestEntry {
+    pub stable_id: String,
+    pub name: String,
+    pub content_hash: String,
+    pub color: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub sort_order: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_stable_id: Option<String>,
 }

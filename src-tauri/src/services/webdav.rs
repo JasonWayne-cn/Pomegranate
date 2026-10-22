@@ -13,6 +13,11 @@ use tokio_util::io::ReaderStream;
 
 use crate::error::AppError;
 
+/// WebDAV 客户端
+///
+/// `Clone` 派生：方便 sync_v1 并发上传时给每个 tokio task 拷贝一份（T-S031）。
+/// 字段都廉价克隆：`client` 是 `&'static`（Copy），其余两个 String（Clone）。
+#[derive(Clone)]
 pub struct WebDavClient {
     client: &'static Client,
     base_url: String,
@@ -24,8 +29,9 @@ impl WebDavClient {
         let auth =
             base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", username, password));
         Self {
-            // 复用全局 reqwest Client，避免每次 push/pull 都重建连接池 + TLS 会话
-            client: crate::services::http_client::shared(),
+            // 复用 WebDAV 专用 reqwest Client（带 connect/read 超时）：既避免每次 push/pull 都
+            // 重建连接池 + TLS 会话，又防止移动端弱网下同步请求永久挂起、command 永不返回。
+            client: crate::services::http_client::shared_webdav(),
             base_url: url.trim_end_matches('/').to_string(),
             auth_header: format!("Basic {}", auth),
         }
@@ -56,10 +62,16 @@ impl WebDavClient {
         if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
             return Err(AppError::Custom("认证失败，请检查用户名/密码".into()));
         }
-        if status == StatusCode::NOT_FOUND {
-            return Err(AppError::Custom(
-                "云端文件夹不存在，请先在 WebDAV 服务端创建该文件夹".into(),
-            ));
+        // 坚果云对不存在的路径返回 400（不是 404），所以 400/404/409 一并按
+        // "路径不存在/无效"友好提示，避免给用户看到生硬的 "400 Bad Request"
+        if status == StatusCode::NOT_FOUND
+            || status == StatusCode::BAD_REQUEST
+            || status == StatusCode::CONFLICT
+        {
+            return Err(AppError::Custom(format!(
+                "云端文件夹不存在或路径无效（{}）。请先登录 WebDAV 服务端（如坚果云网页版），手动创建配置中填写的目录后重试",
+                status.as_u16()
+            )));
         }
         if !status.is_success() && status != StatusCode::MULTI_STATUS {
             return Err(AppError::Custom(format!("连接失败，服务器返回 {}", status)));
@@ -182,7 +194,14 @@ impl WebDavClient {
                 self.ensure_dir(parent).await?;
             }
         }
+        self.put_into_existing_dir(path, bytes).await
+    }
 
+    /// 把内存字节流 PUT 到指定路径，**不** MKCOL 父目录（调用方需保证父目录已存在）。
+    ///
+    /// 用于 `batch_put_notes`：一次性把目录 MKCOL 好后，逐条 PUT 不再重复 MKCOL，
+    /// 请求数砍一半 —— 少触发服务器（nginx）的 `limit_req` 限流（限流时 nginx 返回 503）。
+    pub async fn put_into_existing_dir(&self, path: &str, bytes: Vec<u8>) -> Result<(), AppError> {
         let resp = self
             .client
             .put(self.file_url(path))
@@ -264,6 +283,48 @@ impl WebDavClient {
         Ok(())
     }
 
+    /// WebDAV `MOVE`：把 `from` 重命名为 `to`（同 server 内移动，**单一原子操作**）。
+    ///
+    /// 用于 manifest 原子写：先 PUT 到 `manifest.json.tmp.<uuid>`、再 MOVE 到 `manifest.json`，
+    /// 中途断网最多留一个 .tmp.* 文件，永远不会出现"半截 manifest.json"。
+    ///
+    /// `Overwrite: T` 让目标已存在时直接覆盖（manifest 这场景就是要覆盖）。
+    ///
+    /// ⚠️ 不是所有服务器都照 `Overwrite: T` 办事：坚果云回 409 DuplicateName、部分反代回 502、
+    /// 某些 NAS/Alist 直接回 500。这些"MOVE 换名失败"统一由调用方
+    /// `backend_webdav::write_manifest` 捕获后降级为直接 PUT（见 `move_err_downgrade_reason`），
+    /// 故本函数只需把状态码 + body 首行如实上报，不在此特殊处理。
+    ///
+    /// 唯一需要本函数区分的是 401/403：转成"认证失败"后调用方不会降级（降级也必然被拒）。
+    pub async fn move_file(&self, from: &str, to: &str) -> Result<(), AppError> {
+        let dest_url = self.file_url(to);
+        let resp = self
+            .client
+            .request(Method::from_bytes(b"MOVE").unwrap(), self.file_url(from))
+            .headers(self.headers())
+            .header("Destination", &dest_url)
+            .header("Overwrite", "T")
+            .send()
+            .await
+            .map_err(|e| AppError::Custom(format!("MOVE 失败: {}", e)))?;
+        let status = resp.status();
+        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+            return Err(AppError::Custom("认证失败，请检查用户名/密码".into()));
+        }
+        // 201 Created（目标新建）/ 204 No Content（目标已存在被覆盖）都是成功
+        if status.is_success() {
+            return Ok(());
+        }
+        let body = resp.text().await.unwrap_or_default();
+        Err(AppError::Custom(format!(
+            "MOVE {} -> {} 失败 ({}): {}",
+            from,
+            to,
+            status,
+            body.lines().next().unwrap_or("")
+        )))
+    }
+
     /// T-024c: 下载文件，404 时返回 None（用于"远端没有 manifest 时安全返回 None"）
     pub async fn download_bytes_optional(&self, path: &str) -> Result<Option<Vec<u8>>, AppError> {
         let resp = self
@@ -288,6 +349,51 @@ impl WebDavClient {
             .await
             .map_err(|e| AppError::Custom(format!("读取响应失败: {}", e)))?;
         Ok(Some(bytes.to_vec()))
+    }
+
+    /// P1-4: 用 HEAD 请求探测远端文件是否存在 —— **不传输 body**，省带宽。
+    ///
+    /// `has_attachment` 之前用 `download_bytes_optional`（GET）探测，会把整份附件
+    /// （可能 MB 级）下载下来只为看它在不在 → 每次 push 都重下全部远端附件。改 HEAD
+    /// 后只走一个响应头。
+    ///
+    /// 状态码处理：
+    /// - 2xx → `Ok(true)`（存在）
+    /// - 404 → `Ok(false)`（不存在）
+    /// - 401 / 403 → 认证错误 `Err`
+    /// - 405（个别 WebDAV 服务器禁用 HEAD）→ 自动降级用 GET 探测
+    /// - 其他 → `Err`
+    ///
+    /// 语义安全性：`has_attachment` 误判 false 只会重传（浪费带宽，不损坏数据），
+    /// 误判 true 会漏传（危险）。故除明确的 2xx 外都不返回 true —— 405 降级 GET、
+    /// 其余状态码一律 `Err`，绝不把不确定当成"已存在"。
+    pub async fn head_exists(&self, path: &str) -> Result<bool, AppError> {
+        let resp = self
+            .client
+            .head(self.file_url(path))
+            .headers(self.headers())
+            .send()
+            .await
+            .map_err(|e| AppError::Custom(format!("HEAD 探测失败: {}", e)))?;
+        let status = resp.status();
+        if status.is_success() {
+            return Ok(true);
+        }
+        if status == StatusCode::NOT_FOUND {
+            return Ok(false);
+        }
+        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+            return Err(AppError::Custom("认证失败，请检查用户名/密码".into()));
+        }
+        if status == StatusCode::METHOD_NOT_ALLOWED {
+            // 个别服务器禁用 HEAD → 降级用 GET（download_bytes_optional）探测
+            log::debug!("[webdav] HEAD 不被支持（405），降级 GET 探测 {}", path);
+            return Ok(self.download_bytes_optional(path).await?.is_some());
+        }
+        Err(AppError::Custom(format!(
+            "HEAD 探测失败，服务器返回 {}",
+            status
+        )))
     }
 
     /// 列出目录下的文件名（PROPFIND Depth:1，用正则抽取 <d:href>）
@@ -359,5 +465,86 @@ impl WebDavClient {
         files.sort();
         files.dedup();
         Ok(files)
+    }
+
+    /// T-S025: PROPFIND 列出指定相对路径下的所有 href（保留 href 完整路径，不只文件名）
+    ///
+    /// `rel_path` 相对 base_url（如 `"attachments"`）；`depth` = `"1"` 单层 / `"infinity"` 递归全部。
+    ///
+    /// 行为：
+    /// - 路径不存在（404）→ 返回空 Vec（不当错误）
+    /// - 403（可能服务器禁用 depth:infinity）→ 返回 Err，调用方应降级处理
+    /// - 返回的 href 保留原始路径（可能是绝对 URL 或 `/dav/...` 相对路径），目录以 `/` 结尾
+    pub async fn list_hrefs_under(
+        &self,
+        rel_path: &str,
+        depth: &str,
+    ) -> Result<Vec<String>, AppError> {
+        let url = if rel_path.is_empty() {
+            self.base_url.clone()
+        } else {
+            format!("{}/{}", self.base_url, rel_path.trim_start_matches('/'))
+        };
+        let resp = self
+            .client
+            .request(Method::from_bytes(b"PROPFIND").unwrap(), &url)
+            .headers(self.headers())
+            .header("Depth", depth)
+            .header(CONTENT_TYPE, "application/xml")
+            .send()
+            .await
+            .map_err(|e| AppError::Custom(format!("PROPFIND {} 失败: {}", rel_path, e)))?;
+
+        let status = resp.status();
+        if status == StatusCode::NOT_FOUND {
+            return Ok(vec![]); // 目录不存在 → 空
+        }
+        if status == StatusCode::UNAUTHORIZED {
+            return Err(AppError::Custom("认证失败，请检查用户名/密码".into()));
+        }
+        if status == StatusCode::FORBIDDEN {
+            return Err(AppError::Custom(
+                "PROPFIND 被拒绝（部分服务器禁用 Depth:infinity）".into(),
+            ));
+        }
+        if !status.is_success() && status != StatusCode::MULTI_STATUS {
+            return Err(AppError::Custom(format!(
+                "PROPFIND {} 返回 {}",
+                rel_path, status
+            )));
+        }
+
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| AppError::Custom(format!("读取响应失败: {}", e)))?;
+
+        // 扫描所有 <...href>...</...href>，保留 raw（含完整路径），URL decode
+        let mut hrefs = Vec::new();
+        let lower = body.to_lowercase();
+        let bytes = body.as_bytes();
+        let mut i = 0;
+        while let Some(open) = lower[i..].find("href>") {
+            let content_start = i + open + 5;
+            let close_rel = match lower[content_start..].find("</") {
+                Some(p) => p,
+                None => break,
+            };
+            let content_end = content_start + close_rel;
+            let raw = std::str::from_utf8(&bytes[content_start..content_end])
+                .unwrap_or("")
+                .trim();
+            i = content_end + 2;
+            if raw.is_empty() {
+                continue;
+            }
+            let decoded = urlencoding::decode(raw)
+                .map(|c| c.into_owned())
+                .unwrap_or_else(|_| raw.to_string());
+            hrefs.push(decoded);
+        }
+        hrefs.sort();
+        hrefs.dedup();
+        Ok(hrefs)
     }
 }

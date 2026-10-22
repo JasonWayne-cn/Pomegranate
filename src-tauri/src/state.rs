@@ -36,6 +36,8 @@ pub struct AppState {
     pub reminder_notify: Arc<Notify>,
     /// 定时推送调度器唤醒信号（KB 2.0）：用户增/改/删/启停推送时 notify_one。
     pub push_notify: Arc<Notify>,
+    /// V1 多端同步互斥闸门：同一 backend 同时只允许一个同步操作在跑。
+    pub sync_v1_gate: crate::services::sync_v1::lock::SyncGate,
     /// 启动时 argv 里的 .md 文件路径，等前端 mount 后 take 出来
     pub pending_open_md_path: Mutex<Option<String>>,
     /// T-007 笔记加密保险库：内存中的主密钥（可选），锁定时清空
@@ -75,6 +77,7 @@ impl AppState {
             sync_scheduler_notify: Arc::new(Notify::new()),
             reminder_notify: Arc::new(Notify::new()),
             push_notify: Arc::new(Notify::new()),
+            sync_v1_gate: crate::services::sync_v1::lock::SyncGate::new(),
             pending_open_md_path: Mutex::new(None),
             vault: RwLock::new(VaultState::default()),
             mcp_internal,

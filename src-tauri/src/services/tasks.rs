@@ -280,6 +280,8 @@ impl TaskService {
             source_batch_id: None,
             category_id: input.category_id,
             parent_task_id: input.parent_task_id,
+            project_id: None,
+            start_date: None,
         };
         Self::create(app, db, task_input).map(PluginTaskView::from)
     }
@@ -310,6 +312,10 @@ impl TaskService {
             clear_repeat_count: None,
             category_id: input.category_id,
             clear_category_id: input.clear_category_id,
+            project_id: None,
+            clear_project_id: None,
+            start_date: None,
+            clear_start_date: None,
         };
         Self::update(app, db, id, task_input)?;
         Ok(())
@@ -597,8 +603,15 @@ mod tests {
             source_batch_id: Some("batch-abc-123".into()),
             category_id: Some(5),
             parent_task_id: None,
+            kanban_stage: "todo".into(),
+            project_id: None,
+            start_date: None,
+            stable_uuid: None,
+            is_deleted: false,
             subtask_done: 0,
             subtask_total: 0,
+            attachment_count: 0,
+            snooze_until: None,
             links: vec![],
         }
     }
