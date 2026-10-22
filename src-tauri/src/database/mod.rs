@@ -1,6 +1,11 @@
 pub mod ai;
 pub mod cards;
 pub mod claude_agent;
+pub mod dataset;
+pub mod dataset_query;
+#[cfg(test)]
+mod dataset_query_tests;
+pub mod dataview;
 pub mod folders;
 pub mod links;
 pub mod mcp_servers;

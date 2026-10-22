@@ -1249,6 +1249,16 @@ pub fn run() {
             commands::mobile_update::can_install_mobile_update,
             #[cfg(mobile)]
             commands::mobile_update::open_install_permission_settings,
+            // ─── KB 2.0 合并：数据集 / 数据视图 ───
+            commands::dataset::import_attachment_datasets,
+            commands::dataset::list_attachment_datasets,
+            commands::dataset::get_dataset_schema,
+            commands::dataset::preview_dataset_rows,
+            commands::dataview::dataview_recent_notes,
+            commands::dataview::dataview_notes_by_tag,
+            commands::dataview::dataview_notes_by_folder,
+            commands::dataview::dataview_pending_tasks,
+            commands::dataview::dataview_tasks_by_project,
             // ─── KB 2.0 合并：白板 ───
             commands::whiteboard::create_whiteboard,
             commands::whiteboard::get_whiteboard_scene,

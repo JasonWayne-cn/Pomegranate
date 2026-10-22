@@ -2057,3 +2057,180 @@ pub struct PushPopupData {
     pub status: String,
     pub run_at: String,
 }
+
+// ═══════════════════════════════════════════════════════════════
+// KB 2.0 合并：数据集 / 数据视图
+// ═══════════════════════════════════════════════════════════════
+
+/// 数据集元信息（Excel 导入后的一张表）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dataset {
+    pub id: i64,
+    /// 相对 data_dir 的附件路径
+    pub source_path: String,
+    pub sheet_name: String,
+    pub region_index: i64,
+    /// 表头在原始行里的下标；None = 无表头
+    pub header_row: Option<i64>,
+    pub row_count: i64,
+    pub col_count: i64,
+    pub created_at: String,
+}
+
+/// 列画像。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetField {
+    pub col_index: i64,
+    pub name: String,
+    /// number / date / boolean / text
+    pub inferred_type: String,
+    /// time / measure / identifier / status / category
+    pub semantic_role: Option<String>,
+    /// 非空率 0.0~1.0
+    pub completeness: f64,
+    pub distinct_count: i64,
+}
+
+/// 数据集详情 = 元信息 + 列画像。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetSchema {
+    #[serde(flatten)]
+    pub dataset: Dataset,
+    pub fields: Vec<DatasetField>,
+}
+
+/// 聚合口径白名单。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DatasetMetric {
+    Rows,
+    Count,
+    CountDistinct,
+    Sum,
+    Avg,
+    Min,
+    Max,
+}
+
+impl DatasetMetric {
+    pub fn needs_column(self) -> bool {
+        !matches!(self, DatasetMetric::Rows)
+    }
+
+    pub fn numeric_only(self) -> bool {
+        matches!(self, DatasetMetric::Sum | DatasetMetric::Avg)
+    }
+}
+
+/// 过滤算子白名单。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DatasetFilterOp {
+    Eq,
+    Ne,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+    Contains,
+    StartsWith,
+    EndsWith,
+    In,
+    IsEmpty,
+    IsNotEmpty,
+}
+
+impl DatasetFilterOp {
+    pub fn needs_value(self) -> bool {
+        !matches!(self, DatasetFilterOp::IsEmpty | DatasetFilterOp::IsNotEmpty)
+    }
+
+    pub fn numeric_compare(self) -> bool {
+        matches!(
+            self,
+            DatasetFilterOp::Gt | DatasetFilterOp::Gte | DatasetFilterOp::Lt | DatasetFilterOp::Lte
+        )
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatasetFilter {
+    pub column: String,
+    pub op: DatasetFilterOp,
+    #[serde(default)]
+    pub value: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DatasetSortBy {
+    Metric,
+    Group,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DatasetSortOrder {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatasetQueryPlan {
+    pub dataset_id: i64,
+    #[serde(default)]
+    pub filters: Vec<DatasetFilter>,
+    #[serde(default)]
+    pub group_by: Option<String>,
+    pub metric: DatasetMetric,
+    #[serde(default)]
+    pub metric_column: Option<String>,
+    #[serde(default)]
+    pub sort_by: Option<DatasetSortBy>,
+    #[serde(default)]
+    pub sort_order: Option<DatasetSortOrder>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetQueryResult {
+    pub rows: Vec<DatasetQueryRow>,
+    pub matched_rows: i64,
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_values: Option<DatasetSuggestion>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetQueryRow {
+    pub group: String,
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatasetSuggestion {
+    pub column: String,
+    pub values: Vec<String>,
+}
+
+/// 数据视图的一行（笔记 / 任务统一成可点击条目）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataviewRow {
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub link_kind: String,
+    pub link_id: i64,
+    pub updated_at: String,
+    #[serde(default)]
+    pub extra: Option<serde_json::Value>,
+}

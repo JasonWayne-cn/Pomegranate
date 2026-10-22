@@ -8,6 +8,8 @@ pub mod claude_agent;
 pub mod config;
 pub mod daily;
 pub mod data_dir;
+pub mod dataset;
+pub mod dataview;
 pub mod excel_import;
 pub mod export;
 pub mod folders;
