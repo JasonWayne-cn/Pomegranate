@@ -9,7 +9,7 @@ members = ["kb-core", "mcp"]
 
 [package]
 name = "intelligent_notebook"
-version = "1.8.0"
+version = "2.1.0"
 description = "智能笔记本桌面应用"
 authors = ["wenjq"]
 edition = "2021"
