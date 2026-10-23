@@ -716,6 +716,8 @@ export interface Folder {
   note_count: number;
   /** 自定义图标颜色（hex `#RRGGBB`）；null = 默认主题色 */
   color: string | null;
+  /** 非空表示这是外部目录挂载的镜像文件夹（目录树显示同步文件夹图标） */
+  mount_id?: number | null;
 }
 
 /**
@@ -892,7 +894,7 @@ export interface WikiLinkSuggestItem {
   folderName: string | null;
 }
 
-// ─── 知识图谱 ─────────────────────────────────
+// ─── 文档关系 ─────────────────────────────────
 
 /** 图谱节点 */
 export interface GraphNode {
@@ -906,6 +908,8 @@ export interface GraphNode {
   link_count: number;
   /** 文件夹自定义颜色（仅 folder 节点可能有；note 恒为 null） */
   color: string | null;
+  /** 按文件夹限定范围时：范围外但与范围内笔记有链接的边界节点 */
+  is_boundary?: boolean;
 }
 
 /** 图谱边 */
@@ -921,7 +925,7 @@ export interface GraphEdge {
   edge_type: "link" | "folder_child" | "folder_note";
 }
 
-/** 知识图谱数据 */
+/** 文档关系数据 */
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -2804,4 +2808,109 @@ export interface PushPopupData {
   /** "success" / "failed" / "empty" */
   status: string;
   run_at: string;
+}
+
+// ─── 外部目录挂载 ─────────────────────────────
+
+/** 一个外部目录挂载点 */
+export interface ExternalMount {
+  id: number;
+  name: string;
+  rootPath: string;
+  rootFolderId: number | null;
+  readOnly: boolean;
+  indexEnabled: boolean;
+  dailyMode: boolean;
+  scanInterval: number;
+  createdAt: string;
+  lastScanAt: string | null;
+  noteCount: number;
+  missingCount: number;
+  /** 根目录当前是否可访问 */
+  available: boolean;
+}
+
+/** 新增挂载点入参 */
+export interface ExternalMountInput {
+  name: string;
+  rootPath: string;
+  readOnly?: boolean;
+  indexEnabled?: boolean;
+  dailyMode?: boolean;
+  scanInterval?: number;
+}
+
+/** 一次扫描结果 */
+export interface MountScanResult {
+  mountId: number;
+  scanned: number;
+  added: number;
+  updated: number;
+  unchanged: number;
+  /** 原文件已更新，但影子笔记有本地编辑，未自动覆盖 */
+  stale: number;
+  missing: number;
+  errors: string[];
+}
+
+/** 扫描进度事件 payload */
+export interface MountScanProgress {
+  mountId: number;
+  current: number;
+  total: number;
+  fileName: string;
+}
+
+/** 挂载内的一个文件条目 */
+export interface ExternalEntry {
+  noteId: number;
+  relPath: string;
+  title: string;
+  missing: boolean;
+  mtime: number;
+  /** 原文件已更新，但影子笔记有本地编辑 */
+  stale: boolean;
+  /** 抽取状态：ok / failed / scanned / encrypted / unsupported */
+  status: string | null;
+  error: string | null;
+  /** 原文件类型：md / txt / pdf / docx / doc / xlsx / csv ... */
+  sourceType: string | null;
+}
+
+/** 打开外部文件的结果 */
+export interface MountOpenResult {
+  noteId: number;
+  content: string;
+  relPath: string;
+  readOnly: boolean;
+  missing: boolean;
+  /** 原文件已更新，但影子笔记有本地编辑，未自动覆盖 */
+  stale: boolean;
+  /** 影子笔记是否被用户编辑过 */
+  userEdited: boolean;
+  status: string | null;
+  error: string | null;
+  sourceType: string | null;
+}
+
+/** 影子笔记相对原文件的陈旧状态 */
+export interface MountNoteStatus {
+  noteId: number;
+  external: boolean;
+  stale: boolean;
+  userEdited: boolean;
+  status: string | null;
+  error: string | null;
+  sourceType: string | null;
+  indexedAt: string | null;
+  sourceMtime: number;
+  indexedMtime: number | null;
+}
+
+/** 保存外部文件的结果 */
+export interface MountSaveResult {
+  noteId: number;
+  mtime: number;
+  size: number;
+  hash: string;
 }

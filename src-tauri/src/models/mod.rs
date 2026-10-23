@@ -300,6 +300,9 @@ pub struct Folder {
     pub sort_order: i32,
     pub children: Vec<Folder>,
     pub note_count: usize,
+    /// 非空表示这是外部目录挂载镜像文件夹（前端用不同的同步文件夹图标）
+    #[serde(default)]
+    pub mount_id: Option<i64>,
 }
 
 // ─── 标签 ─────────────────────────────────────
@@ -367,22 +370,31 @@ pub struct NoteLink {
 
 // ─── 知识图谱 ─────────────────────────────────
 
-/// 图谱节点（笔记）
+/// 图谱节点（笔记或文件夹）
 #[derive(Debug, Clone, Serialize)]
 pub struct GraphNode {
     pub id: i64,
     pub title: String,
+    /// "note" = 笔记，"folder" = 文件夹
+    pub node_type: String,
     pub is_daily: bool,
     pub is_pinned: bool,
     pub tag_count: usize,
     pub link_count: usize,
+    /// 文件夹自定义颜色（笔记恒为 None）
+    pub color: Option<String>,
+    /// 仅按文件夹限定范围时出现：范围外但与范围内笔记有链接的"边界节点"
+    #[serde(default)]
+    pub is_boundary: bool,
 }
 
-/// 图谱边（链接关系）
+/// 图谱边
 #[derive(Debug, Clone, Serialize)]
 pub struct GraphEdge {
     pub source: i64,
     pub target: i64,
+    /// "link" = wiki 双链，"folder_child" = 父子文件夹，"folder_note" = 文件夹归属
+    pub edge_type: String,
 }
 
 /// 知识图谱数据
@@ -2589,4 +2601,142 @@ pub struct ClaudeCodeCliInfo {
     pub mcp_installed: bool,
     pub mcp_writable: bool,
     pub error: Option<String>,
+}
+
+// ─── 外部目录挂载 ─────────────────────────────
+
+/// 一个外部目录挂载点。文件仍在磁盘上，`notes` 表只保存索引用的影子行。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMount {
+    pub id: i64,
+    pub name: String,
+    pub root_path: String,
+    pub root_folder_id: Option<i64>,
+    pub read_only: bool,
+    pub index_enabled: bool,
+    pub daily_mode: bool,
+    pub scan_interval: i64,
+    pub created_at: String,
+    pub last_scan_at: Option<String>,
+    /// 已索引的笔记数（不含缺失）
+    pub note_count: usize,
+    /// 源文件已消失的笔记数
+    pub missing_count: usize,
+    /// 根目录当前是否可访问
+    pub available: bool,
+}
+
+/// 新增挂载点入参
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMountInput {
+    pub name: String,
+    pub root_path: String,
+    #[serde(default)]
+    pub read_only: bool,
+    #[serde(default = "mount_default_true")]
+    pub index_enabled: bool,
+    #[serde(default)]
+    pub daily_mode: bool,
+    #[serde(default = "mount_default_scan_interval")]
+    pub scan_interval: i64,
+}
+
+fn mount_default_true() -> bool {
+    true
+}
+
+fn mount_default_scan_interval() -> i64 {
+    10
+}
+
+/// 一次扫描的结果
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MountScanResult {
+    pub mount_id: i64,
+    pub scanned: usize,
+    pub added: usize,
+    pub updated: usize,
+    pub unchanged: usize,
+    pub stale: usize,
+    pub missing: usize,
+    pub errors: Vec<String>,
+}
+
+/// 扫描进度（事件 `mount:scan-progress`）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MountScanProgress {
+    pub mount_id: i64,
+    pub current: usize,
+    pub total: usize,
+    pub file_name: String,
+}
+
+/// 外部目录中的一个文件条目（前端用它构建树）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalEntry {
+    pub note_id: i64,
+    pub rel_path: String,
+    pub title: String,
+    pub missing: bool,
+    pub mtime: i64,
+    /// 原文件已更新，但影子笔记有本地编辑，未自动覆盖
+    pub stale: bool,
+    /// 抽取状态：ok / failed / scanned / encrypted / unsupported
+    pub status: Option<String>,
+    pub error: Option<String>,
+    /// 原文件类型：md / txt / pdf / docx / doc / xlsx / csv ...
+    pub source_type: Option<String>,
+}
+
+/// 打开外部文件的结果
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MountOpenResult {
+    pub note_id: i64,
+    pub content: String,
+    pub rel_path: String,
+    pub read_only: bool,
+    pub missing: bool,
+    /// 原文件已更新，但影子笔记有本地编辑，未自动覆盖
+    pub stale: bool,
+    /// 影子笔记是否被用户编辑过（content_hash != ext_indexed_hash）
+    pub user_edited: bool,
+    /// 抽取状态：ok / failed / scanned / encrypted / unsupported
+    pub status: Option<String>,
+    pub error: Option<String>,
+    pub source_type: Option<String>,
+}
+
+/// 保存外部文件的结果
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MountSaveResult {
+    pub note_id: i64,
+    pub mtime: i64,
+    pub size: i64,
+    pub hash: String,
+}
+
+/// 外部影子笔记的陈旧状态（编辑器/挂载页查询用）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MountNoteStatus {
+    pub note_id: i64,
+    /// 是否外部挂载笔记
+    pub external: bool,
+    pub stale: bool,
+    pub user_edited: bool,
+    pub status: Option<String>,
+    pub error: Option<String>,
+    pub source_type: Option<String>,
+    pub indexed_at: Option<String>,
+    /// 源文件当前 mtime（秒）
+    pub source_mtime: i64,
+    /// 上次抽取时记录的源文件 mtime（秒）
+    pub indexed_mtime: Option<i64>,
 }

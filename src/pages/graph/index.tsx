@@ -1,12 +1,20 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { Spin, Empty, theme as antdTheme, Segmented, Tooltip } from "antd";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Spin,
+  Empty,
+  theme as antdTheme,
+  Segmented,
+  Tooltip,
+  Button,
+} from "antd";
 import {
   Maximize2,
   Minimize2,
   RotateCcw,
   ExternalLink,
   Crosshair,
+  ArrowLeft,
 } from "lucide-react";
 import { Graph } from "@antv/g6";
 import { linkApi } from "@/lib/api";
@@ -21,11 +29,29 @@ export default function GraphPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<Graph | null>(null);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { token } = antdTheme.useToken();
+
+  // ?folder=<id> → 只看该文件夹及其子文件夹；无参数 = 全库
+  const folderId = useMemo<number | null>(() => {
+    const raw = searchParams.get("folder");
+    if (!raw) return null;
+    const id = Number(raw);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  }, [searchParams]);
 
   const [loading, setLoading] = useState(true);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [layout, setLayout] = useState<string>("d3-force");
+
+  // 当前作用域文件夹名（从返回的 folder 节点里取；拿不到时退化为 id）
+  const scopeFolder = useMemo(() => {
+    if (folderId == null) return null;
+    const node = graphData?.nodes.find(
+      (n) => n.node_type === "folder" && n.id === folderId,
+    );
+    return node?.title ?? `文件夹 #${folderId}`;
+  }, [folderId, graphData]);
 
   // ─── 节点右键菜单 ────────────────────────────
   // gid = G6 节点 id（带 n/f 前缀）；realId = 数据库真实 id；nodeType 决定菜单项
@@ -73,7 +99,7 @@ export default function GraphPage() {
 
   useEffect(() => {
     loadGraphData();
-  }, []);
+  }, [folderId]);
 
   // 给 G6 画布容器原生挂 contextmenu capture-phase listener，吞 WebView 默认菜单。
   // G6 v5 的 canvas 内部会拦截 contextmenu 不冒泡到 React 外层 div，所以
@@ -91,7 +117,7 @@ export default function GraphPage() {
   async function loadGraphData() {
     setLoading(true);
     try {
-      const data = await linkApi.getGraphData();
+      const data = await linkApi.getGraphData(folderId);
       setGraphData(data);
     } catch (e) {
       console.error("加载图谱数据失败:", e);
@@ -124,6 +150,8 @@ export default function GraphPage() {
         tagCount: n.tag_count,
         linkCount: n.link_count,
         folderColor: n.color,
+        // 文件夹范围外的关联笔记：弱化显示，提示"它不属于当前范围"
+        isBoundary: !!n.is_boundary,
       },
     }));
 
@@ -160,6 +188,8 @@ export default function GraphPage() {
             // 文件夹优先用自定义颜色，否则中性填充
             if (d.data?.nodeType === "folder")
               return d.data?.folderColor || token.colorFillSecondary;
+            // 范围外边界笔记：不参与配色，弱化为背景色
+            if (d.data?.isBoundary) return token.colorBgContainer;
             if (d.data?.isDaily) return token.colorWarning;
             if (d.data?.isPinned) return token.colorError;
             if ((d.data?.linkCount || 0) > 3) return token.colorPrimary;
@@ -168,10 +198,14 @@ export default function GraphPage() {
           stroke: (d: any) => {
             if (d.data?.nodeType === "folder")
               return d.data?.folderColor || token.colorBorder;
+            if (d.data?.isBoundary) return token.colorTextQuaternary;
             if (d.data?.isDaily) return token.colorWarningBorder;
             if (d.data?.isPinned) return token.colorErrorBorder;
             return token.colorPrimaryBorder;
           },
+          // 边界节点用虚线描边，与范围内实心节点区分
+          lineDash: (d: any) =>
+            d.data?.isBoundary ? [4, 3] : undefined,
           // 文件夹方块加圆角；圆形节点 radius 无副作用
           radius: (d: any) => (d.data?.nodeType === "folder" ? 6 : 0),
           lineWidth: 2,
@@ -183,7 +217,8 @@ export default function GraphPage() {
           labelFontSize: 13,
           labelFontWeight: (d: any) =>
             d.data?.nodeType === "folder" ? 600 : 500,
-          labelFill: token.colorText,
+          labelFill: (d: any) =>
+            d.data?.isBoundary ? token.colorTextTertiary : token.colorText,
           labelPlacement: "bottom",
           labelOffsetY: 6,
         },
@@ -278,6 +313,11 @@ export default function GraphPage() {
     };
   }, [graphData, layout, token]);
 
+  /** 返回文档：保持在当前文件夹上下文 */
+  function backToDocs() {
+    navigate(folderId ? `/notes?folder=${folderId}` : "/notes");
+  }
+
   function handleFitView() {
     graphRef.current?.fitView();
   }
@@ -292,16 +332,36 @@ export default function GraphPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Spin size="large" tip="加载知识图谱..." />
+      <div className="flex flex-col h-full">
+        <div className="px-4 py-2 shrink-0">
+          <Button size="small" icon={<ArrowLeft size={14} />} onClick={backToDocs}>
+            返回文档
+          </Button>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <Spin size="large" tip="加载文档关系..." />
+        </div>
       </div>
     );
   }
 
   if (!graphData || graphData.nodes.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Empty description="暂无图谱数据，请先创建笔记并添加链接" />
+      <div className="flex flex-col h-full">
+        <div className="px-4 py-2 shrink-0">
+          <Button size="small" icon={<ArrowLeft size={14} />} onClick={backToDocs}>
+            返回文档
+          </Button>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <Empty
+            description={
+              folderId == null
+                ? "暂无文档关系，请先创建文档并添加链接"
+                : "该文件夹下暂无文档或关联"
+            }
+          />
+        </div>
       </div>
     );
   }
@@ -322,18 +382,46 @@ export default function GraphPage() {
         }}
       >
         <div className="flex items-center gap-3">
+          <Button
+            size="small"
+            icon={<ArrowLeft size={14} />}
+            onClick={backToDocs}
+          >
+            返回文档
+          </Button>
           <span
             className="font-semibold text-base"
             style={{ color: token.colorText }}
           >
-            知识图谱
+            文档关系
           </span>
+          {scopeFolder && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded"
+              style={{
+                color: token.colorPrimary,
+                background: token.colorPrimaryBg,
+              }}
+              title="当前只显示该文件夹及其子文件夹"
+            >
+              📁 {scopeFolder}
+            </span>
+          )}
           <span
             className="text-xs"
             style={{ color: token.colorTextSecondary }}
           >
             {graphData.nodes.length} 个节点 / {graphData.edges.length} 条连线
           </span>
+          {scopeFolder && (
+            <button
+              className="text-xs hover:underline"
+              style={{ color: token.colorTextSecondary }}
+              onClick={() => navigate("/graph")}
+            >
+              查看全部
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -391,14 +479,21 @@ export default function GraphPage() {
             className="inline-block w-2.5 h-2.5 rounded-full"
             style={{ background: token.colorPrimaryBg }}
           />
-          普通笔记
+          普通文档
         </span>
         <span className="flex items-center gap-1">
           <span
             className="inline-block w-2.5 h-2.5 rounded-full"
             style={{ background: token.colorPrimary }}
           />
-          热门笔记
+          热门文档
+        </span>
+        <span className="flex items-center gap-1">
+          <span
+            className="inline-block w-2.5 h-2.5 rounded-full"
+            style={{ background: token.colorError }}
+          />
+          置顶文档
         </span>
         <span className="flex items-center gap-1">
           <span
@@ -406,13 +501,6 @@ export default function GraphPage() {
             style={{ background: token.colorWarning }}
           />
           日记
-        </span>
-        <span className="flex items-center gap-1">
-          <span
-            className="inline-block w-2.5 h-2.5 rounded-full"
-            style={{ background: token.colorError }}
-          />
-          置顶笔记
         </span>
         <span className="flex items-center gap-1">
           <span
@@ -424,9 +512,19 @@ export default function GraphPage() {
           />
           文件夹
         </span>
-        <span style={{ marginLeft: "auto" }}>
-          双击笔记打开 · 虚线为文件夹归属
-        </span>
+        {scopeFolder && (
+          <span className="flex items-center gap-1">
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-full"
+              style={{
+                background: token.colorBgContainer,
+                border: `1px dashed ${token.colorTextQuaternary}`,
+              }}
+            />
+            范围外关联
+          </span>
+        )}
+        <span style={{ marginLeft: "auto" }}>双击文档打开</span>
       </div>
 
       {/* 图谱画布 */}

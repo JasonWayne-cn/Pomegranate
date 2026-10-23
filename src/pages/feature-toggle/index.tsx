@@ -121,8 +121,8 @@ const OPTIONS: OptionMeta[] = [
   },
   {
     view: "graph",
-    label: "知识图谱",
-    desc: "可视化笔记之间的双向链接",
+    label: "文档关系",
+    desc: "可视化文档之间的双向链接",
     icon: <GitFork size={16} className="text-cyan-600" />,
     iconBg: "bg-cyan-100",
   },

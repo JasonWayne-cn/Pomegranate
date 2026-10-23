@@ -23,6 +23,13 @@ import type {
   NoteInput,
   NoteQuery,
   PageResult,
+  ExternalMount,
+  ExternalMountInput,
+  ExternalEntry,
+  MountOpenResult,
+  MountSaveResult,
+  MountScanResult,
+  MountNoteStatus,
   Folder,
   EmptyFolderInfo,
   Tag,
@@ -297,6 +304,19 @@ export const configApi = {
   set: (key: string, value: string) =>
     invoke<void>("set_config", { key, value }),
   delete: (key: string) => invoke<void>("delete_config", { key }),
+};
+
+/**
+ * 模块设置中心用的批量配置接口。
+ *
+ * 一次读取多个 key，避免模块抽屉逐项 IPC；写入走事务，
+ * 保证一组配置要么全部生效，要么全部不生效。
+ */
+export const moduleConfigApi = {
+  getMany: (keys: string[]) =>
+    invoke<Record<string, string>>("get_configs", { keys }),
+  setMany: (entries: AppConfig[]) =>
+    invoke<void>("set_configs", { entries }),
 };
 
 /** 插件系统 API（MVP：管理元数据，不执行第三方 JS） */
@@ -761,7 +781,9 @@ export const linkApi = {
   /** 规范化精确匹配：trim + 空白折叠 + 大小写不敏感 */
   findIdByTitle: (title: string) =>
     invoke<number | null>("find_note_id_by_title_loose", { title }),
-  getGraphData: () => invoke<GraphData>("get_graph_data"),
+  /** 文档关系数据。folderId 为空 = 全库；传文件夹 id = 该文件夹及子文件夹范围 */
+  getGraphData: (folderId?: number | null) =>
+    invoke<GraphData>("get_graph_data", { folderId: folderId ?? null }),
 };
 
 /** 标签 API */
@@ -1041,6 +1063,29 @@ export const importApi = {
    */
   openMarkdownFile: (filePath: string, asScratch = false) =>
     invoke<OpenMarkdownResult>("open_markdown_file", { filePath, asScratch }),
+};
+
+/** 外部目录挂载 API */
+export const mountApi = {
+  list: () => invoke<ExternalMount[]>("mount_list"),
+  add: (input: ExternalMountInput) =>
+    invoke<ExternalMount>("mount_add", { input }),
+  remove: (id: number, detach = false) =>
+    invoke<void>("mount_remove", { id, detach }),
+  scan: (mountId: number) =>
+    invoke<MountScanResult>("mount_scan", { mountId }),
+  entries: (mountId: number) =>
+    invoke<ExternalEntry[]>("mount_list_entries", { mountId }),
+  openFile: (noteId: number) =>
+    invoke<MountOpenResult>("mount_open_file", { noteId }),
+  saveFile: (noteId: number, content: string) =>
+    invoke<MountSaveResult>("mount_save_file", { noteId, content }),
+  /** 查询影子笔记是否落后于原文件 */
+  noteStatus: (noteId: number) =>
+    invoke<MountNoteStatus>("mount_note_status", { noteId }),
+  /** 强制重新抽取（会覆盖影子笔记的本地编辑） */
+  reextract: (noteId: number) =>
+    invoke<MountOpenResult>("mount_reextract", { noteId }),
 };
 
 /** 孤儿素材维护 API（图片/视频/附件/PDF/源文件统一扫描清理） */

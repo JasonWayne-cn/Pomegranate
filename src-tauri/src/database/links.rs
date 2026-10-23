@@ -270,12 +270,17 @@ impl super::Database {
         Ok(results)
     }
 
-    /// 获取知识图谱数据（所有未删除笔记 + 实时计算的链接关系）
+    /// 获取知识图谱数据（实时计算的链接关系 + 文件夹层级）
+    ///
+    /// - `folder_id = None`：全库图谱（所有未删除笔记 + 所有文件夹层级）。
+    /// - `folder_id = Some(id)`：只取该文件夹及其所有子孙文件夹内的笔记；
+    ///   与范围内笔记存在 wiki 链接、但本身在范围外的笔记，作为 `is_boundary`
+    ///   的"边界节点"保留，便于看出这个文件夹的入口/出口。
     ///
     /// 边的来源：**实时扫描每条笔记 content 里的 `[[标题]]`**，与所有笔记标题做规范化匹配建边。
     /// 不再依赖 `note_links` 表（该表由 handleSave 时同步，存在"目标笔记后创建则永远不补全"的问题）。
     /// `note_links` 表仍由其他功能（反向链接面板）使用，本方法不读它。
-    pub fn get_graph_data(&self) -> Result<GraphData, AppError> {
+    pub fn get_graph_data(&self, folder_id: Option<i64>) -> Result<GraphData, AppError> {
         use std::collections::{HashMap, HashSet};
 
         let conn = self
@@ -291,6 +296,7 @@ impl super::Database {
             is_daily: bool,
             is_pinned: bool,
             tag_count: usize,
+            folder_id: Option<i64>,
         }
 
         // 用 LEFT JOIN + GROUP BY 一次性拿到 tag_count，替代原来每行一条相关子查询（N+1）。
@@ -299,7 +305,7 @@ impl super::Database {
         // 对隐藏笔记的 [[wiki link]] 自动成为"断边"，图里既无节点也无指向它的边，达到隐身效果。
         let mut stmt = conn.prepare(
             "SELECT n.id, n.title, n.content, n.is_daily, n.is_pinned,
-                    COUNT(nt.tag_id) AS tag_count
+                    COUNT(nt.tag_id) AS tag_count, n.folder_id
              FROM notes n
              LEFT JOIN note_tags nt ON nt.note_id = n.id
              WHERE n.is_deleted = 0 AND n.is_hidden = 0
@@ -315,9 +321,62 @@ impl super::Database {
                     is_daily: r.get(3)?,
                     is_pinned: r.get(4)?,
                     tag_count: r.get::<_, i64>(5)? as usize,
+                    folder_id: r.get(6)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
+
+        // 文件夹元信息（图谱里用文件夹节点 + 层级边呈现目录结构）
+        struct FolderRow {
+            id: i64,
+            name: String,
+            parent_id: Option<i64>,
+            color: Option<String>,
+        }
+        let folder_rows: Vec<FolderRow> = {
+            let mut stmt =
+                conn.prepare("SELECT id, name, parent_id, color FROM folders ORDER BY sort_order, id")?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(FolderRow {
+                        id: r.get(0)?,
+                        name: r.get(1)?,
+                        parent_id: r.get(2)?,
+                        color: r.get(3)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+
+        // 作用域：None = 全部；Some(root) = root 及其所有子孙文件夹
+        let scope_folders: HashSet<i64> = if let Some(root) = folder_id {
+            let mut stmt = conn.prepare(
+                "WITH RECURSIVE sub(id) AS (
+                     SELECT ?1
+                     UNION
+                     SELECT f.id FROM folders f JOIN sub ON f.parent_id = sub.id
+                 )
+                 SELECT id FROM sub",
+            )?;
+            let ids = stmt
+                .query_map([root], |r| r.get::<_, i64>(0))?
+                .collect::<Result<HashSet<i64>, _>>()?;
+            ids
+        } else {
+            folder_rows.iter().map(|f| f.id).collect()
+        };
+
+        let note_in_scope = |r: &Row| -> bool {
+            folder_id.is_none()
+                || r.folder_id
+                    .map_or(false, |fid| scope_folders.contains(&fid))
+        };
+        let scope_note_ids: HashSet<i64> = rows
+            .iter()
+            .filter(|r| note_in_scope(r))
+            .map(|r| r.id)
+            .collect();
 
         // 建索引：normalized_title → id（同名取第一个，与 find_note_id_by_title_loose 行为一致）
         let mut title_to_id: HashMap<String, i64> = HashMap::with_capacity(rows.len());
@@ -325,11 +384,14 @@ impl super::Database {
             title_to_id.entry(normalize_title(&r.title)).or_insert(r.id);
         }
 
-        // 扫 content 提取 wiki，匹配建边
+        // 扫 content 提取 wiki，匹配建边。
+        // 限定文件夹时：边的任一端在范围内就保留；范围外的那一端标记为边界节点。
         let mut edges: Vec<GraphEdge> = Vec::new();
         let mut link_count: HashMap<i64, usize> = HashMap::new();
+        let mut boundary_ids: HashSet<i64> = HashSet::new();
         let mut seen: HashSet<(i64, i64)> = HashSet::new();
         for r in &rows {
+            let source_in_scope = note_in_scope(r);
             let titles = extract_wiki_titles(&r.content);
             for t in titles {
                 let norm = normalize_title(&t);
@@ -337,31 +399,102 @@ impl super::Database {
                     if target_id == r.id {
                         continue; // 防自引用
                     }
+                    let target_in_scope = scope_note_ids.contains(&target_id);
+                    if folder_id.is_some() && !source_in_scope && !target_in_scope {
+                        continue; // 与当前文件夹完全无关的边
+                    }
                     if !seen.insert((r.id, target_id)) {
                         continue; // 同 (source, target) 在 content 中可能出现多次，去重
                     }
                     edges.push(GraphEdge {
                         source: r.id,
                         target: target_id,
+                        edge_type: "link".to_string(),
                     });
                     *link_count.entry(r.id).or_insert(0) += 1;
                     *link_count.entry(target_id).or_insert(0) += 1;
+                    if folder_id.is_some() {
+                        if !source_in_scope {
+                            boundary_ids.insert(r.id);
+                        }
+                        if !target_in_scope {
+                            boundary_ids.insert(target_id);
+                        }
+                    }
                 }
             }
         }
 
-        // 组装节点（link_count 取自实时统计）
-        let nodes: Vec<GraphNode> = rows
-            .into_iter()
-            .map(|r| GraphNode {
+        // 文件夹层级边：folder → 子文件夹
+        for f in &folder_rows {
+            if !scope_folders.contains(&f.id) {
+                continue;
+            }
+            if let Some(pid) = f.parent_id {
+                if scope_folders.contains(&pid) {
+                    edges.push(GraphEdge {
+                        source: pid,
+                        target: f.id,
+                        edge_type: "folder_child".to_string(),
+                    });
+                }
+            }
+        }
+
+        // folder → 笔记归属边（边界笔记不挂文件夹，避免图里出现范围外目录）
+        for r in &rows {
+            if !note_in_scope(r) {
+                continue;
+            }
+            if let Some(fid) = r.folder_id {
+                if scope_folders.contains(&fid) {
+                    edges.push(GraphEdge {
+                        source: fid,
+                        target: r.id,
+                        edge_type: "folder_note".to_string(),
+                    });
+                }
+            }
+        }
+
+        // 节点：范围内笔记 + 边界笔记 + 作用域内文件夹
+        let mut nodes: Vec<GraphNode> = Vec::new();
+        for r in rows {
+            let in_scope = folder_id.is_none()
+                || r.folder_id
+                    .map_or(false, |fid| scope_folders.contains(&fid));
+            let is_boundary = boundary_ids.contains(&r.id);
+            if !in_scope && !is_boundary {
+                continue;
+            }
+            nodes.push(GraphNode {
                 link_count: link_count.get(&r.id).copied().unwrap_or(0),
                 id: r.id,
                 title: r.title,
+                node_type: "note".to_string(),
                 is_daily: r.is_daily,
                 is_pinned: r.is_pinned,
                 tag_count: r.tag_count,
-            })
-            .collect();
+                color: None,
+                is_boundary,
+            });
+        }
+        for f in &folder_rows {
+            if !scope_folders.contains(&f.id) {
+                continue;
+            }
+            nodes.push(GraphNode {
+                id: f.id,
+                title: f.name.clone(),
+                node_type: "folder".to_string(),
+                is_daily: false,
+                is_pinned: false,
+                tag_count: 0,
+                link_count: 0,
+                color: f.color.clone(),
+                is_boundary: false,
+            });
+        }
 
         Ok(GraphData { nodes, edges })
     }

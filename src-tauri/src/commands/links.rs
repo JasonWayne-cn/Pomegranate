@@ -41,7 +41,13 @@ pub fn find_note_id_by_title_loose(
 }
 
 /// 获取知识图谱数据
+///
+/// `folder_id` 为空 = 全库；否则只返回该文件夹及其子文件夹内的笔记，
+/// 范围外但与范围内笔记有链接的笔记以 `is_boundary=true` 保留。
 #[tauri::command]
-pub fn get_graph_data(state: State<'_, AppState>) -> Result<GraphData, String> {
-    LinkService::get_graph_data(&state.db).map_err(|e| e.to_string())
+pub fn get_graph_data(
+    state: State<'_, AppState>,
+    folder_id: Option<i64>,
+) -> Result<GraphData, String> {
+    LinkService::get_graph_data(&state.db, folder_id).map_err(|e| e.to_string())
 }

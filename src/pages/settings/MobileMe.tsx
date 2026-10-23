@@ -154,7 +154,7 @@ export function MobileMe() {
           <LearnCard
             icon={<GitFork size={20} className="text-blue-600" />}
             iconBg="bg-blue-100"
-            label="知识图谱"
+            label="文档关系"
             sub={`${stats?.total_notes ?? 0} 节点`}
             onClick={() => navigate("/graph")}
           />

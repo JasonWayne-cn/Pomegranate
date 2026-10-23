@@ -11,7 +11,6 @@ import {
   Tags,
   CheckSquare,
   Layers,
-  GitBranch,
   Bot,
   Sparkles,
   Bell,
@@ -55,7 +54,7 @@ interface ActivityItem {
  * 主视图按"用户意图"分四组，组与组之间渲染分隔线：
  *   1. 概览：首页（每次启动看一眼）
  *   2. 创作 / 工作流：笔记 / 每日笔记 / 待办（日常高频写入）
- *   3. 检索 / 发现：搜索 / 标签 / 知识图谱（找东西）
+ *   3. 检索 / 发现：搜索 / 标签（找东西）
  *   4. AI 辅助：AI 问答 / 提示词（创作助手）
  *
  * 分组而非平铺的好处：用户扫一眼就能锁定意图所在区，比按使用频率排更省认知。
@@ -74,7 +73,6 @@ const MAIN_GROUPS: ActivityItem[][] = [
   [
     { view: "search", route: "/search", label: "搜索", icon: <Search size={18} />, core: true },
     { view: "tags", route: "/tags", label: "标签", icon: <Tags size={18} /> },
-    { view: "graph", route: "/graph", label: "知识图谱", icon: <GitBranch size={18} /> },
   ],
   // AI 辅助
   [
@@ -95,6 +93,8 @@ const BOTTOM_ITEMS: ActivityItem[] = [
 /** 路由 → ActiveView 的反查映射（用于根据 URL 推导高亮态） */
 const ROUTE_TO_VIEW: Array<[string, ActiveView]> = [
   ["/notes", "notes"],
+  // 白板是 note_type='whiteboard' 的笔记，模块归属仍是「文档」
+  ["/whiteboard", "notes"],
   ["/search", "search"],
   ["/daily", "daily"],
   ["/tags", "tags"],

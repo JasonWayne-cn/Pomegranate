@@ -28,7 +28,7 @@ impl LinkService {
         db.search_notes_by_title(keyword, limit)
     }
 
-    pub fn get_graph_data(db: &Database) -> Result<GraphData, AppError> {
-        db.get_graph_data()
+    pub fn get_graph_data(db: &Database, folder_id: Option<i64>) -> Result<GraphData, AppError> {
+        db.get_graph_data(folder_id)
     }
 }

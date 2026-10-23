@@ -23,8 +23,11 @@ import {
   Trash2,
   Plus,
   FolderOpen,
+  FolderSync,
+  Cog,
   FileText,
   ChevronsDownUp,
+  GitBranch,
   LayoutTemplate,
   ExternalLink,
   Copy,
@@ -85,6 +88,50 @@ function noteKey(id: number): string {
   return `${NOTE_KEY_PREFIX}${id}`;
 }
 
+/**
+ * 树节点只展示这些字段；内容/updated_at 变化但标题和类型没变时，
+ * 不需要替换 notesByFolder 触发整棵树重渲染。
+ */
+function sameNoteHeaders(old: Note[] | undefined, next: Note[]): boolean {
+  if (!old || old.length !== next.length) return false;
+  for (let i = 0; i < old.length; i += 1) {
+    const a = old[i];
+    const b = next[i];
+    if (
+      a.id !== b.id ||
+      a.title !== b.title ||
+      a.note_type !== b.note_type ||
+      a.source_file_type !== b.source_file_type ||
+      a.is_pinned !== b.is_pinned
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** 文件夹树签名：名称/层级/计数/外部挂载标记都没变时，跳过 setFolders */
+function folderSignature(list: Folder[]): string {
+  return list
+    .map((f) =>
+      [
+        f.id,
+        f.name,
+        f.parent_id ?? "",
+        f.sort_order,
+        f.note_count,
+        f.mount_id ?? "",
+        f.color ?? "",
+        folderSignature(f.children),
+      ].join("\u0001"),
+    )
+    .join("\u0002");
+}
+
+function sameFolderTree(a: Folder[], b: Folder[]): boolean {
+  return folderSignature(a) === folderSignature(b);
+}
+
 /** 收集所有文件夹 id 字符串（用于 defaultExpandAll 场景） */
 function collectAllKeys(folders: Folder[]): string[] {
   const keys: string[] = [];
@@ -101,9 +148,52 @@ function collectAllKeys(folders: Folder[]): string[] {
 /** Tree DataNode 扩展：携带 isNote 标志和原始数据，便于 renderTitle 区分 */
 type TreeNoteData = { isNote: true; note: Note };
 /** isChild：是否为子文件夹（非根级），用于 renderTitle 加视觉小点区分层级 */
-type TreeFolderData = { isNote: false; isChild: boolean };
+/** isExternal：外部挂载镜像文件夹，图标改用 FolderSync */
+type TreeFolderData = { isNote: false; isChild: boolean; isExternal: boolean };
 type TreeNodeData = TreeNoteData | TreeFolderData;
 type EnrichedNode = DataNode & { data?: TreeNodeData };
+
+/**
+ * 「文档来源设置」按钮图标：同步文件夹 + 右下角齿轮。
+ * lucide 没有 FolderSyncCog，用叠层组合出来。
+ */
+function ExternalFolderSettingsIcon({
+  color,
+  bg,
+}: {
+  color: string;
+  bg: string;
+}) {
+  return (
+    <span
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        width: 16,
+        height: 16,
+        flexShrink: 0,
+      }}
+    >
+      <FolderSync size={15} color={color} />
+      <span
+        style={{
+          position: "absolute",
+          right: -3,
+          bottom: -3,
+          width: 9,
+          height: 9,
+          borderRadius: "50%",
+          background: bg,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Cog size={8} color={color} />
+      </span>
+    </span>
+  );
+}
 
 /** 将 Folder[] + 各文件夹直属笔记 转为 antd Tree 的 DataNode[]
  *
@@ -151,7 +241,7 @@ function foldersToTreeData(
       // 拖拽落在叶子上会被当成"同级排序"，无法 drop-into 折叠的空文件夹。
       isLeaf: false,
       children: children.length ? children : undefined,
-      data: { isNote: false, isChild: depth > 0 },
+      data: { isNote: false, isChild: depth > 0, isExternal: f.mount_id != null },
     };
   });
 }
@@ -277,6 +367,9 @@ export function NotesPanel() {
         sort_by: "custom",
       });
       setNotesByFolder((prev) => {
+        // 标题/顺序/类型都没变 → 返回原 Map，React 直接 bail out，
+        // 避免外部挂载内容变化时整棵树重渲染。
+        if (sameNoteHeaders(prev.get(folderId), r.items)) return prev;
         const next = new Map(prev);
         next.set(folderId, r.items);
         return next;
@@ -299,7 +392,9 @@ export function NotesPanel() {
         page_size: NOTES_PER_FOLDER_LIMIT,
         sort_by: "custom",
       });
-      setUncategorizedNotes(r.items);
+      setUncategorizedNotes((prev) =>
+        sameNoteHeaders(prev, r.items) ? prev : r.items,
+      );
     } catch (e) {
       console.warn("[notes-panel] 加载未分类笔记失败:", e);
     } finally {
@@ -354,6 +449,21 @@ export function NotesPanel() {
   const [editingName, setEditingName] = useState("");
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+
+  /** 当前选中的真实文件夹 id（未分类 / 笔记 / 新建占位返回 null） */
+  const selectedFolderId = useMemo<number | null>(() => {
+    if (!selectedKey) return null;
+    const s = String(selectedKey);
+    if (
+      s === UNCATEGORIZED_KEY ||
+      isNoteKey(s) ||
+      s.startsWith(NEW_NODE_PREFIX)
+    ) {
+      return null;
+    }
+    const id = Number(s);
+    return Number.isFinite(id) ? id : null;
+  }, [selectedKey]);
 
   const [contextMenu, setContextMenu] = useState<{
     key: string;
@@ -458,8 +568,12 @@ export function NotesPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteIdFromUrl, folders]);
 
-  // notes 数据变化时（新建/编辑/删除）：清空缓存 + 重拉所有已展开的文件夹。
-  // 避免遗留旧标题。expand 阶段没拉过的文件夹不需要预热。
+  // notes 数据变化时（新建/编辑/删除 / 外部挂载同步）：
+  // 原地重拉已展开的文件夹，**不清空 notesByFolder**。
+  //
+  // 之前先 `setNotesByFolder(new Map())` 会让所有文件夹子节点瞬间消失，
+  // 等异步请求回来再出现 —— 外部挂载每轮扫描触发刷新时，左侧树会明显跳动。
+  // 现在保留旧列表，等新数据回来再逐文件夹替换，视觉上更稳定。
   useEffect(() => {
     const expandedFolderIds: number[] = [];
     for (const k of expandedKeys) {
@@ -469,7 +583,6 @@ export function NotesPanel() {
         if (Number.isFinite(id)) expandedFolderIds.push(id);
       }
     }
-    setNotesByFolder(new Map());
     expandedFolderIds.forEach((id) => void loadNotesForFolder(id));
     // 同步重拉未分类（仅在已展开时；折叠态等下次展开按需拉）
     if (uncategorizedExpanded) {
@@ -542,7 +655,7 @@ export function NotesPanel() {
   async function loadFolders() {
     try {
       const list = await folderApi.list();
-      setFolders(list);
+      setFolders((prev) => (sameFolderTree(prev, list) ? prev : list));
       // 顺手清理已删除文件夹在折叠集合里的孤儿 id，避免持久化无限沉淀
       useAppStore.getState().pruneNotesCollapsedFolders(collectAllKeys(list));
     } catch (e) {
@@ -968,17 +1081,8 @@ export function NotesPanel() {
 
     lastClickRef.current = { key, time: now };
 
-    // 点文件夹标题 = 切换展开/折叠（与 chevron 行为对齐，VS Code / Finder 同款）
-    // 第一次点：展开（按需加载笔记）；再点：折叠。chevron 仍可单独点。
-    const wasExpanded = expandedKeys.some((k) => String(k) === key);
-    useAppStore.getState().setNotesFolderCollapsed(key, wasExpanded);
-    if (!wasExpanded) {
-      const id = Number(key);
-      if (Number.isFinite(id) && !notesByFolder.has(id)) {
-        void loadNotesForFolder(id);
-      }
-    }
-
+    // 点文件夹标题只做选中/取消选中，不再展开或收起任何文件夹。
+    // 展开/收起统一交给左侧 chevron（onExpand）。
     if (selectedKey === key) {
       setSelectedKey(null);
       navigate("/notes");
@@ -1451,6 +1555,8 @@ export function NotesPanel() {
     const folderData = (node as EnrichedNode).data;
     const isChildFolder =
       folderData && folderData.isNote === false && folderData.isChild;
+    const isExternalFolder =
+      folderData && folderData.isNote === false && folderData.isExternal;
     return (
       <span
         className="flex items-center gap-1.5 w-full"
@@ -1465,6 +1571,11 @@ export function NotesPanel() {
           <span style={{ fontSize: 14, flexShrink: 0, lineHeight: 1 }}>
             {emoji}
           </span>
+        ) : isExternalFolder ? (
+          <FolderSync
+            size={15}
+            style={{ flexShrink: 0, color: token.colorPrimary }}
+          />
         ) : isChildFolder ? (
           <span
             style={{
@@ -1526,7 +1637,7 @@ export function NotesPanel() {
       title: uncatTitle,
       isLeaf: false,
       children: uncatChildren.length ? uncatChildren : undefined,
-      data: { isNote: false, isChild: false },
+      data: { isNote: false, isChild: false, isExternal: false },
     });
     return folderTree;
   }, [folders, creatingUnderKey, notesByFolder, tabTitleByNoteId, uncategorizedNotes]);
@@ -1564,6 +1675,19 @@ export function NotesPanel() {
           }}
           style={{ width: 24, height: 24, padding: 0 }}
           title="折叠/展开全部"
+        />
+        <Button
+          type="text"
+          size="small"
+          icon={
+            <ExternalFolderSettingsIcon
+              color={token.colorTextSecondary}
+              bg={token.colorBgContainer}
+            />
+          }
+          onClick={() => navigate("/mounts")}
+          style={{ width: 24, height: 24, padding: 0 }}
+          title="外部目录设置"
         />
       </div>
 
@@ -1648,6 +1772,26 @@ export function NotesPanel() {
             {folderExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             文件夹
           </span>
+          <Button
+            type="text"
+            size="small"
+            icon={<GitBranch size={14} />}
+            onClick={(e) => {
+              e.stopPropagation();
+              // 选中文件夹时只看该文件夹（含子文件夹）；否则看全库
+              navigate(
+                selectedFolderId
+                  ? `/graph?folder=${selectedFolderId}`
+                  : "/graph",
+              );
+            }}
+            style={{ width: 24, height: 24, padding: 0 }}
+            title={
+              selectedFolderId
+                ? "查看此文件夹的文档关系"
+                : "查看全库文档关系"
+            }
+          />
           <Button
             type="text"
             size="small"

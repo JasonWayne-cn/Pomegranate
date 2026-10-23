@@ -54,8 +54,8 @@ const MODULES: ModuleMeta[] = [
   },
   {
     view: "graph",
-    label: "知识图谱",
-    desc: "可视化笔记之间的双向链接关系",
+    label: "文档关系",
+    desc: "可视化文档之间的双向链接关系",
     icon: <GitBranch size={16} />,
   },
   {
