@@ -24,7 +24,7 @@ import { ArrowLeft, Save, Trash2, Pin, FolderOpen, Tags, Link2, Share, Maximize2
 import { CloseCircleFilled } from "@ant-design/icons";
 import { useAppStore } from "@/store";
 import { useTabsStore } from "@/store/tabs";
-import { noteApi, tagApi, folderApi, linkApi, exportApi, sourceFileApi, vaultApi, sourceWritebackApi } from "@/lib/api";
+import { noteApi, tagApi, folderApi, linkApi, exportApi, sourceFileApi, vaultApi, sourceWritebackApi, mountApi } from "@/lib/api";
 import { VaultModal } from "@/components/vault/VaultModal";
 import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -32,6 +32,7 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { relativeTime, stripHtml } from "@/lib/utils";
+import { useModuleConfig } from "@/hooks/useModuleConfig";
 import { TiptapEditor } from "@/components/editor";
 import { EditorOutline } from "@/components/editor/EditorOutline";
 import { EditorStats } from "@/components/editor/EditorStats";
@@ -50,6 +51,25 @@ const CURRENT_WINDOW_LABEL = (() => {
   catch { return ""; }
 })();
 const IS_POPOUT_WINDOW = CURRENT_WINDOW_LABEL.startsWith("popout-");
+
+/**
+ * 直接读编辑器里"此刻"的 Markdown。
+ *
+ * 保存时不能只信父组件的 `content` state：点击保存按钮会先让编辑器失焦，
+ * onBlur 里的 flush 走的是异步 setState，本次 handleSave 闭包读到的还是旧值，
+ * 于是最后几个字/最后一次拖拽调整可能被漏存（表现为"点了保存但没保存上"）。
+ */
+function readEditorMarkdown(editor: unknown): string | null {
+  const storage = (editor as {
+    storage?: { markdown?: { getMarkdown?: () => string } };
+  } | null)?.storage;
+  try {
+    const md = storage?.markdown?.getMarkdown?.();
+    return typeof md === "string" ? md : null;
+  } catch {
+    return null;
+  }
+}
 
 /** 从 HTML 内容中提取 [[笔记标题]] 链接 */
 function extractWikiLinks(html: string): string[] {
@@ -386,6 +406,7 @@ function MetaBar({
   folders,
   folderId,
   editor,
+  showWordCount,
   onTagsChange,
   onFolderChange,
   onCreateTag,
@@ -396,6 +417,7 @@ function MetaBar({
   folders: Folder[];
   folderId: number | null;
   editor: any | null;
+  showWordCount: boolean;
   onTagsChange: (tagIds: number[]) => void;
   onFolderChange: (folderId: number | null) => void;
   onCreateTag: (name: string) => Promise<void>;
@@ -596,7 +618,7 @@ function MetaBar({
       </div>
 
       {/* 字数统计：放在元数据栏末尾（与文件夹/标签同行），shrink-0 防被标签挤掉 */}
-      {editor && (
+      {editor && showWordCount && (
         <div className="shrink-0 flex items-center gap-2">
           <Divider type="vertical" style={{ height: 20, margin: 0 }} />
           <EditorStats editor={editor} />
@@ -619,6 +641,22 @@ function DesktopNoteEditorPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  /**
+   * 最后一次真正落库的版本。
+   *
+   * 用途：区分"内容真的改了"和"编辑器 blur / 打开思维导图时把 Markdown
+   * 重新序列化了一遍"。后者字符串可能因换行/空列表等规范化而与原文不完全相同，
+   * 但它不是用户修改——不能因此把状态标成未保存，否则会自动保存并反复刷写。
+   */
+  const savedRef = useRef<{ title: string; content: string }>({
+    title: "",
+    content: "",
+  });
+  // 模块设置中心：自动保存延迟 / 字数统计开关
+  const { values: notesConfig } = useModuleConfig("notes", {
+    auto_save_delay: 1.2,
+    show_word_count: true,
+  });
   /** 思维导图视图：在编辑器右侧以 flex 分栏方式渲染（不是浮层） */
   const [mindMapOpen, setMindMapOpen] = useState(false);
   /** 思维导图分栏宽度（像素，持久化到 localStorage 跨笔记记忆） */
@@ -732,6 +770,11 @@ function DesktopNoteEditorPage() {
 
       // 如果 store 里有未保存的草稿（上次切 tab/跳转 wiki 时缓存），优先恢复
       const draft = getDraft(noteId);
+      // 数据库里的版本始终是"已保存"基准，用于判断草稿/编辑是否真的偏离
+      savedRef.current = {
+        title: noteData.title,
+        content: noteData.content,
+      };
       if (draft && (draft.title !== noteData.title || draft.content !== noteData.content)) {
         setTitle(draft.title);
         setContent(draft.content);
@@ -756,6 +799,63 @@ function DesktopNoteEditorPage() {
   useEffect(() => {
     if (id) loadData();
   }, [id, loadData]);
+
+  // 外部挂载的 PDF / Word / Excel 影子笔记：检测原文件是否已更新。
+  // 未编辑时可安全重抽；已编辑时提示会覆盖本地修改。
+  useEffect(() => {
+    if (!noteId) return;
+    let cancelled = false;
+    mountApi
+      .noteStatus(noteId)
+      .then((s) => {
+        if (cancelled || !s.external) return;
+        // 只对二进制文档提示；文本文件的写回/重抽是常规同步，不需要打扰
+        const binary = !!s.sourceType &&
+          !["md", "markdown", "txt", "text"].includes(s.sourceType);
+        if (!binary) return;
+        if (!s.stale && s.status !== "failed") return;
+        const failed = s.status === "failed";
+        notification.warning({
+          key: `mount-stale-${noteId}`,
+          message: failed ? "原文件抽取失败" : "原文件已更新",
+          description: (
+            <div style={{ fontSize: 12 }}>
+              <div>{s.error || "影子笔记已落后于原文件。"}</div>
+              <div style={{ marginTop: 6, opacity: 0.75 }}>
+                {s.userEdited
+                  ? "你对影子笔记的编辑不会写回原文件；重新抽取会覆盖当前编辑。"
+                  : "影子笔记尚未编辑，可以安全重新抽取。"}
+              </div>
+            </div>
+          ),
+          duration: 0,
+          actions: (
+            <Button
+              size="small"
+              type="primary"
+              onClick={async () => {
+                try {
+                  await mountApi.reextract(noteId);
+                  notification.destroy(`mount-stale-${noteId}`);
+                  message.success("已重新抽取原文件");
+                  await loadData();
+                } catch (e) {
+                  message.error(`重新抽取失败: ${e}`);
+                }
+              }}
+            >
+              重新抽取
+            </Button>
+          ),
+        });
+      })
+      .catch(() => {
+        // 非外部笔记 / 状态查询失败不打扰用户
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [noteId, notification, message, loadData]);
 
   // 订阅全局 folders/tags tick：侧边栏/标签页 CRUD 后局部刷新下拉选项，
   // 无需关闭重开 tab。用 ref 跳过首次渲染，避免与 loadData 重复请求。
@@ -811,6 +911,7 @@ function DesktopNoteEditorPage() {
         try {
           const fresh = await noteApi.get(noteId);
           if (cancelled) return;
+          savedRef.current = { title: fresh.title, content: fresh.content };
           setNote(fresh);
           setTitle(fresh.title);
           setContent(fresh.content);
@@ -866,6 +967,10 @@ function DesktopNoteEditorPage() {
         if (cancelled) return;
         setNote(fresh);
         if (!dirtyRef.current) {
+          savedRef.current = {
+            title: fresh.title,
+            content: fresh.content,
+          };
           setTitle(fresh.title);
         }
       })
@@ -885,22 +990,50 @@ function DesktopNoteEditorPage() {
       if (!silent) message.warning("标题不能为空");
       return;
     }
+
+    // 以编辑器里的实时内容为准。点击保存 / Ctrl+S 的瞬间编辑器通常刚失焦，
+    // 父组件的 content 还停留在上一次 onChange（300ms 防抖），直接用它保存会丢最后一段输入。
+    const latestContent = readEditorMarkdown(editorInstance) ?? content;
+    const nextTitle = title.trim();
+
+    // 和已落库版本一致 → 没有真实修改（常见于"打开思维导图/点工具栏导致 blur"
+    // 触发的 Markdown 重新序列化）。直接清掉脏标记，不做多余的 IPC + 写回文件。
+    if (
+      nextTitle === savedRef.current.title &&
+      latestContent === savedRef.current.content
+    ) {
+      if (latestContent !== content) setContent(latestContent);
+      setDirty(false);
+      setTabDirty(noteId, false);
+      clearDraft(noteId);
+      if (!silent) message.success("没有需要保存的修改");
+      return;
+    }
+
+    if (latestContent !== content) setContent(latestContent);
+
     setSaving(true);
     try {
       const updated = await noteApi.update(noteId, {
-        title: title.trim(),
-        content,
+        title: nextTitle,
+        content: latestContent,
         folder_id: note?.folder_id,
       });
+      savedRef.current = { title: updated.title, content: latestContent };
       setNote(updated);
-      setDirty(false);
-      setTabDirty(noteId, false);
+      // 保存期间用户可能继续输入：只有编辑器内容仍等于刚落库的版本才算"已保存"，
+      // 否则保留脏标记，交给防抖/自动保存继续把新内容写下去。
+      const afterSaveMd = readEditorMarkdown(editorInstance) ?? latestContent;
+      const stillClean =
+        afterSaveMd === latestContent && title.trim() === nextTitle;
+      setDirty(!stillClean);
+      setTabDirty(noteId, !stillClean);
       updateTabTitle(noteId, updated.title);
       // 内容已落库，清掉草稿快照
       clearDraft(noteId);
 
       // 解析 [[]] 链接并同步
-      const wikiTitles = extractWikiLinks(content);
+      const wikiTitles = extractWikiLinks(latestContent);
       const missing: string[] = [];
       if (wikiTitles.length > 0) {
         const targetIds: number[] = [];
@@ -994,6 +1127,26 @@ function DesktopNoteEditorPage() {
       setSaving(false);
     }
   }
+
+  // 模块设置中心：停止编辑 N 秒后静默自动保存。
+  // 用 ref 持有最新 handleSave，避免定时器闭包拿到旧 state。
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+  const savingRef = useRef(saving);
+  savingRef.current = saving;
+
+  useEffect(() => {
+    if (!dirty || saving || !title.trim()) return;
+    const seconds = Number(notesConfig.auto_save_delay);
+    const delayMs =
+      (Number.isFinite(seconds) ? Math.max(0.5, Math.min(10, seconds)) : 1.2) * 1000;
+    const timer = window.setTimeout(() => {
+      // 定时器触发时可能刚好有一次手动保存在飞，跳过并等 saving 变化后重新计时
+      if (savingRef.current) return;
+      void handleSaveRef.current(true);
+    }, delayMs);
+    return () => window.clearTimeout(timer);
+  }, [dirty, saving, title, content, notesConfig.auto_save_delay]);
 
   /**
    * 跳转前保护：若当前有未保存修改，先静默保存再跳转，避免内容被新页面 loadData 覆盖丢失。
@@ -1167,6 +1320,7 @@ function DesktopNoteEditorPage() {
       }
       // 重新拉笔记以拿到最新 is_encrypted / content 占位符
       const fresh = await noteApi.get(noteId);
+      savedRef.current = { title: fresh.title, content: fresh.content };
       setNote(fresh);
       setContent(fresh.content);
       setTitle(fresh.title);
@@ -1424,15 +1578,18 @@ function DesktopNoteEditorPage() {
 
   function handleTitleChange(val: string) {
     setTitle(val);
-    setDirty(true);
-    setTabDirty(noteId, true);
+    // 只和"已落库版本"比较：blur / 打开思维导图时的无改动回传不应点亮"未保存"
+    const nextDirty = val.trim() !== savedRef.current.title;
+    setDirty(nextDirty);
+    setTabDirty(noteId, nextDirty);
     updateTabTitle(noteId, val || "未命名");
   }
 
   function handleContentChange(val: string) {
     setContent(val);
-    setDirty(true);
-    setTabDirty(noteId, true);
+    const nextDirty = val !== savedRef.current.content;
+    setDirty(nextDirty);
+    setTabDirty(noteId, nextDirty);
   }
 
   if (loading) {
@@ -1739,6 +1896,7 @@ function DesktopNoteEditorPage() {
               folders={folders}
               folderId={note?.folder_id ?? null}
               editor={editorInstance}
+              showWordCount={notesConfig.show_word_count}
               onTagsChange={handleTagsChange}
               onFolderChange={handleFolderChange}
               onCreateTag={handleCreateTag}

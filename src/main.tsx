@@ -74,15 +74,21 @@ window.addEventListener("drop", (e) => {
   if (isOsFileDrag(e)) e.preventDefault();
 });
 
-// 点击 file:// 链接 → 业务层(TiptapEditor)应该已 preventDefault 并调 openPath；
-// 这里做最外层兜底，阻止"链接没被处理时"浏览器默认导航到 file:// 而回退到 tauri.localhost
+// 链接兜底：业务层（TiptapEditor / SlideshowView / MindMapView）会自己 preventDefault
+// 并调 opener，但 Markdown 渲染出来的原生 <a>（使用说明、导图、第三方富文本）不一定有人接。
+// 在 Tauri WebView 里点任意非 Web 链接（file:// / 相对路径 / 未知协议）都会触发整页
+// 导航，SPA 被销毁 → 用户看到启动时的黑色骨架屏且未保存状态丢失。
+// 这里在捕获阶段统一拦掉这类默认导航（不影响业务自己的 click 处理）。
 window.addEventListener(
   "click",
   (e) => {
     const a = (e.target as HTMLElement | null)?.closest?.("a") as HTMLAnchorElement | null;
     if (!a) return;
     const href = a.getAttribute("href") ?? "";
-    if (href.startsWith("file://")) e.preventDefault();
+    if (!href || href.startsWith("#") || href === "javascript:void(0)") return;
+    // http(s)/mailto/tel 交给业务层决定（外部打开 / target=_blank 等）
+    if (/^(https?|mailto|tel):/i.test(href)) return;
+    e.preventDefault();
   },
   true,
 );

@@ -1,10 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { Button, Space, Tooltip, App as AntdApp, theme as antdTheme } from "antd";
 import { ZoomIn, ZoomOut, Maximize2, Download, X } from "lucide-react";
 import { Transformer } from "markmap-lib";
 import { Markmap } from "markmap-view";
 import { save } from "@tauri-apps/plugin-dialog";
+import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { systemApi } from "@/lib/api";
+import { KB_ASSET_SCHEME, parseKbAsset } from "@/lib/assetUrl";
 
 interface Props {
   /** 是否显示——父级控制；隐藏时不挂载 svg、销毁 markmap 实例 */
@@ -70,6 +72,59 @@ export function MindMapView({ open, onClose, markdown, title, variant: _variant 
 
     return () => cancelAnimationFrame(raf);
   }, [open, markdown, title]);
+
+  /**
+   * 拦截导图里的链接点击。
+   *
+   * markmap 会把 Markdown 链接渲染成原生 <a href>，在 Tauri WebView 里点击会直接
+   * 触发整页导航；target 是 file: / 相对路径时会被 CSP 拦下并回退到
+   * http://tauri.localhost/（上游 bug #9725），表现就是整个界面闪一下启动时的黑屏，
+   * 未保存状态也随之丢失。这里统一 preventDefault，改由系统默认程序打开。
+   */
+  function handleLinkClick(e: ReactMouseEvent<HTMLDivElement>) {
+    // 中键（auxclick）走同一套处理；左键之外的辅助键不拦
+    if (e.type === "auxclick" && e.button !== 1) return;
+    const target = e.target as Element | null;
+    const anchor = target?.closest?.("a");
+    if (!anchor) return;
+    const href = anchor.getAttribute("href") ?? "";
+    if (!href || href === "javascript:void(0)") return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    // 页面内锚点：不让 WebView 改 location.hash（HashRouter 的当前路由会被冲掉）
+    if (href.startsWith("#")) {
+      const el = document.getElementById(decodeURIComponent(href.slice(1)));
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    if (href.startsWith(KB_ASSET_SCHEME)) {
+      const rel = parseKbAsset(href) ?? "";
+      void systemApi
+        .resolveAssetAbsolute(rel)
+        .then((abs) => openPath(abs))
+        .catch((err) => message.error(`打开附件失败：${err}`));
+      return;
+    }
+    if (/^https?:\/\//i.test(href) || /^(mailto|tel):/i.test(href)) {
+      void openUrl(href).catch((err) => message.error(`打开链接失败：${err}`));
+      return;
+    }
+    if (href.startsWith("file://")) {
+      let path = href.replace(/^file:\/{2,3}/, "");
+      try {
+        path = decodeURIComponent(path);
+      } catch {
+        /* 保留原样，让 opener 报具体错误 */
+      }
+      void openPath(path).catch((err) => message.error(`打开文件失败：${err}`));
+      return;
+    }
+    // 相对路径在导图组件里没有笔记目录上下文，既不解析也不让 WebView 导航
+    message.info("思维导图中暂不支持打开相对路径链接");
+  }
 
   function handleZoom(factor: number) {
     void mmRef.current?.rescale(factor);
@@ -172,8 +227,12 @@ export function MindMapView({ open, onClose, markdown, title, variant: _variant 
         </Space>
       </div>
 
-      {/* SVG 容器：占满剩余空间 */}
-      <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+      {/* SVG 容器：占满剩余空间（链接点击统一拦截，见 handleLinkClick） */}
+      <div
+        style={{ flex: 1, minHeight: 0, position: "relative" }}
+        onClick={handleLinkClick}
+        onAuxClick={handleLinkClick}
+      >
         <svg
           ref={svgRef}
           style={{
