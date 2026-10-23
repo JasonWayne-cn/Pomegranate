@@ -84,13 +84,13 @@ export function CloseRequestedListener() {
         <Space>
           <Button onClick={handleMinimize}>最小化到托盘</Button>
           <Button danger onClick={handleExit}>
-            退出程序
+            直接关闭
           </Button>
         </Space>
       }
     >
       <p style={{ marginTop: 0, marginBottom: 16 }}>
-        你想要关闭窗口还是退出程序？
+        最小化到托盘还是直接关闭？
       </p>
       <Checkbox
         checked={remember}

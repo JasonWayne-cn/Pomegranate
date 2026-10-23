@@ -45,7 +45,9 @@ export default defineConfig(async () => ({
   server: {
     port: 2010,
     strictPort: true,
-    host: host || false,
+    // 显式绑定 IPv4：Node 17+ 下 host=false 会按 localhost 解析，可能只监听 [::1]，
+    // 而 WebView2 子资源走 127.0.0.1 → 模块加载 ERR_CONNECTION_REFUSED，界面卡骨架屏。
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",
