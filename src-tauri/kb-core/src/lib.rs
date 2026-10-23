@@ -7,7 +7,7 @@
 //!
 //! 核心导出：
 //! - [`KbDb`] — 包装 rusqlite Connection（只读 / 读写两种模式）
-//! - [`KbServer`] — rmcp ServerHandler，挂载 12 个工具
+//! - [`KbServer`] — rmcp ServerHandler，挂载 27 个工具
 //!
 //! ## 简单用法
 //! ```ignore
@@ -40,7 +40,7 @@ use rmcp::{
     },
     schemars, tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
 };
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 
 // ─── 数据库连接（只读 + WAL 兼容） ─────────────────────────────────
@@ -70,6 +70,28 @@ impl KbDb {
         Ok(Self {
             conn: Mutex::new(conn),
         })
+    }
+
+    /// 读 app_config 里的 MCP 工具白名单（key = `mcp_tool_whitelist`，value = JSON 字符串数组）。
+    /// 返回要**保留**的工具名集合；缺失 / 空数组 / 解析失败一律返回 `None` = 不过滤（保留全部）。
+    /// 供 sidecar（kb-mcp）与主应用 in-memory server 在构造 KbServer 时裁剪工具集（省 token）。
+    pub fn read_tool_whitelist(&self) -> Option<std::collections::HashSet<String>> {
+        let conn = self.conn.lock().ok()?;
+        let raw: String = conn
+            .query_row(
+                "SELECT value FROM app_config WHERE key = 'mcp_tool_whitelist'",
+                [],
+                |row| row.get(0),
+            )
+            .ok()?;
+        let names: Vec<String> = serde_json::from_str(&raw).ok()?;
+        let set: std::collections::HashSet<String> =
+            names.into_iter().filter(|s| !s.is_empty()).collect();
+        if set.is_empty() {
+            None
+        } else {
+            Some(set)
+        }
     }
 }
 
@@ -228,6 +250,32 @@ struct CreateFolderArgs {
     /// 父文件夹 id；不传或 null 表示创建顶级文件夹
     #[serde(default, deserialize_with = "lenient_int::de_opt_i64")]
     parent_id: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct RenameFolderArgs {
+    /// 文件夹 id（从 list_folders 取）
+    #[serde(deserialize_with = "lenient_int::de_i64")]
+    id: i64,
+    /// 新名称（必填，前后空白会被 trim）
+    name: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct MoveFolderArgs {
+    /// 要移动的文件夹 id
+    #[serde(deserialize_with = "lenient_int::de_i64")]
+    id: i64,
+    /// 新的父文件夹 id；不传或 null 表示移到顶级
+    #[serde(default, deserialize_with = "lenient_int::de_opt_i64")]
+    parent_id: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct ReorderFoldersArgs {
+    /// 同一父文件夹下的兄弟文件夹 id，按期望的显示顺序排列（第一个排最前）
+    #[serde(deserialize_with = "lenient_int::de_vec_i64")]
+    ordered_ids: Vec<i64>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -473,7 +521,7 @@ struct PromptDetail {
 
 // ─── MCP Server 实现 ─────────────────────────────────────────────
 
-/// MCP Server，挂载 12 个工具。`Clone` 因为 rmcp router 内部要 clone。
+/// MCP Server，挂载 27 个工具。`Clone` 因为 rmcp router 内部要 clone。
 #[derive(Clone)]
 pub struct KbServer {
     db: Arc<KbDb>,
@@ -488,13 +536,58 @@ pub struct KbServer {
 
 #[tool_router]
 impl KbServer {
-    /// 构造。`writable=false` 时所有写工具调用都会被 ensure_writable 拒掉。
+    /// 构造（保留全部 27 工具）。`writable=false` 时所有写工具调用都会被 ensure_writable 拒掉。
     pub fn new(db: KbDb, writable: bool) -> Self {
+        Self::new_filtered(db, writable, None)
+    }
+
+    /// 带工具白名单的构造：`keep` = 要**保留**的工具名集合（`None` / 空集 = 保留全部）。
+    /// 不在白名单里的工具直接从 router 移除 → `tools/list` 不再出现、也无法被调用，
+    /// 用于"按需裁剪工具集，给外部 agent / 自家 AI 省 token"（#5）。
+    /// `ping` 永远保留（健康检查）。
+    pub fn new_filtered(
+        db: KbDb,
+        writable: bool,
+        keep: Option<std::collections::HashSet<String>>,
+    ) -> Self {
+        let mut tool_router = Self::tool_router();
+        if let Some(keep) = keep {
+            if !keep.is_empty() {
+                let all_names: Vec<String> = tool_router
+                    .list_all()
+                    .into_iter()
+                    .map(|t| t.name.to_string())
+                    .collect();
+                for name in all_names {
+                    if name != "ping" && !keep.contains(&name) {
+                        tool_router.remove_route(&name);
+                    }
+                }
+            }
+        }
         Self {
             db: Arc::new(db),
             writable,
-            tool_router: Self::tool_router(),
+            tool_router,
         }
+    }
+
+    /// 全量工具目录（name, description），不依赖 db、不受白名单影响。
+    /// 供主应用设置页展示「27 个工具」清单做勾选裁剪——必须拿全集，
+    /// 不能用已被裁剪的 in-memory server 的 tools/list（那只剩保留项，无法再勾回）。
+    pub fn all_tools_catalog() -> Vec<(String, String)> {
+        Self::tool_router()
+            .list_all()
+            .into_iter()
+            .map(|t| {
+                (
+                    t.name.to_string(),
+                    t.description
+                        .map(|d| d.to_string())
+                        .unwrap_or_default(),
+                )
+            })
+            .collect()
     }
 
     /// 写工具入口的统一守卫
@@ -921,6 +1014,97 @@ impl KbServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
+    // ─── ✏️ 写工具：rename_folder ────────────────────────────────
+    #[tool(description = "重命名文件夹（先 list_folders 取 id）。\
+                          仅 --writable 模式可用。返回 {id, name}。")]
+    fn rename_folder(
+        &self,
+        Parameters(args): Parameters<RenameFolderArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.ensure_writable()?;
+        let name = args.name.trim();
+        if name.is_empty() {
+            return Err(McpError::invalid_params("name 不能为空".to_string(), None));
+        }
+        let conn = self
+            .db
+            .conn
+            .lock()
+            .map_err(|e| McpError::internal_error(format!("db lock: {e}"), None))?;
+        let affected = rename_folder(&conn, args.id, name)
+            .map_err(|e| McpError::internal_error(format!("rename_folder: {e}"), None))?;
+        if affected == 0 {
+            return Err(McpError::invalid_params(
+                format!("文件夹 {} 不存在", args.id),
+                None,
+            ));
+        }
+        let json = serde_json::to_string(&serde_json::json!({
+            "id": args.id,
+            "name": name,
+        }))
+        .map_err(|e| McpError::internal_error(format!("serialize: {e}"), None))?;
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
+
+    // ─── ✏️ 写工具：move_folder ──────────────────────────────────
+    #[tool(description = "把文件夹移到另一个父文件夹下（parent_id=null 移到顶级）。\
+                          不能移到自身或自己的子孙下。仅 --writable 模式可用。\
+                          返回 {id, parent_id}。")]
+    fn move_folder(
+        &self,
+        Parameters(args): Parameters<MoveFolderArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.ensure_writable()?;
+        let conn = self
+            .db
+            .conn
+            .lock()
+            .map_err(|e| McpError::internal_error(format!("db lock: {e}"), None))?;
+        move_folder(&conn, args.id, args.parent_id)?;
+        let json = serde_json::to_string(&serde_json::json!({
+            "id": args.id,
+            "parent_id": args.parent_id,
+        }))
+        .map_err(|e| McpError::internal_error(format!("serialize: {e}"), None))?;
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
+
+    // ─── ✏️ 写工具：reorder_folders ──────────────────────────────
+    #[tool(description = "调整同一父文件夹下兄弟文件夹的显示顺序：\
+                          ordered_ids 按期望顺序传入（第一个排最前），必须全部属于同一个父文件夹。\
+                          建议传入该父文件夹下的全部子文件夹，漏传的会排在后面。\
+                          仅 --writable 模式可用。返回 {count}。")]
+    fn reorder_folders(
+        &self,
+        Parameters(args): Parameters<ReorderFoldersArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.ensure_writable()?;
+        if args.ordered_ids.is_empty() {
+            return Err(McpError::invalid_params(
+                "ordered_ids 不能为空".to_string(),
+                None,
+            ));
+        }
+        if args.ordered_ids.len() > 500 {
+            return Err(McpError::invalid_params(
+                "单次最多排序 500 个文件夹".to_string(),
+                None,
+            ));
+        }
+        let mut conn = self
+            .db
+            .conn
+            .lock()
+            .map_err(|e| McpError::internal_error(format!("db lock: {e}"), None))?;
+        reorder_folders(&mut conn, &args.ordered_ids)?;
+        let json = serde_json::to_string(&serde_json::json!({
+            "count": args.ordered_ids.len(),
+        }))
+        .map_err(|e| McpError::internal_error(format!("serialize: {e}"), None))?;
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
+
     // ─── ✏️ 写工具：create_note_from_template ───────────────────
     #[tool(
         description = "按模板建笔记。title 不传则自动用「模板名 · YYYY-MM-DD」。\
@@ -1220,6 +1404,53 @@ impl KbServer {
     }
 }
 
+/// CLI 查询命令（kb-mcp 子命令用，#6）。只读查询，复用 MCP 工具**完全相同**的过滤逻辑
+/// （回收站 / 隐藏 / 加密笔记一律不暴露），不重写 SQL。
+pub enum CliQuery {
+    /// 全文搜索笔记
+    Search { query: String, limit: usize },
+    /// 按 id 取单篇笔记全文
+    Get { id: i64 },
+    /// 列出所有标签
+    Tags,
+    /// 最近更新的笔记
+    Recent { limit: usize },
+    /// 按标签名筛选笔记
+    SearchByTag { tag: String, limit: usize },
+}
+
+impl KbServer {
+    /// 执行一条 CLI 查询：直接调用对应工具方法、抽出其 JSON 文本返回。
+    /// 走工具方法而非 SQL 重写 → 过滤规则（回收站/隐藏/加密）与 MCP / 自家 AI 完全一致。
+    /// 注意：CLI 直调工具方法，**不经 router**，故不受工具白名单影响（本机用户自己查，给全集）。
+    pub fn cli_run(&self, q: &CliQuery) -> Result<String, McpError> {
+        let result = match q {
+            CliQuery::Search { query, limit } => self.search_notes(Parameters(SearchNotesArgs {
+                query: query.clone(),
+                limit: Some(*limit),
+            }))?,
+            CliQuery::Get { id } => self.get_note(Parameters(GetNoteArgs { id: *id }))?,
+            CliQuery::Tags => self.list_tags()?,
+            CliQuery::Recent { limit } => self.list_recent_notes(Parameters(ListRecentArgs {
+                limit: Some(*limit),
+            }))?,
+            CliQuery::SearchByTag { tag, limit } => {
+                self.search_by_tag(Parameters(SearchByTagArgs {
+                    tag: tag.clone(),
+                    limit: Some(*limit),
+                }))?
+            }
+        };
+        let mut out = String::new();
+        for c in &result.content {
+            if let Some(t) = c.as_text() {
+                out.push_str(&t.text);
+            }
+        }
+        Ok(out)
+    }
+}
+
 #[tool_handler]
 impl ServerHandler for KbServer {
     fn get_info(&self) -> ServerInfo {
@@ -1235,7 +1466,8 @@ impl ServerHandler for KbServer {
                  list_templates / list_trash。\
                  写工具：create_note / update_note / delete_note / move_notes_batch / \
                  add_tag_to_note / remove_tag_from_note / create_task / update_task / \
-                 create_folder / create_note_from_template / restore_note_from_trash（{}）。\
+                 create_folder / rename_folder / move_folder / reorder_folders / \
+                 create_note_from_template / restore_note_from_trash（{}）。\
                  默认过滤回收站、隐藏、加密笔记，保护隐私。",
                 if self.writable { "已启用" } else { "当前禁用，启动加 --writable 开启" }
             ))
@@ -1849,6 +2081,9 @@ fn collect_descendant_folder_ids(
 
 /// 创建笔记。同步维护 title_normalized + content_hash（FTS5 / word_count 由触发器自动）
 /// 与主应用 database/notes.rs::create_note 保持字段一致性
+///
+/// 🔴 必须写 `stable_uuid`：同步 manifest 用 `WHERE stable_uuid IS NOT NULL` 过滤，
+/// NULL 行会被静默排除、永远推不出去。该列可空且只有 v36 迁移回填过一次，这里漏写就是永久不同步。
 fn create_note(
     conn: &Connection,
     title: &str,
@@ -1857,10 +2092,11 @@ fn create_note(
 ) -> Result<i64, rusqlite::Error> {
     let normalized = normalize_title(title);
     let hash = sha256_hex(content);
+    let stable_uuid = uuid::Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO notes (title, content, folder_id, title_normalized, content_hash)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![title, content, folder_id, normalized, hash],
+        "INSERT INTO notes (title, content, folder_id, title_normalized, content_hash, stable_uuid)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![title, content, folder_id, normalized, hash, stable_uuid],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -1944,6 +2180,133 @@ fn create_folder(
         params![name, parent_id],
     )?;
     Ok(conn.last_insert_rowid())
+}
+
+/// 重命名文件夹。返回受影响行数（0 = 文件夹不存在）。
+/// 与主应用 database/folders.rs::rename_folder 一致：只改 name。
+fn rename_folder(conn: &Connection, id: i64, name: &str) -> Result<usize, rusqlite::Error> {
+    conn.execute(
+        "UPDATE folders SET name = ?1 WHERE id = ?2",
+        params![name, id],
+    )
+}
+
+/// 修改文件夹父节点（parent_id = None 移到顶级）。
+/// 防循环口径与主应用 database/folders.rs::move_folder 一致：
+/// 沿目标父节点的父链向上走，碰到自己说明目标是自己的子孙。
+fn move_folder(conn: &Connection, id: i64, parent_id: Option<i64>) -> Result<(), McpError> {
+    let db_err = |e: rusqlite::Error| McpError::internal_error(format!("move_folder: {e}"), None);
+    if let Some(pid) = parent_id {
+        if pid == id {
+            return Err(McpError::invalid_params("不能把文件夹移到自身".to_string(), None));
+        }
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM folders WHERE id = ?1)",
+                params![pid],
+                |row| row.get(0),
+            )
+            .map_err(db_err)?;
+        if !exists {
+            return Err(McpError::invalid_params(
+                format!("目标父文件夹 {pid} 不存在"),
+                None,
+            ));
+        }
+        let mut cursor = Some(pid);
+        while let Some(current) = cursor {
+            if current == id {
+                return Err(McpError::invalid_params(
+                    "不能把文件夹移到自己的子孙中".to_string(),
+                    None,
+                ));
+            }
+            cursor = conn
+                .query_row(
+                    "SELECT parent_id FROM folders WHERE id = ?1",
+                    params![current],
+                    |row| row.get::<_, Option<i64>>(0),
+                )
+                .optional()
+                .map_err(db_err)?
+                .flatten();
+        }
+    }
+    let affected = conn
+        .execute(
+            "UPDATE folders SET parent_id = ?1 WHERE id = ?2",
+            params![parent_id, id],
+        )
+        .map_err(db_err)?;
+    if affected == 0 {
+        return Err(McpError::invalid_params(format!("文件夹 {id} 不存在"), None));
+    }
+    Ok(())
+}
+
+/// 按给定顺序把兄弟文件夹的 sort_order 赋为 0..N-1（与主应用 set_folder_sort_orders 一致）。
+///
+/// 比主应用多一道校验：id 必须全部存在且同属一个父文件夹。主应用的调用方是拖拽 UI，
+/// 天然只会传兄弟节点；LLM 传参没这个保证，混入别的层级会把两边的顺序都搅乱。
+fn reorder_folders(conn: &mut Connection, ordered_ids: &[i64]) -> Result<(), McpError> {
+    let db_err =
+        |e: rusqlite::Error| McpError::internal_error(format!("reorder_folders: {e}"), None);
+    let mut seen = std::collections::HashSet::new();
+    let mut parent: Option<Option<i64>> = None;
+    for id in ordered_ids {
+        if !seen.insert(*id) {
+            return Err(McpError::invalid_params(
+                format!("ordered_ids 里 {id} 重复出现"),
+                None,
+            ));
+        }
+        let pid: Option<i64> = conn
+            .query_row(
+                "SELECT parent_id FROM folders WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_err)?
+            .ok_or_else(|| McpError::invalid_params(format!("文件夹 {id} 不存在"), None))?;
+        match parent {
+            None => parent = Some(pid),
+            Some(p) if p != pid => {
+                return Err(McpError::invalid_params(
+                    "ordered_ids 必须全部属于同一个父文件夹（先用 list_folders 看 parent_id）"
+                        .to_string(),
+                    None,
+                ));
+            }
+            _ => {}
+        }
+    }
+    // 没传进来的兄弟按原顺序接在后面 —— 只给部分 id 赋 0..N-1 的话，
+    // 剩下的旧 sort_order 会和新值撞车，结果顺序不可预期
+    let parent_id = parent.flatten();
+    let rest: Vec<i64> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id FROM folders WHERE parent_id IS ?1 ORDER BY sort_order ASC, name ASC",
+            )
+            .map_err(db_err)?;
+        let ids = stmt
+            .query_map(params![parent_id], |row| row.get::<_, i64>(0))
+            .map_err(db_err)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(db_err)?;
+        ids.into_iter().filter(|id| !seen.contains(id)).collect()
+    };
+    let tx = conn.transaction().map_err(db_err)?;
+    for (idx, id) in ordered_ids.iter().chain(rest.iter()).enumerate() {
+        tx.execute(
+            "UPDATE folders SET sort_order = ?1 WHERE id = ?2",
+            params![idx as i64, id],
+        )
+        .map_err(db_err)?;
+    }
+    tx.commit().map_err(db_err)?;
+    Ok(())
 }
 
 /// 按模板创建笔记。title 不传则用「模板名 · YYYY-MM-DD」。
@@ -2040,6 +2403,8 @@ fn remove_tag_from_note(
 }
 
 /// 创建任务（主任务，parent_task_id=NULL）。返回新 id。
+///
+/// 🔴 同 `create_note`：`tasks.stable_uuid` 为 NULL 的行不会进同步 manifest。
 fn create_task(
     conn: &Connection,
     title: &str,
@@ -2048,10 +2413,11 @@ fn create_task(
     important: bool,
     due_date: Option<&str>,
 ) -> Result<i64, rusqlite::Error> {
+    let stable_uuid = uuid::Uuid::new_v4().to_string();
     conn.execute(
-        "INSERT INTO tasks (title, description, priority, important, status, due_date)
-         VALUES (?1, ?2, ?3, ?4, 0, ?5)",
-        params![title, description, priority, important as i32, due_date],
+        "INSERT INTO tasks (title, description, priority, important, status, due_date, stable_uuid)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)",
+        params![title, description, priority, important as i32, due_date, stable_uuid],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -2253,5 +2619,150 @@ mod tests {
             serde_json::from_str(r#"{"ids":[1,"2",3,"4"]}"#).unwrap();
         assert_eq!(a.ids, vec![1, 2, 3, 4]);
         assert_eq!(a.folder_id, None);
+    }
+
+    /// 最小化的 notes / tasks 表：只含 create_note / create_task 会写的列，
+    /// 外加与真实库一致的 stable_uuid 部分唯一索引（v36 / v43）。
+    fn stable_uuid_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                folder_id INTEGER,
+                title_normalized TEXT,
+                content_hash TEXT,
+                stable_uuid TEXT
+            );
+            CREATE UNIQUE INDEX idx_notes_stable_uuid ON notes(stable_uuid) WHERE stable_uuid IS NOT NULL;
+            CREATE TABLE tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                priority INTEGER,
+                important INTEGER,
+                status INTEGER,
+                due_date TEXT,
+                stable_uuid TEXT
+            );
+            CREATE UNIQUE INDEX idx_tasks_stable_uuid ON tasks(stable_uuid) WHERE stable_uuid IS NOT NULL;",
+        )
+        .unwrap();
+        conn
+    }
+
+    /// 回归：MCP 建的笔记缺 stable_uuid → 同步 manifest（WHERE stable_uuid IS NOT NULL）
+    /// 静默跳过 → 该笔记永远不同步。
+    #[test]
+    fn create_note_fills_valid_unique_stable_uuid() {
+        let conn = stable_uuid_test_conn();
+        let a = create_note(&conn, "笔记 A", "正文 A", None).unwrap();
+        let b = create_note(&conn, "笔记 B", "正文 B", Some(3)).unwrap();
+
+        let get = |id: i64| -> Option<String> {
+            conn.query_row("SELECT stable_uuid FROM notes WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+        let ua = get(a).expect("MCP 创建的笔记必须带 stable_uuid");
+        let ub = get(b).expect("MCP 创建的笔记必须带 stable_uuid");
+        assert_eq!(ua.len(), 36, "应为标准 UUID 文本，实际: {ua}");
+        assert_eq!(ua.matches('-').count(), 4, "应为标准 UUID 文本，实际: {ua}");
+        assert_ne!(ua, ub, "两条笔记的 stable_uuid 不能相同");
+
+        let null_rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM notes WHERE stable_uuid IS NULL", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(null_rows, 0);
+    }
+
+    /// 文件夹树：1(A) ─┬─ 2(A1)
+    ///                 └─ 3(A2) ── 4(A2x)
+    ///             5(B)   6(C)
+    fn folder_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                parent_id INTEGER,
+                sort_order INTEGER DEFAULT 0
+            );
+            INSERT INTO folders (id, name, parent_id, sort_order) VALUES
+                (1, 'A', NULL, 0), (2, 'A1', 1, 0), (3, 'A2', 1, 1), (4, 'A2x', 3, 0),
+                (5, 'B', NULL, 1), (6, 'C', NULL, 2);",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn folder_row(conn: &Connection, id: i64) -> (String, Option<i64>, i64) {
+        conn.query_row(
+            "SELECT name, parent_id, sort_order FROM folders WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn rename_folder_reports_missing_id() {
+        let conn = folder_test_conn();
+        assert_eq!(rename_folder(&conn, 5, "新名字").unwrap(), 1);
+        assert_eq!(folder_row(&conn, 5).0, "新名字");
+        assert_eq!(rename_folder(&conn, 999, "x").unwrap(), 0);
+    }
+
+    #[test]
+    fn move_folder_rejects_cycles_and_missing_parent() {
+        let conn = folder_test_conn();
+        assert!(move_folder(&conn, 1, Some(1)).is_err(), "不能移到自身");
+        assert!(move_folder(&conn, 1, Some(4)).is_err(), "不能移到孙子下");
+        assert!(move_folder(&conn, 1, Some(999)).is_err(), "父文件夹不存在");
+        assert!(move_folder(&conn, 999, None).is_err(), "文件夹不存在");
+
+        move_folder(&conn, 3, Some(5)).unwrap();
+        assert_eq!(folder_row(&conn, 3).1, Some(5));
+        move_folder(&conn, 3, None).unwrap();
+        assert_eq!(folder_row(&conn, 3).1, None);
+    }
+
+    #[test]
+    fn reorder_folders_appends_unlisted_siblings() {
+        let mut conn = folder_test_conn();
+        // 只传两个顶级：6 排第一、5 排第二，没传的 1 接在后面
+        reorder_folders(&mut conn, &[6, 5]).unwrap();
+        assert_eq!(folder_row(&conn, 6).2, 0);
+        assert_eq!(folder_row(&conn, 5).2, 1);
+        assert_eq!(folder_row(&conn, 1).2, 2);
+        // 子层级不受影响
+        assert_eq!(folder_row(&conn, 2).2, 0);
+        assert_eq!(folder_row(&conn, 3).2, 1);
+    }
+
+    #[test]
+    fn reorder_folders_rejects_mixed_parents_duplicates_and_missing() {
+        let mut conn = folder_test_conn();
+        assert!(reorder_folders(&mut conn, &[1, 2]).is_err(), "跨层级");
+        assert!(reorder_folders(&mut conn, &[5, 5]).is_err(), "重复 id");
+        assert!(reorder_folders(&mut conn, &[5, 999]).is_err(), "不存在的 id");
+        // 校验失败时不能改动任何行
+        assert_eq!(folder_row(&conn, 5).2, 1);
+    }
+
+    #[test]
+    fn create_task_fills_valid_unique_stable_uuid() {
+        let conn = stable_uuid_test_conn();
+        let a = create_task(&conn, "任务 A", None, 1, false, None).unwrap();
+        let b = create_task(&conn, "任务 B", Some("描述"), 2, true, Some("2026-10-01")).unwrap();
+
+        let get = |id: i64| -> Option<String> {
+            conn.query_row("SELECT stable_uuid FROM tasks WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+        let ua = get(a).expect("MCP 创建的任务必须带 stable_uuid");
+        let ub = get(b).expect("MCP 创建的任务必须带 stable_uuid");
+        assert_eq!(ua.len(), 36);
+        assert_ne!(ua, ub);
     }
 }

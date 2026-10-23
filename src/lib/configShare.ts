@@ -17,19 +17,39 @@
  *   发到不信任的渠道。
  */
 
-import { syncV1Api, aiModelApi, configApi } from "@/lib/api";
+import { syncV1Api, aiModelApi, configApi, asrApi } from "@/lib/api";
 import { encryptWithPin, decryptWithPin } from "@/lib/configCrypto";
 import type {
   SyncBackend,
   SyncBackendInput,
+  SyncBackendKind,
   AiModel,
   AiModelInput,
   WebDavConfig,
+  AsrConfig,
 } from "@/types";
 
 /** Envelope schema 版本号，未来不兼容时 bump */
 export const ENVELOPE_VERSION = "v1" as const;
 export const ENCRYPTED_VERSION = "v1-enc" as const;
+
+/**
+ * 跨同级软件通用协议（与 tauri-cc 等其他桌面端互通）。
+ *
+ * 单条：`{ kind: "ai.profile", v: 1, data: { name, provider, baseURL, apiKey, model, hints? } }`
+ * 多条：`{ kind: "ai.profile.bundle", v: 1, manifest, data: { api_profiles: [...] } }`
+ *
+ * 字段采用 camelCase，`baseURL` 用大写 URL（业内主流命名：Cherry Studio /
+ * Chatbox / LobeChat / Continue / Vercel AI SDK / OpenCode 等）。
+ *
+ * 🔴 ai.profile 的解析与生成归 **ai-profile crate**（后端 `parse_ai_profile_text` /
+ * `ai_model_to_ai_profile`），这里不再维护 TS 版解析器 —— 此前那份与 crate、sigil、reeve
+ * 各写一份，别名与版本判断各不相同（这里只认 `v === 1`，高版本兼容的配置被挡在外面）。
+ *
+ * 输入：parseEnvelope 先认 ai.profile（交给后端，结果映射为本家 ai-model / bundle envelope，
+ *       复用现有 applyEnvelope 流程），不是再按本家 kbConfig envelope 解析。
+ * 输出：stringifyAsAiProfile 把本家模型配置交给后端生成 ai.profile 文本，方便粘到其他软件。
+ */
 
 /** 加密后的 envelope 外壳：payload = base64url(salt || iv || ciphertext) */
 export interface EncryptedEnvelope {
@@ -39,8 +59,10 @@ export interface EncryptedEnvelope {
 
 /** 配置类型：每种 kind 对应一组 data */
 export type ConfigKind =
-  | "webdav-backend"  // SyncBackend (kind=webdav) — 含密码
+  | "webdav-backend"  // SyncBackend (kind=webdav) — 含密码（旧格式，仅导入端兼容）
+  | "sync-backend"     // SyncBackend（任意 kind: local/webdav/s3）— 通用同步源
   | "ai-model"         // AiModelInput — 含 api_key
+  | "asr-config"       // AsrConfig — 语音识别（含 apiKey）
   | "feature-toggles"  // 功能开关 + Dashboard 显示项 + Tab 顺序
   | "bundle";          // 一次导出多个
 
@@ -59,6 +81,19 @@ export interface WebDavBackendData {
   config: WebDavConfig;
 }
 
+/**
+ * 通用同步源数据：覆盖 local / webdav / s3 全部类型。
+ * config 直接是 SyncBackend.configJson 解析后的对象，
+ * 各类型字段不同（local: path / webdav: url+username+password /
+ * s3: endpoint+bucket+accessKey+secretKey...），含敏感字段。
+ */
+export interface SyncBackendData {
+  /** 同步源类型：local（本地路径/同步盘）/ webdav / s3 */
+  kind: SyncBackendKind;
+  name: string;
+  config: Record<string, unknown>;
+}
+
 export interface AiModelData {
   /** 与 AiModelInput 完全一致 */
   name: string;
@@ -66,7 +101,22 @@ export interface AiModelData {
   api_url: string;
   api_key?: string | null;
   model_id: string;
-  max_context?: number;
+  /** 上下文窗口；null / 缺省 / 0 = 未设置 */
+  max_context?: number | null;
+  /** 单次回答 token 上限；null / 缺省 = 用服务商默认 */
+  max_tokens?: number | null;
+  /** 限额来源（v1.65 起导出） */
+  limits_source?: "user" | "endpoint" | null;
+  /** 端点上报的输出上限（v1.65 起导出） */
+  max_output?: number | null;
+  /**
+   * 🔴 地址已是「原样使用」口径（v1.65 起导出时带 true）。
+   *
+   * 缺失 = 旧版本导出的配置：地址按旧规则会被自动补 /v1、provider 是旧的厂商 id ——
+   * 导入时要先按旧规则修正（后端 `fix_legacy_ai_model`，与 schema v62 同一套），
+   * 否则裸根地址会 404。新导出的再修正一遍反而会把刻意不带版本段的地址错补 /v1。
+   */
+  api_url_verbatim?: boolean;
 }
 
 export interface FeatureTogglesData {
@@ -78,12 +128,15 @@ export interface FeatureTogglesData {
 export interface BundleData {
   webdavBackends?: WebDavBackendData[];
   aiModels?: AiModelData[];
+  asrConfig?: AsrConfig;
   featureToggles?: FeatureTogglesData;
 }
 
 export type Envelope =
   | EnvelopeBase<"webdav-backend", WebDavBackendData>
+  | EnvelopeBase<"sync-backend", SyncBackendData>
   | EnvelopeBase<"ai-model", AiModelData>
+  | EnvelopeBase<"asr-config", AsrConfig>
   | EnvelopeBase<"feature-toggles", FeatureTogglesData>
   | EnvelopeBase<"bundle", BundleData>;
 
@@ -100,7 +153,10 @@ function envelope<K extends ConfigKind, D>(kind: K, data: D): EnvelopeBase<K, D>
   };
 }
 
-/** 把后端返回的 SyncBackend 序列化成 webdav-backend envelope */
+/**
+ * 把后端返回的 SyncBackend 序列化成 webdav-backend envelope（仅 WebDAV）。
+ * 移动端（只支持 WebDAV）仍用此函数；桌面端含 local/s3 的场景请用 exportSyncBackend。
+ */
 export function exportWebDavBackend(b: SyncBackend): Envelope {
   let cfg: WebDavConfig = { url: "", username: "" };
   try {
@@ -114,16 +170,51 @@ export function exportWebDavBackend(b: SyncBackend): Envelope {
   });
 }
 
-/** 把 AiModel 序列化（含 api_key） */
-export function exportAiModel(m: AiModel): Envelope {
+/**
+ * 通用同步源导出：覆盖 local / webdav / s3 三种类型。
+ * config 直接取 configJson 解析后的对象，原样带上各类型的敏感字段
+ * （webdav 的 password、s3 的 secretKey、local 的 path），
+ * 由 ShareConfigModal 顶部的 PIN 加密兜底，避免明文外泄。
+ */
+export function exportSyncBackend(b: SyncBackend): Envelope {
+  let config: Record<string, unknown> = {};
+  try {
+    config = JSON.parse(b.configJson) as Record<string, unknown>;
+  } catch {
+    // 静默失败：config 为空对象（对方导入后可在编辑里补全）
+  }
+  return envelope("sync-backend", {
+    kind: b.kind,
+    name: b.name,
+    config,
+  });
+}
+
+/**
+ * 把 AiModel 序列化（含 api_key）。
+ *
+ * 🔴 `apiKey` 必须由调用方**显式传入** —— P0-1b 起 `m.api_key` 恒为 null，
+ * 明文只能临时调 `aiModelApi.getApiKey(id)` 取。做成必填参数是为了让
+ * 每个分享入口都被迫走那一步，而不是静默导出一个没 Key 的空壳。
+ */
+export function exportAiModel(m: AiModel, apiKey: string | null): Envelope {
   return envelope("ai-model", {
     name: m.name,
     provider: m.provider,
     api_url: m.api_url,
-    api_key: m.api_key,
+    api_key: apiKey,
     model_id: m.model_id,
-    max_context: m.max_context,
+    max_context: m.max_context > 0 ? m.max_context : null,
+    max_tokens: m.max_tokens,
+    limits_source: m.limits_source,
+    max_output: m.max_output,
+    api_url_verbatim: true,
   });
+}
+
+/** 序列化 ASR（语音识别）配置 */
+export function exportAsrConfig(cfg: AsrConfig): Envelope {
+  return envelope("asr-config", cfg);
 }
 
 /** 序列化功能开关（仅 mobile 三个 set） */
@@ -192,6 +283,7 @@ function parseInner(text: string): ParseResult {
     return { ok: false, reason: "不是 JSON 对象" };
   }
   const o = raw as Record<string, unknown>;
+
   if (o.kbConfig === ENCRYPTED_VERSION) {
     return { ok: false, encrypted: true, reason: "需要 PIN 解密" };
   }
@@ -204,7 +296,9 @@ function parseInner(text: string): ParseResult {
   const kind = o.kind;
   if (
     kind !== "webdav-backend" &&
+    kind !== "sync-backend" &&
     kind !== "ai-model" &&
+    kind !== "asr-config" &&
     kind !== "feature-toggles" &&
     kind !== "bundle"
   ) {
@@ -217,6 +311,47 @@ function parseInner(text: string): ParseResult {
 }
 
 /**
+ * 认出 ai.profile（单条 / 打包）就交给后端解析，并映射成本家 ai-model / bundle envelope。
+ * 不是 ai.profile 返回 null，交回原流程。
+ *
+ * 来源如 tauri-cc（智码）/ sigil / reeve 等桌面端。后端已把字段换成 ai_models 口径
+ * （服务商按地址反推成预置 key、没给模型名按预置默认补），地址是「原样使用」口径。
+ */
+async function parseAiProfileEnvelope(text: string): Promise<ParseResult | null> {
+  let kind: unknown;
+  try {
+    kind = (JSON.parse(text) as { kind?: unknown } | null)?.kind;
+  } catch {
+    return null;
+  }
+  if (typeof kind !== "string" || !kind.startsWith("ai.profile")) return null;
+  try {
+    const r = await aiModelApi.parseAiProfile(text);
+    const aiModels: AiModelData[] = r.models.map((m) => ({
+      name: m.name,
+      provider: m.provider,
+      api_url: m.api_url,
+      api_key: m.api_key,
+      model_id: m.model_id,
+      api_url_verbatim: true,
+    }));
+    const exportedAt = new Date().toISOString();
+    if (!r.bundle && aiModels.length === 1) {
+      return {
+        ok: true,
+        envelope: { kbConfig: ENVELOPE_VERSION, kind: "ai-model", exportedAt, data: aiModels[0] },
+      };
+    }
+    return {
+      ok: true,
+      envelope: { kbConfig: ENVELOPE_VERSION, kind: "bundle", exportedAt, data: { aiModels } },
+    };
+  } catch (e) {
+    return { ok: false, reason: String(e) };
+  }
+}
+
+/**
  * 严格解析：可同时处理明文 envelope 和加密 envelope。
  * - 明文 → 直接返回 envelope
  * - 加密但未给 pin → 返回 encrypted: true，提示调用方让用户输 PIN
@@ -226,6 +361,9 @@ export async function parseEnvelope(
   text: string,
   pin?: string,
 ): Promise<ParseResult> {
+  // 跨软件通用协议 ai.profile（单条 / 打包）：交给后端 crate 解析
+  const profile = await parseAiProfileEnvelope(text);
+  if (profile) return profile;
   const inner = parseInner(text);
   if (inner.ok) return inner;
   // 不是加密 envelope 就直接传出错误
@@ -259,19 +397,28 @@ export async function parseEnvelope(
 // ──────────────────────────────────────────────────────────
 
 export interface ImportSummary {
+  /** 成功导入的同步源数量（webdav-backend 旧格式 + sync-backend 新格式合并计数） */
+  syncBackends: number;
+  /** 旧版 webdav-backend 包导入数量（兼容 POM 前端） */
   webdavBackends: number;
   aiModels: number;
+  asrConfig: boolean;
   featureToggles: boolean;
   errors: string[];
+  /** 导入成功但需要提醒的（如 Anthropic 协议的配置） */
+  warnings: string[];
 }
 
 /** 把 envelope 真正写到后端。返回成功统计 + 失败原因列表 */
 export async function applyEnvelope(env: Envelope): Promise<ImportSummary> {
   const summary: ImportSummary = {
+    syncBackends: 0,
     webdavBackends: 0,
     aiModels: 0,
+    asrConfig: false,
     featureToggles: false,
     errors: [],
+    warnings: [],
   };
 
   switch (env.kind) {
@@ -283,26 +430,64 @@ export async function applyEnvelope(env: Envelope): Promise<ImportSummary> {
           configJson: JSON.stringify(env.data.config),
         };
         await syncV1Api.createBackend(input);
-        summary.webdavBackends = 1;
+        summary.syncBackends = 1;
       } catch (e) {
         summary.errors.push(`WebDAV 后端创建失败：${e}`);
       }
       break;
 
+    case "sync-backend":
+      try {
+        const input: SyncBackendInput = {
+          kind: env.data.kind,
+          name: env.data.name,
+          configJson: JSON.stringify(env.data.config),
+        };
+        await syncV1Api.createBackend(input);
+        summary.syncBackends = 1;
+      } catch (e) {
+        summary.errors.push(`同步源创建失败：${e}`);
+      }
+      break;
+
     case "ai-model":
       try {
+        let { provider, api_url } = env.data;
+        let max_context = env.data.max_context ?? null;
+        let limits_source = env.data.limits_source ?? null;
+        // 旧版本导出的：地址按旧规则补齐、厂商 id 换成预置 key、历史默认窗口当作未设置
+        if (!env.data.api_url_verbatim) {
+          const fixed = await aiModelApi.fixLegacy(provider, api_url, max_context);
+          provider = fixed.provider;
+          api_url = fixed.api_url;
+          max_context = fixed.max_context;
+          limits_source = max_context !== null ? "user" : null;
+        }
         const input: AiModelInput = {
           name: env.data.name,
-          provider: env.data.provider,
-          api_url: env.data.api_url,
+          provider,
+          api_url,
           api_key: env.data.api_key ?? null,
           model_id: env.data.model_id,
-          max_context: env.data.max_context,
+          max_context: max_context ?? undefined,
+          // 老版本导出的包没有这个字段 → undefined = 用服务商默认，与新建同义
+          max_tokens: env.data.max_tokens,
+          limits_source,
+          max_output: env.data.max_output ?? null,
         };
         await aiModelApi.create(input);
         summary.aiModels = 1;
       } catch (e) {
-        summary.errors.push(`AI 模型创建失败：${e}`);
+        summary.errors.push(`模型服务创建失败：${e}`);
+      }
+      break;
+
+    case "asr-config":
+      try {
+        await asrApi.saveConfig(env.data);
+        summary.asrConfig = true;
+      } catch (e) {
+        summary.errors.push(`语音识别配置写入失败：${e}`);
       }
       break;
 
@@ -342,7 +527,7 @@ export async function applyEnvelope(env: Envelope): Promise<ImportSummary> {
             exportedAt: new Date().toISOString(),
             data: b,
           });
-          summary.webdavBackends += sub.webdavBackends;
+          summary.syncBackends += sub.syncBackends;
           summary.errors.push(...sub.errors);
         }
       }
@@ -356,7 +541,18 @@ export async function applyEnvelope(env: Envelope): Promise<ImportSummary> {
           });
           summary.aiModels += sub.aiModels;
           summary.errors.push(...sub.errors);
+          summary.warnings.push(...sub.warnings);
         }
+      }
+      if (env.data.asrConfig) {
+        const sub = await applyEnvelope({
+          kbConfig: ENVELOPE_VERSION,
+          kind: "asr-config",
+          exportedAt: new Date().toISOString(),
+          data: env.data.asrConfig,
+        });
+        summary.asrConfig = sub.asrConfig;
+        summary.errors.push(...sub.errors);
       }
       if (env.data.featureToggles) {
         const sub = await applyEnvelope({
@@ -377,7 +573,32 @@ export async function applyEnvelope(env: Envelope): Promise<ImportSummary> {
 /** envelope kind → 给用户看的中文标签 */
 export const KIND_LABELS: Record<ConfigKind, string> = {
   "webdav-backend": "WebDAV 同步",
-  "ai-model": "AI 模型",
+  "sync-backend": "同步源",
+  "ai-model": "模型服务",
+  "asr-config": "语音识别（ASR）",
   "feature-toggles": "功能开关",
   "bundle": "完整配置包",
 };
+
+// ──────────────────────────────────────────────────────────
+// 跨软件通用协议：ai.profile 输出
+// ──────────────────────────────────────────────────────────
+
+/**
+ * 把本家模型配置输出为 `ai.profile` 通用协议文本（明文，规范写法），由后端 crate 生成。
+ *
+ * 🔴 含明文密钥，只在用户点「复制为 ai.profile」时调用。
+ * 上下文窗口等限额不输出：ai.profile 协议没有约定这些字段。
+ */
+export function stringifyAsAiProfile(
+  m: Pick<AiModelData, "name" | "provider" | "api_url" | "api_key" | "model_id">,
+): Promise<string> {
+  return aiModelApi.toAiProfile({
+    name: m.name,
+    apiUrl: m.api_url,
+    apiKey: m.api_key ?? null,
+    modelId: m.model_id,
+    // 协议跟着预置 key 走：Claude 中转导出后在别的软件里仍是 Anthropic 协议
+    provider: m.provider,
+  });
+}

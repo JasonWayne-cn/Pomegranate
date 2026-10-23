@@ -4,7 +4,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { taskApi } from "@/lib/api";
 import { useAppStore } from "@/store";
 import type { Task } from "@/types";
-import { beepOnce } from "@/lib/audio/beep";
+import { describeRepeat } from "@/lib/taskRepeat";
+import { playNormalReminder } from "@/lib/audio/reminderSound";
 
 const { Text, Paragraph } = Typography;
 
@@ -29,8 +30,10 @@ export function TaskReminderListener() {
     listen<Task>("task:reminder", (e) => {
       setQueue((prev) => {
         if (prev.some((t) => t.id === e.payload.id)) return prev;
-        // 强烈级提示：弹 Modal 时叮一声（任务栏闪烁已由后端 request_user_attention 触发）
-        beepOnce();
+        // 强烈级提示：弹 Modal 时按用户设置响提示音（音色/音量/连响遍数见设置页
+        // 「待办提醒 → 提醒提示音」；任务栏闪烁已由后端 request_user_attention 触发）。
+        // 异步读配置，失败自己兜底成默认音，这里不 await 也不处理错误
+        void playNormalReminder();
         return [...prev, e.payload];
       });
     }).then((fn) => {
@@ -229,24 +232,4 @@ function formatMinutes(m: number): string {
   if (m < 60) return `${m} 分钟`;
   if (m < 1440) return `${Math.round(m / 60)} 小时`;
   return `${Math.round(m / 1440)} 天`;
-}
-
-const WEEKDAY_LABELS = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-
-function describeRepeat(task: Task): string {
-  const { repeat_kind, repeat_interval, repeat_weekdays } = task;
-  if (repeat_kind === "none") return "";
-  const iv = Math.max(1, repeat_interval);
-  if (repeat_kind === "daily") return iv === 1 ? "每天" : `每 ${iv} 天`;
-  if (repeat_kind === "monthly") return iv === 1 ? "每月" : `每 ${iv} 月`;
-  if (repeat_weekdays) {
-    const days = repeat_weekdays
-      .split(",")
-      .map((s) => Number(s.trim()))
-      .filter((n) => n >= 1 && n <= 7)
-      .sort((a, b) => a - b);
-    if (days.length === 5 && days.join(",") === "1,2,3,4,5") return "工作日";
-    return days.map((d) => WEEKDAY_LABELS[d]).join("/");
-  }
-  return iv === 1 ? "每周" : `每 ${iv} 周`;
 }

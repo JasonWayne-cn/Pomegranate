@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod ai_provider;
+pub mod app_lock;
 pub mod asr;
 pub mod attachment;
 pub mod cards;
@@ -7,33 +8,50 @@ pub mod claude_agent;
 pub mod config;
 pub mod daily;
 pub mod data_dir;
+pub mod dataset;
+pub mod dataview;
+pub mod excel_import;
 pub mod export;
 pub mod folders;
+pub mod font;
 pub mod hidden_pin;
 pub mod image;
 pub mod import;
 pub mod links;
 pub mod mcp;
+// 移动端检查更新（仅 Android/iOS）
+#[cfg(mobile)]
+pub mod mobile_update;
 pub mod notes;
+pub mod ocr;
 pub mod orphan;
 pub mod pdf;
 pub mod plugin_proxy;
 pub mod plugin_runtime;
 pub mod plugins;
+pub mod projects;
 pub mod prompt;
+pub mod push;
+pub mod reminder_sound;
 pub mod search;
 pub mod session;
 // 全局快捷键仅桌面端可用（移动端无此概念）
 #[cfg(desktop)]
 pub mod shortcut;
+pub mod snapshot;
 pub mod source_file;
 pub mod source_writeback;
 pub mod sync;
 pub mod sync_v1;
 pub mod system;
 pub mod tags;
+pub mod task_attachment;
 pub mod tasks;
 pub mod template;
 pub mod trash;
 pub mod vault;
 pub mod videos;
+pub mod whiteboard;
+// 主窗口尺寸相关命令（仅桌面端）
+#[cfg(desktop)]
+pub mod window;

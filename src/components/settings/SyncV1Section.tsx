@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   App as AntdApp,
+  Badge,
   Button,
   Form,
   Input,
@@ -27,6 +28,7 @@ import {
   theme as antdTheme,
 } from "antd";
 import {
+  AlertTriangle,
   CloudDownload,
   CloudUpload,
   FolderOpen,
@@ -35,10 +37,16 @@ import {
   Trash2,
   Pencil,
   RefreshCcw,
+  Share2,
+  Download,
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { configApi, syncApi, syncV1Api } from "@/lib/api";
+import { ShareConfigModal } from "@/components/config-share/ShareConfigModal";
+import { ImportConfigModal } from "@/components/config-share/ImportConfigModal";
+import { ConflictResolveModal } from "@/components/settings/ConflictResolveModal";
+import { exportSyncBackend, type Envelope } from "@/lib/configShare";
 import type {
   SyncBackend,
   SyncBackendInput,
@@ -163,7 +171,65 @@ export function SyncV1Section() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<BackendFormState>(EMPTY_FORM);
   const [busyBackendId, setBusyBackendId] = useState<number | null>(null);
+  // 正在跑的操作：用于让"只有当前操作的按钮转圈、其余只灰掉"
+  const [busyOp, setBusyOp] = useState<"test" | "push" | "pull" | null>(null);
   const [progress, setProgress] = useState<SyncV1ProgressEvent | null>(null);
+  const [shareEnv, setShareEnv] = useState<Envelope | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [rebuildingIndex, setRebuildingIndex] = useState(false);
+  const [gcRunning, setGcRunning] = useState(false);
+  // T-S051: 待处理冲突
+  const [conflictCount, setConflictCount] = useState(0);
+  const [conflictModalOpen, setConflictModalOpen] = useState(false);
+
+  // T-S024: 重建附件索引 —— 扫描所有笔记 content 中的本地资产引用并 upsert 到 note_attachments
+  async function handleRebuildAttachmentIndex() {
+    setRebuildingIndex(true);
+    try {
+      const n = await syncV1Api.rebuildAttachmentIndex();
+      message.success(`附件索引重建完成：登记 ${n} 条引用`);
+    } catch (e) {
+      message.error(`重建附件索引失败：${e}`);
+    } finally {
+      setRebuildingIndex(false);
+    }
+  }
+
+  // T-S025: 清理远端孤儿附件 —— 对所有同步源依次跑 GC（7 天宽限期标记 → 超期才删）
+  async function handleGcAttachments() {
+    if (backends.length === 0) {
+      message.info("还没有同步源");
+      return;
+    }
+    setGcRunning(true);
+    try {
+      let deleted = 0;
+      let marked = 0;
+      let unmarked = 0;
+      const errors: string[] = [];
+      for (const b of backends) {
+        const r = await syncV1Api.gcAttachments(b.id);
+        deleted += r.deleted;
+        marked += r.newlyMarked;
+        unmarked += r.unmarked;
+        if (r.errors?.length) errors.push(...r.errors);
+      }
+      const parts = [`删除 ${deleted} 个`, `新标记 ${marked} 个`];
+      if (unmarked > 0) parts.push(`恢复 ${unmarked} 个（又被引用）`);
+      const summary = parts.join("，");
+      if (errors.length > 0) {
+        message.warning(
+          `孤儿附件清理完成（${errors.length} 个出错）：${summary}。首例：${errors[0]}`,
+        );
+      } else {
+        message.success(`孤儿附件清理完成：${summary}（新标记的满 7 天后下次清理时删除）`);
+      }
+    } catch (e) {
+      message.error(`清理孤儿附件失败：${e}`);
+    } finally {
+      setGcRunning(false);
+    }
+  }
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
@@ -177,20 +243,30 @@ export function SyncV1Section() {
     };
   }, []);
 
-  // 自动同步结果通知：成功不打扰（仅刷新列表更新 last_*_ts 显示），失败弹 toast
+  // 自动同步结果通知：成功不打扰（仅刷新列表更新 last_*_ts 显示），失败弹 toast；
+  // encryptedSkipped>0（vault meta 不匹配 → 加密笔记被静默跳过）显式告知用户避免误以为同步了
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
-    void listen<{ backendId: number; ok: boolean; error?: string | null }>(
-      "sync_v1:auto-triggered",
-      (e) => {
-        const { ok, error, backendId } = e.payload;
-        if (ok) {
-          void loadBackends();
-        } else {
-          message.warning(`自动同步失败 (backend #${backendId})：${error ?? "未知错误"}`);
-        }
-      },
-    ).then((u) => {
+    void listen<{
+      backendId: number;
+      ok: boolean;
+      error?: string | null;
+      encryptedSkipped?: number;
+    }>("sync_v1:auto-triggered", (e) => {
+      const { ok, error, backendId, encryptedSkipped } = e.payload;
+      if (ok) {
+        void loadBackends();
+        void loadConflictCount();
+      } else {
+        message.warning(`自动同步失败 (backend #${backendId})：${error ?? "未知错误"}`);
+      }
+      if ((encryptedSkipped ?? 0) > 0) {
+        message.warning(
+          `${encryptedSkipped} 篇加密笔记未同步：本机 vault 与远端不匹配（密码 / salt 不一致）`,
+          6,
+        );
+      }
+    }).then((u) => {
       unlisten = u;
     });
     return () => {
@@ -201,7 +277,18 @@ export function SyncV1Section() {
 
   useEffect(() => {
     void loadBackends();
+    void loadConflictCount();
   }, []);
+
+  // T-S051: 刷新"待处理冲突"数量（用于按钮角标）
+  async function loadConflictCount() {
+    try {
+      const list = await syncV1Api.listConflicts();
+      setConflictCount(list.length);
+    } catch {
+      // 静默失败，不打扰
+    }
+  }
 
   async function loadBackends() {
     setLoading(true);
@@ -345,18 +432,27 @@ export function SyncV1Section() {
 
   async function handleTest(id: number) {
     setBusyBackendId(id);
+    setBusyOp("test");
     try {
       await syncV1Api.testConnection(id);
-      message.success("连接正常");
+      // 目录可达 ≠ 能同步：填错一级目录 / 选了快照归档目录时也会「连接正常」，顺带查一下有没有同步数据
+      const hint = await syncV1Api.remoteDataHint(id).catch(() => null);
+      if (hint) {
+        modal.warning({ title: "连接正常，但远端还没有同步数据", content: hint });
+      } else {
+        message.success("连接正常");
+      }
     } catch (e) {
       message.error(`连接失败: ${e}`);
     } finally {
       setBusyBackendId(null);
+      setBusyOp(null);
     }
   }
 
   async function handlePush(id: number) {
     setBusyBackendId(id);
+    setBusyOp("push");
     setProgress(null);
     try {
       const r = await syncV1Api.push(id);
@@ -371,12 +467,14 @@ export function SyncV1Section() {
       message.error(`推送失败: ${e}`);
     } finally {
       setBusyBackendId(null);
+      setBusyOp(null);
       setProgress(null);
     }
   }
 
   async function handlePull(id: number) {
     setBusyBackendId(id);
+    setBusyOp("pull");
     setProgress(null);
     try {
       const r = await syncV1Api.pull(id);
@@ -385,24 +483,60 @@ export function SyncV1Section() {
         modal.warning({ title: "拉取有错误", content: r.errors.join("\n") });
       } else if (r.conflicts > 0) {
         modal.warning({
-          title: `${r.conflicts} 条冲突`,
+          title: `${r.conflicts} 条冲突待处理`,
           content:
-            "落败的远端版本已写到 <数据目录>/sync_conflicts/backend_<id>/，请手动比对。",
+            "本地和远端各改了同一条笔记。点上方「冲突待处理」按钮可以并排对比、手动合并。",
         });
       } else {
         message.success(msg);
       }
+      // 加密笔记被静默跳过 → 显式告知（两端 vault salt/密码不一致时常见）
+      if ((r.encryptedSkipped ?? 0) > 0) {
+        modal.warning({
+          title: `${r.encryptedSkipped} 篇加密笔记未同步`,
+          content:
+            '本机 vault（加密保险库）与远端不匹配 — 多半是两端用了不同的主密码或还没在本机解锁。请确认两端 vault 用的是同一密码、且已解锁；若是新设备，需先在保险库里"导入远端配置"或用同一密码重建 vault。',
+        });
+      }
       void loadBackends();
+      void loadConflictCount();
     } catch (e) {
       message.error(`拉取失败: ${e}`);
     } finally {
       setBusyBackendId(null);
+      setBusyOp(null);
       setProgress(null);
+    }
+  }
+
+  // 后台同步：立即返回，不阻塞界面；完成/失败由 sync_v1:auto-triggered 事件弹 toast
+  async function handleBackgroundSync(id: number) {
+    try {
+      await syncV1Api.triggerBackgroundSync(id);
+      message.info("已在后台开始同步（先拉后推），完成后会提示；这期间可以继续干别的");
+    } catch (e) {
+      message.error(`启动后台同步失败: ${e}`);
     }
   }
 
   return (
     <div>
+      <Alert
+        type="success"
+        showIcon
+        message="多端实时同步（推荐用法）"
+        description={
+          <span style={{ fontSize: 12 }}>
+            单笔记粒度的增量同步：多端共用 UUID（不会重复创建笔记）、删除会同步到其它端、
+            附件按内容 hash 去重上传、加密笔记跨端可见。
+            <br />
+            <b>首次启用同步前</b>，请先点下方<b>「重建附件索引」</b>，让本机笔记里引用的图片/PDF
+            等附件被登记进同步范围。
+          </span>
+        }
+        style={{ marginBottom: 12 }}
+      />
+
       <div className="flex items-center justify-between mb-3">
         <span
           className="flex items-center gap-2"
@@ -411,14 +545,57 @@ export function SyncV1Section() {
           <RefreshCcw size={14} />
           已配置的同步源：每个同步源独立维护推送 / 拉取状态
         </span>
-        <Button
-          type="primary"
-          size="small"
-          icon={<Plus size={14} />}
-          onClick={openCreateModal}
-        >
-          新增同步源
-        </Button>
+        <Space size={4}>
+          {conflictCount > 0 && (
+            <Tooltip title="本地和远端各改了同一条笔记，需要你来决定保留哪个版本（或手动合并）。">
+              <Badge count={conflictCount} size="small" offset={[-2, 2]}>
+                <Button
+                  size="small"
+                  danger
+                  icon={<AlertTriangle size={14} />}
+                  onClick={() => setConflictModalOpen(true)}
+                >
+                  冲突待处理
+                </Button>
+              </Badge>
+            </Tooltip>
+          )}
+          <Tooltip title="扫描所有笔记的图片/PDF/source 引用并登记到附件同步索引。首次启用同步前、或批量导入笔记后请按一次。">
+            <Button
+              size="small"
+              loading={rebuildingIndex}
+              onClick={handleRebuildAttachmentIndex}
+            >
+              重建附件索引
+            </Button>
+          </Tooltip>
+          <Tooltip title="清理远端 attachments/ 下已无笔记引用的孤儿文件。首次发现的孤儿会先标记，满 7 天再删（防误删）。本地路径 / S3 / WebDAV 均支持（个别禁用递归列举的 WebDAV 服务器会自动跳过）。">
+            <Button
+              size="small"
+              loading={gcRunning}
+              onClick={handleGcAttachments}
+            >
+              清理孤儿附件
+            </Button>
+          </Tooltip>
+          <Tooltip title="从 JSON / 二维码导入同步源">
+            <Button
+              size="small"
+              icon={<Download size={14} />}
+              onClick={() => setImportOpen(true)}
+            >
+              导入
+            </Button>
+          </Tooltip>
+          <Button
+            type="primary"
+            size="small"
+            icon={<Plus size={14} />}
+            onClick={openCreateModal}
+          >
+            新增同步源
+          </Button>
+        </Space>
       </div>
 
       <Table<SyncBackend>
@@ -465,7 +642,7 @@ export function SyncV1Section() {
           },
           {
             title: "操作",
-            width: 360,
+            width: 460,
             render: (_, b) => {
               const busy = busyBackendId === b.id;
               return (
@@ -474,7 +651,8 @@ export function SyncV1Section() {
                     <Button
                       size="small"
                       icon={<Plug size={13} />}
-                      loading={busy}
+                      loading={busy && busyOp === "test"}
+                      disabled={busy && busyOp !== "test"}
                       onClick={() => handleTest(b.id)}
                     />
                   </Tooltip>
@@ -482,7 +660,8 @@ export function SyncV1Section() {
                     <Button
                       size="small"
                       icon={<CloudUpload size={13} />}
-                      loading={busy}
+                      loading={busy && busyOp === "push"}
+                      disabled={busy && busyOp !== "push"}
                       onClick={() => handlePush(b.id)}
                     >
                       推送
@@ -492,16 +671,36 @@ export function SyncV1Section() {
                     <Button
                       size="small"
                       icon={<CloudDownload size={13} />}
-                      loading={busy}
+                      loading={busy && busyOp === "pull"}
+                      disabled={busy && busyOp !== "pull"}
                       onClick={() => handlePull(b.id)}
                     >
                       拉取
                     </Button>
                   </Tooltip>
+                  <Tooltip title="后台同步（先拉后推）：点了立刻返回，同步在后台跑、不阻塞界面，完成后弹提示">
+                    <Button
+                      size="small"
+                      icon={<RefreshCcw size={13} />}
+                      disabled={busy}
+                      onClick={() => handleBackgroundSync(b.id)}
+                    >
+                      后台同步
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title="分享到其他设备（含密码 / 密钥，可加密）">
+                    <Button
+                      size="small"
+                      icon={<Share2 size={13} />}
+                      disabled={busy}
+                      onClick={() => setShareEnv(exportSyncBackend(b))}
+                    />
+                  </Tooltip>
                   <Tooltip title="编辑">
                     <Button
                       size="small"
                       icon={<Pencil size={13} />}
+                      disabled={busy}
                       onClick={() => openEditModal(b)}
                     />
                   </Tooltip>
@@ -509,8 +708,9 @@ export function SyncV1Section() {
                     title="确认删除此同步源？"
                     description="只清掉同步源配置和远端状态记录，不会动你的笔记"
                     onConfirm={() => handleDelete(b.id)}
+                    disabled={busy}
                   >
-                    <Button size="small" danger icon={<Trash2 size={13} />} />
+                    <Button size="small" danger icon={<Trash2 size={13} />} disabled={busy} />
                   </Popconfirm>
                 </Space>
               );
@@ -764,6 +964,25 @@ export function SyncV1Section() {
           </div>
         </Form>
       </Modal>
+
+      <ShareConfigModal
+        open={shareEnv !== null}
+        onClose={() => setShareEnv(null)}
+        envelope={shareEnv}
+      />
+      <ImportConfigModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => void loadBackends()}
+      />
+      <ConflictResolveModal
+        open={conflictModalOpen}
+        onClose={() => {
+          setConflictModalOpen(false);
+          void loadConflictCount();
+        }}
+        onChanged={() => void loadConflictCount()}
+      />
     </div>
   );
 }

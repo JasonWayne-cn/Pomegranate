@@ -2,13 +2,52 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import fs from "node:fs";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
+/** 把 Excalidraw 字体同步到 public/excalidraw/fonts，供白板离线使用。 */
+function excalidrawAssetsPlugin() {
+  const srcDir = path.resolve(
+    __dirname,
+    "node_modules/@excalidraw/excalidraw/dist/prod/fonts",
+  );
+  const destDir = path.resolve(__dirname, "public/excalidraw/fonts");
+
+  const copyDir = (from: string, to: string) => {
+    fs.mkdirSync(to, { recursive: true });
+    for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+      const s = path.join(from, entry.name);
+      const d = path.join(to, entry.name);
+      if (entry.isDirectory()) copyDir(s, d);
+      else fs.copyFileSync(s, d);
+    }
+  };
+
+  return {
+    name: "kb-excalidraw-assets",
+    buildStart() {
+      if (!fs.existsSync(srcDir)) {
+        console.warn("[excalidraw] 未找到字体源目录，跳过同步:", srcDir);
+        return;
+      }
+      if (
+        fs.existsSync(destDir) &&
+        fs.readdirSync(destDir).length === fs.readdirSync(srcDir).length
+      ) {
+        return;
+      }
+      fs.rmSync(destDir, { recursive: true, force: true });
+      copyDir(srcDir, destDir);
+      console.log("[excalidraw] 字体已同步到 public/excalidraw/fonts");
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), excalidrawAssetsPlugin()],
 
   resolve: {
     alias: {

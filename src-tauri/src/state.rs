@@ -34,6 +34,10 @@ pub struct AppState {
     /// 调度器立刻重新计算"下一个最早提醒时刻"并重 sleep。
     /// 这样实现的精度 ~毫秒，且空闲时零 DB 查询（只在事件驱动 + 5min 兜底唤醒时扫）。
     pub reminder_notify: Arc<Notify>,
+    /// 定时推送调度器唤醒信号（KB 2.0）：用户增/改/删/启停推送时 notify_one。
+    pub push_notify: Arc<Notify>,
+    /// V1 多端同步互斥闸门：同一 backend 同时只允许一个同步操作在跑。
+    pub sync_v1_gate: crate::services::sync_v1::lock::SyncGate,
     /// 启动时 argv 里的 .md 文件路径，等前端 mount 后 take 出来
     pub pending_open_md_path: Mutex<Option<String>>,
     /// T-007 笔记加密保险库：内存中的主密钥（可选），锁定时清空
@@ -46,6 +50,9 @@ pub struct AppState {
     /// 仅桌面端：移动端 fork/spawn 受限，没有外部 MCP 概念
     #[cfg(desktop)]
     pub mcp_external: Arc<crate::services::mcp_client::McpClientManager>,
+    /// 内置 MCP HTTP server 状态（默认不启动）
+    #[cfg(desktop)]
+    pub mcp_http: Arc<crate::services::mcp_http::McpHttpState>,
     /// 实例锁文件句柄（保持存活以维持独占锁，进程退出时自动释放）
     _lock_file: Option<File>,
     /// 插件运行时令牌注册表（T1: 内存存储，进程退出自动清空）
@@ -72,11 +79,15 @@ impl AppState {
             plugin_ai_cancel: Mutex::new(std::collections::HashMap::new()),
             sync_scheduler_notify: Arc::new(Notify::new()),
             reminder_notify: Arc::new(Notify::new()),
+            push_notify: Arc::new(Notify::new()),
+            sync_v1_gate: crate::services::sync_v1::lock::SyncGate::new(),
             pending_open_md_path: Mutex::new(None),
             vault: RwLock::new(VaultState::default()),
             mcp_internal,
             #[cfg(desktop)]
             mcp_external: Arc::new(crate::services::mcp_client::McpClientManager::new()),
+            #[cfg(desktop)]
+            mcp_http: Arc::new(crate::services::mcp_http::McpHttpState::default()),
             _lock_file: lock_file,
             plugin_tokens: PluginTokenRegistry::default(),
             plugin_rate_limiter: PluginRateLimiter::new(),

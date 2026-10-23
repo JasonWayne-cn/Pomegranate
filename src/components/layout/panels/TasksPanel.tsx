@@ -12,18 +12,23 @@ import {
   Flame,
   Circle,
   Check,
+  Ban,
   Repeat,
   Link as LinkIcon,
   Tags as TagsIcon,
   Settings as SettingsIcon,
   Inbox as InboxIcon,
+  ChevronRight as ChevronRightIcon,
+  ChevronDown as ChevronDownIcon,
   Edit3,
   Trash2,
+  FolderPlus,
 } from "lucide-react";
 import { taskApi, taskCategoryApi } from "@/lib/api";
 import { useAppStore } from "@/store";
 import type { Task, TaskStats, TaskCategory } from "@/types";
 import { TaskCategoryManageModal } from "@/components/tasks/TaskCategoryManageModal";
+import { flattenCategoryTree, subtreeCounts } from "@/lib/categoryTree";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import {
   ContextMenuOverlay,
@@ -46,6 +51,9 @@ import {
  * 一次就重拉两份数据，Badge 保持实时。
  */
 
+/** 侧栏折叠的父分类 id 列表（多级分类）*/
+const COLLAPSED_CATS_KEY = "kb.tasks.collapsedCategories";
+
 type FilterKey =
   | "todo"
   | "overdue"
@@ -57,7 +65,8 @@ type FilterKey =
   | "low"
   | "recurring"
   | "linked"
-  | "done";
+  | "done"
+  | "abandoned";
 
 /** YYYY-MM-DD（本地时区） */
 function ymd(d: Date): string {
@@ -110,6 +119,8 @@ function deriveCounts(todoTasks: Task[]): Record<FilterKey, number> {
     recurring,
     linked,
     done: 0, // 由 stats 覆盖
+    // 已放弃不显计数（SmartRow 不传 count），这里占位满足 Record<FilterKey, number>
+    abandoned: 0,
   };
 }
 
@@ -123,13 +134,42 @@ export function TasksPanel() {
   /** URL 上的 category 参数：数字字符串 = 该分类 ID；"none" = 未分类 */
   const currentCategory = searchParams.get("category");
 
-  // 订阅：主区任务增删改后 bump urgentTodoCount → 这里重拉
-  const urgentTodoCount = useAppStore((s) => s.urgentTodoCount);
+  // 订阅：主区任务增删改后调 refreshTaskStats() → taskStatsTick 递增 → 这里重拉。
+  // 不能只订阅 urgentTodoCount：增删改**非紧急**任务时它不变，计数会停在旧值。
+  const taskStatsTick = useAppStore((s) => s.taskStatsTick);
 
   const [todoTasks, setTodoTasks] = useState<Task[]>([]);
   const [stats, setStats] = useState<TaskStats | null>(null);
   const [categories, setCategories] = useState<TaskCategory[]>([]);
   const [manageOpen, setManageOpen] = useState(false);
+  /** 折叠的父分类（存 localStorage：切页面回来保持用户的折叠习惯） */
+  const [collapsedCats, setCollapsedCats] = useState<Set<number>>(() => {
+    try {
+      const raw = localStorage.getItem(COLLAPSED_CATS_KEY);
+      return new Set(raw ? (JSON.parse(raw) as number[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  /** 确保某个父分类处于展开状态（新建子分类后要能立刻看到它） */
+  function expandCategory(id: number) {
+    setCollapsedCats((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      localStorage.setItem(COLLAPSED_CATS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }
+  function toggleCollapsed(id: number) {
+    setCollapsedCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      localStorage.setItem(COLLAPSED_CATS_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -147,7 +187,7 @@ export function TasksPanel() {
     return () => {
       cancelled = true;
     };
-  }, [urgentTodoCount]);
+  }, [taskStatsTick]);
 
   /** 每个分类下的未完成任务数 + 未分类计数 */
   const categoryCounts = useMemo(() => {
@@ -160,8 +200,14 @@ export function TasksPanel() {
         map.set(t.category_id, (map.get(t.category_id) ?? 0) + 1);
       }
     }
-    return { byId: map, none };
-  }, [todoTasks]);
+    // 父分类显示「自身 + 子孙」的数：点进去列出来的就是这么多（后端按子树筛选）
+    return { byId: subtreeCounts(categories, map), none };
+  }, [todoTasks, categories]);
+
+  const categoryRows = useMemo(
+    () => flattenCategoryTree(categories, collapsedCats),
+    [categories, collapsedCats],
+  );
 
   const counts = useMemo(() => {
     const c = deriveCounts(todoTasks);
@@ -184,9 +230,19 @@ export function TasksPanel() {
 
   // ─── 右键菜单（分类行）────────────────────────
   const ctx = useContextMenu<{ id: number; name: string }>();
-  // 重命名 Modal（受控）：null = 关闭
-  const [renameTarget, setRenameTarget] = useState<{ id: number; name: string } | null>(null);
-  const [renameInput, setRenameInput] = useState("");
+  // 分类名输入 Modal（新建顶级 / 新建子分类 / 重命名共用）：null = 关闭。
+  // 以前新建只能点齿轮进管理弹窗，侧栏右键和标题的「+」直接走这个小弹窗
+  const [nameDialog, setNameDialog] = useState<
+    | { mode: "create"; parentId: number | null; parentName?: string }
+    | { mode: "rename"; id: number; name: string }
+    | null
+  >(null);
+  const [nameInput, setNameInput] = useState("");
+
+  function openCreateCategory(parentId: number | null, parentName?: string) {
+    setNameDialog({ mode: "create", parentId, parentName });
+    setNameInput("");
+  }
 
   /** 重新拉分类列表（重命名 / 删除后调用） */
   async function reloadCategories() {
@@ -199,12 +255,21 @@ export function TasksPanel() {
     if (!p) return [];
     return [
       {
+        key: "new-child",
+        label: "新建子分类",
+        icon: <FolderPlus size={13} />,
+        onClick: () => {
+          ctx.close();
+          openCreateCategory(p.id, p.name);
+        },
+      },
+      {
         key: "rename",
         label: "重命名",
         icon: <Edit3 size={13} />,
         onClick: () => {
-          setRenameTarget({ id: p.id, name: p.name });
-          setRenameInput(p.name);
+          setNameDialog({ mode: "rename", id: p.id, name: p.name });
+          setNameInput(p.name);
           ctx.close();
         },
       },
@@ -240,24 +305,49 @@ export function TasksPanel() {
     ];
   }, [ctx, currentCategory]);
 
-  async function submitRename() {
-    if (!renameTarget) return;
-    const name = renameInput.trim();
+  async function submitNameDialog() {
+    if (!nameDialog) return;
+    const name = nameInput.trim();
     if (!name) {
       message.warning("分类名不能为空");
       return;
     }
-    if (name === renameTarget.name) {
-      setRenameTarget(null);
+    if (nameDialog.mode === "rename") {
+      if (name === nameDialog.name) {
+        setNameDialog(null);
+        return;
+      }
+      try {
+        await taskCategoryApi.update(nameDialog.id, { name });
+        message.success("已重命名");
+        setNameDialog(null);
+        await reloadCategories();
+      } catch (e) {
+        message.error(`重命名失败：${e}`);
+      }
       return;
     }
+    // 分类名全局唯一（后端也会拦），前端先查一遍省一次往返
+    if (categories.some((c) => c.name === name)) {
+      message.warning(`分类名称「${name}」已存在`);
+      return;
+    }
+    const { parentId } = nameDialog;
+    const parent = parentId == null ? undefined : categories.find((c) => c.id === parentId);
     try {
-      await taskCategoryApi.update(renameTarget.id, { name });
-      message.success("已重命名");
-      setRenameTarget(null);
+      await taskCategoryApi.create({
+        name,
+        // 子分类沿用父分类颜色，一眼看出归属；顶级用默认蓝，之后可在管理弹窗里改
+        color: parent?.color ?? "#1677ff",
+        sort_order: categories.filter((c) => (c.parent_id ?? null) === parentId).length,
+        parent_id: parentId,
+      });
+      message.success("已创建");
+      setNameDialog(null);
+      if (parentId != null) expandCategory(parentId);
       await reloadCategories();
     } catch (e) {
-      message.error(`重命名失败：${e}`);
+      message.error(String(e));
     }
   }
 
@@ -409,35 +499,67 @@ export function TasksPanel() {
           <Button
             type="text"
             size="small"
+            icon={<Plus size={12} />}
+            onClick={() => openCreateCategory(null)}
+            style={{ width: 20, height: 20, padding: 0, fontSize: 11 }}
+            title="新建分类（右键分类可新建子分类）"
+          />
+          <Button
+            type="text"
+            size="small"
             icon={<SettingsIcon size={12} />}
             onClick={() => setManageOpen(true)}
             style={{ width: 20, height: 20, padding: 0, fontSize: 11 }}
             title="管理分类"
           />
         </div>
-        <SmartRow
-          active={currentCategory === "none"}
-          icon={<InboxIcon size={14} />}
-          label="未分类"
-          count={categoryCounts.none}
-          onClick={() => goToCategory("none")}
-          token={token}
-        />
-        {categories.map((c) => (
+        {categoryRows.map(({ category: c, depth, hasChildren }) => (
           <SmartRow
             key={c.id}
             active={currentCategory === String(c.id)}
             contextActive={ctx.state.payload?.id === c.id}
             icon={
+              // 缩进 + 折叠箭头塞在图标位里，SmartRow 本身不用改
               <span
                 style={{
-                  display: "inline-block",
-                  width: 10,
-                  height: 10,
-                  borderRadius: 999,
-                  background: c.color,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  paddingLeft: depth * 12,
                 }}
-              />
+              >
+                <span
+                  role={hasChildren ? "button" : undefined}
+                  title={hasChildren ? (collapsedCats.has(c.id) ? "展开" : "收起") : undefined}
+                  onClick={(e) => {
+                    if (!hasChildren) return;
+                    e.stopPropagation();
+                    toggleCollapsed(c.id);
+                  }}
+                  style={{
+                    display: "inline-flex",
+                    width: 12,
+                    marginRight: 2,
+                    color: token.colorTextTertiary,
+                    cursor: hasChildren ? "pointer" : "default",
+                  }}
+                >
+                  {hasChildren &&
+                    (collapsedCats.has(c.id) ? (
+                      <ChevronRightIcon size={11} />
+                    ) : (
+                      <ChevronDownIcon size={11} />
+                    ))}
+                </span>
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: 10,
+                    height: 10,
+                    borderRadius: 999,
+                    background: c.color,
+                  }}
+                />
+              </span>
             }
             label={c.name}
             count={categoryCounts.byId.get(c.id) ?? 0}
@@ -449,6 +571,22 @@ export function TasksPanel() {
             token={token}
           />
         ))}
+        {/* 未分类放在分类树最后、和顶级分类左对齐：以前排第一且图标顶格，
+            下面的分类因为预留了折叠箭头位整体右缩，看起来像是「未分类」的子目录 */}
+        <SmartRow
+          active={currentCategory === "none"}
+          icon={
+            <span style={{ display: "inline-flex", alignItems: "center" }}>
+              {/* 与分类行的折叠箭头位同宽（12 + 2），保证图标列对齐 */}
+              <span style={{ display: "inline-flex", width: 12, marginRight: 2 }} />
+              <InboxIcon size={12} style={{ color: token.colorTextTertiary }} />
+            </span>
+          }
+          label="未分类"
+          count={categoryCounts.none}
+          onClick={() => goToCategory("none")}
+          token={token}
+        />
         {categories.length === 0 && (
           <div
             style={{
@@ -461,7 +599,7 @@ export function TasksPanel() {
               type="link"
               size="small"
               style={{ padding: 0, fontSize: 11, height: "auto" }}
-              onClick={() => setManageOpen(true)}
+              onClick={() => openCreateCategory(null)}
             >
               + 新建分类
             </Button>
@@ -476,6 +614,16 @@ export function TasksPanel() {
           label="已完成"
           count={counts.done}
           onClick={() => goTo("done")}
+          token={token}
+        />
+
+        {/* 已放弃：不显计数——这个列表访问频率低，为它单开一个后端统计字段
+            不划算；点进去自然看得到有多少条 */}
+        <SmartRow
+          active={currentFilter === "abandoned"}
+          icon={<Ban size={14} />}
+          label="已放弃"
+          onClick={() => goTo("abandoned")}
           token={token}
         />
       </div>
@@ -495,21 +643,27 @@ export function TasksPanel() {
         onClose={ctx.close}
       />
 
-      {/* 重命名分类 Modal */}
+      {/* 分类名 Modal：新建 / 新建子分类 / 重命名 */}
       <Modal
-        open={!!renameTarget}
-        title="重命名分类"
-        okText="保存"
+        open={!!nameDialog}
+        title={
+          nameDialog?.mode === "rename"
+            ? "重命名分类"
+            : nameDialog?.parentName
+              ? `在「${nameDialog.parentName}」下新建子分类`
+              : "新建分类"
+        }
+        okText={nameDialog?.mode === "rename" ? "保存" : "创建"}
         cancelText="取消"
-        onCancel={() => setRenameTarget(null)}
-        onOk={submitRename}
+        onCancel={() => setNameDialog(null)}
+        onOk={submitNameDialog}
         destroyOnHidden
       >
         <Input
-          value={renameInput}
-          onChange={(e) => setRenameInput(e.target.value)}
-          onPressEnter={submitRename}
-          placeholder="新分类名"
+          value={nameInput}
+          onChange={(e) => setNameInput(e.target.value)}
+          onPressEnter={submitNameDialog}
+          placeholder={nameDialog?.mode === "rename" ? "新分类名" : "分类名称"}
           maxLength={32}
           autoFocus
         />

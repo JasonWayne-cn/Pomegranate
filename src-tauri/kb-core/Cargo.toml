@@ -1,8 +1,8 @@
 [package]
 name = "kb-core"
-version = "0.1.0"
+version = "1.0.0"
 description = "Knowledge Base MCP Server core - 抽离自 kb-mcp，让主应用也能 in-process 复用同一份工具实现"
-authors = ["wenjq"]
+authors = ["抓蛙师"]
 edition = "2021"
 license = "AGPL-3.0-or-later"
 
@@ -26,3 +26,5 @@ sha2 = "0.10"
 anyhow = "1"
 # create_note_from_template 自动生成「模板名 · YYYY-MM-DD」标题用
 chrono = "0.4"
+# 新建笔记 / 任务时生成 stable_uuid（多端同步的稳定标识，缺了就进不了同步 manifest）
+uuid = { version = "1", features = ["v4"] }

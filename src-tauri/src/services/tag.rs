@@ -12,7 +12,7 @@ impl TagService {
         if name.is_empty() {
             return Err(AppError::InvalidInput("标签名称不能为空".into()));
         }
-        db.create_tag(name, color)
+        db.create_tag(name, color, None)
     }
 
     /// 获取所有标签

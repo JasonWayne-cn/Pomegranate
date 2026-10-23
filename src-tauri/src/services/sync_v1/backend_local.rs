@@ -124,6 +124,62 @@ impl SyncBackendImpl for LocalPathBackend {
         }
         Ok(())
     }
+
+    fn put_attachment(&self, hash: &str, bytes: &[u8]) -> Result<(), AppError> {
+        let rel = super::backend::cas_path(hash);
+        let p = self.resolve(&rel);
+        // 幂等：相同 hash 重复上传无副作用（覆盖即可）
+        Self::atomic_write(&p, bytes)
+    }
+
+    fn get_attachment(&self, hash: &str) -> Result<Option<Vec<u8>>, AppError> {
+        let rel = super::backend::cas_path(hash);
+        let p = self.resolve(&rel);
+        if !p.exists() {
+            return Ok(None);
+        }
+        Ok(Some(fs::read(&p)?))
+    }
+
+    fn has_attachment(&self, hash: &str) -> Result<bool, AppError> {
+        let rel = super::backend::cas_path(hash);
+        Ok(self.resolve(&rel).exists())
+    }
+
+    fn list_attachment_hashes(&self) -> Result<Vec<String>, AppError> {
+        let root = self.resolve("attachments");
+        if !root.exists() {
+            return Ok(vec![]);
+        }
+        let mut hashes = Vec::new();
+        for entry in walkdir::WalkDir::new(&root).into_iter().flatten() {
+            if !entry.path().is_file() {
+                continue;
+            }
+            let name = match entry.path().file_name().and_then(|n| n.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+            // 过滤特殊文件（_gc_marks.json 等）
+            if name.starts_with('_') {
+                continue;
+            }
+            hashes.push(name.to_string());
+        }
+        Ok(hashes)
+    }
+
+    fn list_root_files(&self) -> Result<Option<Vec<String>>, AppError> {
+        if !self.root.exists() {
+            return Ok(Some(vec![]));
+        }
+        let names = fs::read_dir(&self.root)?
+            .flatten()
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
+            .collect();
+        Ok(Some(names))
+    }
 }
 
 #[cfg(test)]
@@ -154,7 +210,19 @@ mod tests {
                 remote_path: "notes/1.md".into(),
                 tombstone: false,
                 folder_path: "工作/周报".into(),
+                encrypted: false,
+                is_daily: false,
+                daily_date: None,
+                is_hidden: false,
+                tags: None,
+                note_type: None,
             }],
+            hash_algo: Some(SyncManifestV1::HASH_ALGO_V2.into()),
+            vault: None,
+            attachments: vec![],
+            projects: vec![],
+            tasks: vec![],
+            task_categories: vec![],
         };
         backend.write_manifest(&m).unwrap();
         let got = backend.read_manifest().unwrap().expect("应能读回 manifest");
@@ -173,6 +241,95 @@ mod tests {
         // 删除
         backend.delete_note("notes/1.md").unwrap();
         assert!(backend.get_note("notes/1.md").unwrap().is_none());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// T-S023：附件 CAS 路径布局往返 put/get/has
+    #[test]
+    fn local_backend_attachment_cas_roundtrip() {
+        let dir = std::env::temp_dir().join(format!(
+            "kb-sync-attach-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let backend = LocalPathBackend::new(dir.to_str().unwrap());
+        backend.test_connection().unwrap();
+
+        let hash = "abcd1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab";
+        let bytes: Vec<u8> = vec![1, 2, 3, 4, 0xff];
+
+        // has = false before put
+        assert!(!backend.has_attachment(hash).unwrap());
+        assert!(backend.get_attachment(hash).unwrap().is_none());
+
+        // put then check
+        backend.put_attachment(hash, &bytes).unwrap();
+        assert!(backend.has_attachment(hash).unwrap());
+
+        // CAS 路径形状：attachments/ab/cd/<full hash>
+        let expected_rel = format!("attachments/ab/cd/{}", hash);
+        let abs = dir.join(&expected_rel);
+        assert!(abs.exists(), "应落到 CAS 分桶路径; got = {}", abs.display());
+
+        // get 内容字节级一致
+        let got = backend.get_attachment(hash).unwrap().expect("应能拿到");
+        assert_eq!(got, bytes);
+
+        // 幂等：同 hash 重复 put 不报错
+        backend.put_attachment(hash, &bytes).unwrap();
+        assert_eq!(backend.get_attachment(hash).unwrap().unwrap(), bytes);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// T-S023：cas_path 路径分桶正确性
+    #[test]
+    fn cas_path_layout() {
+        use super::super::backend::cas_path;
+        assert_eq!(
+            cas_path("abcdef1234"),
+            "attachments/ab/cd/abcdef1234"
+        );
+        // 短 hash 防御性兜底
+        assert_eq!(cas_path("xy"), "attachments/_/_/xy");
+        assert_eq!(cas_path(""), "attachments/_/_/");
+    }
+
+    /// T-S030：trait 默认 batch_put_notes 实现（串行调 put_note，本地 backend 没 override）
+    #[test]
+    fn batch_put_notes_default_serial_works() {
+        let dir = std::env::temp_dir().join(format!(
+            "kb-sync-batch-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let backend = LocalPathBackend::new(dir.to_str().unwrap());
+        backend.test_connection().unwrap();
+
+        let items: Vec<(String, String)> = vec![
+            ("notes/a.md".into(), "# A\nbody a".into()),
+            ("notes/b.md".into(), "# B\nbody b".into()),
+            ("notes/c.md".into(), "# C\nbody c".into()),
+        ];
+
+        let results = backend.batch_put_notes(&items, 4);
+        assert_eq!(results.len(), 3, "结果数与入参一一对应");
+        assert!(results.iter().all(|r| r.is_ok()), "全部应成功: {:?}", results);
+
+        // 验证三条都能读回
+        for (path, body) in &items {
+            let got = backend.get_note(path).unwrap().expect("应能读回");
+            assert_eq!(&got, body);
+        }
+
+        // 空数组
+        let empty = backend.batch_put_notes(&[], 4);
+        assert!(empty.is_empty());
 
         let _ = fs::remove_dir_all(&dir);
     }

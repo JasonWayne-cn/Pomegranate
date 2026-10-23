@@ -33,6 +33,7 @@ import {
   Circle,
   Check as IconCheck,
   Bot,
+  FolderKanban,
 } from "lucide-react";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import {
@@ -47,13 +48,15 @@ import { useAppStore } from "@/store";
 import { usePluginTaskViews } from "@/hooks/usePluginTaskViews";
 import type { Task, TaskPriority, TaskCategory } from "@/types";
 
-type ViewMode = "list" | "kanban" | "quadrant" | "calendar" | string;
+type ViewMode = "list" | "kanban" | "quadrant" | "calendar" | "gantt" | string;
 import { CreateTaskModal } from "@/components/tasks/CreateTaskModal";
 import { SubtaskList } from "@/components/tasks/SubtaskList";
 import { TaskDetailModal } from "@/components/tasks/TaskDetailModal";
 import { KanbanView } from "@/components/tasks/KanbanView";
 import { QuadrantView } from "@/components/tasks/QuadrantView";
 import { CalendarView } from "@/components/tasks/CalendarView";
+import { GanttView } from "@/components/tasks/GanttView";
+import { ProjectManageModal } from "@/components/tasks/ProjectManageModal";
 
 const { Text, Paragraph } = Typography;
 
@@ -263,6 +266,7 @@ function DesktopTasksPage() {
   /** 行点击 → 只读详情 Modal（与首页一致）；编辑走 hover Edit / 右键菜单 → setEditing */
   const [detailViewing, setDetailViewing] = useState<Task | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [projectManageOpen, setProjectManageOpen] = useState(false);
   const pluginViews = usePluginTaskViews();
   const [presetPriority, setPresetPriority] = useState<TaskPriority | undefined>(undefined);
   const [presetImportant, setPresetImportant] = useState<boolean | undefined>(undefined);
@@ -368,7 +372,11 @@ function DesktopTasksPage() {
       let statusArg: 0 | 1 | undefined;
       if (viewMode === "calendar") {
         statusArg = undefined;
-      } else if (viewMode === "kanban" || viewMode === "quadrant") {
+      } else if (
+        viewMode === "kanban" ||
+        viewMode === "quadrant" ||
+        viewMode === "gantt"
+      ) {
         statusArg = 0;
       } else {
         statusArg = filter === "todo" ? undefined : filterToStatusArg(filter);
@@ -533,12 +541,20 @@ function DesktopTasksPage() {
               { label: "看板", value: "kanban" },
               { label: "四象限", value: "quadrant" },
               { label: "日历", value: "calendar" },
+              { label: "甘特图", value: "gantt" },
               ...pluginViews.map((pv) => ({
                 label: pv.label,
                 value: `plugin:${pv.pluginId}:${pv.id}`,
               })),
             ]}
           />
+          <Button
+            size="small"
+            icon={<FolderKanban size={14} />}
+            onClick={() => setProjectManageOpen(true)}
+          >
+            项目管理
+          </Button>
           {viewMode === "list" && (
             <Button
               icon={multiSelect ? <IconX size={14} /> : <ListChecks size={14} />}
@@ -619,6 +635,8 @@ function DesktopTasksPage() {
             setCreateOpen(true);
           }}
         />
+      ) : viewMode === "gantt" ? (
+        <GanttView tasks={tasks} onRefresh={loadTasks} onEdit={setEditing} />
       ) : viewMode === "calendar" ? (
         <CalendarView
           tasks={tasks}
@@ -877,6 +895,11 @@ function DesktopTasksPage() {
         </div>
       )}
 
+      <ProjectManageModal
+        open={projectManageOpen}
+        onClose={() => setProjectManageOpen(false)}
+        onChanged={loadTasks}
+      />
       <CreateTaskModal
         open={createOpen}
         presetPriority={presetPriority}

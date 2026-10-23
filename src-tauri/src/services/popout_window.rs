@@ -57,3 +57,79 @@ pub fn open_note(app: &AppHandle, note_id: i64) -> Result<(), AppError> {
 
     Ok(())
 }
+
+/// 思维导图 pop-out 窗口。
+pub fn open_mindmap(app: &AppHandle, note_id: i64) -> Result<(), AppError> {
+    let label = format!("popout-mindmap-{}", note_id);
+
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.unminimize();
+        let _ = existing.show();
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+
+    let url = format!("index.html#/mindmap-popout/{}", note_id);
+
+    log::info!(
+        "[popout] 打开思维导图新窗口: label={} note_id={}",
+        label,
+        note_id
+    );
+
+    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        .title("思维导图")
+        .inner_size(960.0, 720.0)
+        .min_inner_size(480.0, 360.0)
+        .center()
+        .resizable(true)
+        .decorations(true)
+        .focused(true)
+        .visible(true);
+
+    #[cfg(debug_assertions)]
+    let builder = builder.devtools(true);
+
+    builder
+        .build()
+        .map_err(|e| AppError::Custom(format!("思维导图 pop-out 窗口创建失败: {}", e)))?;
+
+    Ok(())
+}
+
+/// 定时推送居中弹窗（KB 2.0）：`push-popup-{log_id}`。
+pub fn open_push_popup(app: &AppHandle, log_id: i64) -> Result<(), AppError> {
+    let label = format!("push-popup-{}", log_id);
+
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.unminimize();
+        let _ = existing.show();
+        let _ = existing.set_always_on_top(true);
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+
+    let url = format!("index.html#/push-popup/{}", log_id);
+
+    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        .title("定时推送")
+        .inner_size(440.0, 300.0)
+        .min_inner_size(360.0, 240.0)
+        .center()
+        .resizable(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(false)
+        .focused(true)
+        .shadow(true)
+        .visible(true);
+
+    #[cfg(debug_assertions)]
+    let builder = builder.devtools(true);
+
+    builder
+        .build()
+        .map_err(|e| AppError::Custom(format!("定时推送弹窗创建失败: {}", e)))?;
+
+    Ok(())
+}

@@ -14,7 +14,7 @@ import {
 import { Tags, NotebookText, Edit3, Trash2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { tagApi } from "@/lib/api";
-import { stripHtml, relativeTime } from "@/lib/utils";
+import { contentToPreview, relativeTime } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { TagColorPicker } from "@/components/TagColorPicker";
 import { useAppStore } from "@/store";
@@ -139,10 +139,8 @@ function DesktopTagsPage() {
   }
 
   return (
-    <div
-      className="max-w-4xl mx-auto"
-      style={{ display: "flex", flexDirection: "column", gap: 16 }}
-    >
+    // 横向留白统一交给 AppLayout Content 的 padding，不再单独限内容宽度
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* 顶部标题 */}
       <div className="flex items-center justify-between">
         <Title level={3} style={{ margin: 0, lineHeight: "32px" }}>
@@ -256,7 +254,7 @@ function DesktopTagsPage() {
                               marginTop: 2,
                             }}
                           >
-                            {stripHtml(note.content).slice(0, 100)}
+                            {contentToPreview(note.content).slice(0, 100)}
                           </Paragraph>
                         ) : null}
                       </div>

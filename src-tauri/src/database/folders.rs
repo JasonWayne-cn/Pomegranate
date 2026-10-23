@@ -5,6 +5,40 @@ use crate::models::Folder;
 
 use super::Database;
 
+/// BFS 收集某文件夹及其所有子孙文件夹 id。
+pub(crate) fn bfs_descendant_ids(
+    conn: &rusqlite::Connection,
+    root_id: i64,
+) -> Result<Vec<i64>, AppError> {
+    let mut all_ids: Vec<i64> = vec![root_id];
+    let mut frontier: Vec<i64> = vec![root_id];
+    while !frontier.is_empty() {
+        let placeholders: String = (1..=frontier.len())
+            .map(|i| format!("?{}", i))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!("SELECT id FROM folders WHERE parent_id IN ({})", placeholders);
+        let mut stmt = conn.prepare(&sql)?;
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = frontier
+            .iter()
+            .map(|x| x as &dyn rusqlite::types::ToSql)
+            .collect();
+        let next: Vec<i64> = stmt
+            .query_map(params_ref.as_slice(), |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if next.is_empty() {
+            break;
+        }
+        all_ids.extend(&next);
+        frontier = next;
+        if all_ids.len() > 5000 {
+            log::warn!("[folders] 子树 ID 超过 5000，root={}，截断防止失控", root_id);
+            break;
+        }
+    }
+    Ok(all_ids)
+}
+
 /// 数据库中的平铺文件夹行
 struct FolderRow {
     id: i64,
@@ -237,6 +271,40 @@ impl Database {
         }
 
         Ok(())
+    }
+
+    /// 删除候选中的空文件夹（无子文件夹且无笔记），返回删除数。
+    pub fn prune_empty_folders(&self, candidate_ids: &[i64]) -> Result<usize, AppError> {
+        if candidate_ids.is_empty() {
+            return Ok(0);
+        }
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let tx = conn.transaction()?;
+        let mut deleted = 0usize;
+        for id in candidate_ids {
+            let has_child: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM folders WHERE parent_id = ?1)",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )? != 0;
+            if has_child {
+                continue;
+            }
+            let has_note: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM notes WHERE folder_id = ?1 AND is_deleted = 0)",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )? != 0;
+            if has_note {
+                continue;
+            }
+            deleted += tx.execute("DELETE FROM folders WHERE id = ?1", params![id])?;
+        }
+        tx.commit()?;
+        Ok(deleted)
     }
 
     /// 获取所有文件夹（平铺查询，含每个文件夹的笔记数），构建为树形结构

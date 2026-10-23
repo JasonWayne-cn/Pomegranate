@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod app_lock;
 pub mod asr;
 pub mod asset_path;
 pub mod cards;
@@ -8,7 +9,13 @@ pub mod config;
 pub mod converter;
 pub mod crypto;
 pub mod daily;
+pub mod daily_import;
 pub mod data_dir;
+pub mod dataset;
+pub mod db_recovery;
+pub mod dataset_detect;
+pub mod dataview;
+pub mod excel_import;
 // 紧急待办全屏窗口仅桌面端（移动端无多窗口概念）
 #[cfg(desktop)]
 pub mod emergency_window;
@@ -18,10 +25,12 @@ pub mod emergency_window;
 pub mod excel_parser;
 pub mod export;
 pub mod export_html;
+pub mod export_merge;
 // Word 导出仅桌面端：docx_rs 在 Android target 编译失败
 #[cfg(desktop)]
 pub mod export_word;
 pub mod folder;
+pub mod folder_watch;
 pub mod hash;
 pub mod hidden_pin;
 pub mod http_client;
@@ -30,15 +39,21 @@ pub mod image_download;
 pub mod import;
 pub mod import_attachments;
 pub mod import_video_attachments;
+pub mod legacy_api_url;
 pub mod links;
+pub mod mac_ocr;
 pub mod markdown;
+pub mod ocr;
 // 外部 MCP server 子进程管理仅桌面端：rmcp transport-child-process 在桌面端 dependencies
 // 移动端 fork/spawn 受限，砍掉外部 MCP，仅保留 in-memory 内置 server（kb-core）
 #[cfg(desktop)]
 pub mod mcp_client;
+pub mod mcp_http;
 pub mod note;
+pub mod note_excerpt;
 pub mod orphan_scan;
 pub mod pdf;
+pub mod plugin;
 pub mod plugin_token;
 pub mod plugin_rate_limit;
 // 插件系统：元数据管理、manifest 校验、安装/卸载
@@ -46,9 +61,12 @@ pub mod plugins;
 // 笔记 pop-out 窗口仅桌面端（移动端改 Modal）
 #[cfg(desktop)]
 pub mod popout_window;
+pub mod project;
 pub mod prompt;
 pub mod provider_registry;
+pub mod push;
 pub mod quick_capture;
+pub mod reminder_sound;
 pub mod safe_filename;
 pub mod search;
 pub mod session_manager;
@@ -57,6 +75,7 @@ pub mod session_plan;
 #[cfg(desktop)]
 pub mod shortcut;
 pub mod skills;
+pub mod snapshot;
 pub mod source_file;
 pub mod source_writeback;
 pub mod sync;
@@ -64,11 +83,15 @@ pub mod sync_scheduler;
 pub mod sync_v1;
 pub mod sync_v1_scheduler;
 pub mod tag;
+pub mod task_attachment;
 pub mod task_reminder;
 pub mod tasks;
 pub mod template;
 pub mod trash;
+pub mod url_safety;
 pub mod vault;
 pub mod video;
 pub mod web_clip;
 pub mod webdav;
+pub mod whiteboard;
+pub mod window_size;

@@ -141,7 +141,7 @@ export function MobileAi() {
           <div className="flex gap-2">
             <button
               onClick={() => {
-                if (defaultModel) setShareEnv(exportAiModel(defaultModel));
+                if (defaultModel) setShareEnv(exportAiModel(defaultModel, null));
                 else message.warning("请先配置一个 AI 模型");
               }}
               aria-label="分享当前模型"

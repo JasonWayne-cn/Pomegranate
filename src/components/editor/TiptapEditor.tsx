@@ -192,6 +192,11 @@ import { EmbedVideo } from "./EmbedVideoNode";
 import { AllowFileLink } from "./AllowFileLink";
 import { Callout } from "./Callout";
 import { Toggle, ToggleSummary, ToggleContent } from "./Toggle";
+import { SearchAndReplace } from "./SearchAndReplace";
+import { SlashCommand } from "./SlashCommand";
+import { DataviewBlock } from "./DataviewBlock";
+import { WhiteboardBlock } from "./WhiteboardBlock";
+import { Columns, Column } from "./Columns";
 import "tippy.js/dist/tippy.css";
 
 const lowlight = createLowlight(common);
@@ -1124,6 +1129,12 @@ export function TiptapEditor({
       Toggle,
       ToggleSummary,
       ToggleContent,
+      DataviewBlock,
+      WhiteboardBlock,
+      Columns,
+      Column,
+      SearchAndReplace,
+      SlashCommand,
       WikiLinkDecoration.configure({
         onClick: (title: string) => wikiClickRef.current?.(title),
       }),

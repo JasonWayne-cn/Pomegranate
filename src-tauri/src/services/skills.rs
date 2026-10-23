@@ -5,7 +5,7 @@
 //!   避免 AI 误删/误改；写入类（创建/删除/移动）放 v2 + 二次确认
 //! - **OpenAI function-calling 兼容**：`tool_schemas()` 返回符合 OpenAI `tools` 字段
 //!   的 JSON，其他厂商（DeepSeek/智谱/Claude 代理）都能复用这套 schema
-//! - **dispatch 集中执行**：`dispatch(db, name, args_json)` 按 skill name 路由到
+//! - **dispatch 集中执行**：`dispatch(db, name, args_json, scope_ids, result_limit)` 按 skill name 路由到
 //!   具体实现；返回的 result 字符串会经由 AI 流式通道回注到模型作为 tool role 消息
 //! - **结果截断**：防 token 爆炸，笔记/列表类返回统一裁剪到 ~2000 字节
 //!
@@ -24,8 +24,26 @@ use crate::state::AppState;
 use rmcp::model::CallToolRequestParams;
 use tauri::{AppHandle, Manager};
 
-/// 结果字符串长度上限（按字符计），超过的部分被截断并用 "…（已截断）" 标记
-const SKILL_RESULT_MAX_CHARS: usize = 2000;
+/// 工具结果的**兜底**字符上限（模型窗口未知时用）。
+///
+/// 曾经这里是写死的 2000 —— 对 `get_note`（读整篇笔记）来说远远不够，
+/// 智能模式下 AI 拿到的永远是开头一小段，然后基于残缺内容作答。
+/// 现在按模型上下文动态算，见 `result_limit_for`。
+const SKILL_RESULT_FALLBACK_CHARS: usize = 4_000;
+
+/// 单次工具返回的字符上限。
+///
+/// 智能模式一轮最多调用若干工具（MAX_TOOL_ROUNDS 轮），结果都要塞回对话，
+/// 所以不能让单个结果吃掉整个窗口 —— 取 max_context 的 15%（× 1.5 CJK 换算）。
+///
+/// 128K 模型 → 约 28K 字符，一篇长笔记也能完整带回；
+/// 8K 小模型 → 兜底 4K 字符，够读一篇普通笔记。
+pub fn result_limit_for(max_context: i64) -> usize {
+    const SHARE: f64 = 0.15;
+    const CHARS_PER_TOKEN_CJK: f64 = 1.5;
+    ((max_context.max(0) as f64) * SHARE * CHARS_PER_TOKEN_CJK).max(SKILL_RESULT_FALLBACK_CHARS as f64)
+        as usize
+}
 
 /// 按 OpenAI tools 格式返回所有可用 skill 的 schema
 ///
@@ -92,6 +110,56 @@ pub fn tool_schemas() -> Vec<Value> {
                 "parameters": { "type": "object", "properties": {} }
             }
         }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "list_datasets",
+                "description": "列出用户已导入的 Excel/CSV 二维表（表名、来源文件、行数、每列的名称与类型）。想对表格做统计（求和/计数/分组/最值）时**必须先调它**拿到 dataset_id 和真实列名，再调 query_dataset。不要凭猜测填列名。",
+                "parameters": { "type": "object", "properties": {} }
+            }
+        }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "query_dataset",
+                "description": "对某张二维表做精确统计。**涉及表格里的加总、计数、分组、最大最小值时一律用它，不要自己看着表格心算** —— 逐行心算容易算错，这里算的是准确值。列名必须来自 list_datasets 的返回。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "dataset_id": { "type": "integer", "description": "来自 list_datasets" },
+                        "metric": {
+                            "type": "string",
+                            "enum": ["rows", "count", "count_distinct", "sum", "avg", "min", "max"],
+                            "description": "rows=数行数(不需要 metric_column)；count=某列非空计数；其余按字面"
+                        },
+                        "metric_column": { "type": "string", "description": "除 rows 外必填；sum/avg 只能用数值列" },
+                        "group_by": { "type": "string", "description": "分组列，如按「区域」分组" },
+                        "filters": {
+                            "type": "array",
+                            "description": "过滤条件，最多 8 个，彼此是 AND 关系",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "column": { "type": "string" },
+                                    "op": {
+                                        "type": "string",
+                                        "enum": ["eq", "ne", "gt", "gte", "lt", "lte",
+                                                 "contains", "starts_with", "ends_with",
+                                                 "in", "is_empty", "is_not_empty"]
+                                    },
+                                    "value": { "description": "op=in 时传数组；is_empty/is_not_empty 不用传" }
+                                },
+                                "required": ["column", "op"]
+                            }
+                        },
+                        "sort_by": { "type": "string", "enum": ["metric", "group"] },
+                        "sort_order": { "type": "string", "enum": ["asc", "desc"] },
+                        "limit": { "type": "integer", "description": "返回几个分组，最多 50" }
+                    },
+                    "required": ["dataset_id", "metric"]
+                }
+            }
+        }),
     ]
 }
 
@@ -103,6 +171,8 @@ pub fn known_skill_names() -> &'static [&'static str] {
         "list_tags",
         "find_related",
         "get_today_tasks",
+        "list_datasets",
+        "query_dataset",
     ]
 }
 
@@ -112,13 +182,25 @@ pub fn known_skill_names() -> &'static [&'static str] {
 ///
 /// 返回 `Err(AppError)` 代表执行失败（DB 错误 / 参数解析失败 / 未知 skill 等），
 /// 调用方（`services::ai`）把错误消息当作 tool result 回注给 AI，让 AI 有机会自我修正。
-pub fn dispatch(db: &Database, name: &str, args_json: &str) -> Result<String, AppError> {
+///
+/// `scope_ids`：文件夹范围会话（"对此文件夹问 AI"）展开后的「文件夹 + 所有子孙」id 列表。
+/// `Some(&[..])` 时，笔记检索/读取类工具只在这些文件夹内作答，范围外硬性拒绝；`None` = 全库。
+pub fn dispatch(
+    db: &Database,
+    name: &str,
+    args_json: &str,
+    scope_ids: Option<&[i64]>,
+    result_limit: usize,
+) -> Result<String, AppError> {
     let result = match name {
-        "search_notes" => run_search_notes(db, args_json)?,
-        "get_note" => run_get_note(db, args_json)?,
+        "search_notes" => run_search_notes(db, args_json, scope_ids)?,
+        "get_note" => run_get_note(db, args_json, scope_ids)?,
         "list_tags" => run_list_tags(db)?,
-        "find_related" => run_find_related(db, args_json)?,
+        "find_related" => run_find_related(db, args_json, scope_ids)?,
         "get_today_tasks" => run_get_today_tasks(db)?,
+        // 数据集是文件级资产（不属于任何文件夹），folder scope 对它没有意义，故不传 scope_ids
+        "list_datasets" => run_list_datasets(db)?,
+        "query_dataset" => run_query_dataset(db, args_json)?,
         other => {
             return Err(AppError::Custom(format!(
                 "未知 skill: {}。可用：{}",
@@ -127,26 +209,91 @@ pub fn dispatch(db: &Database, name: &str, args_json: &str) -> Result<String, Ap
             )));
         }
     };
-    Ok(truncate(&result, SKILL_RESULT_MAX_CHARS))
+    Ok(truncate(&result, result_limit))
 }
 
-// ─── MCP 集成（M5-3）：把所有 enabled 外部 MCP server 的工具注入到 ai 对话 ─
+// ─── MCP 集成：把内置 kb-core 工具 + 外部 MCP server 的工具注入到 ai 对话 ─
 
-/// MCP 工具命名前缀。完整工具名 = `mcp__<server_id>__<tool_name>`。
+/// 外部 MCP 子进程工具命名前缀。完整工具名 = `mcp__<server_id>__<tool_name>`。
 /// 用 server_id 而非 name 是因为 OpenAI tool name 规范严格（`^[a-zA-Z0-9_-]{1,64}$`），
 /// server name 可能含中文/空格，避免做 sanitize 转换。
 const MCP_TOOL_PREFIX: &str = "mcp__";
 
-/// 按 OpenAI tools 格式返回所有可用工具：内置 5 skills + 所有 enabled 外部 MCP 工具
+/// 内置 kb-core 工具命名前缀。完整工具名 = `kb__<tool_name>`。
+/// 加前缀是为了：
+///   1) 与 5 个高层 skills（search_notes 等）做名字隔离，避免重名
+///   2) dispatch 时一眼能看出走 in-memory MCP 路径而不是 5 skills 的 db 直连
+const KB_TOOL_PREFIX: &str = "kb__";
+
+/// 外部 MCP server 是不是「指向本库的 kb-mcp」—— 即用户把设置页给的 kb-mcp 片段
+/// 又注册回了自家应用。
+///
+/// 这种注册对 AI 问答是纯负收益：内置 `kb__*` 已覆盖同一套工具且带写权限，
+/// 外部这份多半没加 `--writable`，模型看到两套同名工具会随机挑，挑中只读那份就写失败
+/// （用户反馈「偶尔存不进笔记」的根因）。判定要求 exe 名以 `kb-mcp` 开头 **且**
+/// `--db-path` 指向本应用当前的库 —— 用 kb-mcp 挂别的库是正当用法，不能误伤。
+#[cfg(desktop)]
+fn is_self_kb_mcp(server: &crate::models::McpServer, own_db: &std::path::Path) -> bool {
+    let stem = std::path::Path::new(server.command.trim_matches('"'))
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if !stem.starts_with("kb-mcp") {
+        return false;
+    }
+    let mut db_arg: Option<&str> = None;
+    let mut iter = server.args.iter();
+    while let Some(a) = iter.next() {
+        if let Some(v) = a.strip_prefix("--db-path=") {
+            db_arg = Some(v);
+        } else if a == "--db-path" {
+            db_arg = iter.next().map(String::as_str);
+        }
+    }
+    let Some(db_arg) = db_arg else {
+        return false;
+    };
+    same_path(std::path::Path::new(db_arg.trim_matches('"')), own_db)
+}
+
+/// 路径相等：优先 canonicalize（能消掉 `.` / 符号链接 / 大小写差异），
+/// 文件暂时不可访问时退回到"统一分隔符 + 忽略大小写"的字符串比较（Windows 路径不区分大小写）。
+#[cfg(desktop)]
+fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
+    if let (Ok(ca), Ok(cb)) = (a.canonicalize(), b.canonicalize()) {
+        return ca == cb;
+    }
+    let norm = |p: &std::path::Path| {
+        let s = p.to_string_lossy().replace('\\', "/");
+        if cfg!(windows) {
+            s.to_lowercase()
+        } else {
+            s
+        }
+    };
+    norm(a) == norm(b)
+}
+
+/// 本应用当前使用的 SQLite 路径（与 commands::mcp 拼 sidecar 片段时同一口径）
+#[cfg(desktop)]
+fn own_db_path(state: &AppState) -> std::path::PathBuf {
+    let prefix = if cfg!(debug_assertions) { "dev-" } else { "" };
+    state.data_dir.join(format!("{}app.db", prefix))
+}
+
+/// 按 OpenAI tools 格式返回所有可用工具：
+///   - 5 个高层内置 skills（直接 db 调用，最快）
+///   - 内置 kb-core 工具（in-memory MCP，前缀 `kb__`，含全部写工具）
+///   - 所有 enabled 外部 MCP server 的工具（仅桌面端，前缀 `mcp__<id>__`）
+///
+/// 写工具拦截在 dispatch 入口做，list 阶段全量暴露 schema —— 模型能"看到"自己有能力，
+/// 关掉「AI 写权限」开关时调用才会被拒；这样模型才会主动尝试写操作并把拦截信息反馈给用户。
 ///
 /// 失败的 server（spawn 失败 / 握手失败 / list_tools 失败）只 log warn，
 /// 不阻塞 ai 对话流；用户在设置页应该会看到 server 状态。
-/// 桌面端：内置 5 + 外部 MCP；移动端：仅内置 5（没有外部 MCP server 子进程能力）
-#[cfg(desktop)]
 pub async fn tool_schemas_with_mcp(app: &AppHandle) -> Vec<Value> {
-    let mut schemas = tool_schemas(); // 原 5 个内置 skills
+    let mut schemas = tool_schemas(); // 5 个高层内置 skills
 
-    // 取 AppState（chat_stream_with_skills 已经持有 AppHandle）
     let state = match app.try_state::<AppState>() {
         Some(s) => s,
         None => {
@@ -155,86 +302,144 @@ pub async fn tool_schemas_with_mcp(app: &AppHandle) -> Vec<Value> {
         }
     };
 
-    // 列所有 enabled 外部 MCP server
-    let servers = match state.db.list_mcp_servers() {
-        Ok(list) => list.into_iter().filter(|s| s.enabled).collect::<Vec<_>>(),
-        Err(e) => {
-            log::warn!("[ai-mcp] list_mcp_servers 失败: {e}");
-            return schemas;
-        }
-    };
-
-    for server in servers {
-        let client = match state.mcp_external.get_or_spawn(&server).await {
-            Ok(c) => c,
-            Err(e) => {
-                log::warn!(
-                    "[ai-mcp] spawn server '{}' (id={}) 失败: {}; skip",
-                    server.name,
-                    server.id,
-                    e
-                );
-                continue;
-            }
-        };
-        let tools = match client.list_all_tools().await {
-            Ok(t) => t,
-            Err(e) => {
-                log::warn!(
-                    "[ai-mcp] list_tools '{}' (id={}) 失败: {}; skip",
-                    server.name,
-                    server.id,
-                    e
-                );
-                continue;
-            }
-        };
-
-        for t in tools {
-            let prefixed_name = format!("{}{}__{}", MCP_TOOL_PREFIX, server.id, t.name.as_ref());
-            // OpenAI tool name 规范：64 字符 + 限定字符。截断保险一下
-            let safe_name = if prefixed_name.len() > 64 {
-                prefixed_name.chars().take(64).collect::<String>()
-            } else {
-                prefixed_name
-            };
-            let desc = format!(
-                "[MCP/{}] {}",
-                server.name,
-                t.description.as_deref().unwrap_or("(无说明)")
-            );
-            schemas.push(json!({
-                "type": "function",
-                "function": {
-                    "name": safe_name,
-                    "description": desc,
-                    "parameters": *t.input_schema,
+    // ─── 内置 kb-core 工具（桌面 + 移动都暴露） ─────────
+    // 5 个高层 skills 已有的名字直接跳过（search_notes / get_note / list_tags 等），
+    // 避免 LLM 看到两套近似工具时来回纠结
+    if let Some(client) = state.mcp_internal.as_ref().cloned() {
+        match client.list_all_tools().await {
+            Ok(tools) => {
+                let builtin_names: std::collections::HashSet<&str> =
+                    known_skill_names().iter().copied().collect();
+                for t in tools {
+                    let raw_name: &str = t.name.as_ref();
+                    if builtin_names.contains(raw_name) {
+                        continue;
+                    }
+                    let prefixed_name = format!("{}{}", KB_TOOL_PREFIX, raw_name);
+                    let safe_name = if prefixed_name.len() > 64 {
+                        prefixed_name.chars().take(64).collect::<String>()
+                    } else {
+                        prefixed_name
+                    };
+                    let desc = t
+                        .description
+                        .as_deref()
+                        .unwrap_or("(无说明)")
+                        .to_string();
+                    schemas.push(json!({
+                        "type": "function",
+                        "function": {
+                            "name": safe_name,
+                            "description": desc,
+                            "parameters": *t.input_schema,
+                        }
+                    }));
                 }
-            }));
+            }
+            Err(e) => {
+                log::warn!("[ai-mcp] list kb-core tools 失败: {e}; skip kb__* schemas");
+            }
+        }
+    } else {
+        log::warn!("[ai-mcp] state.mcp_internal 未就绪，跳过 kb__* schemas");
+    }
+
+    // ─── 外部 MCP server 工具（仅桌面端） ─────────
+    #[cfg(desktop)]
+    {
+        let servers = match state.db.list_mcp_servers() {
+            Ok(list) => list.into_iter().filter(|s| s.enabled).collect::<Vec<_>>(),
+            Err(e) => {
+                log::warn!("[ai-mcp] list_mcp_servers 失败: {e}");
+                return schemas;
+            }
+        };
+
+        let own_db = own_db_path(&state);
+        for server in servers {
+            if is_self_kb_mcp(&server, &own_db) {
+                log::info!(
+                    "[ai-mcp] server '{}' (id={}) 是指向本库的 kb-mcp，与内置 kb__* 工具重复，跳过",
+                    server.name,
+                    server.id
+                );
+                continue;
+            }
+            let client = match state.mcp_external.get_or_spawn(&server).await {
+                Ok(c) => c,
+                Err(e) => {
+                    log::warn!(
+                        "[ai-mcp] spawn server '{}' (id={}) 失败: {}; skip",
+                        server.name,
+                        server.id,
+                        e
+                    );
+                    continue;
+                }
+            };
+            let tools = match client.list_all_tools().await {
+                Ok(t) => t,
+                Err(e) => {
+                    log::warn!(
+                        "[ai-mcp] list_tools '{}' (id={}) 失败: {}; skip",
+                        server.name,
+                        server.id,
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            for t in tools {
+                let prefixed_name =
+                    format!("{}{}__{}", MCP_TOOL_PREFIX, server.id, t.name.as_ref());
+                // OpenAI tool name 规范：64 字符 + 限定字符。截断保险一下
+                let safe_name = if prefixed_name.len() > 64 {
+                    prefixed_name.chars().take(64).collect::<String>()
+                } else {
+                    prefixed_name
+                };
+                let desc = format!(
+                    "[MCP/{}] {}",
+                    server.name,
+                    t.description.as_deref().unwrap_or("(无说明)")
+                );
+                schemas.push(json!({
+                    "type": "function",
+                    "function": {
+                        "name": safe_name,
+                        "description": desc,
+                        "parameters": *t.input_schema,
+                    }
+                }));
+            }
         }
     }
 
     schemas
 }
 
-/// 移动端：仅返回内置 5 skills（无外部 MCP server）
-#[cfg(mobile)]
-pub async fn tool_schemas_with_mcp(_app: &AppHandle) -> Vec<Value> {
-    tool_schemas()
-}
-
 /// dispatch 增强版：按工具名前缀路由
-/// - `mcp__<id>__<name>` 走 mcp_external client（仅桌面端）
-/// - 其他名字走原 dispatch（5 个内置 skills）
+/// - `kb__<name>` 走 in-memory MCP client（kb-core 工具，桌面+移动都支持）
+/// - `mcp__<id>__<name>` 走 mcp_external client（外部 MCP 子进程，仅桌面端）
+/// - 其他名字走原 dispatch（5 个高层内置 skills）
 pub async fn dispatch_with_mcp(
     app: &AppHandle,
     db: &Database,
     name: &str,
     args_json: &str,
+    scope_ids: Option<&[i64]>,
+    result_limit: usize,
 ) -> Result<String, AppError> {
+    // kb__ 前缀（内置 kb-core 工具）—— 写权限在 dispatch_kb_internal 里拦截；
+    // 文件夹范围会话下，kb-core 返回的笔记类结果在 dispatch_kb_internal 里按 scope 硬过滤
+    if let Some(suffix) = name.strip_prefix(KB_TOOL_PREFIX) {
+        return dispatch_kb_internal(app, suffix, args_json, scope_ids, result_limit).await;
+    }
+
+    // mcp__<id>__<name> 前缀（外部 MCP 子进程）—— 仅桌面端
     #[cfg(desktop)]
     if let Some(suffix) = name.strip_prefix(MCP_TOOL_PREFIX) {
-        // 拆 <id>__<tool>
         let (id_str, tool_name) = suffix.split_once("__").ok_or_else(|| {
             AppError::Custom(format!(
                 "MCP 工具名格式错误: {}（应为 mcp__<id>__<name>）",
@@ -244,49 +449,75 @@ pub async fn dispatch_with_mcp(
         let server_id: i64 = id_str
             .parse()
             .map_err(|_| AppError::Custom(format!("MCP 工具 server_id 解析失败: {}", id_str)))?;
-        return dispatch_mcp(app, server_id, tool_name, args_json).await;
+        return dispatch_mcp(app, server_id, tool_name, args_json, result_limit).await;
     }
     #[cfg(mobile)]
-    let _ = app; // 移动端避免未使用警告
-    // 原 5 个内置 skills 走 sync 版
-    // 移动端：mcp__ 前缀的工具名也直接交给 dispatch（会返回 unknown tool 错误）
-    dispatch(db, name, args_json)
+    let _ = app; // 移动端避免未使用警告（仅当也不走 kb__ 分支时）
+
+    // 5 个高层内置 skills（无前缀）
+    dispatch(db, name, args_json, scope_ids, result_limit)
 }
 
-#[cfg(desktop)]
-async fn dispatch_mcp(
+/// 把模型给的 tool call 参数解析成 rmcp 要的 JSON object（空串 / null = 无参数）。
+///
+/// 解析失败必须如实报错：以前这里 `unwrap_or(Null)` 静默吞掉，长正文（代码块、反斜杠多）
+/// 的 JSON 一旦没转义好，就变成"不带参数调工具"，服务端只回一句 `missing field title`，
+/// 模型完全不知道是自己的 JSON 坏了，只会原样重试到轮数耗尽。
+fn parse_tool_args(args_json: &str) -> Result<Option<serde_json::Map<String, Value>>, AppError> {
+    if args_json.trim().is_empty() {
+        return Ok(None);
+    }
+    match serde_json::from_str::<Value>(args_json) {
+        Ok(Value::Object(m)) => Ok(Some(m)),
+        Ok(Value::Null) => Ok(None),
+        Ok(other) => Err(AppError::Custom(format!(
+            "工具参数应为 JSON object，收到的是 {}",
+            match other {
+                Value::Array(_) => "数组",
+                Value::String(_) => "字符串",
+                Value::Number(_) => "数字",
+                _ => "布尔值",
+            }
+        ))),
+        Err(e) => Err(AppError::Custom(format!(
+            "工具参数不是合法 JSON（{e}，参数共 {} 字符）。\
+             常见原因：正文里的双引号、反斜杠、换行没有转义，或参数太长被截断。\
+             请修正转义后重新调用。",
+            args_json.chars().count()
+        ))),
+    }
+}
+
+/// 走 in-memory MCP client 调用 kb-core 工具，写工具走相同拦截门
+async fn dispatch_kb_internal(
     app: &AppHandle,
-    server_id: i64,
     tool_name: &str,
     args_json: &str,
+    scope_ids: Option<&[i64]>,
+    result_limit: usize,
 ) -> Result<String, AppError> {
     let state = app
         .try_state::<AppState>()
         .ok_or_else(|| AppError::Custom("AppState 未就绪".into()))?;
 
-    let server = state
-        .db
-        .get_mcp_server(server_id)?
-        .ok_or_else(|| AppError::Custom(format!("MCP server {} 不存在", server_id)))?;
+    // 写工具拦截：与 commands::mcp::mcp_internal_call_tool 共享同一份名单 + 同一份开关
+    // —— AI 对话路径绕过了那个 Command，所以在这儿要单独再拦一次
+    if crate::commands::mcp::is_kb_write_tool(tool_name)
+        && !crate::commands::mcp::read_ai_writable(&state)
+    {
+        return Err(AppError::Custom(format!(
+            "AI 写权限已关闭。要让 AI 修改你的知识库，请到 设置 → MCP 服务器 \
+             或 AI 问答页顶部 打开「AI 写权限」开关。被拦截的工具：{tool_name}"
+        )));
+    }
 
     let client = state
-        .mcp_external
-        .get_or_spawn(&server)
-        .await
-        .map_err(|e| AppError::Custom(format!("spawn MCP server 失败: {e}")))?;
+        .mcp_internal
+        .as_ref()
+        .ok_or_else(|| AppError::Custom("in-memory MCP server 未就绪".into()))?
+        .clone();
 
-    // 解析 args_json 为 JsonObject（rmcp call_tool 要求 Map<String, Value>）
-    let args_value: Value = serde_json::from_str(args_json).unwrap_or(Value::Null);
-    let args_object = match args_value {
-        Value::Object(m) => Some(m),
-        Value::Null => None,
-        other => {
-            return Err(AppError::Custom(format!(
-                "MCP 工具参数应为 JSON object，收到: {}",
-                other
-            )));
-        }
-    };
+    let args_object = parse_tool_args(args_json)?;
 
     let mut req = CallToolRequestParams::new(tool_name.to_string());
     if let Some(obj) = args_object {
@@ -307,7 +538,111 @@ async fn dispatch_mcp(
     if result.is_error.unwrap_or(false) {
         return Err(AppError::Custom(format!("MCP 工具返回错误: {out}")));
     }
-    Ok(truncate(&out, SKILL_RESULT_MAX_CHARS))
+    // 文件夹范围会话：对 kb-core 返回的笔记类结果按 scope 硬过滤（范围外的笔记剔除）
+    let out = match scope_ids {
+        Some(scope) => filter_kb_result_by_scope(&out, scope),
+        None => out,
+    };
+    Ok(truncate(&out, result_limit))
+}
+
+/// 文件夹范围会话下，对内置 kb-core 工具返回的 JSON 结果做"硬过滤"。
+///
+/// 规则（只针对"笔记"类结果，不误伤标签/文件夹/任务/模板等非笔记结果）：
+/// - 结果是数组：逐个元素判断——对象若含 `folder_id` 字段，folder_id 必须 ∈ scope 才保留
+///   （`null` 即未分类笔记，不属于任何具体文件夹子树，剔除）；不含 `folder_id` 字段的对象
+///   （TagInfo / FolderInfo / TaskRow 等）一律保留；非对象元素保留。
+/// - 结果是单对象（如 get_note 的 NoteDetail）：含 `folder_id` 且越界 → 替换为越界提示。
+/// - 非 JSON（纯文本）或其它形状：原样返回。
+///
+/// 已知小缺口：get_backlinks（BacklinkRef 无 folder_id）/ list_trash（回收站项无 folder_id）
+/// 这类不含 folder_id 的笔记类结果无法在此层过滤，保持原样；高层 find_related 已单独按 scope 过滤。
+fn filter_kb_result_by_scope(raw: &str, scope_ids: &[i64]) -> String {
+    let parsed: Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return raw.to_string(),
+    };
+    // 对象是否命中范围：有 folder_id 字段且为范围内数字才算命中
+    let obj_in_scope = |obj: &Value| -> bool {
+        match obj.get("folder_id") {
+            Some(Value::Number(n)) => n.as_i64().map_or(false, |f| scope_ids.contains(&f)),
+            Some(_) => false, // null 或异常类型：未分类/越界，剔除
+            None => true,     // 非笔记类结果（无 folder_id 字段），保留
+        }
+    };
+    match parsed {
+        Value::Array(items) => {
+            let kept: Vec<Value> = items
+                .into_iter()
+                .filter(|it| !it.is_object() || obj_in_scope(it))
+                .collect();
+            serde_json::to_string(&kept).unwrap_or_else(|_| "[]".to_string())
+        }
+        Value::Object(ref map) => {
+            if map.contains_key("folder_id") && !obj_in_scope(&parsed) {
+                json!({ "error": "该笔记不在当前对话限定的文件夹范围内，无法访问。" }).to_string()
+            } else {
+                raw.to_string()
+            }
+        }
+        _ => raw.to_string(),
+    }
+}
+
+#[cfg(desktop)]
+async fn dispatch_mcp(
+    app: &AppHandle,
+    server_id: i64,
+    tool_name: &str,
+    args_json: &str,
+    result_limit: usize,
+) -> Result<String, AppError> {
+    let state = app
+        .try_state::<AppState>()
+        .ok_or_else(|| AppError::Custom("AppState 未就绪".into()))?;
+
+    let server = state
+        .db
+        .get_mcp_server(server_id)?
+        .ok_or_else(|| AppError::Custom(format!("MCP server {} 不存在", server_id)))?;
+
+    // 列表阶段已经过滤掉了，这里兜的是历史对话里残留的旧工具名：
+    // 不去调那个多半只读的子进程，直接把模型指到内置工具
+    if is_self_kb_mcp(&server, &own_db_path(&state)) {
+        return Err(AppError::Custom(format!(
+            "「{}」是对本知识库的重复注册，已停用。请改用内置工具 {KB_TOOL_PREFIX}{tool_name}（参数相同）。",
+            server.name
+        )));
+    }
+
+    let client = state
+        .mcp_external
+        .get_or_spawn(&server)
+        .await
+        .map_err(|e| AppError::Custom(format!("spawn MCP server 失败: {e}")))?;
+
+    let args_object = parse_tool_args(args_json)?;
+
+    let mut req = CallToolRequestParams::new(tool_name.to_string());
+    if let Some(obj) = args_object {
+        req = req.with_arguments(obj);
+    }
+
+    let result = client
+        .call_tool(req)
+        .await
+        .map_err(|e| AppError::Custom(format!("call_tool({tool_name}) 失败: {e}")))?;
+
+    let mut out = String::new();
+    for c in &result.content {
+        if let Some(text) = c.as_text() {
+            out.push_str(&text.text);
+        }
+    }
+    if result.is_error.unwrap_or(false) {
+        return Err(AppError::Custom(format!("MCP 工具返回错误: {out}")));
+    }
+    Ok(truncate(&out, result_limit))
 }
 
 // ─── 各 skill 实现 ────────────────────────────
@@ -319,10 +654,16 @@ struct SearchNotesArgs {
     limit: Option<u32>,
 }
 
-fn run_search_notes(db: &Database, args: &str) -> Result<String, AppError> {
+fn run_search_notes(
+    db: &Database,
+    args: &str,
+    scope_ids: Option<&[i64]>,
+) -> Result<String, AppError> {
     let a: SearchNotesArgs = serde_json::from_str(args)
         .map_err(|e| AppError::Custom(format!("search_notes 参数非法: {}", e)))?;
     let limit = a.limit.unwrap_or(5).clamp(1, 20) as usize;
+    // 文件夹范围会话：scope_ids 限定只在该文件夹（含子孙）内检索；None = 全库。
+    let _ = scope_ids;
     let notes = db.search_notes_for_rag(&a.query, limit)?;
     if notes.is_empty() {
         return Ok("未找到相关笔记".to_string());
@@ -343,12 +684,26 @@ struct GetNoteArgs {
     id: i64,
 }
 
-fn run_get_note(db: &Database, args: &str) -> Result<String, AppError> {
+fn run_get_note(
+    db: &Database,
+    args: &str,
+    scope_ids: Option<&[i64]>,
+) -> Result<String, AppError> {
     let a: GetNoteArgs = serde_json::from_str(args)
         .map_err(|e| AppError::Custom(format!("get_note 参数非法: {}", e)))?;
     let note = db
         .get_note(a.id)?
         .ok_or_else(|| AppError::Custom(format!("笔记 #{} 不存在", a.id)))?;
+    // 文件夹范围会话：拒绝读取范围外的笔记（即使模型猜到了 id）。
+    if let Some(scope) = scope_ids {
+        let in_scope = note.folder_id.map_or(false, |f| scope.contains(&f));
+        if !in_scope {
+            return Err(AppError::Custom(format!(
+                "笔记 #{} 不在当前对话限定的文件夹范围内，无法读取。",
+                a.id
+            )));
+        }
+    }
     // content 是 markdown，直接回给 AI；截断在 dispatch 尾部统一做
     Ok(serde_json::to_string(&json!({
         "id": note.id,
@@ -358,6 +713,60 @@ fn run_get_note(db: &Database, args: &str) -> Result<String, AppError> {
         "updated_at": note.updated_at,
     }))
     .unwrap_or_else(|_| "{}".to_string()))
+}
+
+/// 目录卡：告诉模型"有哪些表、每张表有哪些列"。
+///
+/// **只给卡片不给行**。一张几千行的表整个塞进上下文既撑爆窗口，
+/// 又把模型推回"逐行心算"的老路 —— 而那正是 `query_dataset` 要消灭的东西。
+fn run_list_datasets(db: &Database) -> Result<String, AppError> {
+    let schemas = db.list_all_dataset_schemas(50)?;
+    if schemas.is_empty() {
+        // 说清"怎么才会有"，否则模型只会回一句"没有数据集"，用户不知道下一步该干嘛
+        return Ok("当前没有已导入的二维表。用户需要先在笔记里打开一个 Excel/CSV 附件、切到「数据集」标签页，表格才会入库。"
+            .to_string());
+    }
+    let arr: Vec<Value> = schemas
+        .into_iter()
+        .map(|s| {
+            let file = s
+                .dataset
+                .source_path
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(&s.dataset.source_path)
+                .to_string();
+            json!({
+                "dataset_id": s.dataset.id,
+                "file": file,
+                "sheet": s.dataset.sheet_name,
+                "row_count": s.dataset.row_count,
+                "columns": s.fields.iter().map(|f| json!({
+                    "name": f.name,
+                    "type": f.inferred_type,
+                    "role": f.semantic_role,
+                    // 完整度不满时模型该在结论里提一句"有缺失值"，而不是当成全量算
+                    "completeness": f.completeness,
+                    "distinct_count": f.distinct_count,
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    Ok(serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string()))
+}
+
+/// 执行查询计划。
+///
+/// 反序列化失败（字段拼错 / 算子不在白名单 / 多了个幻想出来的字段）会带着
+/// serde 的具体报错回灌给模型 —— 它据此自纠的成功率，比只回一句"参数非法"高得多。
+fn run_query_dataset(db: &Database, args: &str) -> Result<String, AppError> {
+    let plan: crate::models::DatasetQueryPlan = serde_json::from_str(args).map_err(|e| {
+        AppError::InvalidInput(format!(
+            "query_dataset 参数非法: {e}。可用 metric: rows/count/count_distinct/sum/avg/min/max；可用 op: eq/ne/gt/gte/lt/lte/contains/starts_with/ends_with/in/is_empty/is_not_empty"
+        ))
+    })?;
+    let result = db.execute_dataset_query(&plan)?;
+    Ok(serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string()))
 }
 
 fn run_list_tags(db: &Database) -> Result<String, AppError> {
@@ -374,10 +783,30 @@ struct FindRelatedArgs {
     note_id: i64,
 }
 
-fn run_find_related(db: &Database, args: &str) -> Result<String, AppError> {
+fn run_find_related(
+    db: &Database,
+    args: &str,
+    scope_ids: Option<&[i64]>,
+) -> Result<String, AppError> {
     let a: FindRelatedArgs = serde_json::from_str(args)
         .map_err(|e| AppError::Custom(format!("find_related 参数非法: {}", e)))?;
     let links = db.get_backlinks(a.note_id)?;
+    // 文件夹范围会话：只保留来源笔记在范围内的反链（BacklinkRef 自身无 folder_id，按 source_id 批量查）。
+    let links = match scope_ids {
+        Some(scope) => {
+            let ids: Vec<i64> = links.iter().map(|l| l.source_id).collect();
+            let fmap = db.note_folder_map(&ids)?;
+            links
+                .into_iter()
+                .filter(|l| {
+                    fmap.get(&l.source_id)
+                        .and_then(|f| *f)
+                        .map_or(false, |f| scope.contains(&f))
+                })
+                .collect::<Vec<_>>()
+        }
+        None => links,
+    };
     if links.is_empty() {
         return Ok(r#"{"backlinks":[]}"#.to_string());
     }
@@ -459,7 +888,130 @@ fn summarize_content(content: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// （取代了原先只查单向的 `tool_schemas_contain_all_known_skills`）
+    ///
+    /// 三处名字必须一致：`tool_schemas()` 广告的、`known_skill_names()` 放行的、
+    /// `dispatch()` 能路由的。任一处漏了，模型都会调一个"看得见却用不了"的工具，
+    /// 然后拿着报错反复重试 —— 这类漂移在加新工具时最容易发生。
+    #[test]
+    fn advertised_tools_match_whitelist() {
+        let advertised: Vec<String> = tool_schemas()
+            .iter()
+            .filter_map(|v| v["function"]["name"].as_str().map(|s| s.to_string()))
+            .collect();
+        let known: Vec<String> = known_skill_names().iter().map(|s| s.to_string()).collect();
+
+        for name in &advertised {
+            assert!(known.contains(name), "{name} 有 schema 但不在 known_skill_names");
+        }
+        for name in &known {
+            assert!(advertised.contains(name), "{name} 在白名单但没有 schema，模型看不见");
+        }
+    }
+
+    /// 白名单里的每个名字都要能被 dispatch 路由到（而不是掉进"未知 skill"分支）。
+    /// 用空参数调，只要错误不是"未知 skill"就说明路由通了。
+    #[test]
+    fn every_known_tool_is_routable() {
+        let dir = std::env::temp_dir().join(format!("kb_skills_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Database::init(dir.join("t.db").to_str().unwrap()).unwrap();
+
+        for name in known_skill_names() {
+            let err = dispatch(&db, name, "{}", None, 1000)
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            assert!(
+                !err.contains("未知 skill"),
+                "{name} 没接进 dispatch 的 match"
+            );
+        }
+    }
     use super::*;
+
+    #[test]
+    fn parse_tool_args_surfaces_bad_json() {
+        assert!(parse_tool_args("").unwrap().is_none());
+        assert!(parse_tool_args("null").unwrap().is_none());
+        assert_eq!(
+            parse_tool_args(r#"{"title":"t"}"#).unwrap().unwrap()["title"],
+            "t"
+        );
+        // 回归：以前坏 JSON 被吞成"无参数"，模型只看到 missing field
+        let err = parse_tool_args(r#"{"title":"t","content":"未转义的 " 引号"}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("不是合法 JSON"), "{err}");
+        assert!(parse_tool_args("[1,2]").is_err());
+    }
+
+    #[cfg(desktop)]
+    fn mcp_server(command: &str, args: &[&str]) -> crate::models::McpServer {
+        crate::models::McpServer {
+            id: 1,
+            name: "kb".into(),
+            transport: "stdio".into(),
+            command: command.into(),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            env: Default::default(),
+            enabled: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[cfg(desktop)]
+    #[test]
+    fn self_kb_mcp_detected_only_for_own_db() {
+        let own = std::path::Path::new(r"C:\Users\x\AppData\Roaming\com.agilefr.kb\app.db");
+        let sidecar = r"C:\Program Files\kb\kb-mcp-x86_64-pc-windows-msvc.exe";
+        // 指向本库：分隔符 / 大小写不同、--db-path=X 写法都算
+        assert!(is_self_kb_mcp(
+            &mcp_server(sidecar, &["--db-path", r"C:\Users\x\AppData\Roaming\com.agilefr.kb\app.db"]),
+            own
+        ));
+        if cfg!(windows) {
+            assert!(is_self_kb_mcp(
+                &mcp_server(sidecar, &["--db-path=c:/users/x/appdata/roaming/com.agilefr.kb/app.db", "--writable"]),
+                own
+            ));
+        }
+        // 挂别的库是正当用法
+        assert!(!is_self_kb_mcp(&mcp_server(sidecar, &["--db-path", r"D:\other\app.db"]), own));
+        // 不是 kb-mcp
+        assert!(!is_self_kb_mcp(
+            &mcp_server("npx", &["--db-path", r"C:\Users\x\AppData\Roaming\com.agilefr.kb\app.db"]),
+            own
+        ));
+        // 没给 --db-path 无法判断，不跳过
+        assert!(!is_self_kb_mcp(&mcp_server(sidecar, &[]), own));
+    }
+
+    #[test]
+    fn result_limit_scales_with_model_context() {
+        // 128K 模型：0.15 × 1.5 ≈ 28800 字符，一篇长笔记也能完整带回
+        assert_eq!(result_limit_for(128_000), 28_800);
+        // 小窗口模型不至于算出个几百字符 —— 兜底 4000，够读一篇普通笔记
+        assert_eq!(result_limit_for(8_000), SKILL_RESULT_FALLBACK_CHARS);
+        // 非法输入不 panic
+        assert_eq!(result_limit_for(0), SKILL_RESULT_FALLBACK_CHARS);
+        assert_eq!(result_limit_for(-1), SKILL_RESULT_FALLBACK_CHARS);
+    }
+
+    /// 单次工具返回不能吃掉整个窗口 —— 智能模式一轮要调多个工具，结果都得塞回对话
+    #[test]
+    fn result_limit_leaves_room_for_multiple_tool_calls() {
+        for ctx in [32_000, 128_000, 200_000, 1_000_000] {
+            let limit = result_limit_for(ctx);
+            let window_chars = ((ctx as f64) * 1.5) as usize;
+            assert!(
+                limit * 4 <= window_chars,
+                "max_context={ctx}：单次上限 {limit} 太大，4 次调用就撑爆 {window_chars}"
+            );
+        }
+    }
 
     #[test]
     fn truncate_preserves_short_strings() {
@@ -480,14 +1032,41 @@ mod tests {
     }
 
     #[test]
-    fn tool_schemas_contain_all_known_skills() {
-        let schemas = tool_schemas();
-        let names: Vec<String> = schemas
-            .iter()
-            .filter_map(|v| v["function"]["name"].as_str().map(String::from))
-            .collect();
-        for &k in known_skill_names() {
-            assert!(names.contains(&k.to_string()), "missing schema for {}", k);
-        }
+    fn scope_filter_array_drops_out_of_folder_notes() {
+        // 笔记数组：folder_id ∈ scope 保留；越界 / null（未分类）剔除
+        let raw = r#"[
+            {"id":1,"title":"in","folder_id":10},
+            {"id":2,"title":"out","folder_id":99},
+            {"id":3,"title":"uncat","folder_id":null}
+        ]"#;
+        let out = filter_kb_result_by_scope(raw, &[10, 11]);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["id"], 1);
     }
+
+    #[test]
+    fn scope_filter_keeps_non_note_results() {
+        // 标签 / 文件夹等无 folder_id 字段的结果不被误伤
+        let raw = r#"[{"id":1,"name":"标签A","note_count":3}]"#;
+        let out = filter_kb_result_by_scope(raw, &[10]);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn scope_filter_single_note_out_of_scope_becomes_error() {
+        let raw = r#"{"id":5,"title":"x","content":"...","folder_id":99}"#;
+        let out = filter_kb_result_by_scope(raw, &[10]);
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert!(v.get("error").is_some());
+    }
+
+    #[test]
+    fn scope_filter_passthrough_non_json() {
+        // 纯文本（如 ping 的 "pong"）原样返回
+        assert_eq!(filter_kb_result_by_scope("pong", &[10]), "pong");
+    }
+
 }

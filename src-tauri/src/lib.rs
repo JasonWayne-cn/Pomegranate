@@ -1,4 +1,5 @@
 mod commands;
+mod crypto;
 mod database;
 mod error;
 mod models;
@@ -139,6 +140,11 @@ fn app_data_dir_name() -> String {
 /// Tauri 内置 `app.path().app_data_dir()` 永远返回 prod 名（基于 tauri.conf.json
 /// 的 identifier），所有运行期 Command 拿 framework_app_data_dir 都要经过本函数，
 /// 否则 dev 单实例锁 / multi_instance flag / 指针文件 等会落到 prod 目录里。
+pub(crate) fn db_file_name() -> String {
+    let prefix = if cfg!(debug_assertions) { "dev-" } else { "" };
+    format!("{prefix}app.db")
+}
+
 pub(crate) fn framework_app_data_dir(handle: &tauri::AppHandle) -> Result<PathBuf, tauri::Error> {
     let from_tauri = handle.path().app_data_dir()?;
     // 桌面端：dev 模式重写到 -dev 兄弟目录（应用对 OS 的 app_data_dir 父目录有写权限）
@@ -529,7 +535,18 @@ pub fn run() {
                 Some(vec!["--start-minimized"]),
             ))
             .plugin(tauri_plugin_updater::Builder::new().build())
-            .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+            // 窗口状态记忆：只跟踪 main 的尺寸/位置/最大化，避免弹窗按上次位置错位
+            .plugin(
+                tauri_plugin_window_state::Builder::default()
+                    .with_state_flags(
+                        tauri_plugin_window_state::StateFlags::SIZE
+                            | tauri_plugin_window_state::StateFlags::POSITION
+                            | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                    )
+                    .with_filter(|label| label == "main")
+                    .build(),
+            );
     }
 
     builder
@@ -816,6 +833,21 @@ pub fn run() {
                 services::task_reminder::run_reminder_loop(app_handle_reminder).await;
             });
 
+            // 定时推送调度器（KB 2.0）：每个实例独立
+            let app_handle_push = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                services::push::scheduler::run_push_loop(app_handle_push).await;
+            });
+
+            // 文件夹自动导入（KB 2.0）：默认关闭，循环内读配置
+            #[cfg(desktop)]
+            {
+                let app_handle_watch = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    services::folder_watch::run_folder_watch_loop(app_handle_watch).await;
+                });
+            }
+
             // setup 末尾再 show + set_focus 抢焦点：
             // - 主窗已在 setup 第一步 show 过，这里 show 是幂等的
             // - 真正作用是 set_focus：迁移 splash 关闭后 / 多窗口创建后把焦点拉回主窗
@@ -974,10 +1006,16 @@ pub fn run() {
             commands::sync_v1::sync_v1_update_backend,
             commands::sync_v1::sync_v1_delete_backend,
             commands::sync_v1::sync_v1_test_connection,
+            commands::sync_v1::sync_v1_remote_data_hint,
             commands::sync_v1::sync_v1_read_remote_manifest,
             commands::sync_v1::sync_v1_push,
             commands::sync_v1::sync_v1_pull,
+            commands::sync_v1::sync_v1_trigger_background_sync,
             commands::sync_v1::sync_v1_get_local_manifest,
+            commands::sync_v1::sync_v1_rebuild_attachment_index,
+            commands::sync_v1::sync_v1_gc_attachments,
+            commands::sync_v1::sync_v1_list_conflicts,
+            commands::sync_v1::sync_v1_resolve_conflict,
             // 文件夹模块
             commands::folders::create_folder,
             commands::folders::rename_folder,
@@ -1201,6 +1239,94 @@ pub fn run() {
             commands::session::get_project_session_context,
             commands::session::append_project_session_message,
             commands::session::list_project_session_messages,
+            // ─── KB 2.0 合并：系统字体 / OCR / 提醒音 / 应用锁 / Excel 导入 ───
+            commands::font::list_system_fonts,
+            commands::ocr::ocr_available,
+            commands::ocr::ocr_image,
+            commands::ocr::ocr_pdf,
+            commands::reminder_sound::import_reminder_sound,
+            commands::reminder_sound::list_reminder_sounds,
+            commands::reminder_sound::resolve_reminder_sound,
+            commands::reminder_sound::delete_reminder_sound,
+            commands::app_lock::app_lock_status,
+            commands::app_lock::app_lock_set_password,
+            commands::app_lock::app_lock_verify,
+            commands::app_lock::app_lock_disable,
+            commands::app_lock::app_lock_get_hint,
+            commands::app_lock::app_lock_set_auto_minutes,
+            commands::excel_import::import_excel_files,
+            // 主窗口尺寸（仅桌面端）
+            #[cfg(desktop)]
+            commands::window::reset_window_size,
+            // 移动端检查更新
+            #[cfg(mobile)]
+            commands::mobile_update::check_mobile_update,
+            #[cfg(mobile)]
+            commands::mobile_update::download_mobile_update,
+            #[cfg(mobile)]
+            commands::mobile_update::install_mobile_update,
+            #[cfg(mobile)]
+            commands::mobile_update::can_install_mobile_update,
+            #[cfg(mobile)]
+            commands::mobile_update::open_install_permission_settings,
+            // ─── KB 2.0 合并：项目 / 任务附件 ───
+            commands::projects::list_projects,
+            commands::projects::get_project,
+            commands::projects::create_project,
+            commands::projects::update_project,
+            commands::projects::delete_project,
+            commands::task_attachment::list_task_attachments,
+            commands::task_attachment::add_task_attachment,
+            commands::task_attachment::add_task_attachment_from_path,
+            commands::task_attachment::add_task_attachment_from_url,
+            commands::task_attachment::load_paste_image,
+            commands::task_attachment::delete_task_attachment,
+            commands::task_attachment::reorder_task_attachments,
+            // ─── KB 2.0 合并：数据集 / 数据视图 ───
+            commands::dataset::import_attachment_datasets,
+            commands::dataset::list_attachment_datasets,
+            commands::dataset::get_dataset_schema,
+            commands::dataset::preview_dataset_rows,
+            commands::dataview::dataview_recent_notes,
+            commands::dataview::dataview_notes_by_tag,
+            commands::dataview::dataview_notes_by_folder,
+            commands::dataview::dataview_pending_tasks,
+            commands::dataview::dataview_tasks_by_project,
+            // ─── KB 2.0 合并：白板 ───
+            commands::whiteboard::create_whiteboard,
+            commands::whiteboard::get_whiteboard_scene,
+            commands::whiteboard::save_embedded_whiteboard,
+            commands::whiteboard::load_embedded_whiteboard,
+            commands::whiteboard::save_whiteboard_scene,
+            commands::whiteboard::list_whiteboard_snapshots,
+            commands::whiteboard::get_whiteboard_snapshot_scene,
+            commands::whiteboard::create_whiteboard_snapshot,
+            commands::whiteboard::restore_whiteboard_snapshot,
+            commands::whiteboard::get_whiteboard_library,
+            commands::whiteboard::save_whiteboard_library,
+            commands::whiteboard::get_note_excerpts,
+            commands::whiteboard::list_embedded_whiteboard_snapshots,
+            commands::whiteboard::get_embedded_whiteboard_snapshot_scene,
+            commands::whiteboard::restore_embedded_whiteboard_snapshot,
+            // ─── KB 2.0 合并：笔记快照 ───
+            commands::snapshot::list_note_snapshots,
+            commands::snapshot::get_note_snapshot,
+            commands::snapshot::create_note_snapshot,
+            commands::snapshot::restore_note_snapshot,
+            commands::snapshot::get_snapshot_usage,
+            commands::snapshot::clear_note_snapshots,
+            commands::snapshot::clear_snapshots_older_than,
+            commands::snapshot::clear_all_snapshots,
+            // ─── KB 2.0 合并：定时推送 ───
+            commands::push::list_push_jobs,
+            commands::push::get_push_job,
+            commands::push::create_push_job,
+            commands::push::update_push_job,
+            commands::push::delete_push_job,
+            commands::push::set_push_job_enabled,
+            commands::push::run_push_job_now,
+            commands::push::get_push_popup_data,
+            commands::push::list_push_run_logs,
         ])
         // ─── 窗口事件处理 ─────────────────────────
         .on_window_event(|window, event| {

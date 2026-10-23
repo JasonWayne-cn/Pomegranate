@@ -1,9 +1,33 @@
-import { useEffect, useState, useCallback } from "react";
-import { App as AntdApp, Button, Checkbox, Input, Spin, theme as antdTheme } from "antd";
-import { Plus, Trash2 } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type ClipboardEvent,
+} from "react";
+import {
+  App as AntdApp,
+  Button,
+  Checkbox,
+  DatePicker,
+  Input,
+  Spin,
+  theme as antdTheme,
+} from "antd";
+import type { InputRef } from "antd";
+import { AlarmClock, Paperclip, Plus, Trash2 } from "lucide-react";
+import dayjs, { type Dayjs } from "dayjs";
 import { taskApi } from "@/lib/api";
 import type { Task } from "@/types";
 import { MicButton } from "@/components/MicButton";
+import { CopyButton } from "@/components/ui/CopyButton";
+import TaskAttachments, {
+  draftsFromPlan,
+  flushDraftAttachments,
+  type DraftAttachment,
+  type TaskAttachmentsHandle,
+} from "./TaskAttachments";
+import { parseClipboard } from "@/lib/clipboardAttachments";
 
 /**
  * 子任务列表组件——展示在主任务编辑弹窗的底部。
@@ -29,13 +53,68 @@ interface Props {
   compact?: boolean;
 }
 
-export function SubtaskList({ parentTaskId, onChanged, compact = false }: Props) {
+export function SubtaskList({
+  parentTaskId,
+  onChanged,
+  compact = false,
+}: Props) {
   const { message } = AntdApp.useApp();
   const { token } = antdTheme.useToken();
   const [items, setItems] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState("");
-  const [adding, setAdding] = useState(false);
+  /** 正在编辑标题的子任务 id（null = 无）。用户反馈"输入后只能删除不能修改"。 */
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState("");
+  /** 回车追加后保持焦点，用户可连续录入下一条（输入框全程不 disable，焦点不丢） */
+  const inputRef = useRef<InputRef>(null);
+  /** 展开了附件条的子任务。平时收起：子任务行窄，常显缩略图太挤 */
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const attachmentRefs = useRef(new Map<number, TaskAttachmentsHandle>());
+  /**
+   * 在「新增子任务」框里粘贴了图文（如 QQ 消息）：文字进输入框当标题，
+   * 图片先暂存在这里，回车建好子任务后挂到它身上
+   */
+  const [pendingDrafts, setPendingDrafts] = useState<DraftAttachment[]>([]);
+
+  /** 输入框的粘贴：识别出附件就收下；有文字时不拦截，让文字照常进框 */
+  function takeAttachmentsFromPaste(
+    e: ClipboardEvent<HTMLInputElement>,
+  ): DraftAttachment[] {
+    const plan = parseClipboard(e.clipboardData);
+    const drafts = draftsFromPlan(plan);
+    if (drafts.length > 0 && plan.text.trim() === "") e.preventDefault();
+    return drafts;
+  }
+
+  /** 编辑已有子任务时粘贴：图片直接挂到这条子任务上并展开附件条 */
+  async function attachToSubtask(id: number, drafts: DraftAttachment[]) {
+    if (drafts.length === 0) return;
+    const failed = await flushDraftAttachments(id, drafts);
+    if (failed > 0) message.warning(`${failed} 个附件没能添加`);
+    setExpanded((prev) => new Set(prev).add(id));
+    const list = await taskApi.listSubtasks(parentTaskId).catch(() => null);
+    if (list) setItems(list);
+  }
+
+  function toggleExpanded(id: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function patchAttachmentCount(id: number, count: number) {
+    setItems((prev) =>
+      prev.map((t) =>
+        t.id === id && t.attachment_count !== count
+          ? { ...t, attachment_count: count }
+          : t,
+      ),
+    );
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -54,24 +133,34 @@ export function SubtaskList({ parentTaskId, onChanged, compact = false }: Props)
   }, [refresh]);
 
   async function handleAdd() {
-    const title = draft.trim();
+    const drafts = pendingDrafts;
+    // 只粘了图没写字也能建：标题兜底成「图片」，总比把图丢掉强
+    const title = draft.trim() || (drafts.length > 0 ? "图片" : "");
     if (!title) return;
-    setAdding(true);
+    // 立即乐观清空：输入框马上空出来，焦点不丢，用户可直接连续录入下一条。
+    // 同一文本的重复回车由"清空后 title 为空 → 上面的 return"天然挡掉，无需 disable。
+    setDraft("");
+    setPendingDrafts([]);
     try {
-      await taskApi.create({
+      const newId = await taskApi.create({
         title,
         priority: 1,
         parent_task_id: parentTaskId,
       });
-      setDraft("");
+      if (drafts.length > 0) {
+        const failed = await flushDraftAttachments(newId, drafts);
+        if (failed > 0)
+          message.warning(`子任务已添加，但 ${failed} 个附件没能添加`);
+        setExpanded((prev) => new Set(prev).add(newId));
+      }
       const list = await taskApi.listSubtasks(parentTaskId);
       setItems(list);
       const done = list.filter((t) => t.status === 1).length;
       onChanged?.(done, list.length);
     } catch (e) {
       message.error(`添加失败：${e}`);
-    } finally {
-      setAdding(false);
+      // 失败且用户尚未输入新内容时，把刚才的文本还回去，避免丢字
+      setDraft((cur) => cur || title);
     }
   }
 
@@ -87,6 +176,30 @@ export function SubtaskList({ parentTaskId, onChanged, compact = false }: Props)
     }
   }
 
+  /**
+   * 给子任务设 / 清截止时间。
+   *
+   * 子任务的时间就是"到点提醒我"（滴答清单同款语义），所以设时间时一并打开准时提醒
+   * （remind_before_minutes=0）；清时间时把提醒一起清掉，不留"没有截止时间却挂着提醒"
+   * 的孤儿状态。主任务那套「日期 + 提前多久提醒」两段式对子任务过重，这里刻意简化。
+   */
+  async function handleSetDue(id: number, v: Dayjs | null) {
+    try {
+      await taskApi.update(
+        id,
+        v
+          ? {
+              due_date: v.second(0).format("YYYY-MM-DD HH:mm:ss"),
+              remind_before_minutes: 0,
+            }
+          : { clear_due_date: true, clear_remind_before_minutes: true },
+      );
+      await refresh();
+    } catch (e) {
+      message.error(`设置时间失败：${e}`);
+    }
+  }
+
   async function handleDelete(id: number) {
     try {
       await taskApi.delete(id);
@@ -96,6 +209,48 @@ export function SubtaskList({ parentTaskId, onChanged, compact = false }: Props)
       onChanged?.(done, list.length);
     } catch (e) {
       message.error(`删除失败：${e}`);
+    }
+  }
+
+  /** 进入标题编辑态（双击触发，见下方 span 的 onDoubleClick） */
+  function startEdit(t: Task) {
+    setEditingId(t.id);
+    setEditingText(t.title);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditingText("");
+  }
+
+  /**
+   * 保存标题修改。
+   *
+   * 空标题视为「取消」而不是把子任务改成空白 —— 用户想删有专门的删除按钮，
+   * 清空输入框多半是误操作。标题没变也直接退出，不发无谓的请求。
+   */
+  async function commitEdit() {
+    if (editingId == null) return;
+    const id = editingId;
+    const next = editingText.trim();
+    const original = items.find((t) => t.id === id);
+    if (!next || !original || next === original.title) {
+      cancelEdit();
+      return;
+    }
+    // 乐观更新：先本地改掉，请求失败再回滚，避免输入框闪回旧值
+    setItems((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, title: next } : t)),
+    );
+    cancelEdit();
+    try {
+      await taskApi.update(id, { title: next });
+      await refresh();
+    } catch (e) {
+      setItems((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, title: original.title } : t)),
+      );
+      message.error(`修改失败：${e}`);
     }
   }
 
@@ -132,54 +287,175 @@ export function SubtaskList({ parentTaskId, onChanged, compact = false }: Props)
           </div>
         )
       ) : (
-        <div className="flex flex-col gap-1">
+        <div className={compact ? "flex flex-col" : "flex flex-col gap-1"}>
           {items.map((t) => (
-            <div
-              key={t.id}
-              className="flex items-center gap-2 group"
-              style={{
-                padding: "4px 6px",
-                borderRadius: 4,
-                background: token.colorFillQuaternary,
-              }}
-            >
-              <Checkbox
-                checked={t.status === 1}
-                onChange={() => handleToggle(t.id)}
-              />
-              <span
-                className="flex-1 truncate"
-                style={{
-                  fontSize: 13,
-                  color:
-                    t.status === 1
-                      ? token.colorTextTertiary
-                      : token.colorText,
-                  textDecoration: t.status === 1 ? "line-through" : "none",
-                }}
-                title={t.title}
+            <div key={t.id} className="flex flex-col">
+              <div
+                className="flex items-center gap-2 group"
+                style={
+                  compact
+                    ? { padding: "1px 4px", borderRadius: 4 }
+                    : {
+                        padding: "4px 6px",
+                        borderRadius: 4,
+                        background: token.colorFillQuaternary,
+                      }
+                }
               >
-                {t.title}
-              </span>
-              <Button
-                type="text"
-                size="small"
-                icon={<Trash2 size={12} />}
-                onClick={() => handleDelete(t.id)}
-                className="opacity-0 group-hover:opacity-100"
-                style={{ color: token.colorTextTertiary }}
-              />
+                <Checkbox
+                  checked={t.status === 1}
+                  onChange={() => handleToggle(t.id)}
+                />
+                {editingId === t.id ? (
+                  <Input
+                    className="flex-1"
+                    size="small"
+                    autoFocus
+                    value={editingText}
+                    onChange={(e) => setEditingText(e.target.value)}
+                    onPressEnter={() => void commitEdit()}
+                    onPaste={(e) =>
+                      void attachToSubtask(t.id, takeAttachmentsFromPaste(e))
+                    }
+                    // 失焦即保存：用户点到别处通常是"我改完了"，弹确认反而烦
+                    onBlur={() => void commitEdit()}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        e.stopPropagation();
+                        cancelEdit();
+                      }
+                    }}
+                    style={{ fontSize: 13, minWidth: 0 }}
+                  />
+                ) : (
+                  <span
+                    className="flex-1"
+                    // 🔴 用双击而不是单击：这个 span 特意保留了 userSelect:text，
+                    // 单击进编辑会毁掉"鼠标划选复制超长内容"的能力（见下方样式注释）。
+                    onDoubleClick={() => startEdit(t)}
+                    style={{
+                      fontSize: 13,
+                      color:
+                        t.status === 1
+                          ? token.colorTextTertiary
+                          : token.colorText,
+                      textDecoration: t.status === 1 ? "line-through" : "none",
+                      // 不再单行截断：自动换行完整显示，超长内容可见且可鼠标划选复制。
+                      // minWidth:0 让 flex 子项能正常收缩换行而不是溢出；
+                      // overflowWrap/wordBreak 处理无空格长串（URL 等）。
+                      minWidth: 0,
+                      whiteSpace: "normal",
+                      overflowWrap: "anywhere",
+                      wordBreak: "break-word",
+                      userSelect: "text",
+                      cursor: "text",
+                    }}
+                    title={`${t.title}\n（双击可修改）`}
+                  >
+                    {t.title}
+                  </span>
+                )}
+                {/* 时间：没设时只露一个小闹钟、hover 该行才显形，平时不打扰阅读；
+                  设了就常驻显示 月-日 时:分，点开可改可清 */}
+                <DatePicker
+                  value={t.due_date ? dayjs(t.due_date) : null}
+                  onChange={(v) => handleSetDue(t.id, v)}
+                  size="small"
+                  variant="borderless"
+                  format="MM-DD HH:mm"
+                  showTime={{ format: "HH:mm", minuteStep: 5 }}
+                  placeholder=""
+                  allowClear
+                  suffixIcon={<AlarmClock size={12} />}
+                  className={
+                    t.due_date
+                      ? ""
+                      : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+                  }
+                  style={{ flex: "none", width: t.due_date ? 132 : 34 }}
+                  title={
+                    t.due_date
+                      ? `到点提醒：${t.due_date}`
+                      : "设置时间（到点提醒）"
+                  }
+                />
+                {/* 附件：有附件时常驻显示数量，没有时 hover 才露出 */}
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() => toggleExpanded(t.id)}
+                  className={
+                    (t.attachment_count ?? 0) > 0 || expanded.has(t.id)
+                      ? ""
+                      : "opacity-0 group-hover:opacity-100"
+                  }
+                  style={{
+                    color: token.colorTextTertiary,
+                    paddingInline: 4,
+                    fontSize: 11,
+                  }}
+                  title={expanded.has(t.id) ? "收起附件" : "图片 / 附件"}
+                >
+                  <span className="inline-flex items-center gap-0.5">
+                    <Paperclip size={12} />
+                    {(t.attachment_count ?? 0) > 0 && t.attachment_count}
+                  </span>
+                </Button>
+                {/* 复制该条子任务标题：与删除一样 hover 才显形，不干扰平时阅读 */}
+                <CopyButton
+                  text={t.title}
+                  title="复制子任务内容"
+                  iconSize={12}
+                  className="opacity-0 group-hover:opacity-100"
+                />
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<Trash2 size={12} />}
+                  onClick={() => handleDelete(t.id)}
+                  className="opacity-0 group-hover:opacity-100"
+                  style={{ color: token.colorTextTertiary }}
+                />
+              </div>
+              {expanded.has(t.id) && (
+                // 可聚焦：点一下这块再 Ctrl+V 就能把截图贴给这条子任务
+                <div
+                  tabIndex={0}
+                  className="outline-none"
+                  style={{ padding: "4px 0 6px 28px" }}
+                  onPaste={(e) => {
+                    attachmentRefs.current.get(t.id)?.handlePaste(e);
+                  }}
+                  title="可在此处粘贴截图"
+                >
+                  <TaskAttachments
+                    ref={(h) => {
+                      if (h) attachmentRefs.current.set(t.id, h);
+                      else attachmentRefs.current.delete(t.id);
+                    }}
+                    taskId={t.id}
+                    size="small"
+                    onCountChange={(n) => patchAttachmentCount(t.id, n)}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
 
       <Input
+        ref={inputRef}
         size="small"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onPressEnter={handleAdd}
-        placeholder="+ 新增子任务（回车确认）"
+        onPaste={(e) => {
+          const drafts = takeAttachmentsFromPaste(e);
+          if (drafts.length > 0)
+            setPendingDrafts((prev) => [...prev, ...drafts]);
+        }}
+        placeholder="新增子任务（回车连续录入）"
         prefix={<Plus size={12} style={{ color: token.colorTextTertiary }} />}
         allowClear
         suffix={
@@ -190,8 +466,29 @@ export function SubtaskList({ parentTaskId, onChanged, compact = false }: Props)
             }
           />
         }
-        disabled={adding}
       />
+      {pendingDrafts.length > 0 && (
+        <div
+          className="flex items-center gap-2 text-[11px]"
+          style={{ color: token.colorTextTertiary, paddingLeft: 4 }}
+        >
+          <Paperclip size={11} />
+          回车添加子任务时一并附上 {pendingDrafts.length} 个图片 / 附件
+          <Button
+            type="link"
+            size="small"
+            style={{ fontSize: 11, padding: 0, height: "auto" }}
+            onClick={() => {
+              pendingDrafts.forEach(
+                (d) => d.previewUrl && URL.revokeObjectURL(d.previewUrl),
+              );
+              setPendingDrafts([]);
+            }}
+          >
+            不要了
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

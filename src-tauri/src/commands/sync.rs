@@ -12,12 +12,14 @@ use crate::state::AppState;
 
 // ─── 本地 ZIP 导出/导入 ──────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_export_to_file(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
     scope: SyncScope,
     target_path: String,
+    // T-S050: 端到端加密备份密码（前端从 SyncSection 状态传；None = 明文 ZIP）
+    backup_password: Option<String>,
 ) -> Result<SyncResult, String> {
     let version = app.package_info().version.to_string();
     let history_id = state
@@ -31,28 +33,30 @@ pub fn sync_export_to_file(
         &scope,
         &version,
         &PathBuf::from(&target_path),
+        backup_password.as_deref(),
     );
 
     record_history(&state, history_id, &result);
     result.map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_import_from_file(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
     source_path: String,
     mode: SyncImportMode,
+    // T-S050: 若导入文件是加密快照需提供密码；明文文件传 None
+    backup_password: Option<String>,
 ) -> Result<SyncManifest, String> {
     let db_path = resolve_db_path(&state.data_dir);
     let db_path_str = db_path.to_string_lossy().into_owned();
-    let history_id = state
-        .db
-        .sync_history_begin("import")
-        .map_err(|e| e.to_string())?;
+    // 开始时间先记着 —— 历史记录要等 db 替换 + reopen 之后才能写进**新库**
+    // （否则写在旧库里，随替换一起消失，见 sync_history_record_done 的说明）
+    let started_at = now_local_string();
 
     // 必须先释放 db 文件占用，否则 Windows 上 SQLite 的 mmap 会让
-    // apply 阶段 fs::File::create(app.db) 报 ERROR_USER_MAPPED_FILE (1224)
+    // apply 阶段替换 app.db 时报 ERROR_USER_MAPPED_FILE (1224)
     let _ = state.db.release();
 
     let result = SyncService::import_from_file(
@@ -60,6 +64,7 @@ pub fn sync_import_from_file(
         &db_path,
         &PathBuf::from(&source_path),
         mode,
+        backup_password.as_deref(),
     );
 
     // 无论 apply 成败，都必须 reopen 回真实 db；否则连接会停在 :memory: 空库，
@@ -79,7 +84,7 @@ pub fn sync_import_from_file(
         }
     }
 
-    record_manifest_history(&state, history_id, &result);
+    record_manifest_history(&state, "import", &started_at, &result);
     result.map_err(|e| e.to_string())
 }
 
@@ -101,6 +106,8 @@ pub async fn sync_webdav_push(
     app: tauri::AppHandle,
     scope: SyncScope,
     config: WebDavConfig,
+    // T-S050: 加密备份密码（None = 上传明文 .zip；Some = 上传 .zip.enc）
+    backup_password: Option<String>,
 ) -> Result<SyncResult, String> {
     let version = app.package_info().version.to_string();
     let password = resolve_password(&state.db, &config)?;
@@ -118,6 +125,7 @@ pub async fn sync_webdav_push(
         &config.url,
         &config.username,
         &password,
+        backup_password.as_deref(),
     )
     .await;
 
@@ -132,18 +140,18 @@ pub async fn sync_webdav_pull(
     mode: SyncImportMode,
     config: WebDavConfig,
     filename: Option<String>,
+    // T-S050: 若云端快照已加密需提供密码；未提供且默认拉到加密包 → Err
+    backup_password: Option<String>,
 ) -> Result<SyncManifest, String> {
     let password = resolve_password(&state.db, &config)?;
     let db_path = resolve_db_path(&state.data_dir);
     let db_path_str = db_path.to_string_lossy().into_owned();
 
-    let history_id = state
-        .db
-        .sync_history_begin("pull")
-        .map_err(|e| e.to_string())?;
+    // 同 sync_import_from_file：历史记录延后到 reopen 之后写新库
+    let started_at = now_local_string();
 
     // 同 sync_import_from_file：必须先释放 db 文件占用，否则 Windows mmap 会让
-    // apply 阶段 fs::File::create(app.db) 报 ERROR_USER_MAPPED_FILE (1224)
+    // apply 阶段替换 app.db 时报 ERROR_USER_MAPPED_FILE (1224)
     let _ = state.db.release();
 
     let result = SyncService::webdav_pull(
@@ -154,6 +162,7 @@ pub async fn sync_webdav_pull(
         &config.username,
         &password,
         filename.as_deref(),
+        backup_password.as_deref(),
     )
     .await;
 
@@ -173,7 +182,7 @@ pub async fn sync_webdav_pull(
         }
     }
 
-    record_manifest_history(&state, history_id, &result);
+    record_manifest_history(&state, "pull", &started_at, &result);
     result.map_err(|e| e.to_string())
 }
 
@@ -220,7 +229,7 @@ pub struct RemoteSnapshot {
 
 // ─── 密码加密存取（AES-GCM + SQLite） ─────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_save_webdav_password(
     state: State<'_, AppState>,
     username: String,
@@ -229,7 +238,7 @@ pub fn sync_save_webdav_password(
     SyncService::save_webdav_password(&state.db, &username, &password).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_has_webdav_password(
     state: State<'_, AppState>,
     username: String,
@@ -242,7 +251,7 @@ pub fn sync_has_webdav_password(
 /// 取出已加密存储的 WebDAV 密码明文。
 /// 仅供"新增/编辑同步源 → 一键复用备份与恢复配置"流程使用：
 /// V1 backend 把密码塞在 backend.config_json 里，需要明文以构造 JSON。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_get_webdav_password(
     state: State<'_, AppState>,
     username: String,
@@ -250,7 +259,7 @@ pub fn sync_get_webdav_password(
     SyncService::get_webdav_password(&state.db, &username).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_delete_webdav_password(
     state: State<'_, AppState>,
     username: String,
@@ -258,9 +267,37 @@ pub fn sync_delete_webdav_password(
     SyncService::delete_webdav_password(&state.db, &username).map_err(|e| e.to_string())
 }
 
+// ─── T-S050 备份密码（端到端加密快照用，全局唯一一个）─────────────────────
+
+#[tauri::command(async)]
+pub fn sync_save_backup_password(
+    state: State<'_, AppState>,
+    password: String,
+) -> Result<(), String> {
+    SyncService::save_backup_password(&state.db, &password).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn sync_has_backup_password(state: State<'_, AppState>) -> Result<bool, String> {
+    SyncService::get_backup_password(&state.db)
+        .map(|p| p.is_some())
+        .map_err(|e| e.to_string())
+}
+
+/// 取已保存的备份密码明文（前端 SyncSection 加载时填回密码框）
+#[tauri::command(async)]
+pub fn sync_get_backup_password(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    SyncService::get_backup_password(&state.db).map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn sync_delete_backup_password(state: State<'_, AppState>) -> Result<(), String> {
+    SyncService::delete_backup_password(&state.db).map_err(|e| e.to_string())
+}
+
 // ─── 同步历史 ─────────────────────────────────
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_list_history(
     state: State<'_, AppState>,
     limit: Option<usize>,
@@ -272,7 +309,7 @@ pub fn sync_list_history(
 }
 
 /// 唤醒自动同步调度器：配置变更后由前端调用
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sync_scheduler_reload(state: State<'_, AppState>) -> Result<(), String> {
     state.sync_scheduler_notify.notify_one();
     Ok(())
@@ -322,22 +359,39 @@ fn record_history(
     }
 }
 
+/// 本地时间戳，格式与 SQLite `datetime('now','localtime')` 一致，便于同列排序比较
+fn now_local_string() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+/// 记录一次"会替换 app.db"的同步（导入 / WebDAV 恢复）的历史。
+///
+/// 必须在 `db.reopen()` **之后**调用：此时连接指向的才是替换后的新库。
+/// 用 `sync_history_record_done` 一次性插入完整行（而不是 begin/finish 两段式），
+/// 否则 begin 写在旧库、finish 写在新库，记录会静默丢失。
 fn record_manifest_history(
     state: &AppState,
-    history_id: i64,
+    direction: &str,
+    started_at: &str,
     result: &Result<SyncManifest, crate::error::AppError>,
 ) {
-    match result {
+    let outcome = match result {
         Ok(m) => {
             let stats_json = serde_json::to_string(&m.stats).unwrap_or_else(|_| "{}".into());
-            let _ = state
+            state
                 .db
-                .sync_history_finish(history_id, true, None, &stats_json);
+                .sync_history_record_done(direction, started_at, true, None, &stats_json)
         }
-        Err(e) => {
-            let _ = state
-                .db
-                .sync_history_finish(history_id, false, Some(&e.to_string()), "{}");
-        }
+        Err(e) => state.db.sync_history_record_done(
+            direction,
+            started_at,
+            false,
+            Some(&e.to_string()),
+            "{}",
+        ),
+    };
+    if let Err(e) = outcome {
+        // 历史记录只是审计信息，写失败不该影响导入结果本身
+        log::warn!("[sync] 写入同步历史失败（不影响导入结果）: {}", e);
     }
 }

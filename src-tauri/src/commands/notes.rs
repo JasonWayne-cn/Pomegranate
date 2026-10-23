@@ -1,4 +1,4 @@
-use crate::models::{Note, NoteInput, NoteQuery, PageResult};
+use crate::models::{Note, NoteImageRef, NoteInput, NoteQuery, PageResult};
 use crate::services::note::NoteService;
 #[cfg(desktop)]
 use crate::services::popout_window;
@@ -44,9 +44,20 @@ pub fn delete_note(state: tauri::State<'_, AppState>, id: i64) -> Result<(), Str
 }
 
 /// 获取单个笔记
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_note(state: tauri::State<'_, AppState>, id: i64) -> Result<Note, String> {
     NoteService::get(&state.db, id).map_err(|e| e.to_string())
+}
+
+/// 取一批笔记里的图片资源（AI 回答下方"溯源"挂缩略图用）。
+///
+/// 入参一般是 AI message references 里的笔记 id。只回带图的笔记；空结果合法。
+#[tauri::command(async)]
+pub fn get_notes_images(
+    state: tauri::State<'_, AppState>,
+    note_ids: Vec<i64>,
+) -> Result<Vec<NoteImageRef>, String> {
+    NoteService::images_for_notes(&state.db, &note_ids).map_err(|e| e.to_string())
 }
 
 /// 切换笔记置顶状态
@@ -73,6 +84,16 @@ pub fn reorder_notes(
     ordered_ids: Vec<i64>,
 ) -> Result<(), String> {
     NoteService::reorder(&state.db, &ordered_ids).map_err(|e| e.to_string())
+}
+
+/// 取当前筛选条件下「全部」笔记 id（不分页），按当前 sort_by 排序。
+/// 拖拽排序专用：前端拿完整 id 列表后再 reorder，避免按页 reorder 导致跨页撞车。
+#[tauri::command(async)]
+pub fn list_note_ids_for_reorder(
+    state: tauri::State<'_, AppState>,
+    query: NoteQuery,
+) -> Result<Vec<i64>, String> {
+    NoteService::list_ids_for_reorder(&state.db, &query).map_err(|e| e.to_string())
 }
 
 /// 批量移动笔记到文件夹；返回实际移动的条数
@@ -112,7 +133,7 @@ pub fn trash_all_notes(state: tauri::State<'_, AppState>) -> Result<usize, Strin
 }
 
 /// 查询笔记列表（分页）
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_notes(
     state: tauri::State<'_, AppState>,
     query: NoteQuery,
@@ -135,7 +156,7 @@ pub fn set_note_hidden(
 }
 
 /// 列出所有隐藏笔记（分页 + 可选目录过滤）—— 用于 /hidden 专用页
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_hidden_notes(
     state: tauri::State<'_, AppState>,
     page: Option<usize>,
@@ -148,16 +169,38 @@ pub fn list_hidden_notes(
 }
 
 /// 返回所有"含至少一篇隐藏笔记"的 folder_id；None=未分类
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_hidden_folder_ids(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<Option<i64>>, String> {
     NoteService::list_hidden_folder_ids(&state.db).map_err(|e| e.to_string())
 }
 
+/// 列出「临时编辑」笔记（分页）—— 用于侧栏「临时文件」面板
+#[tauri::command(async)]
+pub fn list_scratch_notes(
+    state: tauri::State<'_, AppState>,
+    page: Option<usize>,
+    page_size: Option<usize>,
+) -> Result<PageResult<Note>, String> {
+    NoteService::list_scratch(&state.db, page, page_size).map_err(|e| e.to_string())
+}
+
+/// 设置 / 取消笔记的「临时编辑」标记
+///
+/// `scratch=false` = 转为正式笔记：立刻回到主列表 / 搜索 / 双链。
+#[tauri::command]
+pub fn set_note_scratch(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    scratch: bool,
+) -> Result<(), String> {
+    NoteService::set_scratch(&state.db, id, scratch).map_err(|e| e.to_string())
+}
+
 // ─── T-014 网页剪藏 ────────────────────────────
 
-/// 把网页 URL 剪藏成笔记（通过 r.jina.ai 转 markdown）
+/// 把网页 URL 剪藏成笔记（直连原页 → readability 提正文 → markdown）
 ///
 /// `folder_id` 由前端透传：右键菜单触发时是该文件夹 id；全局入口可传当前选中文件夹
 /// 或 null（落根目录）。返回新建笔记，前端可立即跳转到编辑器。
@@ -167,7 +210,25 @@ pub async fn clip_url_to_note(
     url: String,
     folder_id: Option<i64>,
 ) -> Result<Note, String> {
-    NoteService::clip_url(&state.db, &url, folder_id)
+    // ⚠️ 用 state.data_dir（DataDirResolver 解析过的实际数据目录），
+    // 不能用 app.path().app_data_dir()——那是 OS 默认目录，不跟随用户改的数据目录
+    let app_data_dir = state.data_dir.clone();
+    NoteService::clip_url(&state.db, &url, folder_id, &app_data_dir)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 剪藏网页并返回可插入编辑器的 HTML（不建笔记）——编辑器工具栏「插入到当前笔记」用
+///
+/// `note_id` 是插入目标笔记，用于把正文图片落到该笔记的附件目录下。
+#[tauri::command]
+pub async fn clip_url_to_html(
+    state: tauri::State<'_, AppState>,
+    url: String,
+    note_id: i64,
+) -> Result<String, String> {
+    let app_data_dir = state.data_dir.clone();
+    NoteService::clip_url_to_html(&state.db, &url, note_id, &app_data_dir)
         .await
         .map_err(|e| e.to_string())
 }
@@ -180,4 +241,16 @@ pub async fn clip_url_to_note(
 #[tauri::command]
 pub async fn open_note_in_new_window(app: tauri::AppHandle, note_id: i64) -> Result<(), String> {
     popout_window::open_note(&app, note_id).map_err(|e| e.to_string())
+}
+
+/// 把指定笔记的思维导图弹到独立 OS 窗口（纯导图视图，不带编辑器）
+///
+/// 同 note_id 已存在 popout-mindmap 窗口则直接前置。仅桌面端。
+#[cfg(desktop)]
+#[tauri::command]
+pub async fn open_mindmap_in_new_window(
+    app: tauri::AppHandle,
+    note_id: i64,
+) -> Result<(), String> {
+    popout_window::open_mindmap(&app, note_id).map_err(|e| e.to_string())
 }

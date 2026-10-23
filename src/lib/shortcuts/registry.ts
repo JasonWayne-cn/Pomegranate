@@ -37,6 +37,13 @@ export const SHORTCUTS: ShortcutDef[] = [
     desc: "剪贴板内容 → 新笔记",
   },
   {
+    id: "global.quickAddWindow",
+    scope: "global",
+    defaultAccel: "CommandOrControl+Alt+Space",
+    group: "全局快捷键（系统级，后台也可用）",
+    desc: "弹出「快速记一笔」悬浮窗 → 追加今日日记",
+  },
+  {
     id: "global.showWindow",
     scope: "global",
     defaultAccel: "CommandOrControl+Alt+K",
@@ -62,6 +69,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "app.asrToggle", scope: "app", defaultAccel: "CommandOrControl+Shift+Space", group: "应用内", desc: "语音 toggle：边写边说，文字注入当前焦点输入框（无焦点则打开快速捕获 Modal）" },
   { id: "app.palette", scope: "app", defaultAccel: "CommandOrControl+K", group: "应用内", desc: "打开命令面板" },
   { id: "app.newNote", scope: "app", defaultAccel: "CommandOrControl+N", group: "应用内", desc: "新建空白笔记" },
+  { id: "app.quickNoteCapture", scope: "app", defaultAccel: "CommandOrControl+Alt+N", group: "应用内", desc: "快速记一笔：追加带时间戳的块到今天的日记" },
   { id: "app.save", scope: "app", defaultAccel: "CommandOrControl+S", group: "应用内", desc: "保存当前笔记" },
   { id: "app.help", scope: "app", defaultAccel: "F1", group: "应用内", desc: "查看快捷键帮助" },
   { id: "app.focusToggle", scope: "app", defaultAccel: "F11", group: "应用内", desc: "切换专注模式" },
@@ -93,7 +101,23 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "editor.selectAll", scope: "editor", defaultAccel: "CommandOrControl+A", group: "编辑器 - 操作", desc: "全选" },
   { id: "editor.indent", scope: "editor", defaultAccel: "Tab", group: "编辑器 - 操作", desc: "增加缩进" },
   { id: "editor.outdent", scope: "editor", defaultAccel: "Shift+Tab", group: "编辑器 - 操作", desc: "减少缩进" },
+  { id: "editor.find", scope: "editor", defaultAccel: "CommandOrControl+F", group: "编辑器 - 操作", desc: "查找" },
+  { id: "editor.replace", scope: "editor", defaultAccel: "CommandOrControl+H", group: "编辑器 - 操作", desc: "查找并替换" },
+  { id: "editor.exportMenu", scope: "editor", defaultAccel: "CommandOrControl+Shift+E", group: "编辑器 - 操作", desc: "打开导出菜单（Markdown / Word / HTML）" },
+  { id: "editor.exportCurrentMarkdown", scope: "editor", defaultAccel: "CommandOrControl+Alt+E", group: "编辑器 - 操作", desc: "直接导出当前笔记为 Markdown" },
 ];
+
+/**
+ * 编辑器「高亮」快捷键默认值。
+ *
+ * 高亮是编辑器内动作（非系统级热键），但同样支持用户自定义 —— 实际生效键位存在
+ * Zustand store 的 `editorHighlightShortcut`，由 TiptapEditor 的 handleKeyDown 实时读取触发。
+ * 这里导出默认值，让 store 初始值 / 设置页「恢复默认」按钮共用同一真相源，避免与上面
+ * `editor.highlight` 的 defaultAccel 漂移。
+ */
+export const EDITOR_HIGHLIGHT_SHORTCUT_DEFAULT =
+  SHORTCUTS.find((s) => s.id === "editor.highlight")?.defaultAccel ??
+  "CommandOrControl+Shift+H";
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac OS X|Macintosh/.test(navigator.userAgent);
 

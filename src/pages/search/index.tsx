@@ -1,19 +1,46 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Input, Button, Typography, Empty, Spin, Segmented, theme as antdTheme } from "antd";
+import {
+  Input,
+  Button,
+  Typography,
+  Empty,
+  Spin,
+  Segmented,
+  TreeSelect,
+  Select,
+  DatePicker,
+  Checkbox,
+  theme as antdTheme,
+} from "antd";
 import {
   Search as SearchIcon,
   NotebookText,
   CheckSquare,
   AlertTriangle,
   Check,
+  SlidersHorizontal,
+  X as XIcon,
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { searchApi, taskApi } from "@/lib/api";
+import dayjs from "dayjs";
+import {
+  hasActiveFilters,
+  parseSearchUrl,
+  writeSearchUrl,
+} from "@/lib/searchUrlState";
+import { searchApi, taskApi, folderApi, tagApi } from "@/lib/api";
 import { MicButton } from "@/components/MicButton";
 import { useAppStore } from "@/store";
 import { highlightText, highlightSnippet } from "@/lib/highlight";
-import type { SearchResult, TaskSearchHit } from "@/types";
+import type {
+  SearchResult,
+  TaskSearchHit,
+  SearchFilters,
+  Folder,
+  Tag,
+  NoteType,
+} from "@/types";
 
 const { Text } = Typography;
 
@@ -24,17 +51,163 @@ const ALL_MODE_NOTES_PREVIEW = 20;
 
 type Scope = "all" | "notes" | "tasks";
 
+/** 把文件夹树拍平成"该节点 + 全部子孙"的 id 列表 */
+function collectSubtreeIds(folders: Folder[], targetIds: number[]): number[] {
+  const out = new Set<number>();
+  const walk = (nodes: Folder[], inside: boolean) => {
+    for (const n of nodes) {
+      const hit = inside || targetIds.includes(n.id);
+      if (hit) out.add(n.id);
+      const children = (n as Folder & { children?: Folder[] }).children;
+      if (children?.length) walk(children, hit);
+    }
+  };
+  walk(folders, false);
+  return [...out];
+}
+
+/**
+ * RangePicker 给出的 [起, 止] 日期串 → 后端要的时间范围（任一端为空返回 null = 不筛选）。
+ *
+ * 后端比的是 notes 表的 `YYYY-MM-DD HH:MM:SS`，补上时分秒才能让"选到今天"
+ * 含当天全部笔记，而不是卡在 00:00:00。
+ */
+function toDayRange(strs: [string, string]): [string, string] | null {
+  return strs[0] && strs[1] ? [`${strs[0]} 00:00:00`, `${strs[1]} 23:59:59`] : null;
+}
+
+/**
+ * 组装成后端要的 filters。
+ *
+ * 🔴 没勾的维度必须**省略字段**而不是传 `[]` —— 后端 fail-closed，
+ * 空数组表示"勾了但没选中"会直接返回零结果（见 types/SearchFilters 注释）。
+ * 抽成纯函数：外部跳转时要按 URL 里的新条件立刻搜，不能等 state 更新后再读 useMemo。
+ */
+function buildSearchFilters(
+  s: {
+    folders: number[];
+    tags: number[];
+    types: NoteType[];
+    dateRange: [string, string] | null;
+    createdRange: [string, string] | null;
+    titleOnly: boolean;
+  },
+  folderTree: Folder[],
+): SearchFilters | undefined {
+  const f: SearchFilters = {};
+  if (s.folders.length > 0) {
+    // 选了「工作」应当含其下所有子文件夹，否则用户会觉得"明明在这个目录里却搜不到"。
+    // 🔴 从 URL 恢复时文件夹树可能还没拉到：此时子树展开会得到 []，后端 fail-closed 直接零结果。
+    //    先用选中的 id 本身，树到了 filtersKey 变化会自动按子树重搜。
+    f.folderIds =
+      folderTree.length > 0 ? collectSubtreeIds(folderTree, s.folders) : s.folders;
+  }
+  if (s.tags.length > 0) f.tagIds = s.tags;
+  if (s.types.length > 0) f.noteTypes = s.types;
+  if (s.dateRange) {
+    f.updatedAfter = s.dateRange[0];
+    f.updatedBefore = s.dateRange[1];
+  }
+  if (s.createdRange) {
+    f.createdAfter = s.createdRange[0];
+    f.createdBefore = s.createdRange[1];
+  }
+  // 只在勾选时才传：不勾 = 省略字段，保持与旧版请求完全一致
+  if (s.titleOnly) f.titleOnly = true;
+  return Object.keys(f).length > 0 ? f : undefined;
+}
+
 function DesktopSearchPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { token } = antdTheme.useToken();
+  // 进入页面时从 URL 恢复条件：点进笔记再返回、刷新都不丢（见 lib/searchUrlState）
+  const [initialUrl] = useState(() => parseSearchUrl(searchParams));
 
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialUrl.q);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [taskResults, setTaskResults] = useState<TaskSearchHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** 本页最后一次写进 URL 的 q：区分「自己写回」和「外部跳转」（见读 URL 的 effect） */
+  const lastWrittenQRef = useRef(initialUrl.q);
+  /** 外部跳转那一轮跳过写回 URL */
+  const skipNextUrlWriteRef = useRef(false);
+  const searchSeqRef = useRef(0);
+  /** 最近一次发起搜索的关键词 + 条件，防止条件 state 追上来后重复搜 */
+  const lastSearchRef = useRef<{ q: string; filtersKey: string } | null>(null);
+
+  // ─── 筛选（P1-2）────────────────────────────────
+  // 带着筛选条件回来时直接展开面板，让用户看到条件还在
+  const [showFilters, setShowFilters] = useState(() => hasActiveFilters(initialUrl));
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [pickedFolders, setPickedFolders] = useState<number[]>(initialUrl.folders);
+  const [pickedTags, setPickedTags] = useState<number[]>(initialUrl.tags);
+  const [pickedTypes, setPickedTypes] = useState<NoteType[]>(initialUrl.types);
+  const [dateRange, setDateRange] = useState<[string, string] | null>(() =>
+    initialUrl.updated ? toDayRange(initialUrl.updated) : null,
+  );
+  const [createdRange, setCreatedRange] = useState<[string, string] | null>(() =>
+    initialUrl.created ? toDayRange(initialUrl.created) : null,
+  );
+  const [titleOnly, setTitleOnly] = useState(initialUrl.titleOnly);
+  // RangePicker 是非受控的：清空筛选时靠换 key 重挂载，才能把选择器上残留的日期也清掉
+  const [pickerResetKey, setPickerResetKey] = useState(0);
+
+  // 展开筛选面板时才拉数据 —— 大多数搜索用不上筛选，没必要每次进页面都拉两张表
+  useEffect(() => {
+    if (!showFilters || folders.length > 0 || tags.length > 0) return;
+    folderApi.list().then(setFolders).catch(() => {});
+    tagApi.list().then(setTags).catch(() => {});
+  }, [showFilters, folders.length, tags.length]);
+
+  /** 组装成后端要的 filters（规则见 buildSearchFilters） */
+  const filters = useMemo<SearchFilters | undefined>(
+    () =>
+      buildSearchFilters(
+        {
+          folders: pickedFolders,
+          tags: pickedTags,
+          types: pickedTypes,
+          dateRange,
+          createdRange,
+          titleOnly,
+        },
+        folders,
+      ),
+    [pickedFolders, pickedTags, pickedTypes, dateRange, createdRange, titleOnly, folders],
+  );
+
+  const activeFilterCount =
+    (pickedFolders.length > 0 ? 1 : 0) +
+    (pickedTags.length > 0 ? 1 : 0) +
+    (pickedTypes.length > 0 ? 1 : 0) +
+    (dateRange ? 1 : 0) +
+    (createdRange ? 1 : 0) +
+    (titleOnly ? 1 : 0);
+
+  function clearFilters() {
+    setPickedFolders([]);
+    setPickedTags([]);
+    setPickedTypes([]);
+    setDateRange(null);
+    setCreatedRange(null);
+    setTitleOnly(false);
+    setPickerResetKey((k) => k + 1);
+  }
+
+  // 筛选变化后立即用当前关键词重搜（用户改了条件却要再敲一次回车是很别扭的）
+  const filtersKey = JSON.stringify(filters ?? {});
+  useEffect(() => {
+    if (!searched || !query.trim()) return;
+    // 外部跳转时已经按新条件搜过了，条件 state 随后才更新到这里，别再搜一遍
+    const last = lastSearchRef.current;
+    if (last && last.q === query.trim() && last.filtersKey === filtersKey) return;
+    doSearch(query.trim());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersKey]);
 
   // URL ?type= 决定 Scope：缺省 "all"
   const scope = ((searchParams.get("type") ?? "all") as Scope);
@@ -50,20 +223,97 @@ function DesktopSearchPage() {
 
   // URL ?q= 驱动搜索：外部（SearchPanel 点历史 / 首页搜索框直达）改变 URL 时
   // 同步输入框并触发重搜；用户在输入框 typing 走下方本地 debounce，不走这里
+  //
+  // 🔴 读 URL 和写 URL 两个 effect 在同一次提交里都会跑：外部跳转那一轮 query 还是旧值，
+  //    写回 effect 若照常执行会把旧 q 写回去，下一轮读 effect 又把旧 q 当成"外部跳转"，
+  //    关键词就在新旧之间来回切、反复搜。所以用 lastWrittenQRef 记住本页最后写进 URL 的 q：
+  //    与它相同 = 自己写的，忽略；不同才是外部跳转，并让写回 effect 跳过这一轮。
   const urlQ = (searchParams.get("q") ?? "").trim();
   useEffect(() => {
-    if (!urlQ) return;
+    if (!urlQ || urlQ === lastWrittenQRef.current) return;
+    lastWrittenQRef.current = urlQ;
+    skipNextUrlWriteRef.current = true;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    // 外部跳转（侧栏历史 / 首页搜索框 / 后退）按 URL 里的条件来：只带 q 就等于清空筛选。
+    // 否则沿用旧筛选，用户看不出结果被过滤了，会以为搜不到
+    const next = parseSearchUrl(searchParams);
+    const nextDate = next.updated ? toDayRange(next.updated) : null;
+    const nextCreated = next.created ? toDayRange(next.created) : null;
     setQuery(urlQ);
-    doSearch(urlQ);
+    setPickedFolders(next.folders);
+    setPickedTags(next.tags);
+    setPickedTypes(next.types);
+    setDateRange(nextDate);
+    setCreatedRange(nextCreated);
+    setTitleOnly(next.titleOnly);
+    setPickerResetKey((k) => k + 1);
+    if (hasActiveFilters(next)) setShowFilters(true);
+    doSearch(
+      urlQ,
+      buildSearchFilters(
+        {
+          folders: next.folders,
+          tags: next.tags,
+          types: next.types,
+          dateRange: nextDate,
+          createdRange: nextCreated,
+          titleOnly: next.titleOnly,
+        },
+        folders,
+      ),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlQ]);
 
+  // 首次进入：URL 里带着关键词（含从笔记返回）就按恢复的条件搜一次
+  useEffect(() => {
+    if (initialUrl.q) doSearch(initialUrl.q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 条件变化 → 写回 URL（replace，不往历史栈里塞记录，后退仍是回到上一页）
+  useEffect(() => {
+    // 外部跳转那一轮的 state 还是旧的，写回会把新 URL 覆盖掉（见上方读 URL 的 effect）
+    if (skipNextUrlWriteRef.current) {
+      skipNextUrlWriteRef.current = false;
+      return;
+    }
+    lastWrittenQRef.current = query.trim();
+    const day = (r: [string, string] | null): [string, string] | null =>
+      r ? [r[0].slice(0, 10), r[1].slice(0, 10)] : null;
+    const next = writeSearchUrl(searchParams, {
+      q: query,
+      folders: pickedFolders,
+      tags: pickedTags,
+      types: pickedTypes,
+      updated: day(dateRange),
+      created: day(createdRange),
+      titleOnly,
+    });
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [
+    query,
+    pickedFolders,
+    pickedTags,
+    pickedTypes,
+    dateRange,
+    createdRange,
+    titleOnly,
+    searchParams,
+    setSearchParams,
+  ]);
+
   /** 并发拉笔记 + 待办；任意一边失败不阻塞另一边 */
-  async function doSearch(keyword: string) {
+  async function doSearch(keyword: string, f: SearchFilters | undefined = filters) {
+    // 请求序号：连续输入 / 改条件会有多个请求同时在跑，慢的旧结果回来不能盖掉新结果
+    const seq = ++searchSeqRef.current;
+    lastSearchRef.current = { q: keyword, filtersKey: JSON.stringify(f ?? {}) };
     setLoading(true);
     setSearched(true);
     const [notes, tasks] = await Promise.all([
-      searchApi.search(keyword).catch((e) => {
+      searchApi.search(keyword, undefined, f).catch((e) => {
         console.error("笔记搜索失败:", e);
         return [] as SearchResult[];
       }),
@@ -72,6 +322,7 @@ function DesktopSearchPage() {
         return [] as TaskSearchHit[];
       }),
     ]);
+    if (seq !== searchSeqRef.current) return;
     setResults(notes);
     setTaskResults(tasks);
     // 历史只在拿到任一结果时才记（避免空查询污染）
@@ -85,6 +336,10 @@ function DesktopSearchPage() {
     setQuery(value);
     if (timerRef.current) clearTimeout(timerRef.current);
     if (!value.trim()) {
+      // 作废还在跑的请求，免得清空后旧结果又冒出来
+      searchSeqRef.current++;
+      lastSearchRef.current = null;
+      setLoading(false);
       setResults([]);
       setTaskResults([]);
       setSearched(false);
@@ -111,7 +366,8 @@ function DesktopSearchPage() {
     scope === "all" ? results.slice(0, ALL_MODE_NOTES_PREVIEW) : results;
 
   return (
-    <div className="max-w-4xl mx-auto">
+    // 横向留白统一交给 AppLayout Content 的 padding，不再单独限内容宽度
+    <div>
       {/* 搜索框：与首页 / 笔记列表搜索同款（普通 Input + 独立搜索按钮） */}
       <div className="mb-4 flex items-stretch gap-1.5" style={{ width: "100%" }}>
         <Input
@@ -154,10 +410,111 @@ function DesktopSearchPage() {
               { value: "tasks", label: `待办 ${taskResults.length}` },
             ]}
           />
-          {!loading && totalHits > 0 && (
-            <Text type="secondary" className="text-xs">
-              共 {totalHits} 条结果
-            </Text>
+          <div className="flex items-center gap-3">
+            {!loading && totalHits > 0 && (
+              <Text type="secondary" className="text-xs">
+                共 {totalHits} 条结果
+              </Text>
+            )}
+            {/* 筛选只作用于笔记，待办 Tab 下没有意义，故隐藏 */}
+            {scope !== "tasks" && (
+              <Button
+                size="small"
+                type={activeFilterCount > 0 ? "primary" : "default"}
+                icon={<SlidersHorizontal size={14} />}
+                onClick={() => setShowFilters((v) => !v)}
+                title="按文件夹 / 标签 / 时间 / 类型筛选"
+              >
+                筛选{activeFilterCount > 0 ? ` ${activeFilterCount}` : ""}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 筛选栏（P1-2）：仅笔记结果生效 */}
+      {searched && showFilters && scope !== "tasks" && (
+        <div
+          className="mb-4 flex flex-wrap items-center gap-2 rounded-lg p-3"
+          style={{ background: token.colorFillQuaternary }}
+        >
+          <TreeSelect
+            style={{ minWidth: 180, flex: "1 1 180px" }}
+            size="small"
+            multiple
+            treeCheckable
+            showCheckedStrategy={TreeSelect.SHOW_PARENT}
+            maxTagCount={1}
+            value={pickedFolders}
+            onChange={(v) => setPickedFolders(v as number[])}
+            treeData={folders as unknown as Record<string, unknown>[]}
+            fieldNames={{ label: "name", value: "id", children: "children" }}
+            placeholder="文件夹"
+            allowClear
+            treeNodeFilterProp="name"
+          />
+          <Select
+            style={{ minWidth: 160, flex: "1 1 160px" }}
+            size="small"
+            mode="multiple"
+            maxTagCount={1}
+            value={pickedTags}
+            onChange={setPickedTags}
+            options={tags.map((t) => ({ label: t.name, value: t.id }))}
+            placeholder="标签（需同时含有）"
+            allowClear
+            optionFilterProp="label"
+          />
+          <Select
+            style={{ minWidth: 120 }}
+            size="small"
+            mode="multiple"
+            maxTagCount={1}
+            value={pickedTypes}
+            onChange={setPickedTypes}
+            options={[
+              { label: "笔记", value: "markdown" },
+              { label: "白板", value: "whiteboard" },
+            ]}
+            placeholder="类型"
+            allowClear
+          />
+          <DatePicker.RangePicker
+            key={`updated-${pickerResetKey}`}
+            defaultValue={
+              dateRange ? [dayjs(dateRange[0]), dayjs(dateRange[1])] : undefined
+            }
+            size="small"
+            style={{ minWidth: 220 }}
+            onChange={(_, strs) => setDateRange(toDayRange(strs))}
+            placeholder={["修改时间从", "至"]}
+          />
+          <DatePicker.RangePicker
+            key={`created-${pickerResetKey}`}
+            defaultValue={
+              createdRange ? [dayjs(createdRange[0]), dayjs(createdRange[1])] : undefined
+            }
+            size="small"
+            style={{ minWidth: 220 }}
+            onChange={(_, strs) => setCreatedRange(toDayRange(strs))}
+            placeholder={["创建时间从", "至"]}
+          />
+          <Checkbox
+            checked={titleOnly}
+            onChange={(e) => setTitleOnly(e.target.checked)}
+          >
+            仅搜标题
+          </Checkbox>
+          {activeFilterCount > 0 && (
+            <Button
+              size="small"
+              type="text"
+              icon={<XIcon size={14} />}
+              onClick={clearFilters}
+              title="清空全部筛选条件"
+            >
+              清空
+            </Button>
           )}
         </div>
       )}
@@ -249,7 +606,11 @@ function DesktopSearchPage() {
                           item={item}
                           token={token}
                           keyword={query}
-                          onClick={() => navigate(`/notes/${item.id}`)}
+                          onClick={() =>
+                            navigate(
+                              `/notes/${item.id}?q=${encodeURIComponent(query)}`,
+                            )
+                          }
                         />
                       </div>
                     );
@@ -264,7 +625,11 @@ function DesktopSearchPage() {
                       item={item}
                       token={token}
                       keyword={query}
-                      onClick={() => navigate(`/notes/${item.id}`)}
+                      onClick={() =>
+                        navigate(
+                          `/notes/${item.id}?q=${encodeURIComponent(query)}`,
+                        )
+                      }
                     />
                   ))}
                   {results.length > ALL_MODE_NOTES_PREVIEW && (

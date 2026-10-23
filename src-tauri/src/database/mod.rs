@@ -1,22 +1,35 @@
 pub mod ai;
 pub mod cards;
+pub mod cjk;
 pub mod claude_agent;
+pub mod dataset;
+pub mod dataset_query;
+#[cfg(test)]
+mod dataset_query_tests;
+pub mod dataview;
 pub mod folders;
 pub mod links;
 pub mod mcp_servers;
+pub mod note_attachments;
 pub mod notes;
 pub mod plugins;
+pub mod projects;
 pub mod prompt;
+pub mod push;
 pub mod schema;
 pub mod search;
 pub mod session;
+pub mod snapshots;
 pub mod sync;
 pub mod sync_v1;
 pub mod tags;
+pub mod task_attachments;
 pub mod task_categories;
 pub mod tasks;
 pub mod templates;
+pub mod text_health;
 pub mod url_mapping;
+pub mod whiteboard;
 
 use std::sync::Mutex;
 
@@ -28,6 +41,16 @@ use crate::models::AppConfig;
 /// 数据库封装，线程安全
 pub struct Database {
     conn: Mutex<Connection>,
+    /// 当前连接对应的磁盘文件路径（内存库 / 释放期间为 None）。
+    path: Mutex<Option<String>>,
+}
+
+fn file_backed(db_path: &str) -> Option<String> {
+    if db_path.is_empty() || db_path == ":memory:" || db_path.starts_with("file::memory:") {
+        None
+    } else {
+        Some(db_path.to_string())
+    }
 }
 
 impl Database {
@@ -57,7 +80,13 @@ impl Database {
 
         Ok(Self {
             conn: Mutex::new(conn),
+            path: Mutex::new(file_backed(db_path)),
         })
+    }
+
+    /// 当前连接对应的磁盘文件路径。
+    pub fn file_path(&self) -> Option<String> {
+        self.path.lock().ok().and_then(|g| g.clone())
     }
 
     /// 获取数据库连接锁（供 Service 层复杂操作使用）
@@ -83,6 +112,9 @@ impl Database {
             .map_err(|e| AppError::Custom(e.to_string()))?;
         // 切到 :memory: → 旧 connection 被 drop → 旧文件 mmap + handle 释放
         *guard = Connection::open_in_memory()?;
+        if let Ok(mut p) = self.path.lock() {
+            *p = None;
+        }
         log::info!("[db] 临时释放真实 db 连接（已切到 :memory:）");
         Ok(())
     }
@@ -116,6 +148,9 @@ impl Database {
         new_conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         *guard = new_conn;
+        if let Ok(mut p) = self.path.lock() {
+            *p = file_backed(db_path);
+        }
         log::info!("[db] 已热重载数据库连接: {}", db_path);
         Ok(())
     }
