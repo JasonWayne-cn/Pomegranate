@@ -48,3 +48,16 @@ bili_*.json
 
 # 合并过程产物（三方合并脚本输出）
 *.merged
+
+# 工具生成的图谱/分析产物（可随时重建）
+.understand-anything/
+graphify-out/
+
+# Excalidraw 字体（vite.config.ts 构建时从 node_modules 自动同步）
+public/excalidraw/fonts/
+
+# npm 误生成的锁文件（本项目使用 pnpm）
+package-lock.json
+
+# 打包的第三方可执行文件（体积超 GitHub 100MB 限制）
+src/components/editor/*.exe
