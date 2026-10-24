@@ -59,7 +59,8 @@ import {
   useHomeLayoutStore,
   type HomeWidgetId,
   COL_SPAN_MAP,
-  HEIGHT_MAP,
+  ROW_SPAN_MAP,
+  WIDGET_ROW_HEIGHT,
 } from "@/store/homeLayout";
 import {
   DndContext,
@@ -686,7 +687,10 @@ function DesktopHomePage() {
           items={visibleWidgetIds}
           strategy={rectSortingStrategy}
         >
-          <div className="grid grid-cols-12 gap-3 auto-rows-min">
+          <div
+            className="grid grid-cols-12 gap-3"
+            style={{ gridAutoRows: `${WIDGET_ROW_HEIGHT}px` }}
+          >
             {visibleWidgets.map((w) => {
               const isCollapsed = collapsed[w.id] ?? false;
               // Tailwind 4 不能扫描动态拼接的类名，必须用静态映射
@@ -697,7 +701,8 @@ function DesktopHomePage() {
                 12: "col-span-12",
               };
               const colSpanClass = COL_CLASS[COL_SPAN_MAP[w.colSpan]] ?? "col-span-12";
-              const minH = HEIGHT_MAP[w.heightLevel];
+              // 折叠时只占一行；展开时按高度档位跨行，右侧矮卡片才能上下叠放
+              const rowSpan = isCollapsed ? 1 : ROW_SPAN_MAP[w.heightLevel];
 
               const renderContent = (): React.ReactNode => {
                 switch (w.id) {
@@ -1309,12 +1314,16 @@ function DesktopHomePage() {
               const meta = widgetMeta[w.id];
 
               return (
-                <div key={w.id} className={colSpanClass}>
+                <div
+                  key={w.id}
+                  className={colSpanClass}
+                  style={{ gridRow: `span ${rowSpan}` }}
+                >
                   <SortableWidget id={w.id}>
                     {({ dragHandleProps }) => (
                       <div
                         style={{
-                          height: isCollapsed ? undefined : minH,
+                          height: isCollapsed ? undefined : "100%",
                           display: "flex",
                           flexDirection: "column",
                         }}

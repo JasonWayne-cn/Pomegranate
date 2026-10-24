@@ -88,17 +88,17 @@ export function HomeWidget({
           )}
           {/* 高度下拉：阻止 mousedown 冒泡，避免误触 dnd-kit 拖拽 */}
           {onHeightChange && heightLevel && (
-            <Tooltip title="高度" mouseEnterDelay={0.4}>
+            <Tooltip title="高度（跨行数）" mouseEnterDelay={0.4}>
               <span onMouseDown={(e) => e.stopPropagation()}>
                 <Select
                   size="small"
                   value={heightLevel}
                   onChange={(v) => onHeightChange(v as WidgetHeight)}
-                  style={{ width: 72 }}
+                  style={{ width: 86 }}
                   options={[
-                    { label: "矮", value: "compact" },
-                    { label: "中", value: "normal" },
-                    { label: "高", value: "tall" },
+                    { label: "矮 · 1行", value: "compact" },
+                    { label: "中 · 2行", value: "normal" },
+                    { label: "高 · 3行", value: "tall" },
                   ]}
                 />
               </span>

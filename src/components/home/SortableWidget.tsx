@@ -31,6 +31,8 @@ export function SortableWidget({ id, children }: SortableWidgetProps) {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
+    // 撑满网格项：跨行卡片（row-span）需要内部容器拿到完整高度
+    height: "100%",
   };
 
   const dragHandleProps: Record<string, unknown> = (listeners as Record<string, unknown>) ?? {};

@@ -29,11 +29,19 @@ export const COL_SPAN_MAP: Record<WidgetSize, number> = {
   xl: 12,
 };
 
-/** 高度映射（min-height px） */
-export const HEIGHT_MAP: Record<WidgetHeight, number> = {
-  compact: 160,
-  normal: 260,
-  tall: 380,
+/** 网格基础行高（px）。高度档位通过跨行数实现，而不是固定像素。 */
+export const WIDGET_ROW_HEIGHT = 150;
+
+/**
+ * 高度档位 → 网格跨行数。
+ *
+ * compact=1 行、normal=2 行、tall=3 行。
+ * 这样左侧 normal/tall 卡片可以跨行，右侧两个 compact 卡片就能上下叠放。
+ */
+export const ROW_SPAN_MAP: Record<WidgetHeight, number> = {
+  compact: 1,
+  normal: 2,
+  tall: 3,
 };
 
 export interface WidgetLayout {
@@ -150,7 +158,7 @@ export const useHomeLayoutStore = create<HomeLayoutState>((set, get) => {
         id,
         colSpan: w.colSpan && w.colSpan in COL_SPAN_MAP ? w.colSpan : def.colSpan,
         heightLevel:
-          w.heightLevel && w.heightLevel in HEIGHT_MAP
+          w.heightLevel && w.heightLevel in ROW_SPAN_MAP
             ? w.heightLevel
             : def.heightLevel,
       });
