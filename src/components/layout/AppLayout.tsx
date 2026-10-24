@@ -17,6 +17,7 @@ import { getThemesByCategory } from "@/theme/tokens";
 import type { ThemeMode } from "@/theme/tokens";
 import { ActivityBar, deriveActiveViewFromPath } from "./ActivityBar";
 import { SidePanel, viewHasPanel } from "./SidePanel";
+import { ModuleActions } from "@/components/module/ModuleActions";
 import { TabBar } from "./TabBar";
 import { WindowControls } from "./WindowControls";
 import { InstanceBadge } from "./InstanceBadge";
@@ -564,6 +565,7 @@ export function AppLayout() {
               />
             </Tooltip>
           </div>
+          <ModuleActions />
           <DragRegion />
           <InstanceBadge />
           <DragRegion />

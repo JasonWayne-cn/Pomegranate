@@ -1684,7 +1684,7 @@ export function NotesPanel() {
               bg={token.colorBgContainer}
             />
           }
-          onClick={() => navigate("/mounts")}
+          onClick={() => navigate("/notes?config=mounts")}
           style={{ width: 24, height: 24, padding: 0 }}
           title="外部目录设置"
         />

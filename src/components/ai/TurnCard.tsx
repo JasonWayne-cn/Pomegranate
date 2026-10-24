@@ -155,7 +155,7 @@ export function TurnCard({
         view={view}
         canRetry={isLast && !busy && !!onRegenerate}
         onRetry={onRegenerate}
-        onOpenModelSettings={() => navigate("/settings", { state: { scrollTo: "settings-ai-models" } })}
+        onOpenModelSettings={() => navigate("/ai?config=models")}
       />
 
       {view.refs.length > 0 && (

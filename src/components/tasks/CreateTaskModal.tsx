@@ -22,6 +22,7 @@ import { Plus, NotebookText, Folder as FolderIcon, File as FileIcon, Link as Lin
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useNavigate } from "react-router-dom";
 import { taskApi, taskCategoryApi, noteApi, configApi, projectApi, aiPlanApi } from "@/lib/api";
+import { useModuleConfig } from "@/hooks/useModuleConfig";
 import { recognizeTask, type DueTime, type RecognizedTask } from "@/lib/taskTextParser";
 import RecognizeResultCard, { type RecognizeSource } from "./RecognizeResultCard";
 import {
@@ -55,6 +56,21 @@ import TaskAttachments, {
 type RepeatMode = "none" | "daily" | "weekdays" | "weekly" | "monthly" | "custom";
 type EndMode = "never" | "until" | "count";
 type CustomUnit = "day" | "week" | "month";
+
+/** 模块配置的低/中/高 → TaskPriority（0/1/2） */
+function priorityFromConfig(value: string): TaskPriority {
+  if (value === "low") return 0;
+  if (value === "high") return 2;
+  return 1;
+}
+
+/** 模块配置的重复规则 → 弹窗内部的 RepeatMode */
+function repeatModeFromConfig(value: string): RepeatMode {
+  if (value === "daily" || value === "weekly" || value === "monthly") {
+    return value;
+  }
+  return "none";
+}
 
 /**
  * 标题按**单行文本**存：粘贴 / 语音带进来的换行、制表一律折成空格。
@@ -107,10 +123,19 @@ export function CreateTaskModal({
   const { token } = antdTheme.useToken();
   const navigate = useNavigate();
 
+  // 模块设置中心：新建任务的默认优先级 / 默认重复规则。
+  // 用 ref 避免把配置对象塞进弹窗初始化 effect 的依赖，导致打开时重复 reset。
+  const { values: taskConfig } = useModuleConfig("tasks", {
+    default_priority: "medium",
+    repeat_default: "none",
+  });
+  const taskConfigRef = useRef(taskConfig);
+  taskConfigRef.current = taskConfig;
+
   /** 跳到设置页对应区块（默认提醒时刻），关闭当前弹窗 */
   function handleGoSettingsTaskReminder() {
     onClose();
-    navigate("/settings", { state: { scrollTo: "settings-task-reminder" } });
+    navigate("/tasks?config=general");
   }
 
   const [title, setTitle] = useState("");
@@ -308,9 +333,10 @@ export function CreateTaskModal({
         setRepeatCount(10);
       }
     } else {
+      const cfg = taskConfigRef.current;
       setTitle("");
       setDescription("");
-      setPriority(presetPriority ?? 1);
+      setPriority(presetPriority ?? priorityFromConfig(cfg.default_priority));
       setImportant(presetImportant ?? false);
       if (presetDueDate) {
         const [h, m] = defaultTime.split(":").map(Number);
@@ -324,8 +350,8 @@ export function CreateTaskModal({
       setStartDate(null);
       setDateMode("single");
       setLinks([]);
-      // 循环默认清零
-      setRepeatMode("none");
+      // 循环默认：模块配置的默认规则，未配置时清零
+      setRepeatMode(repeatModeFromConfig(cfg.repeat_default));
       setCustomInterval(2);
       setCustomUnit("day");
       setCustomWeekdays([]);

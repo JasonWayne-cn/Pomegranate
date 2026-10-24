@@ -47,7 +47,15 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { ColumnsType } from "antd/es/table";
 import { open as openDialog, save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { noteApi, exportApi, folderApi, tagApi, trashApi } from "@/lib/api";
+import {
+  noteApi,
+  exportApi,
+  folderApi,
+  tagApi,
+  trashApi,
+  moduleConfigApi,
+} from "@/lib/api";
+import { MODULE_CONFIG_CHANGED_EVENT } from "@/modules/types";
 import { MicButton } from "@/components/MicButton";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import {
@@ -589,6 +597,37 @@ function DesktopNoteListPage() {
     loadNotes(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortBy]);
+
+  // 模块设置中心：读取「文档 → 默认排序」，并在抽屉保存后即时应用。
+  // 读取失败或值不合法时保持页面默认排序，不打断列表加载。
+  useEffect(() => {
+    let alive = true;
+    const SORT_VALUES = ["default", "custom", "created", "title"] as const;
+
+    async function applyDefaultSort() {
+      try {
+        const stored = await moduleConfigApi.getMany(["module.notes.default_sort"]);
+        const value = stored["module.notes.default_sort"];
+        if (alive && value && (SORT_VALUES as readonly string[]).includes(value)) {
+          setSortBy(value as (typeof SORT_VALUES)[number]);
+        }
+      } catch {
+        // 配置读取失败时静默保留当前排序
+      }
+    }
+
+    void applyDefaultSort();
+    const onConfigChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ view?: string }>).detail;
+      if (detail?.view === "notes") void applyDefaultSort();
+    };
+    window.addEventListener(MODULE_CONFIG_CHANGED_EVENT, onConfigChanged);
+
+    return () => {
+      alive = false;
+      window.removeEventListener(MODULE_CONFIG_CHANGED_EVENT, onConfigChanged);
+    };
+  }, []);
 
   // 监听全局"刷新"触发器：任何创建/导入流程完成后都会 bump，触发列表重拉
   const notesRefreshTick = useAppStore((s) => s.notesRefreshTick);

@@ -292,9 +292,7 @@ export function QuickCaptureAsrModal({ open, onClose }: Props) {
               <Typography.Link
                 onClick={() => {
                   onClose();
-                  navigate("/settings", {
-                    state: { scrollTo: "settings-asr" },
-                  });
+                  navigate("/ai?config=asr");
                 }}
               >
                 {" 设置 → 语音识别 "}

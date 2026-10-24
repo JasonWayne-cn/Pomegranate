@@ -23,7 +23,8 @@ import {
   CalendarCheck,
 } from "lucide-react";
 import { CloseCircleFilled } from "@ant-design/icons";
-import { configApi, dailyApi, linkApi, noteApi, templateApi } from "@/lib/api";
+import { dailyApi, linkApi, noteApi, templateApi } from "@/lib/api";
+import { useModuleConfig } from "@/hooks/useModuleConfig";
 import { todayYmd } from "@/lib/utils";
 import { MicButton } from "@/components/MicButton";
 import { TiptapEditor } from "@/components/editor";
@@ -49,6 +50,17 @@ function todayStr(): string {
   return todayYmd();
 }
 
+/**
+ * 按模块配置生成新日记的默认标题。
+ * 默认格式保持历史行为 `${date} 的日记`，避免已有用户体感突变。
+ */
+function buildDailyTitle(dateStr: string, format: string): string {
+  const d = dayjs(dateStr);
+  if (!d.isValid()) return `${dateStr} 的日记`;
+  if (!format || format === "YYYY-MM-DD") return `${dateStr} 的日记`;
+  return `${d.format(format)} 的日记`;
+}
+
 /** HH:mm 格式化保存时间 */
 function formatSavedAt(d: Date): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -67,6 +79,19 @@ function DesktopDailyPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlDate]);
+
+  // 模块设置中心：自动创建、日期格式、默认模板
+  const { values: dailyConfig, loaded: dailyConfigLoaded } = useModuleConfig(
+    "daily",
+    {
+      auto_create_today: false,
+      date_format: "YYYY-MM-DD",
+      default_template_id: "",
+    },
+    { default_template_id: "daily.default_template_id" },
+  );
+  const dailyConfigRef = useRef(dailyConfig);
+  dailyConfigRef.current = dailyConfig;
 
   const [note, setNote] = useState<Note | null>(null);
   const [title, setTitle] = useState("");
@@ -141,14 +166,13 @@ function DesktopDailyPage() {
       } else {
         // 该日期还没有日记，仅设置默认标题，不创建数据库记录
         setNote(null);
-        const defaultTitle = `${d} 的日记`;
+        const defaultTitle = buildDailyTitle(d, dailyConfigRef.current.date_format);
         setTitle(defaultTitle);
-        // 用户在设置里配过"日记默认模板" → 渲染后灌入编辑器（{{date}} 锁到 d）
-        // 任一环节失败都静默回退到空白（模板已删 / config 不存在等都是正常态）
+        // 模块设置中心配过"日记默认模板" → 渲染后灌入编辑器（{{date}} 锁到 d）
+        // 任一环节失败都静默回退到空白（模板已删 / 配置不存在等都是正常态）
         let initial = "";
         try {
-          const v = await configApi.get("daily.default_template_id");
-          const tplId = Number(v);
+          const tplId = Number(dailyConfigRef.current.default_template_id);
           if (Number.isFinite(tplId) && tplId > 0) {
             initial = await templateApi.renderContent(tplId, defaultTitle, d);
           }
@@ -168,6 +192,27 @@ function DesktopDailyPage() {
   useEffect(() => {
     loadDaily(date);
   }, [date, loadDaily]);
+
+  // 模块设置中心：开启「自动创建今日日记」时，首次进入今天且没有记录就建一条。
+  // 必须等配置加载完成再判断，否则默认值 true 会在用户关闭该选项后仍然触发。
+  useEffect(() => {
+    if (!dailyConfigLoaded || !dailyConfig.auto_create_today) return;
+    if (date !== todayStr() || loading || note) return;
+    // 用户已经开始输入时不再自动建档，交给自动保存处理，避免覆盖输入
+    if (content.trim().length > 0) return;
+
+    void dailyApi
+      .getOrCreate(date)
+      .then((n) => {
+        setNote(n);
+        setTitle(n.title);
+        setContent(n.content);
+        templateInitialRef.current = null;
+      })
+      .catch(() => {
+        // 创建失败保持空白，用户可手动输入后由自动保存建记录
+      });
+  }, [dailyConfigLoaded, dailyConfig.auto_create_today, date, loading, note, content]);
 
   // 拉相邻日记日期：按真实存在的日记跳，跳过空白日
   useEffect(() => {

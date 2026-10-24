@@ -200,7 +200,7 @@ export function MicButton({
             <a
               onClick={(ev) => {
                 ev.preventDefault();
-                navigate("/settings", { state: { scrollTo: "settings-asr" } });
+                navigate("/ai?config=asr");
               }}
             >
               去设置 →

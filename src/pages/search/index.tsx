@@ -30,6 +30,7 @@ import {
   writeSearchUrl,
 } from "@/lib/searchUrlState";
 import { searchApi, taskApi, folderApi, tagApi } from "@/lib/api";
+import { useModuleConfig } from "@/hooks/useModuleConfig";
 import { MicButton } from "@/components/MicButton";
 import { useAppStore } from "@/store";
 import { highlightText, highlightSnippet } from "@/lib/highlight";
@@ -124,6 +125,16 @@ function DesktopSearchPage() {
   // 进入页面时从 URL 恢复条件：点进笔记再返回、刷新都不丢（见 lib/searchUrlState）
   const [initialUrl] = useState(() => parseSearchUrl(searchParams));
 
+  // 模块设置中心：默认结果类型 / 仅标题 / 结果上限
+  const { values: searchConfig, loaded: searchConfigLoaded } = useModuleConfig(
+    "search",
+    {
+      default_scope: "all",
+      title_only: false,
+      max_results: 50,
+    },
+  );
+
   const [query, setQuery] = useState(initialUrl.q);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [taskResults, setTaskResults] = useState<TaskSearchHit[]>([]);
@@ -153,6 +164,16 @@ function DesktopSearchPage() {
     initialUrl.created ? toDayRange(initialUrl.created) : null,
   );
   const [titleOnly, setTitleOnly] = useState(initialUrl.titleOnly);
+  // 「仅搜索标题」默认值只应用一次，避免用户手动切换后被配置反复覆盖
+  const titleOnlyDefaultAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!searchConfigLoaded || titleOnlyDefaultAppliedRef.current) return;
+    titleOnlyDefaultAppliedRef.current = true;
+    // URL 显式带条件时以 URL 为准
+    if (!searchParams.has("titleOnly")) {
+      setTitleOnly(searchConfig.title_only);
+    }
+  }, [searchConfigLoaded, searchConfig.title_only, searchParams]);
   // RangePicker 是非受控的：清空筛选时靠换 key 重挂载，才能把选择器上残留的日期也清掉
   const [pickerResetKey, setPickerResetKey] = useState(0);
 
@@ -210,7 +231,8 @@ function DesktopSearchPage() {
   }, [filtersKey]);
 
   // URL ?type= 决定 Scope：缺省 "all"
-  const scope = ((searchParams.get("type") ?? "all") as Scope);
+  const scope = ((searchParams.get("type") ??
+    searchConfig.default_scope) as Scope);
 
   // 虚拟滚动只在「笔记」单 Tab 下启用（"全部" 时只展示前 20 条预览，无需虚拟化）
   const scrollParentRef = useRef<HTMLDivElement | null>(null);
@@ -312,12 +334,13 @@ function DesktopSearchPage() {
     lastSearchRef.current = { q: keyword, filtersKey: JSON.stringify(f ?? {}) };
     setLoading(true);
     setSearched(true);
+    const limit = Math.max(10, Math.min(200, searchConfig.max_results || 50));
     const [notes, tasks] = await Promise.all([
-      searchApi.search(keyword, undefined, f).catch((e) => {
+      searchApi.search(keyword, limit, f).catch((e) => {
         console.error("笔记搜索失败:", e);
         return [] as SearchResult[];
       }),
-      taskApi.search(keyword, 50).catch((e) => {
+      taskApi.search(keyword, limit).catch((e) => {
         console.error("待办搜索失败:", e);
         return [] as TaskSearchHit[];
       }),

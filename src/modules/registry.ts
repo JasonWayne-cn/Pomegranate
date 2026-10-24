@@ -60,11 +60,28 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
       { keys: "F11", desc: "切换专注模式" },
       { keys: "Alt + ← / →", desc: "历史后退 / 前进" },
     ],
+    groups: [
+      { id: "external", label: "外部目录设置" },
+      { id: "history", label: "历史版本" },
+      { id: "general", label: "常规" },
+      { id: "editor", label: "编辑器排版" },
+    ],
     panels: [
+      {
+        id: "mounts",
+        title: "外部目录",
+        kind: "component",
+        group: "external",
+        load: () =>
+          import("@/components/settings/MountSettingsSection").then((m) => ({
+            default: m.MountSettingsSection,
+          })),
+      },
       {
         id: "general",
         title: "常规",
         kind: "schema",
+        group: "general",
         fields: [
           {
             key: "auto_save_delay",
@@ -101,6 +118,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         id: "snapshot",
         title: "历史快照",
         kind: "component",
+        group: "history",
         load: () =>
           import("@/components/settings/SnapshotSection").then((m) => ({
             default: m.SnapshotSection,
@@ -110,12 +128,14 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         id: "orphan",
         title: "附件清理",
         kind: "component",
+        group: "general",
         load: () => import("@/components/settings/OrphanAssetsPanel"),
       },
       {
         id: "import",
         title: "导入笔记",
         kind: "component",
+        group: "general",
         load: () =>
           import("@/components/settings/ImportSection").then((m) => ({
             default: m.ImportSection,
@@ -125,6 +145,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         id: "export",
         title: "导出笔记",
         kind: "component",
+        group: "general",
         load: () =>
           import("@/components/settings/ExportSection").then((m) => ({
             default: m.ExportSection,
@@ -134,17 +155,21 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         id: "ocr",
         title: "OCR 识别",
         kind: "component",
+        group: "general",
         load: () =>
           import("@/components/settings/OcrSection").then((m) => ({
             default: m.OcrSection,
           })),
       },
       {
-        id: "advanced",
+        id: "editor-typography",
         title: "编辑器排版",
-        kind: "link",
-        description: "编辑器排版等完整设置位于全局设置页，后续批次将逐步迁入本抽屉。",
-        link: { to: "/settings?tab=display", label: "打开完整设置" },
+        kind: "component",
+        group: "editor",
+        load: () =>
+          import("@/components/settings/EditorTypographySection").then((m) => ({
+            default: m.EditorTypographySection,
+          })),
       },
     ],
   },
@@ -202,6 +227,13 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
           import("@/components/settings/DailyStorageSection").then((m) => ({
             default: m.DailyStorageSection,
           })),
+      },
+      {
+        id: "editor-link",
+        title: "编辑器排版",
+        kind: "link",
+        description: "字体、字号、行距等排版设置与文档编辑器共用。",
+        link: { to: "/notes?config=editor", label: "打开编辑器排版" },
       },
     ],
   },

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useModuleConfig } from "@/hooks/useModuleConfig";
 import {
   Input,
   Button,
@@ -249,8 +250,15 @@ function DesktopTasksPage() {
   const { token } = antdTheme.useToken();
   const { message } = AntdApp.useApp();
 
-  // URL 是筛选真相源
-  const filter = ((searchParams.get("filter") ?? "todo") as SmartFilter);
+  // 模块设置中心：默认是否显示已完成任务。
+  // URL 显式带 filter 时仍以 URL 为真相源。
+  const { values: tasksConfig } = useModuleConfig("tasks", {
+    show_completed: false,
+  });
+
+  // URL 是筛选真相源；未指定时按模块配置决定默认视图
+  const filter = (searchParams.get("filter") ??
+    (tasksConfig.show_completed ? "all" : "todo")) as SmartFilter;
   /** URL `?category=` 参数：纯数字 = 分类 ID，"none" = 未分类，null = 不按分类筛选 */
   const categoryParam = searchParams.get("category");
 

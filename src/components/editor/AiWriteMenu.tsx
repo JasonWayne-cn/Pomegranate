@@ -67,7 +67,7 @@ function GoModelSettingsButton() {
       size="small"
       icon={<Settings size={12} />}
       onClick={() =>
-        navigate("/settings", { state: { scrollTo: "settings-ai-models" } })
+        navigate("/ai?config=models")
       }
     >
       去设置模型服务

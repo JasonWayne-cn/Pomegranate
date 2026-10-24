@@ -32,6 +32,7 @@ pub mod text_health;
 pub mod url_mapping;
 pub mod whiteboard;
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use rusqlite::Connection;
@@ -187,6 +188,40 @@ impl Database {
         Ok(result)
     }
 
+    /// 批量获取配置（仅返回已存在的键）
+    ///
+    /// 模块配置抽屉一次需要读取多个 key，逐条 IPC 太碎；
+    /// 这里用单条 IN 查询把往返次数压到 1 次。
+    pub fn get_configs(&self, keys: &[String]) -> Result<HashMap<String, String>, AppError> {
+        if keys.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+
+        let placeholders = std::iter::repeat("?")
+            .take(keys.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT key, value FROM app_config WHERE key IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(keys.iter()), |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+
+        let mut result = HashMap::with_capacity(keys.len());
+        for row in rows {
+            let (key, value) = row?;
+            result.insert(key, value);
+        }
+        Ok(result)
+    }
+
     /// 设置配置（upsert）
     pub fn set_config(&self, key: &str, value: &str) -> Result<(), AppError> {
         let conn = self
@@ -201,6 +236,33 @@ impl Database {
                updated_at = excluded.updated_at",
             [key, value],
         )?;
+        Ok(())
+    }
+
+    /// 批量写入配置（事务，全部成功或全部回滚）
+    pub fn set_configs(&self, entries: &[AppConfig]) -> Result<(), AppError> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO app_config (key, value, updated_at)
+                 VALUES (?1, ?2, datetime('now', 'localtime'))
+                 ON CONFLICT(key) DO UPDATE SET
+                   value = excluded.value,
+                   updated_at = excluded.updated_at",
+            )?;
+            for entry in entries {
+                stmt.execute([&entry.key, &entry.value])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -285,5 +347,63 @@ impl Database {
             .map_err(|e| AppError::Custom(e.to_string()))?;
         let affected = conn.execute("DELETE FROM app_config WHERE key = ?1", [key])?;
         Ok(affected > 0)
+    }
+}
+
+#[cfg(test)]
+mod config_batch_tests {
+    use super::*;
+    use crate::models::AppConfig;
+
+    #[test]
+    fn batch_config_roundtrip() {
+        let db = Database::init(":memory:").expect("init db");
+        let entries = vec![
+            AppConfig {
+                key: "module.notes.auto_save_interval".into(),
+                value: "45".into(),
+            },
+            AppConfig {
+                key: "module.notes.show_word_count".into(),
+                value: "1".into(),
+            },
+        ];
+
+        db.set_configs(&entries).expect("set_configs");
+
+        let got = db
+            .get_configs(&[
+                "module.notes.auto_save_interval".into(),
+                "module.notes.show_word_count".into(),
+                "module.notes.missing".into(),
+            ])
+            .expect("get_configs");
+
+        assert_eq!(
+            got.get("module.notes.auto_save_interval").map(String::as_str),
+            Some("45")
+        );
+        assert_eq!(
+            got.get("module.notes.show_word_count").map(String::as_str),
+            Some("1")
+        );
+        assert!(!got.contains_key("module.notes.missing"));
+    }
+
+    #[test]
+    fn set_configs_overwrites_existing() {
+        let db = Database::init(":memory:").expect("init db");
+        db.set_config("module.notes.default_sort", "old").unwrap();
+
+        db.set_configs(&[AppConfig {
+            key: "module.notes.default_sort".into(),
+            value: "new".into(),
+        }])
+        .unwrap();
+
+        assert_eq!(
+            db.get_config("module.notes.default_sort").unwrap().as_deref(),
+            Some("new")
+        );
     }
 }

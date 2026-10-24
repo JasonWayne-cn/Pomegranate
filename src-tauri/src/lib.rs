@@ -922,7 +922,9 @@ pub fn run() {
             // 配置模块
             commands::config::get_all_config,
             commands::config::get_config,
+            commands::config::get_configs,
             commands::config::set_config,
+            commands::config::set_configs,
             commands::config::delete_config,
             // Claude Code Agent Runner
             commands::claude_agent::claude_agent_check_cli,
