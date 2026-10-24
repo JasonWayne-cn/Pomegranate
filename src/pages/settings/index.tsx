@@ -18,7 +18,7 @@ import {
   Slider,
 } from "antd";
 import { SyncOutlined, PlusOutlined, PictureOutlined } from "@ant-design/icons";
-import { Trash2, Pencil, LayoutTemplate, Power, Palette, Bot, Cog, UserRound, Monitor, Rocket, Info, AppWindow, Layers } from "lucide-react";
+import { Trash2, Pencil, LayoutTemplate, Power, Palette, Cog, UserRound, Monitor, Rocket, Info, Layers } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useLocation, useSearchParams } from "react-router-dom";
@@ -29,14 +29,13 @@ import { systemApi, updaterApi, templateApi, autostartApi, configApi } from "@/l
 import { useAppStore } from "@/store";
 import { UpdateModal } from "@/components/ui/UpdateModal";
 import { SyncTabs } from "@/components/settings/SyncTabs";
-import { MigratedNotice } from "@/components/settings/MigratedNotice";
 import { DataDirSection } from "@/components/settings/DataDirSection";
 import { FeatureModulesSection } from "@/components/settings/FeatureModulesSection";
 import { ShortcutsSection } from "@/components/settings/ShortcutsSection";
 import { AppLockSection } from "@/components/applock/AppLockSection";
 import { McpHttpSection } from "@/components/settings/McpHttpSection";
 import { TiptapEditor } from "@/components/editor";
-import { AboutContent } from "@/components/about/AboutContent";
+import { AboutDetails } from "@/pages/about";
 
 const { Title, Text } = Typography;
 
@@ -71,25 +70,21 @@ function cancelIdle(handle: IdleHandle): void {
 // ─── 竖直 Tab 配置 ────────────────────────────────────
 
 const TAB_KEYS = {
-  ai: "ai",
-  apps: "apps",
+  about: "about",
   appConfig: "app-config",
   extras: "extras",
   personal: "personal",
   display: "display",
   startup: "startup",
-  about: "about",
 } as const;
 
 type TabKey = (typeof TAB_KEYS)[keyof typeof TAB_KEYS];
 
 function sectionIdToTab(sectionId: string): TabKey | null {
-  if (/^settings-(ai-provider|ai-models|asr|mcp|prompts)$/.test(sectionId)) return TAB_KEYS.ai;
-  if (/^settings-(daily-md-path|data-dir|orphan-assets|import|export|sync|auto-save)$/.test(sectionId)) return TAB_KEYS.appConfig;
-  if (sectionId.startsWith("settings-plugin-")) return TAB_KEYS.appConfig;
-  if (/^settings-(ocr|snapshots|reminder-sound|app-lock|mcp-http)$/.test(sectionId)) return TAB_KEYS.extras;
-  if (/^settings-(task-reminder|templates|hidden-pin|shortcuts)$/.test(sectionId)) return TAB_KEYS.personal;
-  if (/^settings-(appearance|editor)$/.test(sectionId)) return TAB_KEYS.display;
+  if (/^settings-(data-dir|data-migration|sync|auto-save)$/.test(sectionId)) return TAB_KEYS.appConfig;
+  if (/^settings-(app-lock|mcp-http)$/.test(sectionId)) return TAB_KEYS.extras;
+  if (/^settings-(templates|shortcuts)$/.test(sectionId)) return TAB_KEYS.personal;
+  if (/^settings-appearance$/.test(sectionId)) return TAB_KEYS.display;
   if (/^settings-(update|startup|features)$/.test(sectionId)) return TAB_KEYS.startup;
   if (/^settings-/.test(sectionId)) return TAB_KEYS.about;
   return null;
@@ -305,7 +300,7 @@ function DesktopSettingsPage() {
 
   // ─── 竖直 Tab 状态 ────────────────────────────────
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = (searchParams.get("tab") as TabKey | null) ?? TAB_KEYS.ai;
+  const activeTab = (searchParams.get("tab") as TabKey | null) ?? TAB_KEYS.about;
   function setActiveTab(key: TabKey) {
     setSearchParams({ tab: key }, { replace: true });
   }
@@ -431,43 +426,21 @@ function DesktopSettingsPage() {
         destroyInactiveTabPane={false}
         className="settings-tabs-shell"
         items={[
-          // ─── Tab 1: AI能力中心 ──────────────────────
+          // ─── Tab 1: 应用信息（原「关于」，置于首位）──────────
           {
-            key: TAB_KEYS.ai,
-            label: <span className="flex items-center gap-2"><Bot size={16} />AI能力中心</span>,
+            key: TAB_KEYS.about,
+            label: <span className="flex items-center gap-2"><Info size={16} />应用信息</span>,
             children: (
               <div className="settings-tabs-stack">
-                <MigratedNotice id="settings-ai-models" title="AI 模型配置" moduleLabel="AI 问答" to="/ai?config=models" />
-                <MigratedNotice id="settings-prompts" title="提示词" moduleLabel="AI 问答" to="/ai?config=prompts" />
-                <MigratedNotice id="settings-asr" title="语音识别" moduleLabel="AI 问答" to="/ai?config=asr" />
+                <AboutDetails
+                  showHeader={false}
+                  showAnchorNav={false}
+                  showSettingsButton={false}
+                />
               </div>
             ),
           },
-          // ─── Tab 2: 应用管理 ────────────────────────
-          {
-            key: TAB_KEYS.apps,
-            label: <span className="flex items-center gap-2"><AppWindow size={16} />应用管理</span>,
-            children: (
-              <div className="settings-tabs-stack">
-                <MigratedNotice id="settings-mcp" title="MCP 工具与 Agent" moduleLabel="AI 问答" to="/ai?config=mcp" />
-              </div>
-            ),
-          },
-          // ─── Tab 3: 功能扩展 ──────────────────────────
-          {
-            key: TAB_KEYS.extras,
-            label: <span className="flex items-center gap-2"><Layers size={16} />功能扩展</span>,
-            children: (
-              <div className="settings-tabs-stack">
-                <MigratedNotice id="settings-ocr" title="OCR 识别" moduleLabel="文档" to="/notes?config=ocr" />
-                <MigratedNotice id="settings-snapshots" title="历史快照" moduleLabel="文档" to="/notes?config=snapshot" />
-                <MigratedNotice id="settings-reminder-sound" title="提醒声音" moduleLabel="待办" to="/tasks?config=reminder-sound" />
-                <AppLockSection />
-                <McpHttpSection />
-              </div>
-            ),
-          },
-          // ─── Tab 4: 应用配置 ──────────────────────────
+          // ─── Tab 2: 应用配置 ──────────────────────────
           {
             key: TAB_KEYS.appConfig,
             label: <span className="flex items-center gap-2"><Cog size={16} />应用配置</span>,
@@ -476,27 +449,30 @@ function DesktopSettingsPage() {
                 <div id="settings-data-dir">
                   <DataDirSection />
                 </div>
-                <MigratedNotice id="settings-daily-md-path" title="日记文件存储路径" moduleLabel="日记" to="/daily?config=storage" />
-                <MigratedNotice id="settings-orphan-assets" title="孤儿素材清理" moduleLabel="文档" to="/notes?config=orphan" />
-                <MigratedNotice id="settings-import" title="导入笔记" moduleLabel="文档" to="/notes?config=import" />
-                <MigratedNotice id="settings-export" title="导出笔记" moduleLabel="文档" to="/notes?config=export" />
 
                 <div id="settings-sync">
                   <SyncTabs />
                 </div>
-
-                <MigratedNotice id="settings-plugin" title="插件设置" moduleLabel="插件" to="/plugins?config=plugin-settings" />
               </div>
             ),
           },
-          // ─── Tab 4: 个性设置 ──────────────────────────
+            // ─── Tab 3: 功能扩展 ──────────────────────────
+          {
+            key: TAB_KEYS.extras,
+            label: <span className="flex items-center gap-2"><Layers size={16} />功能扩展</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                <AppLockSection />
+                <McpHttpSection />
+              </div>
+            ),
+          },
+        // ─── Tab 4: 个性设置 ──────────────────────────
           {
             key: TAB_KEYS.personal,
             label: <span className="flex items-center gap-2"><UserRound size={16} />个性设置</span>,
             children: (
               <div className="settings-tabs-stack">
-                <MigratedNotice id="settings-task-reminder" title="待办提醒" moduleLabel="待办" to="/tasks?config=general" />
-
                 <Card
                   id="settings-templates"
                   title={
@@ -552,8 +528,6 @@ function DesktopSettingsPage() {
                   />
                 </Card>
 
-                <MigratedNotice id="settings-hidden-pin" title="隐藏 PIN" moduleLabel="隐藏文档" to="/hidden?config=pin" />
-
                 <div id="settings-shortcuts">
                   <ShortcutsSection />
                 </div>
@@ -567,8 +541,6 @@ function DesktopSettingsPage() {
             children: (
               <div className="settings-tabs-stack">
                 <AppearanceSection />
-
-                <MigratedNotice id="settings-editor" title="编辑器排版" moduleLabel="文档" to="/notes?config=editor" />
               </div>
             ),
           },
@@ -578,6 +550,8 @@ function DesktopSettingsPage() {
             label: <span className="flex items-center gap-2"><Rocket size={16} />更新启动</span>,
             children: (
               <div className="settings-tabs-stack">
+                <FeatureModulesSection title="侧边栏" />
+
                 <Card id="settings-update" title="软件更新">
                   <Space wrap>
                     <Button
@@ -678,23 +652,6 @@ function DesktopSettingsPage() {
                     </div>
                   </div>
                 </Card>
-
-                <FeatureModulesSection title="侧边栏" />
-              </div>
-            ),
-          },
-          // ─── Tab 7: 关于 ─────────────────────────────
-          {
-            key: TAB_KEYS.about,
-            label: <span className="flex items-center gap-2"><Info size={16} />关于</span>,
-            children: (
-              <div className="settings-tabs-stack">
-                <AboutContent
-                  showHeader={false}
-                  showSponsor={false}
-                  showRecommend={false}
-                  idPrefix="settings-about"
-                />
               </div>
             ),
           },

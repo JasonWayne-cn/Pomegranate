@@ -419,6 +419,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     ],
     groups: [
       { id: "models", label: "模型" },
+      { id: "asr", label: "语音识别" },
       { id: "mcp", label: "MCP" },
       { id: "prompts", label: "提示词" },
     ],
@@ -437,7 +438,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         id: "asr",
         title: "语音识别",
         kind: "component",
-        group: "models",
+        group: "asr",
         load: () =>
           import("@/components/settings/AsrSection").then((m) => ({
             default: m.AsrSection,

@@ -9,18 +9,14 @@ import {
   Select,
   Switch,
   Tooltip,
-  Dropdown,
   theme as antdTheme,
 } from "antd";
-import type { MenuProps } from "antd";
 import {
   Send,
   Plus,
-  Trash2,
   StopCircle,
   BookOpen,
-  MessageSquare,
-  MoreHorizontal,
+  Bot,
   Edit3,
   Wrench,
   ChevronDown,
@@ -40,7 +36,6 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useNavigate, useLocation } from "react-router-dom";
 import { aiChatApi, aiModelApi, noteApi, aiAttachmentApi } from "@/lib/api";
 import type {
-  AiConversation,
   AiMessage,
   AiModel,
   AttachmentPreview,
@@ -50,6 +45,7 @@ import type {
 } from "@/types";
 import { AttachmentChip } from "@/components/ai/AttachmentChip";
 import { MicButton } from "@/components/MicButton";
+import { useAiChatStore } from "@/store/aiChat";
 
 /** 多附件总字符上限：超过则阻止再加，避免炸 context window */
 const TOTAL_ATTACHMENT_CHAR_LIMIT = 80_000;
@@ -84,7 +80,6 @@ function previewToMessageAttachment(a: AttachmentPreview): MessageAttachment {
       };
   }
 }
-import { relativeTime } from "@/lib/utils";
 import { stripPseudoToolCalls } from "@/lib/aiFilter";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import {
@@ -130,32 +125,14 @@ function DesktopAiChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [conversations, setConversations] = useState<AiConversation[]>([]);
-  const [activeConvId, setActiveConvId] = useState<number | null>(null);
-  // 双击会话进入重命名态：editingConvId 标识哪条在编辑，editingTitle 是受控值
-  const [editingConvId, setEditingConvId] = useState<number | null>(null);
-  const [editingTitle, setEditingTitle] = useState("");
+  // 对话列表与选中会话放共享 store：左侧历史面板（AiPanel）与右侧问答区同源
+  const conversations = useAiChatStore((s) => s.conversations);
+  const activeConvId = useAiChatStore((s) => s.activeConvId);
+  const setActiveConvId = useAiChatStore((s) => s.setActiveConvId);
+  const loadConversations = useAiChatStore((s) => s.loadConversations);
+  const createConversation = useAiChatStore((s) => s.createConversation);
+  const updateConversationModel = useAiChatStore((s) => s.updateConversationModel);
 
-  async function commitRenameConversation() {
-    if (editingConvId == null) return;
-    const id = editingConvId;
-    const title = editingTitle.trim();
-    setEditingConvId(null);
-    setEditingTitle("");
-    // 空标题视为取消
-    if (!title) return;
-    const original = conversations.find((c) => c.id === id);
-    if (!original || original.title === title) return;
-    try {
-      await aiChatApi.renameConversation(id, title);
-      // 局部更新避免整列表抖动；后端是 source-of-truth，下一次 list 会校正
-      setConversations((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, title } : c)),
-      );
-    } catch (e) {
-      message.error(`重命名失败: ${e}`);
-    }
-  }
   const [messages, setMessages] = useState<AiMessage[]>([]);
   const [models, setModels] = useState<AiModel[]>([]);
   const [inputText, setInputText] = useState("");
@@ -228,7 +205,7 @@ function DesktopAiChatPage() {
 
   // 初始化
   useEffect(() => {
-    loadConversations();
+    loadConversations().catch((e) => console.error("加载对话列表失败:", e));
     loadModels();
     return () => {
       mountedRef.current = false;
@@ -258,7 +235,9 @@ function DesktopAiChatPage() {
         const conv = activeConvIdRef.current;
         if (conv) {
           await loadMessages(conv);
-          await loadConversations();
+          await loadConversations().catch((e) =>
+            console.error("加载对话列表失败:", e),
+          );
         }
         setStreamingText("");
         setStreamingSkillCalls([]);
@@ -327,7 +306,7 @@ function DesktopAiChatPage() {
     if (incomingId) {
       setActiveConvId(incomingId);
       // 触发对话列表刷新让 chip 区拿到 attached_note_ids
-      loadConversations();
+      loadConversations().catch((e) => console.error("加载对话列表失败:", e));
       if (state?.pendingPrompt) {
         pendingAutoSendRef.current = {
           convId: incomingId,
@@ -375,15 +354,6 @@ function DesktopAiChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingText]);
-
-  async function loadConversations() {
-    try {
-      const list = await aiChatApi.listConversations();
-      setConversations(list);
-    } catch (e) {
-      console.error("加载对话列表失败:", e);
-    }
-  }
 
   async function loadModels() {
     try {
@@ -454,68 +424,16 @@ function DesktopAiChatPage() {
 
   async function handleNewConversation() {
     try {
-      const conv = await aiChatApi.createConversation();
-      await loadConversations();
-      setActiveConvId(conv.id);
+      await createConversation();
     } catch (e) {
       message.error(`创建对话失败: ${e}`);
     }
   }
 
-  async function handleDeleteConversation(id: number) {
-    try {
-      await aiChatApi.deleteConversation(id);
-      if (activeConvId === id) {
-        setActiveConvId(null);
-      }
-      await loadConversations();
-    } catch (e) {
-      message.error(`删除对话失败: ${e}`);
-    }
-  }
-
-  /** 批量清理：days = undefined 全清，否则清理 N 天前未活动的对话；走二次确认 */
-  function handleCleanupConversations(days: number | undefined) {
-    const title = days == null ? "清空全部对话？" : `清理 ${days} 天前未活动的对话？`;
-    const content =
-      days == null
-        ? "所有对话及其消息将被永久删除，且不可恢复。"
-        : `所有 ${days} 天内没有活动的对话将被永久删除，且不可恢复。`;
-    Modal.confirm({
-      title,
-      content,
-      okText: "删除",
-      okButtonProps: { danger: true },
-      cancelText: "取消",
-      async onOk() {
-        try {
-          const removed = await aiChatApi.deleteConversationsBefore(days);
-          if (removed === 0) {
-            message.info("没有符合条件的对话");
-            return;
-          }
-          message.success(`已清理 ${removed} 条对话`);
-          // 拉新列表；若当前激活会话已被清掉，清空选中避免聊天区残留旧消息
-          const fresh = await aiChatApi.listConversations();
-          setConversations(fresh);
-          if (activeConvId != null && !fresh.some((c) => c.id === activeConvId)) {
-            setActiveConvId(null);
-          }
-        } catch (e) {
-          message.error(`清理失败: ${e}`);
-        }
-      },
-    });
-  }
-
   async function handleChangeConvModel(modelId: number) {
     if (!activeConvId) return;
     try {
-      await aiChatApi.updateConversationModel(activeConvId, modelId);
-      // 本地同步更新，省去 list 往返
-      setConversations((prev) =>
-        prev.map((c) => (c.id === activeConvId ? { ...c, model_id: modelId } : c)),
-      );
+      await updateConversationModel(activeConvId, modelId);
     } catch (e) {
       message.error(`切换模型失败: ${e}`);
     }
@@ -699,195 +617,32 @@ function DesktopAiChatPage() {
   const activeConv = conversations.find((c) => c.id === activeConvId);
 
   return (
-    <div className="flex h-full" style={{ overflow: "hidden" }}>
-      {/* 左侧对话列表 */}
-      <div
-        className="w-60 shrink-0 flex flex-col h-full"
-        style={{
-          borderRight: `1px solid ${token.colorBorderSecondary}`,
-          background: token.colorBgContainer,
-        }}
-      >
-        <div className="p-3 shrink-0 flex items-center gap-2">
-          <Button
-            type="primary"
-            icon={<Plus size={14} />}
-            className="flex-1"
-            onClick={handleNewConversation}
-          >
-            新对话
-          </Button>
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: "clean-7d",
-                  label: "清理 7 天前未活动",
-                  onClick: () => handleCleanupConversations(7),
-                },
-                {
-                  key: "clean-30d",
-                  label: "清理 30 天前未活动",
-                  onClick: () => handleCleanupConversations(30),
-                },
-                { type: "divider" },
-                {
-                  key: "clean-all",
-                  label: "清空全部对话",
-                  danger: true,
-                  onClick: () => handleCleanupConversations(undefined),
-                },
-              ],
-            }}
-            trigger={["click"]}
-            placement="bottomRight"
-          >
-            <Tooltip title="批量清理">
-              <Button icon={<MoreHorizontal size={14} />} />
-            </Tooltip>
-          </Dropdown>
-        </div>
-
-        <div className="flex-1 overflow-auto px-2 pb-2">
-          {conversations.length === 0 ? (
-            <div
-              className="text-center py-8 text-xs"
-              style={{ color: token.colorTextQuaternary }}
-            >
-              暂无对话
-            </div>
-          ) : (
-            conversations.map((conv) => {
-              const isActive = activeConvId === conv.id;
-              // 同一组卡片操作复用给两处 trigger：右键整条 + 点击 MoreHorizontal
-              // 阻止 e.domEvent 冒泡，避免触发 div 的 onClick 切换会话
-              const convMenuItems: MenuProps["items"] = [
-                {
-                  key: "rename",
-                  label: "重命名",
-                  icon: <Edit3 size={12} />,
-                  onClick: (e) => {
-                    e.domEvent.stopPropagation();
-                    setEditingConvId(conv.id);
-                    setEditingTitle(conv.title);
-                  },
-                },
-                {
-                  key: "delete",
-                  label: "删除",
-                  danger: true,
-                  icon: <Trash2 size={12} />,
-                  onClick: (e) => {
-                    e.domEvent.stopPropagation();
-                    handleDeleteConversation(conv.id);
-                  },
-                },
-              ];
-              return (
-              <Dropdown
-                key={conv.id}
-                menu={{ items: convMenuItems }}
-                trigger={["contextMenu"]}
-              >
-              <div
-                className="ai-conv-item flex items-center gap-2 px-3 py-2 cursor-pointer group mb-1"
-                style={{
-                  background: isActive ? token.colorPrimaryBg : "transparent",
-                  color: token.colorText,
-                  borderRadius: 10,
-                  transition: "background 0.15s ease",
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) {
-                    (e.currentTarget as HTMLDivElement).style.background = token.colorFillTertiary;
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) {
-                    (e.currentTarget as HTMLDivElement).style.background = "transparent";
-                  }
-                }}
-                onClick={() => setActiveConvId(conv.id)}
-              >
-                <MessageSquare
-                  size={14}
-                  style={{ flexShrink: 0, color: token.colorTextSecondary }}
-                />
-                <div className="flex-1 min-w-0">
-                  {editingConvId === conv.id ? (
-                    // 重命名输入框：Enter / 失焦提交；Esc 放弃；点击不冒泡到 div 切换会话
-                    <Input
-                      autoFocus
-                      size="small"
-                      value={editingTitle}
-                      onChange={(e) => setEditingTitle(e.target.value)}
-                      onPressEnter={commitRenameConversation}
-                      onBlur={commitRenameConversation}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") {
-                          e.stopPropagation();
-                          setEditingConvId(null);
-                          setEditingTitle("");
-                        }
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      onDoubleClick={(e) => e.stopPropagation()}
-                      style={{ fontSize: 13, padding: "2px 6px" }}
-                    />
-                  ) : (
-                    <div
-                      className="text-sm truncate select-none"
-                      onDoubleClick={(e) => {
-                        // 双击重命名：阻止冒泡避免 div 的 onClick 切换会话；
-                        // select-none + e.preventDefault 阻止双击选中文本
-                        e.stopPropagation();
-                        e.preventDefault();
-                        setEditingConvId(conv.id);
-                        setEditingTitle(conv.title);
-                      }}
-                      title="双击重命名"
-                    >
-                      {conv.title}
-                    </div>
-                  )}
-                  <div
-                    className="text-xs"
-                    style={{ color: token.colorTextQuaternary }}
-                  >
-                    {relativeTime(conv.updated_at)}
-                  </div>
-                </div>
-                <button
-                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-black/5 transition-opacity"
-                  onClick={(e) => {
-                    // 不切换会话；不冒泡到外层 contextMenu Dropdown 的 click 监听
-                    e.stopPropagation();
-                    // 把"点三个点"翻译成一次右键事件，让外层 Dropdown
-                    // (trigger=contextMenu) 接住——单一 Dropdown 实例，
-                    // 不会出现"右键菜单 + 点三点菜单"两层并存的情况
-                    const ev = new MouseEvent("contextmenu", {
-                      bubbles: true,
-                      cancelable: true,
-                      view: window,
-                      button: 2,
-                      clientX: e.clientX,
-                      clientY: e.clientY,
-                    });
-                    e.currentTarget.dispatchEvent(ev);
-                  }}
-                >
-                  <MoreHorizontal size={14} />
-                </button>
-              </div>
-              </Dropdown>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      {/* 右侧聊天区域 */}
+    <div className="h-full flex flex-col min-h-0" style={{ overflow: "hidden" }}>
+      {/* 右侧聊天区域（左侧历史记录由 SidePanel 的 AiPanel 提供） */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* 页面级 Header：与待办一致，内容列 max-w-4xl 居中，右侧按钮自然留出边距 */}
+        <div className="px-4 pt-3 pb-2 shrink-0">
+          <div className="mx-auto flex w-full max-w-4xl items-end justify-between">
+            <div>
+              <h1 className="text-lg font-semibold flex items-center gap-2">
+                <Bot size={20} style={{ color: token.colorPrimary }} />
+                AI 问答
+              </h1>
+              <span className="text-xs" style={{ color: token.colorTextSecondary }}>
+                {conversations.length} 个对话 · {useSkills ? "智能模式" : "纯聊天"}
+              </span>
+            </div>
+            <Button
+              size="small"
+              type="primary"
+              icon={<Plus size={14} />}
+              onClick={handleNewConversation}
+            >
+              新对话
+            </Button>
+          </div>
+        </div>
+
         {!activeConvId ? (
           <div className="flex-1 flex items-center justify-center">
             <Empty
@@ -903,12 +658,13 @@ function DesktopAiChatPage() {
           <>
             {/* 顶部栏 */}
             <div
-              className="flex items-center justify-between px-4 py-2 shrink-0"
+              className="px-4 py-2 shrink-0"
               style={{
                 borderBottom: `1px solid ${token.colorBorderSecondary}`,
                 background: token.colorBgContainer,
               }}
             >
+              <div className="mx-auto flex w-full max-w-4xl items-center justify-between">
               <div className="flex items-center gap-2 min-w-0">
                 <span
                   className="font-medium truncate"
@@ -979,15 +735,14 @@ function DesktopAiChatPage() {
                   </Button>
                 </Tooltip>
               </div>
+              </div>
             </div>
 
             {/* 消息列表 */}
-            <div
-              className="flex-1 overflow-auto px-4 py-4"
-              style={{ background: token.colorBgLayout }}
-            >
+            <div className="flex-1 overflow-auto px-4 py-4">
+              <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col">
               {messages.length === 0 && !streaming && (
-                <div className="flex items-center justify-center h-full">
+                <div className="flex flex-1 items-center justify-center">
                   <div className="text-center">
                     <Edit3
                       size={40}
@@ -1051,6 +806,7 @@ function DesktopAiChatPage() {
               })()}
 
               <div ref={messagesEndRef} />
+              </div>
             </div>
 
             {/* 输入区域（上方为附加笔记 chip 区，强制塞进上下文） */}
@@ -1061,6 +817,7 @@ function DesktopAiChatPage() {
                 background: token.colorBgContainer,
               }}
             >
+              <div className="mx-auto w-full max-w-4xl">
               {/* 附加笔记 chip 区：仅在挂载了笔记时显示 */}
               {attachedNotes.length > 0 && (
                 <div
@@ -1070,10 +827,11 @@ function DesktopAiChatPage() {
                   }}
                 >
                   <span
-                    className="text-xs shrink-0"
+                    className="inline-flex items-center gap-1 text-xs shrink-0"
                     style={{ color: token.colorTextSecondary }}
                   >
-                    📎 已附加：
+                    <BookOpen size={12} />
+                    已附加：
                   </span>
                   {attachedNotes.map((n) => (
                     <span
@@ -1105,10 +863,11 @@ function DesktopAiChatPage() {
                   }}
                 >
                   <span
-                    className="text-xs shrink-0"
+                    className="inline-flex items-center gap-1 text-xs shrink-0"
                     style={{ color: token.colorTextSecondary }}
                   >
-                    📊 本次附件（{pendingAttachments.length}）：
+                    <Paperclip size={12} />
+                    本次附件（{pendingAttachments.length}）：
                   </span>
                   {pendingAttachments.map((a) => (
                     <AttachmentChip
@@ -1165,16 +924,16 @@ function DesktopAiChatPage() {
                         style={{
                           cursor: "pointer",
                           fontSize: 14,
-                          color: "rgba(0, 0, 0, 0.25)",
+                          color: token.colorTextTertiary,
                           transition: "color 0.2s",
                         }}
                         onMouseEnter={(e) => {
                           (e.currentTarget as unknown as HTMLElement).style.color =
-                            "rgba(0, 0, 0, 0.45)";
+                            token.colorTextSecondary;
                         }}
                         onMouseLeave={(e) => {
                           (e.currentTarget as unknown as HTMLElement).style.color =
-                            "rgba(0, 0, 0, 0.25)";
+                            token.colorTextTertiary;
                         }}
                       />
                     )}
@@ -1204,6 +963,7 @@ function DesktopAiChatPage() {
                     发送
                   </Button>
                 )}
+              </div>
               </div>
             </div>
           </>

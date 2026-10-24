@@ -33,6 +33,9 @@ const TasksPanel = lazy(() =>
 const HiddenPanel = lazy(() =>
   import("./panels/HiddenPanel").then((m) => ({ default: m.HiddenPanel })),
 );
+const AiPanel = lazy(() =>
+  import("./panels/AiPanel").then((m) => ({ default: m.AiPanel })),
+);
 
 /** 哪些视图拥有独立 SidePanel 内容 */
 const VIEWS_WITH_PANEL = new Set<ActiveView>([
@@ -42,6 +45,7 @@ const VIEWS_WITH_PANEL = new Set<ActiveView>([
   "search",
   "daily",
   "hidden",
+  "ai",
 ]);
 
 export function viewHasPanel(view: ActiveView): boolean {
@@ -95,8 +99,11 @@ export function SidePanel() {
     case "hidden":
       node = <HiddenPanel />;
       break;
+    case "ai":
+      node = <AiPanel />;
+      break;
     default:
-      // 无面板视图（home/graph/ai/prompts/about/trash）
+      // 无面板视图（home/graph/prompts/about/trash）
       // AppLayout 会基于 viewHasPanel() 把 SidePanel 宽度置 0
       return null;
   }

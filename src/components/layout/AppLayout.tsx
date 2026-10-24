@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Layout, Button, theme as antdTheme, Tooltip, Dropdown, message } from "antd";
-import { SettingOutlined, PushpinOutlined, PushpinFilled } from "@ant-design/icons";
+import { PushpinOutlined, PushpinFilled } from "@ant-design/icons";
 import { Search, Palette, ArrowLeft, ArrowRight, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -591,12 +591,6 @@ export function AppLayout() {
               </Tooltip>
             </Dropdown>
             <SyncStatusButton />
-            <Button
-              type="text"
-              icon={<SettingOutlined />}
-              onClick={() => navigate("/settings")}
-              title="设置"
-            />
             <Tooltip title={alwaysOnTop ? "取消置顶" : "窗口置顶"}>
               <Button
                 type="text"

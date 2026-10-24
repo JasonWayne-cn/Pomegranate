@@ -389,8 +389,8 @@ function DesktopSearchPage() {
     scope === "all" ? results.slice(0, ALL_MODE_NOTES_PREVIEW) : results;
 
   return (
-    // 横向留白统一交给 AppLayout Content 的 padding，不再单独限内容宽度
-    <div>
+    // 与 AI 问答页对齐：内容列限制在 max-w-4xl 并居中，宽窗口下左右留出呼吸空间
+    <div className="mx-auto w-full max-w-4xl">
       {/* 搜索框：与首页 / 笔记列表搜索同款（普通 Input + 独立搜索按钮） */}
       <div className="mb-4 flex items-stretch gap-1.5" style={{ width: "100%" }}>
         <Input

@@ -19,9 +19,11 @@ import {
   Radio,
   Space,
   Tag,
+  Tooltip,
   Typography,
   theme as antdTheme,
 } from "antd";
+import { QuestionCircleOutlined } from "@ant-design/icons";
 import {
   HardDrive,
   FolderOpen,
@@ -32,6 +34,7 @@ import {
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { dataDirApi } from "@/lib/api";
+import { DataMigrationSection } from "./DataMigrationSection";
 import type { DataDirSource, ResolvedDataDir } from "@/types";
 
 const { Text } = Typography;
@@ -51,6 +54,8 @@ export function DataDirSection() {
   const [restartHint, setRestartHint] = useState<string | null>(null);
   const [pickedPath, setPickedPath] = useState<string | null>(null);
   const [migrateChoice, setMigrateChoice] = useState<"auto" | "manual">("auto");
+  // 数据迁移说明作为帮助信息，默认折叠以节省空间
+  const [migrationOpen, setMigrationOpen] = useState(false);
 
   useEffect(() => {
     void load();
@@ -143,6 +148,19 @@ export function DataDirSection() {
         <span className="flex items-center gap-2">
           <HardDrive size={16} style={{ color: token.colorPrimary }} />
           数据目录（数据库 + 附件存储位置）
+          <Tooltip
+            title={migrationOpen ? "收起数据迁移说明" : "查看数据迁移说明"}
+          >
+            <Button
+              type="text"
+              size="small"
+              aria-label="数据迁移说明"
+              aria-expanded={migrationOpen}
+              icon={<QuestionCircleOutlined />}
+              style={{ width: 20, height: 20, padding: 0 }}
+              onClick={() => setMigrationOpen((open) => !open)}
+            />
+          </Tooltip>
         </span>
       }
       loading={loading}
@@ -260,6 +278,19 @@ export function DataDirSection() {
               }
             />
           )}
+        </div>
+      )}
+
+      {/* 数据迁移说明：由标题栏问号按钮按需展开，默认不占空间 */}
+      {migrationOpen && (
+        <div
+          style={{
+            marginTop: 16,
+            paddingTop: 12,
+            borderTop: `1px solid ${token.colorBorderSecondary}`,
+          }}
+        >
+          <DataMigrationSection embedded />
         </div>
       )}
 

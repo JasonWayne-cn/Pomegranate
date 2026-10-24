@@ -12,6 +12,7 @@ import {
   Table,
   Tag,
   message,
+  theme as antdTheme,
 } from "antd";
 import {
   CheckCircleFilled,
@@ -137,12 +138,15 @@ interface Props {
 }
 
 export function AiModelsSection({ compact }: Props) {
+  const { token } = antdTheme.useToken();
   const [models, setModels] = useState<AiModel[]>([]);
   const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
+  // 新增/编辑表单直接内联在 Tab 内，不再弹 Modal
+  const [formOpen, setFormOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<AiModel | null>(null);
   const [testingModelId, setTestingModelId] = useState<number | null>(null);
   const [form] = Form.useForm<AiModelInput>();
+  const formRef = useRef<HTMLDivElement>(null);
   const watchedProvider = Form.useWatch("provider", form) || "ollama";
 
   async function loadModels() {
@@ -174,11 +178,25 @@ export function AiModelsSection({ compact }: Props) {
     window.dispatchEvent(new Event(AI_MODELS_CHANGED_EVENT));
   }
 
+  function revealForm() {
+    setFormOpen(true);
+    // 等内联表单渲染后滚到可见位置（抽屉内部是独立滚动容器）
+    requestAnimationFrame(() =>
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+    );
+  }
+
+  function closeForm() {
+    setFormOpen(false);
+    setEditingModel(null);
+    form.resetFields();
+  }
+
   function openAddModel() {
     setEditingModel(null);
     form.resetFields();
     form.setFieldsValue({ provider: "ollama", api_url: DEFAULT_URLS.ollama });
-    setModalOpen(true);
+    revealForm();
   }
 
   function openEditModel(model: AiModel) {
@@ -191,7 +209,7 @@ export function AiModelsSection({ compact }: Props) {
       model_id: model.model_id,
       max_context: model.max_context,
     });
-    setModalOpen(true);
+    revealForm();
   }
 
   function handleProviderChange(provider: string) {
@@ -215,7 +233,8 @@ export function AiModelsSection({ compact }: Props) {
         await aiModelApi.create(payload);
         message.success("模型已添加");
       }
-      setModalOpen(false);
+      setFormOpen(false);
+      setEditingModel(null);
       notifyModelsChanged();
     } catch (e) {
       if (e && typeof e === "object" && "errorFields" in e) return;
@@ -376,58 +395,42 @@ export function AiModelsSection({ compact }: Props) {
   ];
 
   return (
-    <>
-      <Card
-        id="settings-ai-models"
-        size={compact ? "small" : "default"}
-        title="AI 模型配置"
-        styles={compact ? { body: { padding: 12 } } : undefined}
-        extra={
-          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openAddModel}>
-            添加模型
-          </Button>
-        }
-      >
-        <Table
-          columns={modelColumns}
-          dataSource={models}
-          rowKey="id"
-          loading={loading}
-          pagination={false}
+    <Card
+      id="settings-ai-models"
+      size={compact ? "small" : "default"}
+      title="AI 模型配置"
+      styles={compact ? { body: { padding: 12 } } : undefined}
+      extra={
+        <Button
+          type="primary"
           size="small"
-          scroll={{ x: 560 }}
-        />
-      </Card>
-
-      <Modal
-        title={editingModel ? "编辑 AI 模型" : "添加 AI 模型"}
-        open={modalOpen}
-        onCancel={() => setModalOpen(false)}
-        destroyOnHidden
-        className="ai-model-modal"
-        styles={{ body: { maxHeight: "calc(100vh - 220px)", overflowY: "auto" } }}
-        footer={
-          <Space>
-            <Button
-              icon={<Zap size={14} />}
-              loading={testingModelId === -1}
-              disabled={testingModelId !== null && testingModelId !== -1}
-              onClick={() => void handleTestForm()}
-            >
-              测试连接
-            </Button>
-            <Button onClick={() => setModalOpen(false)}>取消</Button>
-            <Button type="primary" onClick={() => void handleModelSave()}>
-              保存
-            </Button>
-          </Space>
-        }
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={{ provider: "ollama", api_url: DEFAULT_URLS.ollama }}
+          icon={<PlusOutlined />}
+          onClick={formOpen ? closeForm : openAddModel}
         >
+          {formOpen ? "收起" : "添加模型"}
+        </Button>
+      }
+    >
+      {/* 新增 / 编辑表单直接内联在 Tab 内，不再走 Modal */}
+      {formOpen && (
+        <div
+          ref={formRef}
+          style={{
+            marginBottom: 16,
+            padding: 12,
+            border: `1px solid ${token.colorBorderSecondary}`,
+            borderRadius: 8,
+            background: token.colorFillQuaternary,
+          }}
+        >
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>
+            {editingModel ? "编辑 AI 模型" : "添加 AI 模型"}
+          </div>
+          <Form
+            form={form}
+            layout="vertical"
+            initialValues={{ provider: "ollama", api_url: DEFAULT_URLS.ollama }}
+          >
           <Form.Item
             name="name"
             label="名称"
@@ -498,9 +501,44 @@ export function AiModelsSection({ compact }: Props) {
               style={{ width: "100%" }}
             />
           </Form.Item>
-        </Form>
-      </Modal>
-    </>
+          </Form>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+              marginTop: 4,
+            }}
+          >
+            <Button
+              icon={<Zap size={14} />}
+              loading={testingModelId === -1}
+              disabled={testingModelId !== null && testingModelId !== -1}
+              onClick={() => void handleTestForm()}
+            >
+              测试连接
+            </Button>
+            <Space>
+              <Button onClick={closeForm}>取消</Button>
+              <Button type="primary" onClick={() => void handleModelSave()}>
+                保存
+              </Button>
+            </Space>
+          </div>
+        </div>
+      )}
+
+      <Table
+        columns={modelColumns}
+        dataSource={models}
+        rowKey="id"
+        loading={loading}
+        pagination={false}
+        size="small"
+        scroll={{ x: 560 }}
+      />
+    </Card>
   );
 }
 

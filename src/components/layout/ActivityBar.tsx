@@ -54,7 +54,7 @@ interface ActivityItem {
  *   1. 概览：首页（每次启动看一眼）
  *   2. 创作 / 工作流：笔记 / 每日笔记 / 待办（日常高频写入）
  *   3. 检索 / 发现：搜索 / 文档关系（找东西）
- *   4. AI 辅助：AI 问答 / 定时推送 / 插件（提示词已并入 AI 问答的配置抽屉）
+ *   4. AI 辅助：AI 问答 / 定时推送 / 隐藏文档（提示词已并入 AI 问答的配置抽屉）
  *
  * 标签是文档模块的子功能（入口在「文档」模块配置中），不再单独占一格。
  *
@@ -79,15 +79,16 @@ const MAIN_GROUPS: ActivityItem[][] = [
   [
     { view: "ai", route: "/ai", label: "AI 问答", icon: <Bot size={18} /> },
     { view: "push", route: "/push", label: "定时推送", icon: <Bell size={18} /> },
-    { view: "plugins", route: "/plugins", label: "插件", icon: <Plug size={18} /> },
+    { view: "hidden", route: "/hidden", label: "隐藏文档", icon: <EyeOff size={18} /> },
   ],
 ];
 
 /** 底部视图（放最下方，视觉上与主视图分组） */
 const BOTTOM_ITEMS: ActivityItem[] = [
-  { view: "hidden", route: "/hidden", label: "隐藏文档", icon: <EyeOff size={18} /> },
+  { view: "plugins", route: "/plugins", label: "插件", icon: <Plug size={18} /> },
   { view: "trash", route: "/trash", label: "回收站", icon: <Trash2 size={18} />, core: true },
-  { view: "about", route: "/about", label: "关于", icon: <Info size={18} />, core: true },
+  // 「关于」承担原标题栏设置按钮的入口职责：直接打开设置页的关于 Tab
+  { view: "about", route: "/settings?tab=about", label: "关于", icon: <Info size={18} />, core: true },
 ];
 
 /** 路由 → ActiveView 的反查映射（用于根据 URL 推导高亮态） */
@@ -422,7 +423,7 @@ export function ActivityBar() {
       style={{
         width: 64,
         // 必须撑满 Sider 高度，否则下方 flex:1 spacer 没有空间，
-        // 底部三项（隐藏笔记 / 回收站 / 关于）会贴在主组按钮后面而不是钉在左下角
+        // 底部三项（插件 / 回收站 / 关于）会贴在主组按钮后面而不是钉在左下角
         height: "100%",
         flexShrink: 0,
         display: "flex",
@@ -462,7 +463,9 @@ export function ActivityBar() {
         open={unlockOpen}
         onSuccess={() => {
           setUnlockOpen(false);
-          const hiddenItem = BOTTOM_ITEMS.find((i) => i.view === "hidden");
+          const hiddenItem =
+            MAIN_GROUPS.flat().find((i) => i.view === "hidden") ??
+            BOTTOM_ITEMS.find((i) => i.view === "hidden");
           if (hiddenItem) navigateToView(hiddenItem);
         }}
         onCancel={() => setUnlockOpen(false)}

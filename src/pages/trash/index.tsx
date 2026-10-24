@@ -13,11 +13,11 @@ import {
 } from "antd";
 import { Trash2, RotateCcw, AlertTriangle } from "lucide-react";
 import type { ColumnsType } from "antd/es/table";
-import { trashApi } from "@/lib/api";
+import { folderApi, trashApi } from "@/lib/api";
 import { useTabsStore } from "@/store/tabs";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { relativeTime } from "@/lib/utils";
-import type { Note, PageResult } from "@/types";
+import type { Folder, Note, PageResult } from "@/types";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import {
   ContextMenuOverlay,
@@ -25,6 +25,20 @@ import {
 } from "@/components/ui/ContextMenuOverlay";
 
 const { Title, Text } = Typography;
+
+/** 把文件夹树拍平成 id → 完整路径（如「工作/项目」），供「所在目录」列展示 */
+function buildFolderPathMap(
+  tree: Folder[],
+  prefix = "",
+  map = new Map<number, string>(),
+): Map<number, string> {
+  for (const f of tree) {
+    const path = prefix ? `${prefix}/${f.name}` : f.name;
+    map.set(f.id, path);
+    if (f.children?.length) buildFolderPathMap(f.children, path, map);
+  }
+  return map;
+}
 
 /**
  * 回收站
@@ -44,6 +58,8 @@ function DesktopTrashPage() {
   const [pageSize, setPageSize] = useState(12);
   /** 选中的笔记 id（仅当前页生效；翻页/批量操作后清空） */
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  /** 文件夹 id → 完整路径，用于「所在目录」列 */
+  const [folderPaths, setFolderPaths] = useState<Map<number, string>>(new Map());
 
   const loadTrash = useCallback(async (page: number, size: number) => {
     setLoading(true);
@@ -60,6 +76,11 @@ function DesktopTrashPage() {
 
   useEffect(() => {
     void loadTrash(1, pageSize);
+    // 回收站只展示已删除笔记，文件夹本身不会出现在回收站；拉一次树建路径映射即可
+    folderApi
+      .list()
+      .then((list) => setFolderPaths(buildFolderPathMap(list)))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -205,6 +226,18 @@ function DesktopTrashPage() {
         ellipsis: true,
       },
       {
+        title: "所在目录",
+        dataIndex: "folder_id",
+        key: "folder",
+        width: 160,
+        ellipsis: true,
+        render: (id: number | null) => (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {id == null ? "根目录" : folderPaths.get(id) ?? "（目录已删除）"}
+          </Text>
+        ),
+      },
+      {
         title: "字数",
         dataIndex: "word_count",
         key: "word_count",
@@ -254,13 +287,13 @@ function DesktopTrashPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data.page, data.page_size, token.colorTextTertiary],
+    [data.page, data.page_size, token.colorTextTertiary, folderPaths],
   );
 
   return (
     <div
-      // 横向留白统一交给 AppLayout Content 的 padding，不再单独限内容宽度
-      className="h-full flex flex-col min-h-0"
+      // 与搜索页一致：内容列限宽居中，宽窗口下左右留出呼吸空间
+      className="mx-auto w-full max-w-4xl h-full flex flex-col min-h-0"
       onContextMenu={(e) => {
         // 顶层兜底：表格行有自己的 onContextMenu 会先 preventDefault；
         // 其他位置统一吞 WebView 默认菜单。input 白名单留给搜索框等
