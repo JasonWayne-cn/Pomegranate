@@ -14,7 +14,6 @@ export type MobileTabKey =
   | "ai"
   | "tasks"
   | "daily"
-  | "tags"
   | "cards"
   | "prompts"
   | "hidden"
@@ -68,13 +67,6 @@ export const MOBILE_TAB_REGISTRY: Record<MobileTabKey, MobileTabMeta> = {
     label: "日记",
     path: "/daily",
     matchPrefixes: ["/daily"],
-  },
-  tags: {
-    key: "tags",
-    icon: "tags",
-    label: "标签",
-    path: "/tags",
-    matchPrefixes: ["/tags"],
   },
   cards: {
     key: "cards",

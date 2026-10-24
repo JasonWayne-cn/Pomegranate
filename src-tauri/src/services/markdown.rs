@@ -79,6 +79,141 @@ fn find_frontmatter_end(rest: &str) -> Option<(&str, &str)> {
     None
 }
 
+/// 更新 / 插入 YAML frontmatter 的 `tags` 字段，返回新的完整文本。
+///
+/// 设计取舍：
+/// - **不重新序列化整个 YAML**：只替换顶层 `tags:` 行（含块状列表），其余字段与注释原样保留。
+/// - 原文没有 frontmatter 时在文件头新建一段 `---\ntags: [...]\n---`。
+/// - 保持原文件的换行风格（LF / CRLF）。
+/// - 标签名统一用双引号包裹并转义，避免 `:` / `#` / `[` 等字符破坏 YAML。
+///
+/// 这样挂载目录里的 `.md` 文件被 UI 打了标签后，可以把标签写回源文件；
+/// 下次扫描重新解析 frontmatter 时标签不会丢失。
+pub fn set_frontmatter_tags(text: &str, tags: &[String]) -> String {
+    let nl = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let tags_line = format!(
+        "tags: [{}]",
+        tags.iter()
+            .map(|t| yaml_double_quote(t.trim()))
+            .filter(|t| t != "\"\"")
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    let Some((yaml, body)) = split_frontmatter(text) else {
+        let mut out = String::with_capacity(text.len() + tags_line.len() + 16);
+        out.push_str("---");
+        out.push_str(nl);
+        out.push_str(&tags_line);
+        out.push_str(nl);
+        out.push_str("---");
+        out.push_str(nl);
+        if !text.is_empty() {
+            out.push_str(nl);
+            out.push_str(text);
+        }
+        return out;
+    };
+
+    let new_yaml = replace_yaml_tags(yaml, &tags_line, nl);
+    let mut out = String::with_capacity(new_yaml.len() + body.len() + 16);
+    out.push_str("---");
+    out.push_str(nl);
+    out.push_str(&new_yaml);
+    out.push_str("---");
+    out.push_str(nl);
+    out.push_str(body);
+    out
+}
+
+/// 拆出 frontmatter 的 YAML 内容与正文（不含 opener / closer）。
+/// 与 [`parse_frontmatter`] 不同，这里不做 YAML 解析，仅做文本定位，保证能写回。
+fn split_frontmatter(text: &str) -> Option<(&str, &str)> {
+    let opener_len = if text.starts_with("---\r\n") {
+        5
+    } else if text.starts_with("---\n") {
+        4
+    } else {
+        return None;
+    };
+    let rest = &text[opener_len..];
+    let mut idx = 0usize;
+    for line in rest.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\n', '\r']);
+        if trimmed == "---" || trimmed == "..." {
+            return Some((&rest[..idx], &rest[idx + line.len()..]));
+        }
+        idx += line.len();
+    }
+    None
+}
+
+/// 在 YAML 文本中替换顶层 `tags:`；不存在则追加到末尾。
+fn replace_yaml_tags(yaml: &str, tags_line: &str, nl: &str) -> String {
+    let mut lines: Vec<String> = yaml.split_inclusive('\n').map(|s| s.to_string()).collect();
+    let mut found = false;
+
+    let mut i = 0;
+    while i < lines.len() {
+        let no_nl = lines[i].trim_end_matches(['\n', '\r']);
+        let trimmed = no_nl.trim_start();
+        let indent = no_nl.len() - trimmed.len();
+        if indent == 0 && trimmed.starts_with("tags:") {
+            // 块状列表：吞掉紧随其后的缩进 `- item` 行
+            let mut end = i + 1;
+            while end < lines.len() {
+                let l = lines[end].trim_end_matches(['\n', '\r']);
+                if l.is_empty() {
+                    break;
+                }
+                let t = l.trim_start();
+                let ind = l.len() - t.len();
+                if ind > 0 && (t == "-" || t.starts_with("- ")) {
+                    end += 1;
+                } else {
+                    break;
+                }
+            }
+            lines.splice(i..end, std::iter::once(format!("{tags_line}{nl}")));
+            found = true;
+            break;
+        }
+        i += 1;
+    }
+
+    if !found {
+        if let Some(last) = lines.last_mut() {
+            if !last.ends_with('\n') {
+                last.push_str(nl);
+            }
+        }
+        lines.push(format!("{tags_line}{nl}"));
+    }
+
+    lines.concat()
+}
+
+/// YAML 双引号转义（总是加引号，避免特殊字符歧义）
+fn yaml_double_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "\"\"".to_string();
+    }
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
 /// OB 风格 frontmatter 关心的子集
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct FrontMatter {
@@ -282,5 +417,58 @@ mod tests {
         let (fm, body) = parse_frontmatter(text);
         assert_eq!(fm.unwrap().tags, vec!["x"]);
         assert_eq!(body, "body");
+    }
+
+    #[test]
+    fn write_tags_existing_inline() {
+        let text = "---\ntitle: T\ntags: [old]\n---\nbody";
+        let out = set_frontmatter_tags(text, &["新标签".into(), "work".into()]);
+        assert_eq!(out, "---\ntitle: T\ntags: [\"新标签\", \"work\"]\n---\nbody");
+        let (fm, body) = parse_frontmatter(&out);
+        assert_eq!(fm.unwrap().tags, vec!["新标签", "work"]);
+        assert_eq!(body, "body");
+    }
+
+    #[test]
+    fn write_tags_existing_block() {
+        let text = "---\ntitle: T\ntags:\n  - old\n  - old2\n---\nbody";
+        let out = set_frontmatter_tags(text, &["a".into()]);
+        assert_eq!(out, "---\ntitle: T\ntags: [\"a\"]\n---\nbody");
+    }
+
+    #[test]
+    fn write_tags_insert_when_missing() {
+        let text = "---\ntitle: T\n---\nbody";
+        let out = set_frontmatter_tags(text, &["a".into()]);
+        assert_eq!(out, "---\ntitle: T\ntags: [\"a\"]\n---\nbody");
+    }
+
+    #[test]
+    fn write_tags_create_frontmatter() {
+        let out = set_frontmatter_tags("# Hello\n\nbody", &["a".into(), "b".into()]);
+        assert_eq!(out, "---\ntags: [\"a\", \"b\"]\n---\n\n# Hello\n\nbody");
+        let (fm, body) = parse_frontmatter(&out);
+        assert_eq!(fm.unwrap().tags, vec!["a", "b"]);
+        assert_eq!(body, "\n# Hello\n\nbody");
+    }
+
+    #[test]
+    fn write_tags_clear() {
+        let text = "---\ntags: [a]\n---\nbody";
+        let out = set_frontmatter_tags(text, &[]);
+        assert_eq!(out, "---\ntags: []\n---\nbody");
+    }
+
+    #[test]
+    fn write_tags_preserves_crlf() {
+        let text = "---\r\ntags: [a]\r\n---\r\nbody";
+        let out = set_frontmatter_tags(text, &["b".into()]);
+        assert_eq!(out, "---\r\ntags: [\"b\"]\r\n---\r\nbody");
+    }
+
+    #[test]
+    fn write_tags_escapes_quotes() {
+        let out = set_frontmatter_tags("body", &["a\"b\\c".into()]);
+        assert!(out.contains(r#"tags: ["a\"b\\c"]"#));
     }
 }

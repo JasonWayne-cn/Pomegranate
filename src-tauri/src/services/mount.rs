@@ -23,7 +23,7 @@ use super::doc_extract::DocExtractService;
 use super::excel_import::ExcelImportService;
 use super::hash::{sha256_file_hex, sha256_hex};
 use super::import::{extract_inline_hashtags, read_file_mtime, read_text_auto_encoding};
-use super::markdown::parse_frontmatter;
+use super::markdown::{parse_frontmatter, set_frontmatter_tags};
 use super::pdf::PdfService;
 
 /// 同一时刻只允许一个扫描任务，避免用户手动刷新与后台轮询并发写库
@@ -762,11 +762,13 @@ impl MountService {
             return Ok(MountNoteStatus {
                 note_id,
                 external: false,
+                read_only: false,
                 stale: false,
                 user_edited: false,
                 status: None,
                 error: None,
                 source_type: None,
+                source_ext: None,
                 indexed_at: None,
                 source_mtime: 0,
                 indexed_mtime: None,
@@ -792,14 +794,17 @@ impl MountService {
             || source_mtime != meta.mtime
             || source_size != meta.size;
 
+        let ext = ext_lower(Path::new(&meta.abs_path));
         Ok(MountNoteStatus {
             note_id,
             external: true,
+            read_only: meta.read_only,
             stale: meta.stale || source_changed,
             user_edited,
             status: meta.status,
             error: meta.error,
             source_type: meta.source_type,
+            source_ext: if ext.is_empty() { None } else { Some(ext) },
             indexed_at: meta.indexed_at,
             source_mtime,
             indexed_mtime: Some(meta.mtime),
@@ -900,6 +905,83 @@ impl MountService {
             size,
             hash,
         })
+    }
+
+    /// 把标签写回挂载 Markdown 源文件的 frontmatter。
+    ///
+    /// - 内部笔记（非挂载）直接返回 `Ok`，调用方继续写 DB 即可。
+    /// - 只有 `.md` / `.markdown` 支持写回；PDF / Word / Excel 的标签来自源文件解析，返回错误。
+    /// - 只读挂载点 / 源文件缺失 / 外部已修改（mtime 冲突）均返回错误，避免覆盖用户文件。
+    ///
+    /// 写回成功后同步更新影子缓存（content / 指纹 / mtime），
+    /// 这样紧接着的挂载扫描会因 size+mtime 未变而跳过，不会把刚写的标签判成外部更新。
+    pub fn write_tags_to_markdown(
+        db: &Database,
+        note_id: i64,
+        tag_names: &[String],
+    ) -> Result<(), AppError> {
+        let Some(meta) = db.get_external_note_meta(note_id)? else {
+            return Ok(());
+        };
+        let ext = meta
+            .source_type
+            .clone()
+            .map(|s| s.to_ascii_lowercase())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| ext_lower(Path::new(&meta.abs_path)));
+
+        if ext != "md" && ext != "markdown" {
+            return Err(AppError::InvalidInput(
+                "只有挂载的 Markdown 文件支持标签写回；PDF / Word / Excel 等文档的标签来自源文件解析".into(),
+            ));
+        }
+        if meta.read_only {
+            return Err(AppError::InvalidInput(
+                "该挂载点为只读，不能写回标签".into(),
+            ));
+        }
+        if meta.missing {
+            return Err(AppError::NotFound("源文件已缺失，无法写回标签".into()));
+        }
+
+        let path = Path::new(&meta.abs_path);
+        if !path.is_file() {
+            return Err(AppError::NotFound(format!(
+                "源文件不存在: {}",
+                meta.abs_path
+            )));
+        }
+
+        let disk_mtime = read_file_mtime(path).unwrap_or(0);
+        if meta.mtime > 0 && disk_mtime != meta.mtime {
+            return Err(AppError::InvalidInput(
+                "外部文件已被其他程序修改，请重新打开确认后再修改标签".into(),
+            ));
+        }
+
+        let content = read_text_auto_encoding(path)?;
+        let updated = set_frontmatter_tags(&content, tag_names);
+        if updated == content {
+            return Ok(());
+        }
+
+        std::fs::write(path, &updated)?;
+        let mtime = read_file_mtime(path).unwrap_or(0);
+        let size = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
+        let hash = sha256_hex(&updated);
+        db.update_external_note_cache(
+            note_id,
+            &updated,
+            &hash,
+            &hash,
+            &hash,
+            mtime,
+            size,
+            Some("ok"),
+            None,
+        )?;
+        let _ = db.set_writeback_mtime(note_id, mtime);
+        Ok(())
     }
 
     /// 打开笔记前刷新外部内容（供 NoteService::get 调用）。

@@ -115,7 +115,7 @@ dom_query = "0.28"
 # ─── 桌面专属依赖（cfg(desktop) 编译时启用；移动端不引入）────
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
 # 系统托盘 feature
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 # 桌面专属插件
 tauri-plugin-updater = "2"
 tauri-plugin-autostart = "2"

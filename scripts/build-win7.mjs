@@ -19,7 +19,7 @@
 //   4. MSVC 工具链可用（构建 Shim DLL 用 cl.exe）
 
 import { execSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -360,19 +360,13 @@ function verifyBcryptShim() {
 }
 
 // ─── 重命名产物 ─────────────────────────────
-function renameOutput() {
-  if (!existsSync(BUNDLE_DIR)) {
-    console.warn("[build-win7] 未找到 NSIS 产物目录，跳过重命名");
-    return;
+function renameOutput(installer) {
+  if (!existsSync(BUNDLE_DIR) || !installer) {
+    throw new Error("未找到本次构建生成的 NSIS 安装包（构建可能已失败），已中止重命名");
   }
 
   const version = getVersion();
   const files = readdirSync(BUNDLE_DIR);
-  const installer = files.find((f) => f.endsWith("_x64-setup.exe") && !f.includes("_win7"));
-  if (!installer) {
-    console.warn("[build-win7] 未找到 tauri 原生产物 .exe，跳过重命名");
-    return;
-  }
 
   // 清理旧 win7 产物，避免残留混淆
   for (const f of files) {
@@ -415,10 +409,22 @@ function main() {
 
     const tauriCmd = `pnpm tauri build --bundles nsis${isDebug ? " --debug" : ""} -- --features win7-compat`;
     console.log(`[build-win7] ${tauriCmd}`);
+    const buildStartMs = Date.now();
     try {
       execSync(tauriCmd, { cwd: ROOT, stdio: "inherit", env: WIN7_ENV });
     } catch (e) {
       console.warn("[build-win7] tauri build 非零退出码（签名缺失为正常情况），继续验证...");
+    }
+
+    // 校验本次构建确实产出了新的安装包：否则说明前端/Rust 构建失败，
+    // 绝不能把上一次的旧产物改名冒充新版本。
+    const freshInstaller =
+      existsSync(BUNDLE_DIR) &&
+      readdirSync(BUNDLE_DIR)
+        .filter((f) => f.endsWith("_x64-setup.exe") && !f.includes("_win7"))
+        .find((f) => statSync(join(BUNDLE_DIR, f)).mtimeMs >= buildStartMs);
+    if (!freshInstaller) {
+      throw new Error("tauri build 未产出新安装包（前端或 Rust 构建失败），已中止重命名");
     }
 
     const profile = isDebug ? "debug" : "release";
@@ -432,7 +438,7 @@ function main() {
     verifyWin7Imports(pomegranatePath);
     verifyBcryptShim();
 
-    renameOutput();
+    renameOutput(freshInstaller);
     console.log("[build-win7] === 构建成功 ===");
   } catch (err) {
     console.error("[build-win7] === 构建失败 ===");

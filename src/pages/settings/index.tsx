@@ -84,7 +84,7 @@ const TAB_KEYS = {
 type TabKey = (typeof TAB_KEYS)[keyof typeof TAB_KEYS];
 
 function sectionIdToTab(sectionId: string): TabKey | null {
-  if (/^settings-(ai-provider|ai-models|asr|mcp)$/.test(sectionId)) return TAB_KEYS.ai;
+  if (/^settings-(ai-provider|ai-models|asr|mcp|prompts)$/.test(sectionId)) return TAB_KEYS.ai;
   if (/^settings-(daily-md-path|data-dir|orphan-assets|import|export|sync|auto-save)$/.test(sectionId)) return TAB_KEYS.appConfig;
   if (sectionId.startsWith("settings-plugin-")) return TAB_KEYS.appConfig;
   if (/^settings-(ocr|snapshots|reminder-sound|app-lock|mcp-http)$/.test(sectionId)) return TAB_KEYS.extras;
@@ -438,6 +438,7 @@ function DesktopSettingsPage() {
             children: (
               <div className="settings-tabs-stack">
                 <MigratedNotice id="settings-ai-models" title="AI 模型配置" moduleLabel="AI 问答" to="/ai?config=models" />
+                <MigratedNotice id="settings-prompts" title="提示词" moduleLabel="AI 问答" to="/ai?config=prompts" />
                 <MigratedNotice id="settings-asr" title="语音识别" moduleLabel="AI 问答" to="/ai?config=asr" />
               </div>
             ),

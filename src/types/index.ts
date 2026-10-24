@@ -2936,11 +2936,15 @@ export interface MountOpenResult {
 export interface MountNoteStatus {
   noteId: number;
   external: boolean;
+  /** 挂载点是否只读（只读时不能写回标签 / 内容） */
+  readOnly: boolean;
   stale: boolean;
   userEdited: boolean;
   status: string | null;
   error: string | null;
   sourceType: string | null;
+  /** 源文件扩展名（小写）；只读挂载点 sourceType 为空时靠它判断是否 Markdown */
+  sourceExt: string | null;
   indexedAt: string | null;
   sourceMtime: number;
   indexedMtime: number | null;

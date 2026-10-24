@@ -2796,11 +2796,15 @@ pub struct MountNoteStatus {
     pub note_id: i64,
     /// 是否外部挂载笔记
     pub external: bool,
+    /// 挂载点是否只读（只读时不能写回标签 / 内容）
+    pub read_only: bool,
     pub stale: bool,
     pub user_edited: bool,
     pub status: Option<String>,
     pub error: Option<String>,
     pub source_type: Option<String>,
+    /// 源文件扩展名（小写）；只读挂载点没有 source_type 时靠它判断是否 Markdown
+    pub source_ext: Option<String>,
     pub indexed_at: Option<String>,
     /// 源文件当前 mtime（秒）
     pub source_mtime: i64,

@@ -1,6 +1,6 @@
 # 🎤 集成语音输入功能 —— 完整实施提示词
 
-> 本文档是给**其他项目**集成语音输入功能时的参考实现指南，可直接作为 prompt 喂给 AI 让它照着实现。
+> 本文档是给**其他项目**集成语音输入功能时的参考实现指南，可直接作为 prompt 喂给 AI 让它照着实现。\
 > 基于本知识库项目（Tauri 2 + Rust + React）实战经验沉淀，已抽象掉 Tauri 特定细节，跨栈通用。
 
 ---
@@ -18,12 +18,13 @@
 **必须用以下组合**（其他组合会踩坑）：
 
 | 项 | 必选值 |
-|----|-------|
+| --- | --- |
 | **端点** | `POST https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`（OpenAI 兼容模式） |
 | **模型** | `qwen3-asr-flash`（**不是** `-filetrans` 后缀的版本） |
 | **音频字段** | `messages[].content[].input_audio.data`（**不是** `audio` / `file_url`） |
 
 **避坑清单**：
+
 - ❌ `paraformer-v2` 不支持 base64（必须 OSS URL）
 - ❌ `qwen3-asr-flash-filetrans` 是异步任务模式，要轮询，且 base64 会触发 `url error`
 - ❌ 原生 `/services/aigc/multimodal-generation/generation` 端点 base64 会触发 `url error`
@@ -85,7 +86,7 @@ KV 表存：
 ### 2.3 对前端暴露的 4 个 API
 
 | Command | 用途 |
-|---------|------|
+| --- | --- |
 | `asr_get_config` | 读配置（默认值兜底） |
 | `asr_save_config(config)` | 保存配置（启用时强校验 api_key） |
 | `asr_test_connection(config)` | 走 `GET /compatible-mode/v1/models`：401/403 = 鉴权失败；其他 = 通过 |
@@ -192,15 +193,17 @@ function useAudioLevel(stream, active, bandCount = 3) {
 **所有位置都用 3 条柱**（视觉一致性的关键）：
 
 | 位置 | 样式 |
-|------|------|
+| --- | --- |
 | **嵌入式 MicButton**（输入框旁） | 录音时按钮内 3 条 mini 柱（宽 2px，最大高 14px）+ 红色 `box-shadow` 光晕脉动 |
 | **Modal 全屏录音** | 同 3 条柱（宽 6px，最大高 52px）放大版，外面胶囊容器 |
 
 box-shadow 公式：
 
 ```css
-box-shadow: 0 0 0 ${2 + level * 9}px rgba(255, 77, 79, ${0.18 + level * 0.35});
+box-shadow: 0 0 0 
 ```
+
+<span data-latex="{2 + level * 9}px rgba(255, 77, 79, " data-type="inline-math"></span>{0.18 + level \* 0.35});
 
 ---
 
@@ -213,11 +216,13 @@ box-shadow: 0 0 0 ${2 + level * 9}px rgba(255, 77, 79, ${0.18 + level * 0.35});
   value={value}
   onChange={e => setValue(e.target.value)}
   suffix={
-    <MicButton onTranscribed={text => setValue(prev => prev ? `${prev} ${text}` : text)} />
+    <MicButton onTranscribed={text => setValue(prev => prev ? `
+```
+
+<span data-latex="{prev} " data-type="inline-math"></span>{text}\` : text)} /&gt;
   }
   allowClear  // 别忘了清空按钮（与 suffix 可共存）
-/>
-```
+/&gt;
 
 适用：搜索框 / 标题 / 标签筛选 / 命令面板。
 
@@ -228,10 +233,12 @@ TextArea 不支持 suffix，把 mic 放到 label 行右侧：
 ```tsx
 <div className="flex justify-between items-center">
   <span>描述</span>
-  <MicButton onTranscribed={text => setDesc(prev => prev ? `${prev}\n${text}` : text)} />
-</div>
-<Input.TextArea value={desc} onChange={...} />
+  <MicButton onTranscribed={text => setDesc(prev => prev ? `
 ```
+
+<span data-latex="{prev}\n" data-type="inline-math"></span>{text}\` : text)} /&gt;
+&lt;/div&gt;
+&lt;Input.TextArea value={desc} onChange={...} /&gt;
 
 适用：任务描述 / AI 弹窗的目标 / 笔记参考材料。
 
@@ -251,12 +258,14 @@ TextArea 不支持 suffix，把 mic 放到 label 行右侧：
     suffix={
       <MicButton onTranscribed={text => {
         const cur = form.getFieldValue("title") || "";
-        form.setFieldValue("title", cur ? `${cur} ${text}` : text);
-      }} />
-    }
-  />
-</Form.Item>
+        form.setFieldValue("title", cur ? `
 ```
+
+<span data-latex="{cur} " data-type="inline-math"></span>{text}\` : text);
+      }} /&gt;
+    }
+  /&gt;
+&lt;/Form.Item&gt;
 
 ### 5.5 富文本编辑器（Tiptap / ProseMirror / Slate）
 
@@ -371,7 +380,7 @@ TextArea 不支持 suffix，把 mic 放到 label 行右侧：
 按优先级落地（每个阶段独立可发版）：
 
 | 阶段 | 内容 | 工时 |
-|------|------|------|
+| --- | --- | --- |
 | **P1** | 后端 ASR 抽象 + DashScope 实现 + 设置页配置 | 1 天 |
 | **P2** | 通用 MicButton 组件（含波形可视化）+ 接入 5-8 个核心输入位置 | 0.5-1 天 |
 | **P3** | 全局快捷键 + QuickCaptureAsrModal | 0.5 天 |
@@ -384,11 +393,17 @@ P1+P2 完成就能 80% 满足需求，P3/P4 是体验提升项。
 ## 11. 验收清单
 
 - [ ] 设置页填入 API Key 后「测试连接」返回成功
+
 - [ ] 任意接入位置点 mic → 录音时按钮变红 + 波形跳动
+
 - [ ] 停止录音后 1-3 秒文字写入输入框
+
 - [ ] 关闭 Modal/切页面后系统状态栏录音灯熄灭（资源释放）
+
 - [ ] 未启用 ASR 时点击 mic 提示并引导到设置页
+
 - [ ] 麦克风权限被拒时给清晰错误提示
+
 - [ ] 全局快捷键能在应用最小化时唤起 Modal
 
 ---

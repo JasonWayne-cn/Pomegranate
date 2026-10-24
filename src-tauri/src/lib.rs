@@ -909,6 +909,17 @@ pub fn run() {
             commands::mcp::mcp_check_install_status,
             commands::mcp::mcp_claude_code_cli_info,
             commands::mcp::mcp_get_setup_doc,
+            // MCP HTTP 服务（桌面端）
+            #[cfg(desktop)]
+            commands::mcp::get_mcp_http_config,
+            #[cfg(desktop)]
+            commands::mcp::get_mcp_http_status,
+            #[cfg(desktop)]
+            commands::mcp::regenerate_mcp_http_token,
+            #[cfg(desktop)]
+            commands::mcp::start_mcp_http,
+            #[cfg(desktop)]
+            commands::mcp::stop_mcp_http,
             // 系统模块
             commands::system::greet,
             commands::system::get_system_info,

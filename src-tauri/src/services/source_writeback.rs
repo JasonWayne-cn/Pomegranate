@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 use crate::database::Database;
 use crate::error::AppError;
+use crate::services::markdown::{parse_frontmatter, set_frontmatter_tags};
 
 /// 写回结果——给前端做不同 UI 提示
 #[derive(Debug, Clone, serde::Serialize)]
@@ -120,8 +121,19 @@ impl WriteBackService {
         let parent = path.parent().unwrap_or(Path::new("."));
         let assets_subdir = format!("{}.assets", basename);
 
-        let (rewritten, assets_copied) =
+        let (mut rewritten, assets_copied) =
             rewrite_for_writeback(&content, &mappings, parent, &assets_subdir);
+
+        // 挂载笔记：标签由标签 UI 独立管理并写回磁盘 frontmatter。
+        // 编辑器持有的正文可能是标签变更之前的旧版本，保存时若直接覆盖会丢标签，
+        // 因此以磁盘上最新的 tags 为准合并回待写内容。
+        if db.get_external_note_meta(note_id)?.is_some() {
+            if let Ok(disk) = std::fs::read_to_string(&path) {
+                if let (Some(fm), _) = parse_frontmatter(&disk) {
+                    rewritten = set_frontmatter_tags(&rewritten, &fm.tags);
+                }
+            }
+        }
 
         // 6. 写回 + 更新 mtime
         std::fs::write(&path, &rewritten)?;

@@ -59,7 +59,6 @@ const navItems = [
   { key: "/tags", icon: <Tags size={16} />, label: "标签" },
   { key: "/tasks", icon: <CheckSquare size={16} />, label: "待办" },
   { key: "/ai", icon: <Bot size={16} />, label: "AI 问答" },
-  { key: "/prompts", icon: <Sparkles size={16} />, label: "提示词" },
   { key: "/about", icon: <Info size={16} />, label: "关于" },
 ];
 

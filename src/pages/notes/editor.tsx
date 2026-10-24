@@ -40,7 +40,7 @@ import { TagColorPicker } from "@/components/TagColorPicker";
 import { MicButton } from "@/components/MicButton";
 import { NoteAiDrawer } from "@/components/ai/NoteAiDrawer";
 import { MindMapView } from "@/components/notes/MindMapView";
-import type { Note, Tag, Folder, NoteLink } from "@/types";
+import type { Note, Tag, Folder, NoteLink, MountNoteStatus } from "@/types";
 
 const { Text } = Typography;
 
@@ -411,6 +411,8 @@ function MetaBar({
   onFolderChange,
   onCreateTag,
   onChangeTagColor,
+  tagsReadOnly,
+  tagsReadOnlyHint,
 }: {
   noteTags: Tag[];
   allTags: Tag[];
@@ -422,6 +424,9 @@ function MetaBar({
   onFolderChange: (folderId: number | null) => void;
   onCreateTag: (name: string) => Promise<void>;
   onChangeTagColor: (tagId: number, color: string | null) => Promise<void>;
+  /** 挂载的非 Markdown / 只读文档：标签仅展示，不可增删 */
+  tagsReadOnly?: boolean;
+  tagsReadOnlyHint?: string;
 }) {
   const [tagSearch, setTagSearch] = useState("");
   const tagOptions = allTags.map((t) => ({
@@ -482,7 +487,7 @@ function MetaBar({
               }
             >
               <AntTag
-                closable
+                closable={!tagsReadOnly}
                 color={tag.color ?? undefined}
                 style={{ cursor: "pointer" }}
                 onClose={(e) => {
@@ -495,6 +500,16 @@ function MetaBar({
               </AntTag>
             </Popover>
           ))}
+          {tagsReadOnly ? (
+            <span
+              style={{
+                fontSize: 12,
+                color: "var(--ant-color-text-tertiary, #999)",
+              }}
+            >
+              {tagsReadOnlyHint ?? "标签只读"}
+            </span>
+          ) : (
           <Select
             mode="multiple"
             size="small"
@@ -614,6 +629,7 @@ function MetaBar({
               </>
             )}
           />
+          )}
         </div>
       </div>
 
@@ -746,6 +762,19 @@ function DesktopNoteEditorPage() {
   const [pdfPreviewMaximized, setPdfPreviewMaximized] = useState(false);
 
   const noteId = Number(id);
+  /** 外部挂载状态：决定标签是否可编辑（仅可写 Markdown 可写回） */
+  const [mountStatus, setMountStatus] = useState<MountNoteStatus | null>(null);
+  const mountExt = (
+    mountStatus?.sourceExt ??
+    mountStatus?.sourceType ??
+    ""
+  ).toLowerCase();
+  const mountIsMarkdown = mountExt === "md" || mountExt === "markdown";
+  const tagsReadOnly =
+    !!mountStatus?.external && (mountStatus.readOnly || !mountIsMarkdown);
+  const tagsReadOnlyHint = mountStatus?.readOnly
+    ? "该挂载点为只读，标签不可编辑"
+    : "挂载文档的标签来自源文件解析，仅 Markdown 文件可写回";
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -805,13 +834,17 @@ function DesktopNoteEditorPage() {
   useEffect(() => {
     if (!noteId) return;
     let cancelled = false;
+    setMountStatus(null);
     mountApi
       .noteStatus(noteId)
       .then((s) => {
-        if (cancelled || !s.external) return;
+        if (cancelled) return;
+        setMountStatus(s.external ? s : null);
+        if (!s.external) return;
         // 只对二进制文档提示；文本文件的写回/重抽是常规同步，不需要打扰
-        const binary = !!s.sourceType &&
-          !["md", "markdown", "txt", "text"].includes(s.sourceType);
+        const ext = (s.sourceExt ?? s.sourceType ?? "").toLowerCase();
+        const binary = !!ext &&
+          !["md", "markdown", "txt", "text"].includes(ext);
         if (!binary) return;
         if (!s.stale && s.status !== "failed") return;
         const failed = s.status === "failed";
@@ -1901,6 +1934,8 @@ function DesktopNoteEditorPage() {
               onFolderChange={handleFolderChange}
               onCreateTag={handleCreateTag}
               onChangeTagColor={handleChangeTagColor}
+              tagsReadOnly={tagsReadOnly}
+              tagsReadOnlyHint={tagsReadOnlyHint}
             />
           </div>
 

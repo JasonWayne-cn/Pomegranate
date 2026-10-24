@@ -493,6 +493,20 @@ impl Database {
         Ok(out)
     }
 
+    /// 按 id 取标签名（挂载 Markdown 写回 frontmatter 时需要）。
+    pub fn get_tag_name(&self, id: i64) -> Result<Option<String>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let name = conn
+            .query_row("SELECT name FROM tags WHERE id = ?1", params![id], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()?;
+        Ok(name)
+    }
+
     /// 给笔记添加标签
     ///
     /// 方案 C：真插入了新关联时冒泡 `notes.updated_at`（见 [`bump_note_updated_at`]），

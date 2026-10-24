@@ -62,6 +62,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     ],
     groups: [
       { id: "external", label: "外部目录设置" },
+      { id: "tags", label: "标签" },
       { id: "history", label: "历史版本" },
       { id: "general", label: "常规" },
       { id: "editor", label: "编辑器排版" },
@@ -76,6 +77,15 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
           import("@/components/settings/MountSettingsSection").then((m) => ({
             default: m.MountSettingsSection,
           })),
+      },
+      {
+        id: "tags",
+        title: "标签",
+        kind: "link",
+        group: "tags",
+        description:
+          "标签属于文档模块：用于跨文件夹组织笔记。挂载的 Markdown 文档打标签会写回源文件 frontmatter；PDF / Word / Excel 的标签来自源文件解析。",
+        link: { to: "/tags", label: "打开标签管理" },
       },
       {
         id: "general",
@@ -407,11 +417,17 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
       { keys: "Ctrl + K", desc: "命令面板中发起 AI 提问" },
       { keys: "Shift + F1", desc: "打开当前模块使用说明" },
     ],
+    groups: [
+      { id: "models", label: "模型" },
+      { id: "mcp", label: "MCP" },
+      { id: "prompts", label: "提示词" },
+    ],
     panels: [
       {
         id: "models",
         title: "模型配置",
         kind: "component",
+        group: "models",
         load: () =>
           import("@/components/settings/AiModelsSection").then((m) => ({
             default: m.AiModelsSection,
@@ -421,6 +437,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         id: "asr",
         title: "语音识别",
         kind: "component",
+        group: "models",
         load: () =>
           import("@/components/settings/AsrSection").then((m) => ({
             default: m.AsrSection,
@@ -430,6 +447,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         id: "mcp",
         title: "MCP 工具",
         kind: "component",
+        group: "mcp",
         load: () =>
           import("@/components/settings/MCPServerSection").then((m) => ({
             default: m.MCPServerSection,
@@ -439,14 +457,18 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         id: "agent",
         title: "Claude Agent",
         kind: "component",
+        group: "mcp",
         load: () => import("@/components/ai/ClaudeAgentRunnerCard"),
       },
       {
         id: "prompts",
-        title: "提示词与角色",
-        kind: "link",
-        description: "在提示词库中维护常用指令，并在对话中作为角色预设使用。",
-        link: { to: "/prompts", label: "打开提示词库" },
+        title: "提示词",
+        kind: "component",
+        group: "prompts",
+        load: () =>
+          import("@/components/settings/PromptsSection").then((m) => ({
+            default: m.PromptsSection,
+          })),
       },
     ],
   },

@@ -1,6 +1,7 @@
 use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{Note, NoteImageRef, NoteInput, NoteQuery, PageResult};
+use crate::services::mount::MountService;
 use crate::services::sync_v1::attachment_scan::extract_local_refs;
 
 /// 单篇笔记最多回传的图片数，防一篇图墙笔记撑爆 IPC 载荷 / 刷屏 AI 回答下方。
@@ -91,6 +92,10 @@ impl NoteService {
     }
 
     /// 批量给多篇笔记追加标签（不清除原有标签）；返回新增的关联条数
+    ///
+    /// 挂载的 Markdown 笔记先写回源文件 frontmatter；
+    /// 不可写回的挂载文档（PDF / Word / Excel、只读挂载点）会被跳过，
+    /// 避免出现「UI 显示已打标签、下次扫描又被源文件覆盖」的假象。
     pub fn add_tags_batch(
         db: &Database,
         note_ids: &[i64],
@@ -99,7 +104,31 @@ impl NoteService {
         if note_ids.is_empty() || tag_ids.is_empty() {
             return Ok(0);
         }
-        db.add_tags_to_notes_batch(note_ids, tag_ids)
+
+        let mut writable_ids = Vec::with_capacity(note_ids.len());
+        for &note_id in note_ids {
+            let mut names: Vec<String> = db
+                .get_note_tags(note_id)?
+                .into_iter()
+                .map(|t| t.name)
+                .collect();
+            for &tag_id in tag_ids {
+                if let Some(name) = db.get_tag_name(tag_id)? {
+                    if !names.iter().any(|n| n == &name) {
+                        names.push(name);
+                    }
+                }
+            }
+            // 内部笔记恒为 Ok；挂载笔记仅在可写 Markdown 时 Ok
+            if MountService::write_tags_to_markdown(db, note_id, &names).is_ok() {
+                writable_ids.push(note_id);
+            }
+        }
+
+        if writable_ids.is_empty() {
+            return Ok(0);
+        }
+        db.add_tags_to_notes_batch(&writable_ids, tag_ids)
     }
 
     /// 删除笔记（永久删除，预留给未来使用）

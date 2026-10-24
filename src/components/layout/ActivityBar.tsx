@@ -8,11 +8,10 @@ import {
   NotebookText,
   Search,
   Calendar,
-  Tags,
+  GitBranch,
   CheckSquare,
   Layers,
   Bot,
-  Sparkles,
   Bell,
   Plug,
   Trash2,
@@ -54,8 +53,10 @@ interface ActivityItem {
  * 主视图按"用户意图"分四组，组与组之间渲染分隔线：
  *   1. 概览：首页（每次启动看一眼）
  *   2. 创作 / 工作流：笔记 / 每日笔记 / 待办（日常高频写入）
- *   3. 检索 / 发现：搜索 / 标签（找东西）
- *   4. AI 辅助：AI 问答 / 提示词（创作助手）
+ *   3. 检索 / 发现：搜索 / 文档关系（找东西）
+ *   4. AI 辅助：AI 问答 / 定时推送 / 插件（提示词已并入 AI 问答的配置抽屉）
+ *
+ * 标签是文档模块的子功能（入口在「文档」模块配置中），不再单独占一格。
  *
  * 分组而非平铺的好处：用户扫一眼就能锁定意图所在区，比按使用频率排更省认知。
  */
@@ -72,12 +73,11 @@ const MAIN_GROUPS: ActivityItem[][] = [
   // 检索 / 发现
   [
     { view: "search", route: "/search", label: "搜索", icon: <Search size={18} />, core: true },
-    { view: "tags", route: "/tags", label: "标签", icon: <Tags size={18} /> },
+    { view: "graph", route: "/graph", label: "文档关系", icon: <GitBranch size={18} /> },
   ],
   // AI 辅助
   [
     { view: "ai", route: "/ai", label: "AI 问答", icon: <Bot size={18} /> },
-    { view: "prompts", route: "/prompts", label: "提示词", icon: <Sparkles size={18} /> },
     { view: "push", route: "/push", label: "定时推送", icon: <Bell size={18} /> },
     { view: "plugins", route: "/plugins", label: "插件", icon: <Plug size={18} /> },
   ],
