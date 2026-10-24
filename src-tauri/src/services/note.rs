@@ -113,7 +113,10 @@ impl NoteService {
     }
 
     /// 获取单个笔记
+    ///
+    /// 外部挂载笔记先从磁盘刷新一次影子缓存，保证打开时看到的是最新内容。
     pub fn get(db: &Database, id: i64) -> Result<Note, AppError> {
+        crate::services::mount::MountService::refresh_if_external(db, id);
         db.get_note(id)?
             .ok_or_else(|| AppError::NotFound(format!("笔记 {} 不存在", id)))
     }
@@ -251,6 +254,12 @@ impl NoteService {
             .ok_or_else(|| AppError::NotFound(format!("笔记 {} 不存在", id)))?;
         if note.is_encrypted {
             return Err(AppError::Custom("笔记已经处于加密态".to_string()));
+        }
+        // 外部挂载文件在磁盘上是明文，加密影子行没有意义且会破坏写回
+        if db.get_external_note_meta(id)?.is_some() {
+            return Err(AppError::Custom(
+                "外部目录中的笔记不能加密（源文件仍是明文）".to_string(),
+            ));
         }
         let blob = crate::services::vault::VaultService::encrypt_plaintext(
             vault,

@@ -3244,6 +3244,7 @@ dependencies = [
  "pdf-extract",
  "pdfium-render",
  "pulldown-cmark",
+ "quick-xml 0.37.5",
  "rand 0.8.5",
  "regex",
  "reqwest 0.12.28",

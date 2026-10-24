@@ -162,7 +162,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
                     std::iter::repeat("?").take(chunk.len()).collect::<Vec<_>>().join(",");
                 let sql = format!(
                     "SELECT id, stable_uuid, title, content, updated_at FROM notes
-                     WHERE stable_uuid IN ({}) AND is_deleted = 0",
+                     WHERE stable_uuid IN ({}) AND is_deleted = 0 AND storage_kind = 'db'",
                     placeholders
                 );
                 let mut stmt = conn.prepare(&sql)?;

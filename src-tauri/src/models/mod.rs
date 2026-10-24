@@ -2605,6 +2605,47 @@ pub struct ClaudeCodeCliInfo {
 
 // ─── 外部目录挂载 ─────────────────────────────
 
+/// 按文件类别开关同步
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncTypeSettings {
+    #[serde(default = "sync_default_true")]
+    pub text: bool,
+    #[serde(default = "sync_default_true")]
+    pub pdf: bool,
+    #[serde(default = "sync_default_true")]
+    pub word: bool,
+    #[serde(default = "sync_default_true")]
+    pub sheet: bool,
+}
+
+impl Default for SyncTypeSettings {
+    fn default() -> Self {
+        Self {
+            text: true,
+            pdf: true,
+            word: true,
+            sheet: true,
+        }
+    }
+}
+
+impl SyncTypeSettings {
+    pub fn enabled_category(&self, category: &str) -> bool {
+        match category {
+            "text" => self.text,
+            "pdf" => self.pdf,
+            "word" => self.word,
+            "sheet" => self.sheet,
+            _ => false,
+        }
+    }
+}
+
+fn sync_default_true() -> bool {
+    true
+}
+
 /// 一个外部目录挂载点。文件仍在磁盘上，`notes` 表只保存索引用的影子行。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2617,6 +2658,8 @@ pub struct ExternalMount {
     pub index_enabled: bool,
     pub daily_mode: bool,
     pub scan_interval: i64,
+    #[serde(default)]
+    pub sync_types: SyncTypeSettings,
     pub created_at: String,
     pub last_scan_at: Option<String>,
     /// 已索引的笔记数（不含缺失）
@@ -2641,6 +2684,8 @@ pub struct ExternalMountInput {
     pub daily_mode: bool,
     #[serde(default = "mount_default_scan_interval")]
     pub scan_interval: i64,
+    #[serde(default)]
+    pub sync_types: SyncTypeSettings,
 }
 
 fn mount_default_true() -> bool {
@@ -2649,6 +2694,18 @@ fn mount_default_true() -> bool {
 
 fn mount_default_scan_interval() -> i64 {
     10
+}
+
+/// 更新挂载点设置（只更新传入的字段）
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMountUpdate {
+    pub name: Option<String>,
+    pub read_only: Option<bool>,
+    pub index_enabled: Option<bool>,
+    pub daily_mode: Option<bool>,
+    pub scan_interval: Option<i64>,
+    pub sync_types: Option<SyncTypeSettings>,
 }
 
 /// 一次扫描的结果
@@ -2691,6 +2748,16 @@ pub struct ExternalEntry {
     pub error: Option<String>,
     /// 原文件类型：md / txt / pdf / docx / doc / xlsx / csv ...
     pub source_type: Option<String>,
+    /// 原文件大小（字节）
+    pub size: i64,
+    /// 影子笔记是否被本地编辑过
+    pub user_edited: bool,
+    /// 上次抽取时间
+    pub last_synced_at: Option<String>,
+    /// synced / stale / failed / missing / paused
+    pub sync_state: String,
+    /// text / pdf / word / sheet
+    pub type_category: Option<String>,
 }
 
 /// 打开外部文件的结果

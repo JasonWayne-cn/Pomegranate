@@ -27,6 +27,7 @@ pub mod export;
 pub mod export_html;
 pub mod export_merge;
 // Word 导出仅桌面端：docx_rs 在 Android target 编译失败
+pub mod doc_extract;
 #[cfg(desktop)]
 pub mod export_word;
 pub mod folder;
@@ -43,6 +44,7 @@ pub mod legacy_api_url;
 pub mod links;
 pub mod mac_ocr;
 pub mod markdown;
+pub mod mount;
 pub mod ocr;
 // 外部 MCP server 子进程管理仅桌面端：rmcp transport-child-process 在桌面端 dependencies
 // 移动端 fork/spawn 受限，砍掉外部 MCP，仅保留 in-memory 内置 server（kb-core）

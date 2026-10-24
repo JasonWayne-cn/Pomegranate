@@ -179,6 +179,7 @@ pub fn compute_local_manifest(
                 is_encrypted, encrypted_blob, is_daily, daily_date, is_hidden, note_type
          FROM notes
          WHERE stable_uuid IS NOT NULL
+           AND storage_kind = 'db'
            AND (is_deleted = 0 OR (is_deleted = 1 AND deleted_at IS NOT NULL AND deleted_at >= ?1))",
     )?;
     #[allow(clippy::type_complexity)]

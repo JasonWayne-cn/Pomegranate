@@ -107,6 +107,39 @@ impl ExcelImportService {
         Ok((note, truncated_sheets))
     }
 
+    /// 只抽取表格为 Markdown（不创建笔记、不复制源文件）。
+    /// 供外部目录挂载的影子笔记索引复用。
+    pub fn extract_markdown(source_path: &str) -> Result<(String, Vec<String>), AppError> {
+        let source = Path::new(source_path);
+        if !source.exists() {
+            return Err(AppError::NotFound(format!("文件不存在: {}", source_path)));
+        }
+        let ext = source
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_default();
+        if !EXCEL_EXTENSIONS.contains(&ext.as_str()) {
+            return Err(AppError::Custom(format!(
+                "不支持的文件类型「.{}」（仅支持 {}）",
+                ext,
+                EXCEL_EXTENSIONS.join(" / ")
+            )));
+        }
+
+        let summary = excel_parser::read_workbook_full(source_path)?;
+        if summary.sheets.iter().all(|s| s.headers.is_empty()) {
+            return Err(AppError::Custom("文件里没有任何数据（所有工作表都是空的）".into()));
+        }
+        let file_name = source
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "表格".to_string());
+        let (content, truncated) =
+            render_note_markdown(&file_name, &summary.sheets, MAX_ROWS_PER_SHEET);
+        Ok((content, truncated))
+    }
+
     /// 批量导入，逐个独立处理，单个失败不影响其他。
     ///
     /// 每开始处理一个文件发一条 `excel:import-progress`。用独立事件名，

@@ -2812,6 +2812,22 @@ export interface PushPopupData {
 
 // ─── 外部目录挂载 ─────────────────────────────
 
+/** 按文件类别开关同步 */
+export interface SyncTypeSettings {
+  text: boolean;
+  pdf: boolean;
+  word: boolean;
+  sheet: boolean;
+}
+
+/** 外部文件同步状态 */
+export type ExternalSyncState =
+  | "synced"
+  | "stale"
+  | "failed"
+  | "missing"
+  | "paused";
+
 /** 一个外部目录挂载点 */
 export interface ExternalMount {
   id: number;
@@ -2822,6 +2838,8 @@ export interface ExternalMount {
   indexEnabled: boolean;
   dailyMode: boolean;
   scanInterval: number;
+  /** 按文件类别开关同步 */
+  syncTypes: SyncTypeSettings;
   createdAt: string;
   lastScanAt: string | null;
   noteCount: number;
@@ -2838,6 +2856,17 @@ export interface ExternalMountInput {
   indexEnabled?: boolean;
   dailyMode?: boolean;
   scanInterval?: number;
+  syncTypes?: SyncTypeSettings;
+}
+
+/** 更新挂载点入参（只传需要修改的字段） */
+export interface ExternalMountUpdate {
+  name?: string;
+  readOnly?: boolean;
+  indexEnabled?: boolean;
+  dailyMode?: boolean;
+  scanInterval?: number;
+  syncTypes?: SyncTypeSettings;
 }
 
 /** 一次扫描结果 */
@@ -2875,6 +2904,16 @@ export interface ExternalEntry {
   error: string | null;
   /** 原文件类型：md / txt / pdf / docx / doc / xlsx / csv ... */
   sourceType: string | null;
+  /** 原文件大小（字节） */
+  size: number;
+  /** 影子笔记是否被本地编辑过 */
+  userEdited: boolean;
+  /** 上次抽取时间 */
+  lastSyncedAt: string | null;
+  /** 统一同步状态 */
+  syncState: ExternalSyncState;
+  /** text / pdf / word / sheet */
+  typeCategory: "text" | "pdf" | "word" | "sheet" | null;
 }
 
 /** 打开外部文件的结果 */

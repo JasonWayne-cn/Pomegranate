@@ -25,6 +25,7 @@ import type {
   PageResult,
   ExternalMount,
   ExternalMountInput,
+  ExternalMountUpdate,
   ExternalEntry,
   MountOpenResult,
   MountSaveResult,
@@ -1070,6 +1071,8 @@ export const mountApi = {
   list: () => invoke<ExternalMount[]>("mount_list"),
   add: (input: ExternalMountInput) =>
     invoke<ExternalMount>("mount_add", { input }),
+  update: (id: number, input: ExternalMountUpdate) =>
+    invoke<ExternalMount>("mount_update", { id, input }),
   remove: (id: number, detach = false) =>
     invoke<void>("mount_remove", { id, detach }),
   scan: (mountId: number) =>

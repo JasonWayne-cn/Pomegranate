@@ -25,7 +25,6 @@ import {
   FolderOpen,
   FolderSync,
   Cog,
-  FileText,
   ChevronsDownUp,
   GitBranch,
   LayoutTemplate,
@@ -1501,6 +1500,9 @@ export function NotesPanel() {
       : {};
 
     if (isNoteKey(key)) {
+      const nodeData = (node as EnrichedNode).data;
+      const note = nodeData && nodeData.isNote ? nodeData.note : null;
+      const iconType = note?.source_file_type || "md";
       return (
         <span
           className="flex items-center gap-1.5 w-full min-w-0"
@@ -1516,10 +1518,7 @@ export function NotesPanel() {
               {emoji}
             </span>
           ) : (
-            <FileText
-              size={13}
-              style={{ flexShrink: 0, color: token.colorTextTertiary }}
-            />
+            <FileTypeIcon type={iconType} size={14} />
           )}
           <span className="truncate">{display}</span>
         </span>

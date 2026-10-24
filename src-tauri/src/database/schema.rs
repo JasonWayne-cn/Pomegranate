@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 75;
+pub const SCHEMA_VERSION: i32 = 78;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -108,6 +108,9 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             72 => migrate_v72_to_v73(conn)?,
             73 => migrate_v73_to_v74(conn)?,
             74 => migrate_v74_to_v75(conn)?,
+            75 => migrate_v75_to_v76(conn)?,
+            76 => migrate_v76_to_v77(conn)?,
+            77 => migrate_v77_to_v78(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -2709,6 +2712,136 @@ fn migrate_v74_to_v75(conn: &Connection) -> Result<(), AppError> {
     }
 
     set_version(conn, 75)?;
+    Ok(())
+}
+
+
+/// v75 -> v76: 外部目录挂载（多目录 + 影子笔记索引）
+///
+/// 外部文件仍在磁盘上作为唯一数据源；这里只为它们建立 `notes` 影子行，
+/// 让 FTS / note_tags / note_links 等既有能力直接复用。
+fn migrate_v75_to_v76(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v75 -> v76 (外部目录挂载)");
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS external_mounts (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT NOT NULL,
+            root_path       TEXT NOT NULL UNIQUE,
+            root_folder_id  INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+            read_only       INTEGER NOT NULL DEFAULT 0,
+            index_enabled   INTEGER NOT NULL DEFAULT 1,
+            daily_mode      INTEGER NOT NULL DEFAULT 0,
+            scan_interval   INTEGER NOT NULL DEFAULT 10,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            last_scan_at    TEXT
+        );",
+    )?;
+
+    let note_cols = list_columns(conn, "notes")?;
+    if !note_cols.iter().any(|c| c == "storage_kind") {
+        conn.execute_batch(
+            "ALTER TABLE notes ADD COLUMN storage_kind TEXT NOT NULL DEFAULT 'db';",
+        )?;
+    }
+    if !note_cols.iter().any(|c| c == "mount_id") {
+        conn.execute_batch(
+            "ALTER TABLE notes ADD COLUMN mount_id INTEGER REFERENCES external_mounts(id) ON DELETE CASCADE;",
+        )?;
+    }
+    if !note_cols.iter().any(|c| c == "ext_rel_path") {
+        conn.execute_batch("ALTER TABLE notes ADD COLUMN ext_rel_path TEXT;")?;
+    }
+    if !note_cols.iter().any(|c| c == "ext_mtime") {
+        conn.execute_batch("ALTER TABLE notes ADD COLUMN ext_mtime INTEGER;")?;
+    }
+    if !note_cols.iter().any(|c| c == "ext_size") {
+        conn.execute_batch("ALTER TABLE notes ADD COLUMN ext_size INTEGER;")?;
+    }
+    if !note_cols.iter().any(|c| c == "ext_hash") {
+        conn.execute_batch("ALTER TABLE notes ADD COLUMN ext_hash TEXT;")?;
+    }
+    if !note_cols.iter().any(|c| c == "ext_missing") {
+        conn.execute_batch(
+            "ALTER TABLE notes ADD COLUMN ext_missing INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+
+    let folder_cols = list_columns(conn, "folders")?;
+    if !folder_cols.iter().any(|c| c == "mount_id") {
+        conn.execute_batch(
+            "ALTER TABLE folders ADD COLUMN mount_id INTEGER REFERENCES external_mounts(id) ON DELETE CASCADE;",
+        )?;
+    }
+    if !folder_cols.iter().any(|c| c == "ext_rel_path") {
+        conn.execute_batch("ALTER TABLE folders ADD COLUMN ext_rel_path TEXT;")?;
+    }
+
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_mount_rel
+            ON notes(mount_id, ext_rel_path)
+            WHERE mount_id IS NOT NULL AND is_deleted = 0;
+         CREATE INDEX IF NOT EXISTS idx_notes_storage_kind
+            ON notes(storage_kind);
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_mount_rel
+            ON folders(mount_id, ext_rel_path)
+            WHERE mount_id IS NOT NULL;",
+    )?;
+
+    set_version(conn, 76)?;
+    Ok(())
+}
+
+
+/// v76 -> v77: 外部挂载影子笔记的抽取基线与陈旧状态
+///
+/// - `ext_hash`：原文件指纹（二进制文件是二进制哈希，文本文件是内容哈希）
+/// - `content_hash`：当前影子笔记正文哈希（用户编辑后会变）
+/// - `ext_indexed_hash`：上次抽取写入正文时的哈希，用于判断“用户是否编辑过”
+fn migrate_v76_to_v77(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v76 -> v77 (外部挂载抽取基线与陈旧状态)");
+
+    let cols = list_columns(conn, "notes")?;
+    let additions: &[(&str, &str)] = &[
+        ("ext_indexed_hash", "ALTER TABLE notes ADD COLUMN ext_indexed_hash TEXT;"),
+        ("ext_indexed_at", "ALTER TABLE notes ADD COLUMN ext_indexed_at TEXT;"),
+        (
+            "ext_stale",
+            "ALTER TABLE notes ADD COLUMN ext_stale INTEGER NOT NULL DEFAULT 0;",
+        ),
+        (
+            "ext_index_status",
+            "ALTER TABLE notes ADD COLUMN ext_index_status TEXT;",
+        ),
+        (
+            "ext_index_error",
+            "ALTER TABLE notes ADD COLUMN ext_index_error TEXT;",
+        ),
+    ];
+    for (name, ddl) in additions {
+        if !cols.iter().any(|c| c == name) {
+            conn.execute_batch(ddl)?;
+        }
+    }
+
+    set_version(conn, 77)?;
+    Ok(())
+}
+
+
+/// v77 -> v78: 外部挂载按文件类别开关同步
+fn migrate_v77_to_v78(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v77 -> v78 (外部挂载类型同步开关)");
+
+    let cols = list_columns(conn, "external_mounts")?;
+    if !cols.iter().any(|c| c == "sync_types") {
+        conn.execute_batch(
+            "ALTER TABLE external_mounts ADD COLUMN sync_types TEXT NOT NULL
+             DEFAULT '{\"text\":true,\"pdf\":true,\"word\":true,\"sheet\":true}';",
+        )?;
+    }
+
+    set_version(conn, 78)?;
     Ok(())
 }
 

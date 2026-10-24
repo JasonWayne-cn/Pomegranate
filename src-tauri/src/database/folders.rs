@@ -1,9 +1,22 @@
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 use crate::error::AppError;
 use crate::models::Folder;
 
 use super::Database;
+
+/// 文件夹是否属于外部挂载（挂载镜像目录不允许在普通文件夹 UI 里改名/移动/删除）
+fn folder_mount_id(
+    conn: &rusqlite::Connection,
+    id: i64,
+) -> Result<Option<i64>, AppError> {
+    let value: Option<Option<i64>> = conn
+        .query_row("SELECT mount_id FROM folders WHERE id = ?1", params![id], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    Ok(value.flatten())
+}
 
 /// BFS 收集某文件夹及其所有子孙文件夹 id。
 pub(crate) fn bfs_descendant_ids(
@@ -46,6 +59,7 @@ struct FolderRow {
     parent_id: Option<i64>,
     sort_order: i32,
     note_count: usize,
+    mount_id: Option<i64>,
 }
 
 impl Database {
@@ -72,6 +86,7 @@ impl Database {
             sort_order: 0,
             children: vec![],
             note_count: 0,
+            mount_id: None,
         })
     }
 
@@ -114,6 +129,12 @@ impl Database {
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
 
+        if folder_mount_id(&conn, id)?.is_some() {
+            return Err(AppError::InvalidInput(
+                "外部目录的镜像文件夹不能在这里重命名，请直接修改磁盘目录".into(),
+            ));
+        }
+
         let affected = conn.execute(
             "UPDATE folders SET name = ?1 WHERE id = ?2",
             params![name, id],
@@ -132,6 +153,11 @@ impl Database {
             .conn
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
+        if folder_mount_id(&conn, id)?.is_some() {
+            return Err(AppError::InvalidInput(
+                "外部目录的镜像文件夹不能直接删除，请在「外部目录」页移除挂载".into(),
+            ));
+        }
         let affected = conn.execute("DELETE FROM folders WHERE id = ?1", params![id])?;
         Ok(affected > 0)
     }
@@ -237,6 +263,19 @@ impl Database {
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
 
+        if folder_mount_id(&conn, id)?.is_some() {
+            return Err(AppError::InvalidInput(
+                "外部目录的镜像文件夹不能拖拽移动，请直接调整磁盘目录".into(),
+            ));
+        }
+        if let Some(pid) = new_parent_id {
+            if folder_mount_id(&conn, pid)?.is_some() {
+                return Err(AppError::InvalidInput(
+                    "不能把文件夹移动到外部挂载目录中".into(),
+                ));
+            }
+        }
+
         // 防循环：new_parent_id 不能是自己，也不能是自己的后代
         if let Some(pid) = new_parent_id {
             if pid == id {
@@ -316,7 +355,8 @@ impl Database {
 
         let mut stmt = conn.prepare(
             "SELECT f.id, f.name, f.parent_id, f.sort_order,
-                    (SELECT COUNT(*) FROM notes WHERE folder_id = f.id) as note_count
+                    (SELECT COUNT(*) FROM notes WHERE folder_id = f.id) as note_count,
+                    f.mount_id
              FROM folders f ORDER BY f.sort_order, f.name",
         )?;
 
@@ -328,6 +368,7 @@ impl Database {
                     parent_id: row.get(2)?,
                     sort_order: row.get(3)?,
                     note_count: row.get(4)?,
+                    mount_id: row.get(5)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -349,6 +390,7 @@ fn build_folder_tree(rows: &[FolderRow]) -> Vec<Folder> {
                 sort_order: r.sort_order,
                 children: build_children(rows, Some(r.id)),
                 note_count: r.note_count,
+                mount_id: r.mount_id,
             })
             .collect()
     }

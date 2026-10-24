@@ -73,6 +73,7 @@ export type ActiveView =
   | "tags"
   | "tasks"
   | "cards"
+  | "mounts"
   | "graph"
   | "ai"
   | "prompts"

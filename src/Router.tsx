@@ -20,6 +20,7 @@ const MobileAiChat = lazy(() => import("@/pages/ai/MobileAiChat").then(m => ({ d
 const MobileTaskDetail = lazy(() => import("@/pages/tasks/MobileTaskDetail").then(m => ({ default: m.MobileTaskDetail })));
 const MobileSync = lazy(() => import("@/pages/sync/MobileSync").then(m => ({ default: m.MobileSync })));
 const TasksPage = lazy(() => import("@/pages/tasks"));
+const MountsPage = lazy(() => import("@/pages/mounts"));
 const CardsPage = lazy(() => import("@/pages/cards"));
 const PromptsPage = lazy(() => import("@/pages/prompts"));
 const PluginsPage = lazy(() => import("@/pages/plugins"));
@@ -117,6 +118,7 @@ const router = createHashRouter([
     children: [
       { index: true, element: <HomePage /> },
       { path: "notes", element: <NoteListPage /> },
+      { path: "mounts", element: <LazyPage><MountsPage /></LazyPage> },
       { path: "notes/:id", element: <NoteEditorPage /> },
       // 白板本质是 note_type='whiteboard' 的笔记
       { path: "whiteboard/:id", element: <LazyPage><WhiteboardPage /></LazyPage> },

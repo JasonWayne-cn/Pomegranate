@@ -747,6 +747,10 @@ pub fn run() {
 
             app.manage(state);
 
+            // 外部目录挂载：给已存在的挂载点补放 asset 协议范围
+            #[cfg(desktop)]
+            commands::mount::allow_mount_asset_scopes(app.handle());
+
             // 窗口标题区分实例（DEV/PROD × 默认/实例N 四态）
             // 仅桌面端：移动端无窗口标题概念（标题栏由系统/状态栏管理）
             #[cfg(desktop)]
@@ -845,6 +849,15 @@ pub fn run() {
                 let app_handle_watch = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     services::folder_watch::run_folder_watch_loop(app_handle_watch).await;
+                });
+            }
+
+            // 外部目录挂载：多目录增量轮询
+            #[cfg(desktop)]
+            {
+                let app_handle_mount = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    services::mount::run_mount_watch_loop(app_handle_mount).await;
                 });
             }
 
@@ -1106,6 +1119,17 @@ pub fn run() {
             commands::import::import_selected_files,
             commands::import::open_markdown_file,
             commands::import::take_pending_open_md_path,
+            // 外部目录挂载模块
+            commands::mount::mount_add,
+            commands::mount::mount_update,
+            commands::mount::mount_list,
+            commands::mount::mount_remove,
+            commands::mount::mount_scan,
+            commands::mount::mount_list_entries,
+            commands::mount::mount_open_file,
+            commands::mount::mount_save_file,
+            commands::mount::mount_note_status,
+            commands::mount::mount_reextract,
             // 导出模块
             commands::export::export_notes,
             commands::export::export_single_note,
