@@ -1118,6 +1118,32 @@ export interface AiModelTestResult {
   sample: string | null;
 }
 
+/** Embedding 模型配置（对应 ai_embedding_config 单行表） */
+export interface EmbeddingConfig {
+  api_url: string;
+  api_key: string | null;
+  model_id: string;
+  /** 向量维度（0 = 未探测） */
+  dim: number;
+  is_enabled: boolean;
+}
+
+/** 保存/测试 Embedding 配置入参 */
+export interface EmbeddingConfigInput {
+  api_url: string;
+  /** 三态：undefined 保持原值，"" 清除，其它替换 */
+  api_key?: string | null;
+  model_id: string;
+  is_enabled: boolean;
+}
+
+/** 全量重建向量结果 */
+export interface ReindexResult {
+  total: number;
+  done: number;
+  failed: number;
+}
+
 // ─── AI Provider 注册表 ───────────────────────
 
 /** AI Provider 能力描述 */

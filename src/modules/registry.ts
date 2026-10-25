@@ -455,6 +455,16 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
           })),
       },
       {
+        id: "embedding",
+        title: "向量检索",
+        kind: "component",
+        group: "mcp",
+        load: () =>
+          import("@/components/settings/EmbeddingSection").then((m) => ({
+            default: m.EmbeddingSection,
+          })),
+      },
+      {
         id: "agent",
         title: "Claude Agent",
         kind: "component",

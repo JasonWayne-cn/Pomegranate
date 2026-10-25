@@ -52,6 +52,9 @@ import type {
   AiProviderPreset,
   ImportedAiModels,
   LegacyAiModelFix,
+  EmbeddingConfig,
+  EmbeddingConfigInput,
+  ReindexResult,
   VerifyOutcome,
   AiConversation,
   AiMessage,
@@ -916,6 +919,16 @@ export const aiModelApi = {
       apiUrl,
       maxContext: maxContext ?? null,
     }),
+};
+
+/** Embedding 配置 API */
+export const embeddingApi = {
+  get: () => invoke<EmbeddingConfig | null>("get_embedding_config"),
+  test: (input: EmbeddingConfigInput) =>
+    invoke<number>("test_embedding", { input }),
+  save: (input: EmbeddingConfigInput, dim: number) =>
+    invoke<void>("save_embedding_config", { input, dim }),
+  reindex: () => invoke<ReindexResult>("reindex_notes"),
 };
 
 /** AI 对话 API */
