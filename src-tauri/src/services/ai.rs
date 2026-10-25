@@ -1115,7 +1115,7 @@ impl AiService {
 
         for &max_hist in &max_history_attempts {
             let messages =
-                Self::build_messages(&model, &history, &rag_context, &attached_context, max_hist);
+                Self::build_messages(&history, &rag_context, &attached_context, max_hist);
 
             log::info!(
                 "AI Request: model={}, messages={}, max_history={}",
@@ -1178,7 +1178,6 @@ impl AiService {
 
     /// 构建发送给 AI 的消息列表
     fn build_messages(
-        model: &AiModel,
         history: &[AiMessage],
         rag_context: &str,
         attached_context: &str,
@@ -1208,13 +1207,14 @@ impl AiService {
             system_prompt.push_str(rag_context);
         }
 
-        // Claude 使用 system 字段，OpenAI/Ollama 使用 system role message
-        if model.provider != "claude" {
-            messages.push(json!({
-                "role": "system",
-                "content": system_prompt
-            }));
-        }
+        // 所有 provider 都按 OpenAI 兼容协议发送 system role message。
+        // 含 Claude：本项目 Claude 走 OpenAI 兼容代理（见 stream_openai_compatible /
+        // build_openai_chat_url 注释），并无 Anthropic 原生 system 字段，此前
+        // `provider != "claude"` 会静默丢弃 system prompt（ADR-0001 M2 修复）。
+        messages.push(json!({
+            "role": "system",
+            "content": system_prompt
+        }));
 
         // 历史消息：按 max_history 限制数量
         let start = if history.len() > max_history {
@@ -1428,11 +1428,12 @@ impl AiService {
         user_message: &str,
         cancel_rx: watch::Receiver<bool>,
     ) -> Result<(), AppError> {
-        // 最多 3 轮"AI 调工具"，外加 1 轮"finalization"（不带 tools schema，强制最终答复）。
-        // 所以 `for round in 0..=MAX_TOOL_ROUNDS` 实际跑 4 次，最后一次 round=3 时
-        // `allow_tools=false`。这种结构能防死循环，但需要小心 finalization 轮里模型
-        // 可能输出"伪工具调用文本"（详见 strip_pseudo_tool_calls 的注释）。
-        const MAX_TOOL_ROUNDS: usize = 3;
+        // 最多 MAX_TOOL_ROUNDS 轮"AI 调工具"，外加 1 轮"finalization"（不带 tools schema，强制最终答复）。
+        // 所以 `for round in 0..=MAX_TOOL_ROUNDS` 实际跑 MAX_TOOL_ROUNDS+1 次。
+        // 提高默认值以增强 Agent 能力（原 3 轮太受限）；保留硬上限防死循环，
+        // 后续可下沉为会话级配置（agent settings，见 ADR-0001 Phase 3）。
+        // 仍需小心 finalization 轮里模型可能输出"伪工具调用文本"（详见 strip_pseudo_tool_calls）。
+        const MAX_TOOL_ROUNDS: usize = 10;
 
         // 1. 取会话使用的模型
         let conv_model_id = {
@@ -1594,8 +1595,8 @@ impl AiService {
                 })).collect::<Vec<_>>(),
             }));
 
+            // 先广播所有工具"running"状态（并行前一次性发出）
             for tc in &tool_calls {
-                // 通知前端"正在调用"
                 let _ = app.emit(
                     "ai:tool_call",
                     json!({
@@ -1606,29 +1607,53 @@ impl AiService {
                         "status": "running",
                     }),
                 );
+            }
 
-                // 执行：dispatch_with_mcp 会按前缀路由（mcp__<id>__<name> → mcp_external，否则原 skills）
-                // P1: tool 失败时把错误包装为友好提示，避免部分模型遇到 "ERROR: ..." 直接放弃
-                let (result_text, status) =
-                    match skills::dispatch_with_mcp(&app, db, &tc.name, &tc.args_json, None, 20)
-                        .await
+            // 并行执行：dispatch_with_mcp 按前缀路由（mcp__<id>__<name> → mcp_external，否则原 skills）。
+            // 每个工具加超时，避免单个 MCP server 卡死拖垮整轮；
+            // 失败/超时包装为友好提示（P1: 部分模型遇到 "ERROR: ..." 会直接放弃）。
+            const TOOL_TIMEOUT_SECS: u64 = 30;
+            // 工具结果字符上限按模型上下文动态算（最小 4K）。此前硬编码 20 会把
+            // get_note / search_notes 的结果截成几十字符的残片，AI 基于残缺内容作答。
+            let result_limit = skills::result_limit_for(model.max_context);
+            let results: Vec<(String, String)> = futures::future::join_all(
+                tool_calls.iter().map(|tc| async {
+                    let fut =
+                        skills::dispatch_with_mcp(&app, db, &tc.name, &tc.args_json, None, result_limit);
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(TOOL_TIMEOUT_SECS),
+                        fut,
+                    )
+                    .await
                     {
-                        Ok(r) => (r, "ok"),
-                        Err(e) => (
+                        Ok(Ok(r)) => (r, "ok".to_string()),
+                        Ok(Err(e)) => (
                             format!(
                                 "工具 `{}` 调用失败: {}。请基于其他工具的结果或常识继续回答用户。",
                                 tc.name, e
                             ),
-                            "error",
+                            "error".to_string(),
                         ),
-                    };
+                        Err(_) => (
+                            format!(
+                                "工具 `{}` 调用超时（{}s），已跳过。",
+                                tc.name, TOOL_TIMEOUT_SECS
+                            ),
+                            "error".to_string(),
+                        ),
+                    }
+                }),
+            )
+            .await;
 
+            // 按 tool_calls 原始顺序回注结果，保持 tool_call_id 顺序稳定
+            for (tc, (result_text, status)) in tool_calls.iter().zip(results) {
                 let sc = SkillCall {
                     id: tc.id.clone(),
                     name: tc.name.clone(),
                     args_json: tc.args_json.clone(),
                     result: result_text.clone(),
-                    status: status.to_string(),
+                    status,
                 };
                 let _ = app.emit("ai:tool_call", &sc);
                 all_skill_calls.push(sc);

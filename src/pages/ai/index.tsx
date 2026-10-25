@@ -619,7 +619,7 @@ function DesktopAiChatPage() {
   return (
     <div className="h-full flex flex-col min-h-0" style={{ overflow: "hidden" }}>
       {/* 右侧聊天区域（左侧历史记录由 SidePanel 的 AiPanel 提供） */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* 页面级 Header：与待办一致，内容列 max-w-4xl 居中，右侧按钮自然留出边距 */}
         <div className="px-4 pt-3 pb-2 shrink-0">
           <div className="mx-auto flex w-full max-w-4xl items-end justify-between">
