@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 78;
+pub const SCHEMA_VERSION: i32 = 79;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -111,6 +111,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             75 => migrate_v75_to_v76(conn)?,
             76 => migrate_v76_to_v77(conn)?,
             77 => migrate_v77_to_v78(conn)?,
+            78 => migrate_v78_to_v79(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -2842,6 +2843,46 @@ fn migrate_v77_to_v78(conn: &Connection) -> Result<(), AppError> {
     }
 
     set_version(conn, 78)?;
+    Ok(())
+}
+
+/// v78 -> v79: 向量检索（note_embeddings + ai_embedding_config）
+///
+/// - `note_embeddings`：笔记向量，float32 小端序 BLOB，检索用 sqlite-vec 的
+///   `vec_distance_cosine` 标量函数（维度不固定，切换 embedding 模型只需按 model/dim 过滤）
+/// - `ai_embedding_config`：embedding 配置单行表（id 恒为 1）
+fn migrate_v78_to_v79(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v78 -> v79 (向量检索)");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS note_embeddings (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_id     INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+            chunk_index INTEGER NOT NULL DEFAULT 0,
+            content     TEXT NOT NULL,
+            vector      BLOB NOT NULL,
+            model       TEXT NOT NULL,
+            dim         INTEGER NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            UNIQUE(note_id, chunk_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_note_emb_note ON note_embeddings(note_id);
+        CREATE INDEX IF NOT EXISTS idx_note_emb_model_dim ON note_embeddings(model, dim);
+
+        CREATE TABLE IF NOT EXISTS ai_embedding_config (
+            id           INTEGER PRIMARY KEY CHECK (id = 1),
+            api_url      TEXT NOT NULL,
+            api_key      TEXT,
+            model_id     TEXT NOT NULL,
+            dim          INTEGER NOT NULL DEFAULT 0,
+            is_enabled   INTEGER NOT NULL DEFAULT 0,
+            updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+        ",
+    )?;
+
+    set_version(conn, 79)?;
     Ok(())
 }
 

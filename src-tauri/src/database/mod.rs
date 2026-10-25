@@ -7,6 +7,7 @@ pub mod dataset_query;
 #[cfg(test)]
 mod dataset_query_tests;
 pub mod dataview;
+pub mod embedding;
 pub mod folders;
 pub mod links;
 pub mod mcp_servers;
@@ -58,6 +59,17 @@ fn file_backed(db_path: &str) -> Option<String> {
 impl Database {
     /// 初始化数据库（创建或打开 + 自动迁移）
     pub fn init(db_path: &str) -> Result<Self, AppError> {
+        // 必须先注册 sqlite-vec 扩展再打开连接，否则扩展不会自动加载到新连接。
+        // 进程级一次性注册（Once 保证只执行一次），纯 C 静态编译，无 VC++ 运行时绑定。
+        {
+            use std::sync::Once;
+            static REGISTER_VEC: Once = Once::new();
+            REGISTER_VEC.call_once(|| unsafe {
+                rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                    sqlite_vec::sqlite3_vec_init as *const (),
+                )));
+            });
+        }
         let conn = Connection::open(db_path)?;
 
         // 启用 WAL 模式提升并发性能

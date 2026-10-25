@@ -470,6 +470,27 @@ pub struct AiModelInput {
     pub max_output_tokens: Option<i64>,
 }
 
+/// Embedding 模型配置（对应 ai_embedding_config 单行表）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingConfig {
+    pub api_url: String,
+    pub api_key: Option<String>,
+    pub model_id: String,
+    /// 向量维度（0 = 未探测/未知）
+    pub dim: i64,
+    pub is_enabled: bool,
+}
+
+/// 保存/测试 Embedding 配置入参
+#[derive(Debug, Clone, Deserialize)]
+pub struct EmbeddingConfigInput {
+    pub api_url: String,
+    /// api_key: None = 保留旧值, Some("") = 清空
+    pub api_key: Option<String>,
+    pub model_id: String,
+    pub is_enabled: bool,
+}
+
 /// AI 对话
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiConversation {

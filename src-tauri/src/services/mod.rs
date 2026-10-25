@@ -19,6 +19,8 @@ pub mod excel_import;
 // 紧急待办全屏窗口仅桌面端（移动端无多窗口概念）
 #[cfg(desktop)]
 pub mod emergency_window;
+// 向量 RAG：远程 embedding 客户端（OpenAI 兼容 /v1/embeddings）
+pub mod embedding;
 // Excel 解析仅桌面端：calamine 在 Android target 编译失败
 // （T-M013 移动端导入改单文件模式后再决定是否引入）
 #[cfg(desktop)]
