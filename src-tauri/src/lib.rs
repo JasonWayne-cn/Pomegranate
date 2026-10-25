@@ -1120,6 +1120,10 @@ pub fn run() {
             commands::ai::set_ai_conversation_attached_notes,
             commands::ai::archive_ai_conversation_to_note,
             commands::ai::get_or_create_companion_conversation,
+            // 向量 RAG：embedding 配置
+            commands::embedding::get_embedding_config,
+            commands::embedding::test_embedding,
+            commands::embedding::save_embedding_config,
             // 提示词库模块
             commands::prompt::list_prompts,
             commands::prompt::get_prompt,

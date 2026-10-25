@@ -9,6 +9,7 @@ pub mod config;
 pub mod daily;
 pub mod data_dir;
 pub mod dataset;
+pub mod embedding;
 pub mod dataview;
 pub mod excel_import;
 pub mod export;
