@@ -1047,7 +1047,7 @@ impl AiService {
         let mut rag_context = String::new();
         let mut ref_ids: Vec<i64> = Vec::new();
         if use_rag {
-            let notes = db.search_notes_for_rag(user_message, RAG_TOP_N)?;
+            let notes = Self::retrieve_rag_candidates(db, user_message, RAG_TOP_N).await?;
             if !notes.is_empty() {
                 let total_budget =
                     ((model.max_context as f64) * RAG_BUDGET_RATIO * CHARS_PER_TOKEN_CJK)
@@ -1174,6 +1174,38 @@ impl AiService {
         Err(AppError::Custom(
             last_error.unwrap_or_else(|| "AI 请求失败".to_string()),
         ))
+    }
+
+    /// RAG 候选检索：向量检索优先（embedding 已启用且维度已知），
+    /// 失败 / 未配置 / 无命中时回退关键词检索。
+    async fn retrieve_rag_candidates(
+        db: &Database,
+        query: &str,
+        top_n: usize,
+    ) -> Result<Vec<(i64, String, String)>, AppError> {
+        if let Some(cfg) = db.get_embedding_config()? {
+            if cfg.is_enabled && cfg.dim > 0 {
+                match crate::services::embedding::embed(&cfg, query).await {
+                    Ok(vec) => match db.search_notes_vector(&vec, &cfg.model_id, cfg.dim, top_n) {
+                        Ok(hits) if !hits.is_empty() => {
+                            log::info!(
+                                "[RAG] 向量检索命中 {} 条 (model={})",
+                                hits.len(),
+                                cfg.model_id
+                            );
+                            return Ok(hits
+                                .into_iter()
+                                .map(|(id, title, content, _)| (id, title, content))
+                                .collect());
+                        }
+                        Ok(_) => log::debug!("[RAG] 向量检索无命中，回退关键词"),
+                        Err(e) => log::warn!("[RAG] 向量检索失败: {}，回退关键词", e),
+                    },
+                    Err(e) => log::warn!("[RAG] embedding 失败: {}，回退关键词", e),
+                }
+            }
+        }
+        db.search_notes_for_rag(query, top_n)
     }
 
     /// 构建发送给 AI 的消息列表
