@@ -1,8 +1,8 @@
 //! Embedding 配置 Commands
 
-use tauri::State;
+use tauri::{Emitter, State};
 
-use crate::models::{EmbeddingConfig, EmbeddingConfigInput};
+use crate::models::{EmbeddingConfig, EmbeddingConfigInput, ReindexResult};
 use crate::state::AppState;
 
 /// 获取 embedding 配置（未配置则 None）
@@ -42,4 +42,56 @@ pub fn save_embedding_config(
         .db
         .save_embedding_config(&input, dim)
         .map_err(|e| e.to_string())
+}
+
+/// 全量重建笔记向量（后台串行，进度通过 `ai:reindex_progress` 事件回报）。
+///
+/// 前置：embedding 已配置、启用且维度已知（先 test_embedding 再 save）。
+#[tauri::command]
+pub async fn reindex_notes(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ReindexResult, String> {
+    let cfg = state
+        .db
+        .get_embedding_config()
+        .map_err(|e| e.to_string())?
+        .ok_or("未配置 embedding 模型")?;
+    if !cfg.is_enabled || cfg.dim <= 0 {
+        return Err("embedding 未启用或维度未知，请先测试连接并保存".into());
+    }
+
+    let notes = state
+        .db
+        .list_notes_for_embedding()
+        .map_err(|e| e.to_string())?;
+    let total = notes.len();
+
+    let mut done = 0usize;
+    let mut failed = 0usize;
+    for (id, content) in notes {
+        match crate::services::embedding::embed(&cfg, &content).await {
+            Ok(vec) => {
+                if let Err(e) = state
+                    .db
+                    .upsert_note_embedding(id, &content, &vec, &cfg.model_id, cfg.dim)
+                {
+                    log::warn!("[reindex] 笔记 {} 向量入库失败: {}", id, e);
+                    failed += 1;
+                }
+            }
+            Err(e) => {
+                log::warn!("[reindex] 笔记 {} embed 失败: {}", id, e);
+                failed += 1;
+            }
+        }
+        done += 1;
+        let _ = app.emit(
+            "ai:reindex_progress",
+            serde_json::json!({ "done": done, "total": total, "failed": failed }),
+        );
+    }
+
+    log::info!("[reindex] 完成 total={} failed={}", total, failed);
+    Ok(ReindexResult { total, done, failed })
 }

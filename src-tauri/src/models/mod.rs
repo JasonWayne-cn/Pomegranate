@@ -491,6 +491,14 @@ pub struct EmbeddingConfigInput {
     pub is_enabled: bool,
 }
 
+/// 全量重建向量结果
+#[derive(Debug, Clone, Serialize)]
+pub struct ReindexResult {
+    pub total: usize,
+    pub done: usize,
+    pub failed: usize,
+}
+
 /// AI 对话
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiConversation {

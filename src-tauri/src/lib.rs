@@ -1124,6 +1124,7 @@ pub fn run() {
             commands::embedding::get_embedding_config,
             commands::embedding::test_embedding,
             commands::embedding::save_embedding_config,
+            commands::embedding::reindex_notes,
             // 提示词库模块
             commands::prompt::list_prompts,
             commands::prompt::get_prompt,

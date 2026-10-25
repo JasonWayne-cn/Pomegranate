@@ -143,4 +143,14 @@ impl Database {
 
         Ok(rows)
     }
+
+    /// 列出所有非空笔记的 `(id, content)`，用于全量重建向量。
+    pub fn list_notes_for_embedding(&self) -> Result<Vec<(i64, String)>, AppError> {
+        let conn = self.conn_lock()?;
+        let mut stmt = conn.prepare("SELECT id, content FROM notes WHERE content != ''")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
 }
