@@ -1151,6 +1151,7 @@ export interface AiCapabilities {
   supports_streaming: boolean;
   supports_vision: boolean;
   supports_function_calling: boolean;
+  supports_json_mode: boolean;
   max_output_tokens: number | null;
 }
 

@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use futures::stream::Stream;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::pin::Pin;
 
 use crate::error::AppError;
@@ -21,9 +22,54 @@ pub struct AiCapabilities {
     pub supports_vision: bool,
     /// 是否支持 Function Calling / Tool Use
     pub supports_function_calling: bool,
+    /// 是否原生支持 `response_format: {"type":"json_object"}`
+    ///
+    /// Ollama 原生 /api/chat 与部分 Claude 代理不认这个字段，需要退化为
+    /// prompt 约束（或直接拒绝 JSON 专用功能）。
+    pub supports_json_mode: bool,
     /// 最大输出 token 数（None = 未知/模型决定）
     pub max_output_tokens: Option<u32>,
 }
+
+// ─── 协议 ───────────────────────────────────────
+
+/// 提供商使用的线协议
+///
+/// 主链路只依赖此枚举做协议分发，不再比较 `provider` 字符串。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderProtocol {
+    /// OpenAI 兼容 `chat/completions`（OpenAI / DeepSeek / 智谱 / Claude 代理等）
+    OpenAiCompatible,
+    /// Ollama 原生 `/api/chat`
+    Ollama,
+}
+
+// ─── 流式事件 ───────────────────────────────────
+
+/// Provider 输出的协议无关流式事件
+///
+/// 由具体实现完成 SSE / NDJSON 解析，调用方只负责聚合与前端事件推送。
+#[derive(Debug, Clone)]
+pub enum ProviderStreamEvent {
+    /// 正文增量
+    Content(String),
+    /// 推理模型思考过程增量（reasoning_content）
+    Reasoning(String),
+    /// 工具调用增量（OpenAI 流式分片，按 index 聚合）
+    ToolCallDelta {
+        index: u64,
+        id: Option<String>,
+        name: Option<String>,
+        arguments: Option<String>,
+    },
+    /// 流正常结束
+    Finish { reason: Option<String> },
+}
+
+/// 动态分发的 Provider 流
+pub type ProviderStream =
+    Pin<Box<dyn Stream<Item = Result<ProviderStreamEvent, AppError>> + Send>>;
 
 // ─── 元数据 ─────────────────────────────────────
 
@@ -47,10 +93,13 @@ pub struct AiProviderMetadata {
 // ─── Provider 配置 ──────────────────────────────
 
 /// AI Provider 运行时配置（从 AiModel 持久化记录派生）
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct AiProviderConfig {
-    /// 提供商类型: "deepseek" | "openai" | "ollama"
+    /// 提供商类型: "deepseek" | "openai" | "ollama" | "claude" | ...
     pub provider_type: String,
+    /// 协议（可选）：openai_compatible / anthropic / ollama
+    #[serde(default)]
+    pub protocol: Option<String>,
     /// API 基础 URL
     pub api_url: String,
     /// API Key（可为空，如本地 Ollama）
@@ -59,41 +108,54 @@ pub struct AiProviderConfig {
     pub model_id: String,
     /// 模型最大上下文 token 数
     pub max_context: Option<i64>,
+    /// 模型是否支持工具调用（来自 AiModel）
+    #[serde(default)]
+    pub supports_tools: Option<bool>,
+    /// 模型是否支持视觉输入
+    #[serde(default)]
+    pub supports_vision: Option<bool>,
+    /// 模型最大输出 token 数
+    #[serde(default)]
+    pub max_output_tokens: Option<i64>,
 }
 
-// ─── 对话消息 ───────────────────────────────────
+impl AiProviderConfig {
+    /// 判定协议：优先使用显式 protocol 字段，兼容存量配置里的 `provider == "ollama"`。
+    pub fn protocol_kind(&self) -> ProviderProtocol {
+        if self.protocol.as_deref() == Some("ollama")
+            || self.provider_type.eq_ignore_ascii_case("ollama")
+        {
+            ProviderProtocol::Ollama
+        } else {
+            ProviderProtocol::OpenAiCompatible
+        }
+    }
 
-/// 聊天消息（OpenAI 兼容格式）
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatMessage {
-    /// 角色: "system" | "user" | "assistant"
-    pub role: String,
-    /// 消息文本
-    pub content: String,
-}
+    /// 由配置推导能力，供主链路做能力驱动判断。
+    pub fn capabilities(&self) -> AiCapabilities {
+        let protocol = self.protocol_kind();
+        let is_anthropic = self.protocol.as_deref() == Some("anthropic")
+            || self.provider_type.to_ascii_lowercase().contains("claude");
+        let is_ollama = protocol == ProviderProtocol::Ollama;
 
-/// 聊天选项
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ChatOptions {
-    /// 温度 (0.0-2.0)
-    pub temperature: Option<f32>,
-    /// 最大生成 token 数
-    pub max_tokens: Option<u32>,
-    /// 是否流式返回
-    pub stream: bool,
-}
-
-// ─── 流式 Token ────────────────────────────────
-
-/// 流式响应的单次 Token
-#[derive(Debug, Clone)]
-pub enum StreamToken {
-    /// 文本片段
-    Content(String),
-    /// 流结束
-    Done,
-    /// 流错误
-    Error(String),
+        AiCapabilities {
+            supports_streaming: true,
+            supports_vision: if is_ollama {
+                false
+            } else {
+                self.supports_vision.unwrap_or(true)
+            },
+            supports_function_calling: if is_ollama {
+                false
+            } else {
+                self.supports_tools.unwrap_or(true)
+            },
+            supports_json_mode: !is_ollama && !is_anthropic,
+            max_output_tokens: self
+                .max_output_tokens
+                .and_then(|n| u32::try_from(n).ok()),
+        }
+    }
 }
 
 // ─── AI Provider Trait ──────────────────────────
@@ -110,42 +172,27 @@ pub trait AiProvider: Send + Sync {
     /// 返回此 Provider 的能力
     fn capabilities(&self) -> &AiCapabilities;
 
-    /// 检查此 Provider 在当前环境是否可用
-    async fn is_available(&self) -> Result<bool, AppError> {
-        // 默认实现：总是可用
-        Ok(true)
-    }
-
     /// 初始化 Provider（验证配置、预热连接等）
     async fn init(&self) -> Result<(), AppError> {
         Ok(())
     }
 
-    /// 流式聊天
-    ///
-    /// 返回一个 Stream，每个元素是一段文本或错误。
-    /// 使用 `Pin<Box<dyn Stream>>` 以支持动态分发。
-    async fn chat_stream(
-        &self,
-        messages: Vec<ChatMessage>,
-        options: ChatOptions,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<String, AppError>> + Send>>, AppError>;
-
-    /// 非流式聊天（默认实现：收集 chat_stream 的全部输出）
-    async fn chat(
-        &self,
-        messages: Vec<ChatMessage>,
-        options: ChatOptions,
-    ) -> Result<String, AppError> {
-        use futures::StreamExt;
-
-        let mut stream = self.chat_stream(messages, options).await?;
-        let mut result = String::new();
-        while let Some(chunk) = stream.next().await {
-            result.push_str(&chunk?);
-        }
-        Ok(result)
+    /// 此 Provider 使用的线协议
+    fn protocol(&self) -> ProviderProtocol {
+        ProviderProtocol::OpenAiCompatible
     }
+
+    /// 统一流式入口
+    ///
+    /// - `messages` 为 OpenAI 格式的完整消息数组（可含 tool / tool_calls）
+    /// - `tools` 为空表示不启用工具调用
+    ///
+    /// 返回协议无关的事件流；取消、前端事件推送、tool_calls 聚合由调用方负责。
+    async fn stream_chat(
+        &self,
+        messages: Vec<Value>,
+        tools: Vec<Value>,
+    ) -> Result<ProviderStream, AppError>;
 
     /// 关闭 Provider，释放资源
     async fn shutdown(&self) -> Result<(), AppError> {
@@ -200,10 +247,14 @@ impl AiProviderConfig {
     ) -> Self {
         Self {
             provider_type: provider.provider.clone(),
+            protocol: Some(provider.protocol.clone()),
             api_url: provider.api_url.clone(),
             api_key: provider.api_key.clone(),
             model_id: provider.model_id.clone(),
             max_context: Some(provider.max_context),
+            supports_tools: Some(provider.supports_tools),
+            supports_vision: Some(provider.supports_vision),
+            max_output_tokens: provider.max_output_tokens,
         }
     }
 }

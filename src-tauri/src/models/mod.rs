@@ -1,8 +1,7 @@
 pub mod ai_provider;
 // 将常用 Provider 类型提升到 models 层，方便 commands 层直接 use
 pub use ai_provider::{
-    ActiveProviderInfo, AiCapabilities, AiProviderConfig, AiProviderMetadata, ChatMessage,
-    ChatOptions, SwitchProviderInput,
+    ActiveProviderInfo, AiCapabilities, AiProviderConfig, AiProviderMetadata, SwitchProviderInput,
 };
 pub mod session;
 

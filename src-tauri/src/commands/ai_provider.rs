@@ -5,20 +5,13 @@
 use crate::models::{
     ActiveProviderInfo, AiCapabilities, AiProviderConfig, AiProviderMetadata, SwitchProviderInput,
 };
-use crate::services::provider_registry::{get_provider_registry, register_builtin_providers};
+use crate::services::provider_registry::{ensure_builtin, get_provider_registry};
 use crate::state::AppState;
-use std::sync::OnceLock;
 use tauri::State;
-
-/// 内置 Provider 初始化标志（进程生命周期内只注册一次）
-static BUILTIN_INIT: OnceLock<()> = OnceLock::new();
 
 /// 确保内置 Provider 已注册
 fn ensure_builtin_providers() {
-    BUILTIN_INIT.get_or_init(|| {
-        let registry = get_provider_registry();
-        register_builtin_providers(registry);
-    });
+    ensure_builtin();
 }
 
 // ─── Provider 列表 ────────────────────────────
@@ -77,14 +70,9 @@ pub async fn switch_ai_provider(
         .get_ai_model(input.model_id)
         .map_err(|e| format!("加载 AI 模型失败: {}", e))?;
 
-    // 2. 构造 ProviderConfig
-    let config = AiProviderConfig {
-        provider_type: input.provider_type,
-        api_url: model.api_url,
-        api_key: model.api_key,
-        model_id: model.model_id,
-        max_context: Some(model.max_context),
-    };
+    // 2. 构造 ProviderConfig（能力字段从 AiModel 派生）
+    let mut config = AiProviderConfig::from_ai_model(&model);
+    config.provider_type = input.provider_type;
 
     // 3. 切换
     let registry = get_provider_registry();
@@ -121,18 +109,8 @@ pub async fn init_default_provider(state: State<'_, AppState>) -> Result<ActiveP
         }
     };
 
-    // 构造配置
-    let config = AiProviderConfig {
-        provider_type: if model.provider == "deepseek" {
-            "deepseek".to_string()
-        } else {
-            "openai_compatible".to_string()
-        },
-        api_url: model.api_url,
-        api_key: model.api_key,
-        model_id: model.model_id,
-        max_context: Some(model.max_context),
-    };
+    // 构造配置（注册表按协议选择实现：ollama 原生 / OpenAI 兼容）
+    let config = AiProviderConfig::from_ai_model(&model);
 
     let registry = get_provider_registry();
     registry

@@ -1,11 +1,15 @@
 use futures::StreamExt;
 use reqwest::Client;
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::watch;
 
 use crate::database::Database;
 use crate::error::AppError;
+use crate::models::ai_provider::{
+    AiProvider, AiProviderConfig, ProviderProtocol, ProviderStream, ProviderStreamEvent,
+};
 use crate::models::{
     AiMessage, AiModel, AiModelInput, AiModelTestResult, AttachmentPreview, DraftNoteRequest,
     DraftNoteResponse, ExcelPreview, Folder, MessageAttachment, MilestoneDraft, PdfPreview,
@@ -13,12 +17,15 @@ use crate::models::{
     PlanTodayResponse, PluginAiChatInput, PluginAiTokenPayload, SkillCall, TaskQuery,
     TaskSuggestion, TextPreview,
 };
+use crate::services::provider_registry::{ensure_builtin, get_provider_registry};
 use crate::services::skills;
 
 /// 事件发射器 trait，用于抽象不同事件前缀
 trait AiEventEmitter: Send + Sync {
     fn emit_token(&self, content: &str);
     fn emit_error(&self, error: &str);
+    /// 推理模型的思考过程；默认不展示
+    fn emit_reasoning(&self, _reasoning: &str) {}
 }
 
 /// 写作辅助事件发射器（ai-write: 前缀）
@@ -47,6 +54,9 @@ impl AiEventEmitter for ChatEmitter {
     }
     fn emit_error(&self, error: &str) {
         let _ = self.app.emit("ai:error", error);
+    }
+    fn emit_reasoning(&self, reasoning: &str) {
+        let _ = self.app.emit("ai:reasoning", reasoning);
     }
 }
 
@@ -96,7 +106,7 @@ pub struct AiService;
 /// 走 Clash 等系统 HTTP 代理只会被劫持导致连接失败。
 ///
 /// 返回全局单例引用，避免每次流式请求都重建连接池。
-fn build_ollama_client() -> &'static Client {
+pub(crate) fn build_ollama_client() -> &'static Client {
     crate::services::http_client::shared_no_proxy()
 }
 
@@ -107,7 +117,7 @@ fn build_ollama_client() -> &'static Client {
 /// - `https://api.deepseek.com/v1`            → `.../v1/chat/completions`（已带版本段，只补端点）
 /// - `https://open.bigmodel.cn/api/paas/v4`   → `.../paas/v4/chat/completions`（智谱等非 /v1 版本）
 /// - `https://x.y/v1/chat/completions`        → 原样使用
-fn build_openai_chat_url(api_url: &str) -> String {
+pub(crate) fn build_openai_chat_url(api_url: &str) -> String {
     let base = api_url.trim_end_matches('/');
     if base.ends_with("/chat/completions") {
         return base.to_string();
@@ -126,7 +136,7 @@ fn build_openai_chat_url(api_url: &str) -> String {
 }
 
 /// 将 reqwest 错误格式化为对用户友好的 Ollama 错误提示
-fn format_ollama_send_error(e: &reqwest::Error, url: &str) -> String {
+pub(crate) fn format_ollama_send_error(e: &reqwest::Error, url: &str) -> String {
     if e.is_connect() || e.is_timeout() {
         format!(
             "无法连接到 Ollama 服务 ({})。请确认：\n\
@@ -143,7 +153,7 @@ fn format_ollama_send_error(e: &reqwest::Error, url: &str) -> String {
 
 /// 将 OpenAI 兼容接口（OpenAI / DeepSeek / 智谱 / Claude 代理）的 HTTP 错误
 /// 转成用户友好的中文提示。优先解析 body 里的 `error.message`。
-fn format_openai_api_error(status: reqwest::StatusCode, body: &str) -> String {
+pub(crate) fn format_openai_api_error(status: reqwest::StatusCode, body: &str) -> String {
     // 尝试从 body 提取 OpenAI 风格的 error.message
     let api_msg = serde_json::from_str::<Value>(body)
         .ok()
@@ -384,7 +394,106 @@ fn strip_html(html: &str) -> String {
     result
 }
 
+/// 一次流式对话的聚合结果
+struct StreamOutcome {
+    content: String,
+    tool_calls: Vec<ToolCallAccum>,
+    cancelled: bool,
+}
+
 impl AiService {
+    /// 按模型配置从注册表解析 Provider（协议差异由 Provider 实现负责）
+    fn provider_for_model(model: &AiModel) -> Result<Arc<dyn AiProvider>, AppError> {
+        ensure_builtin();
+        get_provider_registry().resolve(&AiProviderConfig::from_ai_model(model))
+    }
+
+    /// 消费 Provider 事件流：累加正文 / 推理 / tool_calls，并推送前端事件。
+    ///
+    /// 取消时立即返回已累积内容（`cancelled = true`），由调用方决定是否落库。
+    async fn drive_provider_stream(
+        emitter: &dyn AiEventEmitter,
+        mut stream: ProviderStream,
+        mut cancel_rx: watch::Receiver<bool>,
+    ) -> Result<StreamOutcome, AppError> {
+        let mut content = String::new();
+        let mut reasoning = String::new();
+        let mut tool_accum: std::collections::BTreeMap<u64, ToolCallAccum> =
+            std::collections::BTreeMap::new();
+        let mut finish_reason: Option<String> = None;
+        let mut cancelled = false;
+
+        loop {
+            tokio::select! {
+                item = stream.next() => {
+                    match item {
+                        Some(Ok(event)) => match event {
+                            ProviderStreamEvent::Content(text) => {
+                                content.push_str(&text);
+                                emitter.emit_token(&text);
+                            }
+                            ProviderStreamEvent::Reasoning(text) => {
+                                reasoning.push_str(&text);
+                                emitter.emit_reasoning(&text);
+                            }
+                            ProviderStreamEvent::ToolCallDelta { index, id, name, arguments } => {
+                                let entry = tool_accum.entry(index).or_default();
+                                if let Some(id) = id {
+                                    entry.id = id;
+                                }
+                                if let Some(name) = name {
+                                    entry.name.push_str(&name);
+                                }
+                                if let Some(args) = arguments {
+                                    entry.args_json.push_str(&args);
+                                }
+                            }
+                            ProviderStreamEvent::Finish { reason } => finish_reason = reason,
+                        },
+                        Some(Err(e)) => {
+                            emitter.emit_error(&e.to_string());
+                            return Err(e);
+                        }
+                        None => break,
+                    }
+                }
+                _ = cancel_rx.changed() => {
+                    if *cancel_rx.borrow() {
+                        cancelled = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if !cancelled {
+            // content 全空但 reasoning 非空时，把 reasoning 提升为正文
+            if content.trim().is_empty() && !reasoning.trim().is_empty() {
+                content.push_str(&reasoning);
+                emitter.emit_token(&reasoning);
+            }
+            // finish_reason 异常（length / content_filter）视为错误
+            if let Some(reason) = &finish_reason {
+                if reason != "stop" && reason != "tool_calls" {
+                    let msg = format!("AI 异常终止 (finish_reason={})", reason);
+                    emitter.emit_error(&msg);
+                    return Err(AppError::Custom(msg));
+                }
+            }
+        }
+
+        let tool_calls = tool_accum
+            .into_values()
+            .filter(|t| !t.name.trim().is_empty())
+            .collect();
+
+        Ok(StreamOutcome {
+            content,
+            tool_calls,
+            cancelled,
+        })
+    }
+
     /// 插件 AI 流式对话：使用插件传入 messages，事件通过专属 event_name 推送。
     pub async fn plugin_chat_stream(
         app: AppHandle,
@@ -417,10 +526,11 @@ impl AiService {
             app: app.clone(),
             event_name: event_name.clone(),
         };
-        let full = match model.provider.as_str() {
-            "ollama" => Self::stream_ollama_generic(&emitter, &model, &messages, cancel_rx).await?,
-            _ => Self::stream_openai_generic(&emitter, &model, &messages, cancel_rx).await?,
-        };
+        let provider = Self::provider_for_model(&model)?;
+        let stream = provider.stream_chat(messages, Vec::new()).await?;
+        let full = Self::drive_provider_stream(&emitter, stream, cancel_rx)
+            .await?
+            .content;
         let _ = app.emit(
             event_name.as_str(),
             PluginAiTokenPayload {
@@ -460,10 +570,11 @@ impl AiService {
             .map(|msg| json!({ "role": msg.role.as_str(), "content": msg.content.as_str() }))
             .collect();
         let emitter = NoopAiEmitter;
-        match model.provider.as_str() {
-            "ollama" => Self::stream_ollama_generic(&emitter, &model, &messages, cancel_rx).await,
-            _ => Self::stream_openai_generic(&emitter, &model, &messages, cancel_rx).await,
-        }
+        let provider = Self::provider_for_model(&model)?;
+        let stream = provider.stream_chat(messages, Vec::new()).await?;
+        Ok(Self::drive_provider_stream(&emitter, stream, cancel_rx)
+            .await?
+            .content)
     }
 
     /// 一次性同步生成（KB 2.0 定时推送使用）：不发送事件，只返回完整文本。
@@ -479,10 +590,11 @@ impl AiService {
         let messages = vec![json!({ "role": "user", "content": prompt })];
         let (_tx, cancel_rx) = tokio::sync::watch::channel(false);
         let emitter = NoopAiEmitter;
-        match model.provider.as_str() {
-            "ollama" => Self::stream_ollama_generic(&emitter, &model, &messages, cancel_rx).await,
-            _ => Self::stream_openai_generic(&emitter, &model, &messages, cancel_rx).await,
-        }
+        let provider = Self::provider_for_model(&model)?;
+        let stream = provider.stream_chat(messages, Vec::new()).await?;
+        Ok(Self::drive_provider_stream(&emitter, stream, cancel_rx)
+            .await?
+            .content)
     }
 
     /// AI 写作辅助：选中文本 + 操作指令 → 流式返回结果
@@ -586,13 +698,11 @@ impl AiService {
         // 创建一个包装 app handle 发送 ai-write: 前缀事件
         let write_app = WriteAssistEmitter { app: app.clone() };
 
-        let _full = match model.provider.as_str() {
-            "ollama" => {
-                Self::stream_ollama_generic(&write_app, &model, &messages, cancel_rx).await?
-            }
-            // T-012: 默认走 OpenAI 兼容（含 LM Studio / 自定义 baseUrl）
-            _ => Self::stream_openai_generic(&write_app, &model, &messages, cancel_rx).await?,
-        };
+        let provider = Self::provider_for_model(&model)?;
+        let stream = provider.stream_chat(messages, Vec::new()).await?;
+        let _full = Self::drive_provider_stream(&write_app, stream, cancel_rx)
+            .await?
+            .content;
 
         let _ = app.emit("ai-write:done", "");
         Ok(())
@@ -672,7 +782,8 @@ impl AiService {
         // 每次调用换一个 seed，避免相同输入坍塌到同一答案；OpenAI / Ollama 都认这个键
         let seed: u32 = rand::random();
         let timeout = std::time::Duration::from_secs(10);
-        let raw = if model.provider == "ollama" {
+        let provider = Self::provider_for_model(&model)?;
+        let raw = if provider.protocol() == ProviderProtocol::Ollama {
             let client = build_ollama_client();
             let url = format!("{}/api/chat", model.api_url.trim_end_matches('/'));
             let response = client
@@ -788,7 +899,21 @@ impl AiService {
         let timeout = std::time::Duration::from_secs(12);
         let started = std::time::Instant::now();
 
-        if input.provider == "ollama" {
+        let config = AiProviderConfig {
+            provider_type: input.provider.clone(),
+            protocol: input.protocol.clone(),
+            api_url: input.api_url.clone(),
+            api_key: input.api_key.clone(),
+            model_id: input.model_id.clone(),
+            max_context: input.max_context,
+            supports_tools: input.supports_tools,
+            supports_vision: input.supports_vision,
+            max_output_tokens: input.max_output_tokens,
+        };
+        ensure_builtin();
+        let provider = get_provider_registry().resolve(&config)?;
+
+        if provider.protocol() == ProviderProtocol::Ollama {
             let client = build_ollama_client();
             let url = format!("{}/api/chat", input.api_url.trim_end_matches('/'));
             let response = client
@@ -865,145 +990,6 @@ impl AiService {
             latency_ms: started.elapsed().as_millis() as u64,
             sample,
         })
-    }
-
-    /// 通用 Ollama 流式请求（使用 EventEmitter trait）
-    async fn stream_ollama_generic(
-        emitter: &dyn AiEventEmitter,
-        model: &AiModel,
-        messages: &[Value],
-        mut cancel_rx: watch::Receiver<bool>,
-    ) -> Result<String, AppError> {
-        let url = format!("{}/api/chat", model.api_url.trim_end_matches('/'));
-        let client = build_ollama_client();
-        let response = client
-            .post(&url)
-            .json(&json!({
-                "model": model.model_id,
-                "messages": messages,
-                "stream": true
-            }))
-            .send()
-            .await
-            .map_err(|e| AppError::Custom(format_ollama_send_error(&e, &url)))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format!(
-                "Ollama 返回错误 {}: {}",
-                status, body
-            )));
-        }
-
-        let mut stream = response.bytes_stream();
-        let mut full_response = String::new();
-        loop {
-            tokio::select! {
-                chunk = stream.next() => {
-                    match chunk {
-                        Some(Ok(bytes)) => {
-                            let text = String::from_utf8_lossy(&bytes);
-                            for line in text.lines() {
-                                if line.is_empty() { continue; }
-                                if let Ok(data) = serde_json::from_str::<Value>(line) {
-                                    if let Some(content) = data["message"]["content"].as_str() {
-                                        full_response.push_str(content);
-                                        emitter.emit_token(content);
-                                    }
-                                    if data["done"].as_bool() == Some(true) {
-                                        return Ok(full_response);
-                                    }
-                                }
-                            }
-                        }
-                        Some(Err(e)) => {
-                            emitter.emit_error(&e.to_string());
-                            return Err(AppError::Custom(format!("流读取错误: {}", e)));
-                        }
-                        None => break,
-                    }
-                }
-                _ = cancel_rx.changed() => {
-                    if *cancel_rx.borrow() {
-                        return Ok(full_response);
-                    }
-                }
-            }
-        }
-        Ok(full_response)
-    }
-
-    /// 通用 OpenAI 兼容流式请求（使用 EventEmitter trait）
-    async fn stream_openai_generic(
-        emitter: &dyn AiEventEmitter,
-        model: &AiModel,
-        messages: &[Value],
-        mut cancel_rx: watch::Receiver<bool>,
-    ) -> Result<String, AppError> {
-        let client = crate::services::http_client::shared();
-        let url = build_openai_chat_url(&model.api_url);
-        let mut request = client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&json!({
-                "model": model.model_id,
-                "messages": messages,
-                "stream": true
-            }));
-        if let Some(key) = &model.api_key {
-            if !key.is_empty() {
-                request = request.header("Authorization", format!("Bearer {}", key));
-            }
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|e| AppError::Custom(format!("API 请求失败: {}", e)))?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_openai_api_error(status, &body)));
-        }
-
-        let mut stream = response.bytes_stream();
-        let mut full_response = String::new();
-        let mut buffer = String::new();
-        loop {
-            tokio::select! {
-                chunk = stream.next() => {
-                    match chunk {
-                        Some(Ok(bytes)) => {
-                            buffer.push_str(&String::from_utf8_lossy(&bytes));
-                            while let Some(pos) = buffer.find('\n') {
-                                let line = buffer[..pos].trim().to_string();
-                                buffer = buffer[pos + 1..].to_string();
-                                if line.is_empty() || line == "data: [DONE]" { continue; }
-                                if let Some(json_str) = line.strip_prefix("data: ") {
-                                    if let Ok(data) = serde_json::from_str::<Value>(json_str) {
-                                        if let Some(content) = data["choices"][0]["delta"]["content"].as_str() {
-                                            full_response.push_str(content);
-                                            emitter.emit_token(content);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Some(Err(e)) => {
-                            emitter.emit_error(&e.to_string());
-                            return Err(AppError::Custom(format!("流读取错误: {}", e)));
-                        }
-                        None => break,
-                    }
-                }
-                _ = cancel_rx.changed() => {
-                    if *cancel_rx.borrow() {
-                        return Ok(full_response);
-                    }
-                }
-            }
-        }
-        Ok(full_response)
     }
 
     /// 流式聊天：发送消息 → 检索笔记 → 调用 AI → 流式返回
@@ -1112,6 +1098,8 @@ impl AiService {
         // 尝试不同的历史长度：20 → 10 → 4 → 0（仅当前消息）
         let max_history_attempts = [20usize, 10, 4, 0];
         let mut last_error = None;
+        let provider = Self::provider_for_model(&model)?;
+        let chat_emitter = ChatEmitter { app: app.clone() };
 
         for &max_hist in &max_history_attempts {
             let messages =
@@ -1124,17 +1112,15 @@ impl AiService {
                 max_hist
             );
 
-            let result = match model.provider.as_str() {
-                "ollama" => Self::stream_ollama(&app, &model, &messages, cancel_rx.clone()).await,
-                // T-012: 默认走 OpenAI 兼容协议（OpenAI / Claude 代理 / DeepSeek / 智谱 /
-                // Minimax / SiliconFlow / LM Studio / 用户自定义 baseUrl）
-                _ => {
-                    Self::stream_openai_compatible(&app, &model, &messages, cancel_rx.clone()).await
-                }
-            };
+            let result = async {
+                let stream = provider.stream_chat(messages, Vec::new()).await?;
+                Self::drive_provider_stream(&chat_emitter, stream, cancel_rx.clone()).await
+            }
+            .await;
 
             match result {
-                Ok(response) => {
+                Ok(outcome) => {
+                    let response = outcome.content;
                     // 成功：保存 AI 回复
                     db.add_ai_message(conversation_id, "assistant", &response, None)?;
                     db.touch_ai_conversation(conversation_id)?;
@@ -1240,7 +1226,7 @@ impl AiService {
         }
 
         // 所有 provider 都按 OpenAI 兼容协议发送 system role message。
-        // 含 Claude：本项目 Claude 走 OpenAI 兼容代理（见 stream_openai_compatible /
+        // 含 Claude：本项目 Claude 走 OpenAI 兼容代理（见 OpenAiCompatibleProvider /
         // build_openai_chat_url 注释），并无 Anthropic 原生 system 字段，此前
         // `provider != "claude"` 会静默丢弃 system prompt（ADR-0001 M2 修复）。
         messages.push(json!({
@@ -1276,162 +1262,6 @@ impl AiService {
         }
 
         messages
-    }
-
-    /// Ollama 流式请求
-    async fn stream_ollama(
-        app: &AppHandle,
-        model: &AiModel,
-        messages: &[Value],
-        mut cancel_rx: watch::Receiver<bool>,
-    ) -> Result<String, AppError> {
-        let url = format!("{}/api/chat", model.api_url.trim_end_matches('/'));
-        let client = build_ollama_client();
-
-        let response = client
-            .post(&url)
-            .json(&json!({
-                "model": model.model_id,
-                "messages": messages,
-                "stream": true
-            }))
-            .send()
-            .await
-            .map_err(|e| AppError::Custom(format_ollama_send_error(&e, &url)))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format!(
-                "Ollama 返回错误 {}: {}",
-                status, body
-            )));
-        }
-
-        let mut stream = response.bytes_stream();
-        let mut full_response = String::new();
-
-        loop {
-            tokio::select! {
-                chunk = stream.next() => {
-                    match chunk {
-                        Some(Ok(bytes)) => {
-                            let text = String::from_utf8_lossy(&bytes);
-                            for line in text.lines() {
-                                if line.is_empty() { continue; }
-                                if let Ok(data) = serde_json::from_str::<Value>(line) {
-                                    if let Some(content) = data["message"]["content"].as_str() {
-                                        full_response.push_str(content);
-                                        let _ = app.emit("ai:token", content);
-                                    }
-                                    if data["done"].as_bool() == Some(true) {
-                                        return Ok(full_response);
-                                    }
-                                }
-                            }
-                        }
-                        Some(Err(e)) => {
-                            let _ = app.emit("ai:error", e.to_string());
-                            return Err(AppError::Custom(format!("流读取错误: {}", e)));
-                        }
-                        None => break,
-                    }
-                }
-                _ = cancel_rx.changed() => {
-                    if *cancel_rx.borrow() {
-                        let _ = app.emit("ai:done", "cancelled");
-                        return Ok(full_response);
-                    }
-                }
-            }
-        }
-
-        Ok(full_response)
-    }
-
-    /// OpenAI 兼容 API 流式请求（也支持 Claude 通过兼容接口）
-    async fn stream_openai_compatible(
-        app: &AppHandle,
-        model: &AiModel,
-        messages: &[Value],
-        mut cancel_rx: watch::Receiver<bool>,
-    ) -> Result<String, AppError> {
-        let client = crate::services::http_client::shared();
-        let url = build_openai_chat_url(&model.api_url);
-
-        let mut request = client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&json!({
-                "model": model.model_id,
-                "messages": messages,
-                "stream": true
-            }));
-
-        if let Some(key) = &model.api_key {
-            if !key.is_empty() {
-                request = request.header("Authorization", format!("Bearer {}", key));
-            }
-        }
-
-        let response = request
-            .send()
-            .await
-            .map_err(|e| AppError::Custom(format!("API 请求失败: {}", e)))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_openai_api_error(status, &body)));
-        }
-
-        let mut stream = response.bytes_stream();
-        let mut full_response = String::new();
-        let mut buffer = String::new();
-
-        loop {
-            tokio::select! {
-                chunk = stream.next() => {
-                    match chunk {
-                        Some(Ok(bytes)) => {
-                            buffer.push_str(&String::from_utf8_lossy(&bytes));
-                            // SSE 格式：data: {...}\n\n
-                            while let Some(pos) = buffer.find('\n') {
-                                let line = buffer[..pos].trim().to_string();
-                                buffer = buffer[pos + 1..].to_string();
-
-                                if line.is_empty() || line == "data: [DONE]" {
-                                    continue;
-                                }
-                                if let Some(json_str) = line.strip_prefix("data: ") {
-                                    if let Ok(data) = serde_json::from_str::<Value>(json_str) {
-                                        if let Some(content) =
-                                            data["choices"][0]["delta"]["content"].as_str()
-                                        {
-                                            full_response.push_str(content);
-                                            let _ = app.emit("ai:token", content);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Some(Err(e)) => {
-                            let _ = app.emit("ai:error", e.to_string());
-                            return Err(AppError::Custom(format!("流读取错误: {}", e)));
-                        }
-                        None => break,
-                    }
-                }
-                _ = cancel_rx.changed() => {
-                    if *cancel_rx.borrow() {
-                        let _ = app.emit("ai:done", "cancelled");
-                        return Ok(full_response);
-                    }
-                }
-            }
-        }
-
-        Ok(full_response)
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -1533,6 +1363,8 @@ impl AiService {
         // M5-3：tool_schemas 现在融合内置 5 skills + 所有 enabled 外部 MCP server 的工具
         // 工具命名约定：MCP 工具加 mcp__<server_id>__ 前缀；dispatch 时按前缀路由
         let tool_schemas = skills::tool_schemas_with_mcp(&app).await;
+        let provider = Self::provider_for_model(&model)?;
+        let chat_emitter = ChatEmitter { app: app.clone() };
 
         for round in 0..=MAX_TOOL_ROUNDS {
             // 最后一轮不给 tools，强制 AI 给出最终答复（防死循环）
@@ -1556,28 +1388,26 @@ impl AiService {
                 std::borrow::Cow::Owned(m)
             };
 
-            let (content, tool_calls) = Self::stream_openai_with_tools(
-                &app,
-                &model,
-                req_messages.as_ref(),
-                if allow_tools { &tool_schemas } else { &[] },
-                cancel_rx.clone(),
-            )
+            let tools = if allow_tools {
+                tool_schemas.clone()
+            } else {
+                Vec::new()
+            };
+            let result = async {
+                let stream = provider.stream_chat(req_messages.into_owned(), tools).await?;
+                Self::drive_provider_stream(&chat_emitter, stream, cancel_rx.clone()).await
+            }
             .await;
 
-            let (content, mut tool_calls) = match content {
-                Ok(c) => (c, tool_calls.unwrap_or_default()),
+            let (content, mut tool_calls) = match result {
+                Ok(outcome) if !outcome.cancelled => (outcome.content, outcome.tool_calls),
+                // 取消：不删用户消息（用户想保留这条），直接结束
+                Ok(_) => return Ok(()),
                 Err(e) => {
                     let _ = db.delete_ai_message(user_msg.id);
                     return Err(e);
                 }
             };
-
-            // 取消信号：上面 stream 函数已经 emit ai:done "cancelled"，直接返回
-            if *cancel_rx.borrow() {
-                // 不删用户消息（用户想保留这条），直接结束
-                return Ok(());
-            }
 
             // P0: finalization 轮即使模型仍返回 tool_calls 也强制忽略，避免循环退出后 final_content 为空
             if !allow_tools {
@@ -1725,208 +1555,6 @@ impl AiService {
         Ok(())
     }
 
-    /// OpenAI 兼容流式请求（支持 tool_calls delta 累加）
-    ///
-    /// 返回 `(content, tool_calls)`：
-    /// - `content` 累加所有 delta.content
-    /// - `tool_calls` 按 `index` 聚合每个工具调用（OpenAI 流式 tool_calls 按分片返回
-    ///   name/arguments，必须按 index 累加到完整 JSON 才能 dispatch）
-    ///
-    /// 被取消时：发 `ai:done` 带 "cancelled" 并返回当前累积内容（tool_calls 清空）。
-    async fn stream_openai_with_tools(
-        app: &AppHandle,
-        model: &AiModel,
-        messages: &[Value],
-        tools: &[Value],
-        mut cancel_rx: watch::Receiver<bool>,
-    ) -> (Result<String, AppError>, Option<Vec<ToolCallAccum>>) {
-        let client = crate::services::http_client::shared();
-        let url = build_openai_chat_url(&model.api_url);
-
-        let mut request_body = json!({
-            "model": model.model_id,
-            "messages": messages,
-            "stream": true,
-        });
-        if !tools.is_empty() {
-            request_body["tools"] = json!(tools);
-            request_body["tool_choice"] = json!("auto");
-        }
-
-        let mut request = client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&request_body);
-        if let Some(key) = &model.api_key {
-            if !key.is_empty() {
-                request = request.header("Authorization", format!("Bearer {}", key));
-            }
-        }
-
-        let response = match request.send().await {
-            Ok(r) => r,
-            Err(e) => {
-                return (Err(AppError::Custom(format!("API 请求失败: {}", e))), None);
-            }
-        };
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return (
-                Err(AppError::Custom(format_openai_api_error(status, &body))),
-                None,
-            );
-        }
-
-        let mut stream = response.bytes_stream();
-        let mut content = String::new();
-        // P1: reasoning 模型（deepseek-r1 / qwq / o1）正文走 reasoning_content；
-        // 流过程中独立发 ai:reasoning 事件，content 全空时再兜底拼到正文
-        let mut reasoning_content = String::new();
-        // BTreeMap 按 index 有序，保证 dispatch 时工具顺序稳定
-        let mut tool_accum: std::collections::BTreeMap<u64, ToolCallAccum> =
-            std::collections::BTreeMap::new();
-        // P1: UTF-8 多字节字符可能跨 chunk 切分，String::from_utf8_lossy 在边界插入
-        // U+FFFD 替换字符并损坏 SSE 解析；改用 Vec<u8> 累积，按 \n 字节切再解码
-        let mut buffer: Vec<u8> = Vec::new();
-        // P0: finish_reason 用来判断是否异常终止（length / content_filter）
-        let mut finish_reason: Option<String> = None;
-
-        loop {
-            tokio::select! {
-                chunk = stream.next() => {
-                    match chunk {
-                        Some(Ok(bytes)) => {
-                            buffer.extend_from_slice(&bytes);
-                            while let Some(pos) = buffer.iter().position(|b| *b == b'\n') {
-                                let line_bytes: Vec<u8> = buffer.drain(..=pos).collect();
-                                let line = String::from_utf8_lossy(&line_bytes);
-                                let line = line.trim_end_matches(&['\r', '\n'][..]);
-                                handle_openai_stream_line(
-                                    app,
-                                    line,
-                                    &mut content,
-                                    &mut reasoning_content,
-                                    &mut tool_accum,
-                                    &mut finish_reason,
-                                );
-                            }
-                        }
-                        Some(Err(e)) => {
-                            let _ = app.emit("ai:error", e.to_string());
-                            return (Err(AppError::Custom(format!("流读取错误: {}", e))), None);
-                        }
-                        None => break,
-                    }
-                }
-                _ = cancel_rx.changed() => {
-                    if *cancel_rx.borrow() {
-                        let _ = app.emit("ai:done", "cancelled");
-                        return (Ok(content), Some(Vec::new()));
-                    }
-                }
-            }
-        }
-
-        // P0: 流末尾未以 \n 结尾的 leftover 也要 flush，否则丢失最后一行 SSE
-        if !buffer.is_empty() {
-            let line = String::from_utf8_lossy(&buffer);
-            let line = line.trim_end_matches(&['\r', '\n'][..]);
-            handle_openai_stream_line(
-                app,
-                line,
-                &mut content,
-                &mut reasoning_content,
-                &mut tool_accum,
-                &mut finish_reason,
-            );
-        }
-
-        // P1: content 全空但 reasoning 非空时，把累积的 reasoning 提升为正文
-        // （前端流式过程中已经收到 ai:reasoning，这里只补一次 ai:token 让 UI 文本不为空）
-        if content.trim().is_empty() && !reasoning_content.trim().is_empty() {
-            content.push_str(&reasoning_content);
-            let _ = app.emit("ai:token", &reasoning_content);
-        }
-
-        // P0: finish_reason 异常处理。length / content_filter 视为错误抛出，
-        // 让前端 ai:error 监听器提示用户；stop / tool_calls / null 都是正常结束
-        if let Some(reason) = &finish_reason {
-            if reason != "stop" && reason != "tool_calls" {
-                let msg = format!("AI 异常终止 (finish_reason={})", reason);
-                let _ = app.emit("ai:error", &msg);
-                return (Err(AppError::Custom(msg)), None);
-            }
-        }
-
-        // 收尾：id 在外层 chat_stream_with_skills 已做兜底合成，这里只丢 name 为空的
-        let tool_calls: Vec<ToolCallAccum> = tool_accum
-            .into_values()
-            .filter(|t| !t.name.trim().is_empty())
-            .collect();
-
-        (Ok(content), Some(tool_calls))
-    }
-}
-
-/// 解析单行 OpenAI SSE 流数据，累加内容并更新 tool_calls 状态。
-///
-/// 抽出 free function 是因为 stream_openai_with_tools 主循环 + 末尾 leftover flush
-/// 两处都要调用，避免重复。
-fn handle_openai_stream_line(
-    app: &AppHandle,
-    line: &str,
-    content: &mut String,
-    reasoning_content: &mut String,
-    tool_accum: &mut std::collections::BTreeMap<u64, ToolCallAccum>,
-    finish_reason: &mut Option<String>,
-) {
-    if line.is_empty() || line == "data: [DONE]" {
-        return;
-    }
-    let Some(json_str) = line.strip_prefix("data: ") else {
-        return;
-    };
-    let data: Value = match serde_json::from_str(json_str) {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-
-    let choice = &data["choices"][0];
-    if let Some(reason) = choice["finish_reason"].as_str() {
-        *finish_reason = Some(reason.to_string());
-    }
-
-    let delta = &choice["delta"];
-    if let Some(c) = delta["content"].as_str() {
-        content.push_str(c);
-        let _ = app.emit("ai:token", c);
-    }
-    // reasoning 模型（deepseek-r1 / qwq / o1）的"思考过程"，独立事件让前端可选展示
-    if let Some(r) = delta["reasoning_content"].as_str() {
-        if !r.is_empty() {
-            reasoning_content.push_str(r);
-            let _ = app.emit("ai:reasoning", r);
-        }
-    }
-    // tool_calls 分片
-    if let Some(tcs) = delta["tool_calls"].as_array() {
-        for tc in tcs {
-            let idx = tc["index"].as_u64().unwrap_or(0);
-            let entry = tool_accum.entry(idx).or_insert_with(ToolCallAccum::default);
-            if let Some(id) = tc["id"].as_str() {
-                if !id.is_empty() {
-                    entry.id = id.to_string();
-                }
-            }
-            if let Some(name) = tc["function"]["name"].as_str() {
-                entry.name.push_str(name);
-            }
-            if let Some(args) = tc["function"]["arguments"].as_str() {
-                entry.args_json.push_str(args);
-            }
-        }
-    }
 }
 
 /// 流式解析过程中累加的一次工具调用（OpenAI 分片返回格式）
@@ -1952,8 +1580,9 @@ impl AiService {
         req: PlanTodayRequest,
     ) -> Result<PlanTodayResponse, AppError> {
         let model = db.get_default_ai_model()?;
+        let provider = Self::provider_for_model(&model)?;
         // T-012: 仅 Ollama 不支持（本地 generate API 不返回 JSON 模式）；其他都按 OpenAI 兼容
-        if model.provider == "ollama" {
+        if provider.protocol() == ProviderProtocol::Ollama {
             return Err(AppError::Custom(
                 "AI 规划功能暂不支持 Ollama 协议，请切换到 OpenAI 兼容模型（含本地 LM Studio）。"
                     .into(),
@@ -2111,7 +1740,7 @@ impl AiService {
             "max_tokens": 2000,
         });
         // Claude 兼容代理有些不支持 response_format，去掉该字段以防报错
-        if model.provider == "claude" {
+        if !provider.capabilities().supports_json_mode {
             req_body
                 .as_object_mut()
                 .and_then(|m| m.remove("response_format"));
@@ -2171,7 +1800,8 @@ impl AiService {
         }
 
         let model = db.get_default_ai_model()?;
-        if model.provider == "ollama" {
+        let provider = Self::provider_for_model(&model)?;
+        if provider.protocol() == ProviderProtocol::Ollama {
             return Err(AppError::Custom(
                 "智能解析暂不支持 Ollama 协议，请切换到 OpenAI 兼容模型。".into(),
             ));
@@ -2227,7 +1857,7 @@ impl AiService {
             "response_format": { "type": "json_object" },
             "max_tokens": 600,
         });
-        if model.provider == "claude" {
+        if !provider.capabilities().supports_json_mode {
             req_body
                 .as_object_mut()
                 .and_then(|m| m.remove("response_format"));
@@ -2294,8 +1924,9 @@ impl AiService {
         }
 
         let model = db.get_default_ai_model()?;
+        let provider = Self::provider_for_model(&model)?;
         // T-012: 仅 Ollama 不支持（无 JSON 模式）；其他都按 OpenAI 兼容协议
-        if model.provider == "ollama" {
+        if provider.protocol() == ProviderProtocol::Ollama {
             return Err(AppError::Custom(
                 "AI 写笔记暂不支持 Ollama 协议，请切换到 OpenAI 兼容模型（含本地 LM Studio）。"
                     .into(),
@@ -2363,7 +1994,7 @@ impl AiService {
             "stream": false,
             "response_format": { "type": "json_object" },
         });
-        if model.provider == "claude" {
+        if !provider.capabilities().supports_json_mode {
             req_body
                 .as_object_mut()
                 .and_then(|m| m.remove("response_format"));
@@ -2433,7 +2064,8 @@ impl AiService {
         let horizon = req.horizon_days.clamp(1, 365);
 
         let model = db.get_default_ai_model()?;
-        if model.provider == "ollama" {
+        let provider = Self::provider_for_model(&model)?;
+        if provider.protocol() == ProviderProtocol::Ollama {
             return Err(AppError::Custom(
                 "AI 智能规划暂不支持 Ollama 协议，请切换到 OpenAI 兼容模型（含本地 LM Studio）。"
                     .into(),
@@ -2522,7 +2154,7 @@ impl AiService {
             "response_format": { "type": "json_object" },
             "max_tokens": 4000,
         });
-        if model.provider == "claude" {
+        if !provider.capabilities().supports_json_mode {
             req_body
                 .as_object_mut()
                 .and_then(|m| m.remove("response_format"));
@@ -2612,7 +2244,8 @@ impl AiService {
             .to_string();
 
         let model = db.get_default_ai_model()?;
-        if model.provider == "ollama" {
+        let provider = Self::provider_for_model(&model)?;
+        if provider.protocol() == ProviderProtocol::Ollama {
             return Err(AppError::Custom(
                 "AI 智能规划暂不支持 Ollama 协议，请切换到 OpenAI 兼容模型（含本地 LM Studio）。"
                     .into(),
@@ -2709,7 +2342,7 @@ impl AiService {
             "response_format": { "type": "json_object" },
             "max_tokens": 6000,
         });
-        if model.provider == "claude" {
+        if !provider.capabilities().supports_json_mode {
             req_body
                 .as_object_mut()
                 .and_then(|m| m.remove("response_format"));
