@@ -454,6 +454,11 @@ pub async fn dispatch_with_mcp(
     #[cfg(mobile)]
     let _ = app; // 移动端避免未使用警告（仅当也不走 kb__ 分支时）
 
+    // search_notes 走混合检索（向量优先 + 关键词回退），让智能模式也能用上向量 RAG
+    if name == "search_notes" {
+        return dispatch_search_notes_hybrid(db, args_json, scope_ids).await;
+    }
+
     // 5 个高层内置 skills（无前缀）
     dispatch(db, name, args_json, scope_ids, result_limit)
 }
@@ -652,6 +657,41 @@ struct SearchNotesArgs {
     query: String,
     #[serde(default)]
     limit: Option<u32>,
+}
+
+/// search_notes 混合检索：向量检索优先，失败/未配置/无命中回退关键词。
+async fn dispatch_search_notes_hybrid(
+    db: &Database,
+    args_json: &str,
+    scope_ids: Option<&[i64]>,
+) -> Result<String, AppError> {
+    let a: SearchNotesArgs = serde_json::from_str(args_json)
+        .map_err(|e| AppError::Custom(format!("search_notes 参数非法: {}", e)))?;
+    let limit = a.limit.unwrap_or(5).clamp(1, 20) as usize;
+
+    // 尝试向量检索（embedding 已启用且维度已知）
+    if let Some(cfg) = db.get_embedding_config()? {
+        if cfg.is_enabled && cfg.dim > 0 {
+            if let Ok(vec) = crate::services::embedding::embed(&cfg, &a.query).await {
+                if let Ok(hits) = db.search_notes_vector(&vec, &cfg.model_id, cfg.dim, limit) {
+                    if !hits.is_empty() {
+                        log::info!("[RAG] search_notes 向量命中 {} 条", hits.len());
+                        let hits_json: Vec<Value> = hits
+                            .into_iter()
+                            .map(|(id, title, content, _)| {
+                                let snippet = summarize_content(&content, 250);
+                                json!({ "id": id, "title": title, "snippet": snippet })
+                            })
+                            .collect();
+                        return Ok(serde_json::to_string(&json!({ "hits": hits_json }))
+                            .unwrap_or_else(|_| "[]".to_string()));
+                    }
+                }
+            }
+        }
+    }
+    // 回退关键词
+    run_search_notes(db, args_json, scope_ids)
 }
 
 fn run_search_notes(
