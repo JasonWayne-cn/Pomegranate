@@ -794,8 +794,9 @@ impl AiService {
         // 每次调用换一个 seed，避免相同输入坍塌到同一答案；OpenAI / Ollama 都认这个键
         let seed: u32 = rand::random();
         let provider = Self::provider_for_model(&model)?;
-        let raw = provider
-            .complete(
+        let raw = match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            provider.complete(
                 messages,
                 CompletionOptions {
                     max_tokens: Some(64),
@@ -803,8 +804,13 @@ impl AiService {
                     seed: Some(seed),
                     json_mode: false,
                 },
-            )
-            .await?;
+            ),
+        )
+        .await
+        {
+            Ok(result) => result?,
+            Err(_) => return Err(AppError::Custom("AI 建议生成超时".into())),
+        };
 
         // 清洗：去首尾空白 / 引号 / 句号；截断到 60 字（保险，模型偶尔不守 25 字约束）
         let cleaned: String = raw
