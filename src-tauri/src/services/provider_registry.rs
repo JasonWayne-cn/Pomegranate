@@ -788,6 +788,13 @@ mod tests {
         })
     }
 
+    /// reqwest 依赖 Tokio reactor，HTTP 回环测试必须在 Tokio runtime 内消费流。
+    fn run_tokio<F: std::future::Future>(future: F) -> F::Output {
+        tokio::runtime::Runtime::new()
+            .expect("create tokio runtime")
+            .block_on(future)
+    }
+
     #[test]
     fn openai_stream_emits_content_reasoning_and_tool_calls() {
         let stream = openai_event_stream(chunks(&[
@@ -850,6 +857,128 @@ mod tests {
 
         assert_eq!(content, "你好世界");
         assert!(finished);
+    }
+
+    /// 启动一次性本地 HTTP 服务，返回 (base_url, 读取到的请求文本)
+    fn spawn_once_server(response: &'static str) -> (String, std::thread::JoinHandle<String>) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
+        let addr = listener.local_addr().expect("local addr");
+        let handle = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().expect("accept");
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .ok();
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 1024];
+            loop {
+                match socket.read(&mut tmp) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&tmp[..n]);
+                        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            let request = String::from_utf8_lossy(&buf).to_string();
+            socket.write_all(response.as_bytes()).ok();
+            socket.flush().ok();
+            request
+        });
+        (format!("http://{}", addr), handle)
+    }
+
+    fn smoke_config(provider_type: &str, base_url: &str) -> AiProviderConfig {
+        AiProviderConfig {
+            provider_type: provider_type.into(),
+            protocol: Some("openai_compatible".into()),
+            api_url: base_url.into(),
+            api_key: Some("sk-test".into()),
+            model_id: "test-model".into(),
+            max_context: Some(8192),
+            supports_tools: Some(true),
+            supports_vision: Some(false),
+            max_output_tokens: None,
+        }
+    }
+
+    #[test]
+    fn openai_provider_round_trip_over_http() {
+        const RESPONSE: &str = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n\
+data: {\"choices\":[{\"delta\":{\"content\":\"你好\"}}]}\n\n\
+data: {\"choices\":[{\"delta\":{\"content\":\"，世界\"}}]}\n\n\
+data: {\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{}}]}\n\n\
+data: [DONE]\n\n";
+
+        let (base, server) = spawn_once_server(RESPONSE);
+        let provider = OpenAiCompatibleProvider::new(smoke_config("openai", &base));
+        let events = run_tokio(async move {
+            let stream = provider
+                .stream_chat(
+                    vec![json!({"role": "user", "content": "hi"})],
+                    vec![json!({"type": "function", "function": {"name": "search_notes"}})],
+                )
+                .await
+                .expect("stream starts");
+            stream
+                .filter_map(|item| async move { item.ok() })
+                .collect::<Vec<_>>()
+                .await
+        });
+        let content: String = events
+            .iter()
+            .filter_map(|e| match e {
+                ProviderStreamEvent::Content(c) => Some(c.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(content, "你好，世界");
+        let request = server.join().expect("server thread");
+        assert!(request.starts_with("POST /v1/chat/completions "), "{}", request);
+        assert!(request.to_lowercase().contains("authorization: bearer sk-test"));
+        assert!(request.contains("\"tools\""));
+        assert!(request.contains("\"tool_choice\":\"auto\""));
+    }
+
+    #[test]
+    fn ollama_provider_round_trip_over_http() {
+        const RESPONSE: &str = "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nConnection: close\r\n\r\n\
+{\"message\":{\"content\":\"你好\"},\"done\":false}\n\
+{\"message\":{\"content\":\"，本地\"},\"done\":true}\n";
+
+        let (base, server) = spawn_once_server(RESPONSE);
+        let provider = OllamaProvider::new(AiProviderConfig {
+            protocol: Some("ollama".into()),
+            ..smoke_config("ollama", &base)
+        });
+        let events = run_tokio(async move {
+            let stream = provider
+                .stream_chat(vec![json!({"role": "user", "content": "hi"})], Vec::new())
+                .await
+                .expect("stream starts");
+            stream
+                .filter_map(|item| async move { item.ok() })
+                .collect::<Vec<_>>()
+                .await
+        });
+        let content: String = events
+            .iter()
+            .filter_map(|e| match e {
+                ProviderStreamEvent::Content(c) => Some(c.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(content, "你好，本地");
+        let request = server.join().expect("server thread");
+        assert!(request.starts_with("POST /api/chat "), "{}", request);
+        assert!(!request.to_lowercase().contains("authorization"));
     }
 
     #[test]
