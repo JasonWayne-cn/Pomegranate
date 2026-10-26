@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import Markdown from "react-markdown";
 import {
   Button,
   Input,
@@ -21,11 +20,6 @@ import {
   Bot,
   Edit3,
   Wrench,
-  ChevronDown,
-  ChevronRight,
-  CheckCircle2,
-  XCircle,
-  Loader2,
   Paperclip,
   Save,
   Settings2,
@@ -49,6 +43,17 @@ import type {
 import { AttachmentChip } from "@/components/ai/AttachmentChip";
 import { MicButton } from "@/components/MicButton";
 import { useAiChatStore } from "@/store/aiChat";
+import { TurnCard } from "@/components/ai/TurnCard";
+import {
+  liveAppendReasoning,
+  liveAppendToken,
+  liveStartRound,
+  liveUpsertCall,
+  newLiveTurn,
+  turnFromLive,
+  turnFromMessage,
+  type LiveTurn,
+} from "@/components/ai/turnModel";
 
 /** 多附件总字符上限：超过则阻止再加，避免炸 context window */
 const TOTAL_ATTACHMENT_CHAR_LIMIT = 80_000;
@@ -83,7 +88,6 @@ function previewToMessageAttachment(a: AttachmentPreview): MessageAttachment {
       };
   }
 }
-import { stripPseudoToolCalls } from "@/lib/aiFilter";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import {
   ContextMenuOverlay,
@@ -147,7 +151,9 @@ function DesktopAiChatPage() {
   // Skills 让 LLM 按需调，是 RAG 的超集。把选择权交给 LLM，用户只管开关。
   const [useSkills, setUseSkills] = useState(true);
   const [streaming, setStreaming] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
+  // 流式中的这一轮：思考 / 各轮工具调用 / 正在写的回答，统一累积成 LiveTurn，
+  // 再交给 TurnCard 渲染成和历史消息完全一致的卡片。
+  const [liveTurn, setLiveTurn] = useState<LiveTurn | null>(null);
   // 附加笔记（A 方向）：当前对话的 attached_note_ids 对应的完整笔记对象
   const [attachedNotes, setAttachedNotes] = useState<Note[]>([]);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -155,8 +161,6 @@ function DesktopAiChatPage() {
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [archiveTitle, setArchiveTitle] = useState("");
   const [archiving, setArchiving] = useState(false);
-  // 流式过程中 AI 调用的工具列表（带 running/ok/error 状态）；done 后并入 messages 清空
-  const [streamingSkillCalls, setStreamingSkillCalls] = useState<SkillCall[]>([]);
   // 路线 A 会话附件：当前输入框「待发送」的附件列表（Excel/Text/PDF 混合），发送后清空
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentPreview[]>([]);
   const [attachingFile, setAttachingFile] = useState(false);
@@ -239,11 +243,37 @@ function DesktopAiChatPage() {
     let cancelled = false;
 
     (async () => {
+      /** 事件可能在 handleSend 之前/之后到达，统一保证 LiveTurn 已存在 */
+      const withLive = (fn: (t: LiveTurn) => LiveTurn) => {
+        setLiveTurn((prev) =>
+          fn(prev ?? newLiveTurn(activeConvIdRef.current ?? 0)),
+        );
+      };
+
       const tokenUnlisten = await listen<string>("ai:token", (event) => {
-        setStreamingText((prev) => prev + event.payload);
+        withLive((t) => liveAppendToken(t, event.payload));
       });
+      // 推理模型的思考过程：单独通道，展示在「思考过程」折叠块里
+      const reasoningUnlisten = await listen<string>(
+        "ai:reasoning",
+        (event) => {
+          withLive((t) => liveAppendReasoning(t, event.payload));
+        },
+      );
+      // 新一轮工具调用开始，时间线按 round 分组
+      const roundUnlisten = await listen<number>("ai:round", (event) => {
+        withLive((t) => liveStartRound(t, event.payload));
+      });
+      // tool_call 事件可能多次触发（running → ok/error），按 id upsert
+      const toolCallUnlisten = await listen<SkillCall>(
+        "ai:tool_call",
+        (event) => {
+          withLive((t) => liveUpsertCall(t, event.payload));
+        },
+      );
       const doneUnlisten = await listen("ai:done", async () => {
         setStreaming(false);
+        setLiveTurn(null);
         const conv = activeConvIdRef.current;
         if (conv) {
           await loadMessages(conv);
@@ -251,40 +281,30 @@ function DesktopAiChatPage() {
             console.error("加载对话列表失败:", e),
           );
         }
-        setStreamingText("");
-        setStreamingSkillCalls([]);
       });
       const errorUnlisten = await listen<string>("ai:error", (event) => {
         setStreaming(false);
-        // P1: 不清空 streamingText / streamingSkillCalls：保留已累积内容和工具调用结果，
-        // 让用户看到部分输出（之前清空会让"工具调完正文又消失"的体验）
+        setLiveTurn(null);
         message.error(`AI 错误: ${event.payload}`);
       });
-      // tool_call 事件可能多次触发（running → ok/error），按 id upsert
-      const toolCallUnlisten = await listen<SkillCall>(
-        "ai:tool_call",
-        (event) => {
-          const incoming = event.payload;
-          setStreamingSkillCalls((prev) => {
-            const idx = prev.findIndex((c) => c.id === incoming.id);
-            if (idx >= 0) {
-              const next = prev.slice();
-              next[idx] = incoming;
-              return next;
-            }
-            return [...prev, incoming];
-          });
-        },
-      );
 
       if (cancelled) {
         // 注册期间已 unmount，立即解绑
         tokenUnlisten();
+        reasoningUnlisten();
+        roundUnlisten();
+        toolCallUnlisten();
         doneUnlisten();
         errorUnlisten();
-        toolCallUnlisten();
       } else {
-        unlistens = [tokenUnlisten, doneUnlisten, errorUnlisten, toolCallUnlisten];
+        unlistens = [
+          tokenUnlisten,
+          reasoningUnlisten,
+          roundUnlisten,
+          toolCallUnlisten,
+          doneUnlisten,
+          errorUnlisten,
+        ];
       }
     })();
 
@@ -365,7 +385,7 @@ function DesktopAiChatPage() {
   // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingText]);
+  }, [messages, liveTurn]);
 
   async function loadModels() {
     try {
@@ -486,8 +506,7 @@ function DesktopAiChatPage() {
     if (!text || !activeConvId || streaming) return;
     if (!textOverride) setInputText("");
     setStreaming(true);
-    setStreamingText("");
-    setStreamingSkillCalls([]);
+    setLiveTurn(newLiveTurn(activeConvId));
 
     // 乐观添加用户消息
     const userMsg: AiMessage = {
@@ -502,7 +521,7 @@ function DesktopAiChatPage() {
     setMessages((prev) => [...prev, userMsg]);
 
     // 注：ai:* 事件 listener 已经在顶层 useEffect 全局注册（mount once），
-    // 这里只管发请求。事件流期间 streamingText / streamingSkillCalls 会被
+    // 这里只管发请求。事件流期间 liveTurn 会被
     // 全局 listener 持续刷新，无需再 register / cleanup。
 
     // 把 AttachmentPreview 按 kind 转成后端期望的 MessageAttachment
@@ -525,8 +544,7 @@ function DesktopAiChatPage() {
       setPendingAttachments([]);
     } catch (e) {
       setStreaming(false);
-      setStreamingText("");
-      setStreamingSkillCalls([]);
+      setLiveTurn(null);
       showAiError(e);
     }
   }, [inputText, activeConvId, streaming, useSkills, pendingAttachments]);
@@ -875,52 +893,42 @@ function DesktopAiChatPage() {
                 </div>
               )}
 
-              {messages.map((msg) => (
-                <MessageBubble
-                  key={msg.id}
-                  message={msg}
-                  token={token}
-                  onContextMenu={(e, m) => msgCtx.open(e.nativeEvent, m)}
-                  contextActive={msgCtx.state.payload?.id === msg.id}
-                />
-              ))}
-
-              {/* 流式响应中 —— 渲染前剥掉伪 tool_call 残文（与 Rust 侧 strip_pseudo_tool_calls
-                  同口径），避免最后一轮模型退化输出的 XML/围栏标签直接秀给用户 */}
-              {streaming && (() => {
-                const cleanText = stripPseudoToolCalls(streamingText);
-                if (!cleanText && streamingSkillCalls.length === 0) return null;
-                return (
-                  <div className="flex gap-3 mb-4">
-                    <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold"
-                      style={{
-                        background: token.colorPrimaryBg,
-                        color: token.colorPrimary,
-                      }}
-                    >
-                      AI
-                    </div>
-                    <div className="max-w-[75%] flex flex-col gap-2">
-                      {streamingSkillCalls.length > 0 && (
-                        <SkillCallList calls={streamingSkillCalls} token={token} defaultOpen />
-                      )}
-                      {cleanText && (
-                        <div
-                          className="px-3 py-2 rounded-lg text-sm ai-markdown"
-                          style={{
-                            background: token.colorBgContainer,
-                            color: token.colorText,
-                          }}
-                        >
-                          <Markdown>{cleanText}</Markdown>
-                          <span className="inline-block w-1.5 h-4 ml-0.5 animate-pulse" style={{ background: token.colorPrimary }} />
-                        </div>
-                      )}
-                    </div>
+              {messages.map((msg) =>
+                msg.role === "user" ? (
+                  <MessageBubble
+                    key={msg.id}
+                    message={msg}
+                    token={token}
+                    onContextMenu={(e, m) => msgCtx.open(e.nativeEvent, m)}
+                    contextActive={msgCtx.state.payload?.id === msg.id}
+                  />
+                ) : (
+                  // AI 回复统一走 TurnCard：思考过程 / 工具执行时间线默认折叠
+                  <div key={msg.id} className="mb-4 w-full">
+                    <TurnCard
+                      view={turnFromMessage(msg)}
+                      isLast={false}
+                      busy={streaming}
+                      collapseSignal={0}
+                      onContextMenu={(e, m) => msgCtx.open(e.nativeEvent, m)}
+                      contextActive={msgCtx.state.payload?.id === msg.id}
+                    />
                   </div>
-                );
-              })()}
+                ),
+              )}
+
+              {/* 流式响应中：同样用 TurnCard，生成结束切历史卡片时样式不跳 */}
+              {streaming && liveTurn && (
+                <div className="mb-4 w-full">
+                  <TurnCard
+                    view={turnFromLive(liveTurn)}
+                    isLast
+                    busy
+                    collapseSignal={0}
+                    onStop={handleCancel}
+                  />
+                </div>
+              )}
 
               <div ref={messagesEndRef} />
               </div>
@@ -1199,7 +1207,7 @@ function AttachNotesModal({
   );
 }
 
-/** 消息气泡组件 */
+/** 用户消息气泡（AI 回复由 TurnCard 渲染） */
 function MessageBubble({
   message: msg,
   token,
@@ -1211,23 +1219,9 @@ function MessageBubble({
   onContextMenu?: (e: React.MouseEvent, m: AiMessage) => void;
   contextActive?: boolean;
 }) {
-  const isUser = msg.role === "user";
-  const refs: number[] = msg.references
-    ? JSON.parse(msg.references)
-    : [];
-  // T-004: 历史消息里如果有 skill_calls_json 就反序列化出来展示
-  let skillCalls: SkillCall[] = [];
-  if (msg.skill_calls) {
-    try {
-      skillCalls = JSON.parse(msg.skill_calls);
-    } catch {
-      // 静默忽略：坏数据不阻断消息渲染
-    }
-  }
-
   return (
     <div
-      className={`flex gap-3 mb-4 ${isUser ? "flex-row-reverse" : ""}`}
+      className="flex gap-3 mb-4 flex-row-reverse"
       onContextMenu={
         onContextMenu
           ? (e) => {
@@ -1240,28 +1234,20 @@ function MessageBubble({
       {/* 头像 */}
       <div
         className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-bold"
-        style={{
-          background: isUser ? token.colorPrimary : token.colorPrimaryBg,
-          color: isUser ? "#fff" : token.colorPrimary,
-        }}
+        style={{ background: token.colorPrimary, color: "#fff" }}
       >
-        {isUser ? "我" : "AI"}
+        我
       </div>
 
       {/* 内容
           min-w-0：默认 flex 子项 min-width: auto = 内容固有宽度，会顶破 max-w-[75%]；
           手动归零才能让 max-width 生效，长文本/无空格长串才能被裁到 75% 以内。 */}
-      <div className={`max-w-[75%] min-w-0 flex flex-col gap-2 ${isUser ? "items-end" : "items-start"}`}>
-        {/* Skill 调用折叠卡片（在气泡上方） */}
-        {skillCalls.length > 0 && (
-          <SkillCallList calls={skillCalls} token={token} />
-        )}
-
+      <div className="max-w-[75%] min-w-0 flex flex-col gap-2 items-end">
         <div
-          className={`px-3 py-2 rounded-lg text-sm break-words ${isUser ? "whitespace-pre-wrap" : "ai-markdown"}`}
+          className="px-3 py-2 rounded-lg text-sm break-words whitespace-pre-wrap"
           style={{
-            background: isUser ? token.colorPrimary : token.colorBgContainer,
-            color: isUser ? "#fff" : token.colorText,
+            background: token.colorPrimary,
+            color: "#fff",
             // overflowWrap: anywhere 比 break-word 更激进：连无空格的纯英文长串
             // （如 DOI / URL）也能在任意字符处断行，避免气泡被撑开溢出聊天区
             overflowWrap: "anywhere",
@@ -1271,148 +1257,11 @@ function MessageBubble({
             transition: "outline .1s",
           }}
         >
-          {isUser ? msg.content : <Markdown>{msg.content}</Markdown>}
+          {msg.content}
         </div>
-
-        {/* 引用笔记 */}
-        {refs.length > 0 && (
-          <div
-            className="text-xs flex items-center gap-1"
-            style={{ color: token.colorTextQuaternary }}
-          >
-            <BookOpen size={10} />
-            参考了 {refs.length} 篇笔记
-          </div>
-        )}
       </div>
     </div>
   );
-}
-
-/** Skill 调用列表（折叠卡片）
- *
- * 一组工具调用整体默认折叠：头部显示"🔧 调用了 N 个工具"，展开后逐条列出
- * 参数和结果。流式进行中（`defaultOpen`）自动展开，让用户能看到 running 过程。
- */
-function SkillCallList({
-  calls,
-  token,
-  defaultOpen = false,
-}: {
-  calls: SkillCall[];
-  token: any;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const hasRunning = calls.some((c) => c.status === "running");
-  const hasError = calls.some((c) => c.status === "error");
-
-  return (
-    <div
-      className="rounded-md text-xs"
-      style={{
-        background: token.colorFillQuaternary,
-        border: `1px solid ${token.colorBorderSecondary}`,
-        minWidth: 260,
-      }}
-    >
-      <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left"
-        style={{ color: token.colorTextSecondary }}
-        onClick={() => setOpen(!open)}
-      >
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <Wrench size={12} style={{ color: token.colorPrimary }} />
-        <span>
-          AI 调用了 {calls.length} 个工具
-        </span>
-        {hasRunning && (
-          <Loader2 size={12} className="animate-spin" style={{ color: token.colorPrimary }} />
-        )}
-        {!hasRunning && hasError && (
-          <XCircle size={12} style={{ color: token.colorError }} />
-        )}
-        {!hasRunning && !hasError && (
-          <CheckCircle2 size={12} style={{ color: token.colorSuccess }} />
-        )}
-      </button>
-      {open && (
-        <div
-          style={{
-            borderTop: `1px solid ${token.colorBorderSecondary}`,
-            padding: 8,
-          }}
-        >
-          {calls.map((c) => (
-            <SkillCallItem key={c.id} call={c} token={token} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SkillCallItem({ call, token }: { call: SkillCall; token: any }) {
-  const statusIcon = (() => {
-    if (call.status === "running")
-      return <Loader2 size={11} className="animate-spin" style={{ color: token.colorPrimary }} />;
-    if (call.status === "error")
-      return <XCircle size={11} style={{ color: token.colorError }} />;
-    return <CheckCircle2 size={11} style={{ color: token.colorSuccess }} />;
-  })();
-
-  // 参数 JSON 尽量美化一下；解析失败就原样显示
-  let prettyArgs = call.argsJson;
-  try {
-    prettyArgs = JSON.stringify(JSON.parse(call.argsJson), null, 2);
-  } catch {
-    // keep original
-  }
-
-  return (
-    <div className="mb-1.5 last:mb-0">
-      <div className="flex items-center gap-1.5 mb-1" style={{ color: token.colorText }}>
-        {statusIcon}
-        <code
-          style={{
-            background: token.colorFillTertiary,
-            padding: "1px 4px",
-            borderRadius: 3,
-            fontFamily: "var(--font-mono, monospace)",
-          }}
-        >
-          {call.name}
-        </code>
-      </div>
-      <pre
-        className="whitespace-pre-wrap break-all"
-        style={{
-          margin: 0,
-          fontSize: 11,
-          color: token.colorTextSecondary,
-          fontFamily: "var(--font-mono, monospace)",
-          maxHeight: 160,
-          overflow: "auto",
-          padding: "4px 6px",
-          background: token.colorBgContainer,
-          borderRadius: 3,
-        }}
-      >
-        {prettyArgs}
-        {call.result && call.status !== "running" && (
-          <>
-            {"\n\n→ "}
-            {truncateForDisplay(call.result, 500)}
-          </>
-        )}
-      </pre>
-    </div>
-  );
-}
-
-function truncateForDisplay(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return s.slice(0, max) + `…（共 ${s.length} 字符）`;
 }
 
 import { useIsMobile } from "@/hooks/useIsMobile";

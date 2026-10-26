@@ -16,7 +16,7 @@ use crate::models::{
     DraftNoteResponse, ExcelPreview, Folder, MessageAttachment, MilestoneDraft, PdfPreview,
     PlanFromExcelRequest, PlanFromGoalRequest, PlanFromGoalResponse, PlanTodayRequest,
     PlanTodayResponse, PluginAiChatInput, PluginAiTokenPayload, SkillCall, TaskQuery,
-    TaskSuggestion, TextPreview,
+    TaskSuggestion, TextPreview, TurnMeta,
 };
 use crate::services::provider_registry::{ensure_builtin, get_provider_registry};
 use crate::services::skills;
@@ -27,6 +27,8 @@ trait AiEventEmitter: Send + Sync {
     fn emit_error(&self, error: &str);
     /// 推理模型的思考过程；默认不展示
     fn emit_reasoning(&self, _reasoning: &str) {}
+    /// 工具调用循环里新一轮开始；默认不发
+    fn emit_round(&self, _round: usize) {}
 }
 
 /// 写作辅助事件发射器（ai-write: 前缀）
@@ -58,6 +60,9 @@ impl AiEventEmitter for ChatEmitter {
     }
     fn emit_reasoning(&self, reasoning: &str) {
         let _ = self.app.emit("ai:reasoning", reasoning);
+    }
+    fn emit_round(&self, round: usize) {
+        let _ = self.app.emit("ai:round", round);
     }
 }
 
@@ -398,6 +403,8 @@ fn strip_html(html: &str) -> String {
 /// 一次流式对话的聚合结果
 struct StreamOutcome {
     content: String,
+    /// 推理模型 thinking / reasoning_content 通道的累计内容
+    reasoning: String,
     tool_calls: Vec<ToolCallAccum>,
     cancelled: bool,
 }
@@ -501,6 +508,7 @@ impl AiService {
 
         Ok(StreamOutcome {
             content,
+            reasoning,
             tool_calls,
             cancelled,
         })
@@ -958,6 +966,8 @@ impl AiService {
         use_rag: bool,
         cancel_rx: watch::Receiver<bool>,
     ) -> Result<(), AppError> {
+        let turn_started = std::time::Instant::now();
+
         // 1. 获取对话（含附加笔记 IDs）和使用的模型
         let conv = db.get_ai_conversation(conversation_id)?;
         let model = db.get_ai_model(conv.model_id)?;
@@ -1081,8 +1091,27 @@ impl AiService {
             match result {
                 Ok(outcome) => {
                     let response = outcome.content;
-                    // 成功：保存 AI 回复
-                    db.add_ai_message(conversation_id, "assistant", &response, None)?;
+                    // 成功或用户手动停止：保存 AI 回复 + 收尾信息
+                    let meta = TurnMeta {
+                        end_reason: if outcome.cancelled { "stopped" } else { "done" }.into(),
+                        error: None,
+                        duration_ms: Some(turn_started.elapsed().as_millis() as u64),
+                        round_texts: None,
+                        reasoning: if outcome.reasoning.trim().is_empty() {
+                            None
+                        } else {
+                            Some(outcome.reasoning)
+                        },
+                    };
+                    let meta_json = serde_json::to_string(&meta).ok();
+                    db.add_ai_message_full(
+                        conversation_id,
+                        "assistant",
+                        &response,
+                        None,
+                        None,
+                        meta_json.as_deref(),
+                    )?;
                     db.touch_ai_conversation(conversation_id)?;
 
                     // 若会话仍是"新对话"默认名，用用户首问的前 24 个字符作为标题
@@ -1255,6 +1284,8 @@ impl AiService {
         user_message: &str,
         cancel_rx: watch::Receiver<bool>,
     ) -> Result<(), AppError> {
+        let turn_started = std::time::Instant::now();
+
         // 1. 取会话配置与模型
         let conv = db.get_ai_conversation(conversation_id)?;
         let model = db.get_ai_model(conv.model_id)?;
@@ -1316,6 +1347,10 @@ impl AiService {
         // 4. tool-use 循环
         let mut all_skill_calls: Vec<SkillCall> = Vec::new();
         let mut final_content = String::new();
+        // 每轮调工具前模型说的话（下标 = 轮次），以及整轮累计的思考过程
+        let mut round_texts: Vec<String> = Vec::new();
+        let mut reasoning_all = String::new();
+        let mut stopped = false;
         // M5-3：tool_schemas 现在融合内置 5 skills + 所有 enabled 外部 MCP server 的工具
         // 工具命名约定：MCP 工具加 mcp__<server_id>__ 前缀；dispatch 时按前缀路由
         let tool_schemas = if mcp_enabled {
@@ -1353,6 +1388,9 @@ impl AiService {
             } else {
                 Vec::new()
             };
+            // 通知前端新一轮开始，工具时间线按 round 分组
+            chat_emitter.emit_round(round);
+
             let result = async {
                 let stream = provider.stream_chat(req_messages.into_owned(), tools).await?;
                 Self::drive_provider_stream(&chat_emitter, stream, cancel_rx.clone()).await
@@ -1360,9 +1398,27 @@ impl AiService {
             .await;
 
             let (content, mut tool_calls) = match result {
-                Ok(outcome) if !outcome.cancelled => (outcome.content, outcome.tool_calls),
-                // 取消：不删用户消息（用户想保留这条），直接结束
-                Ok(_) => return Ok(()),
+                Ok(outcome) => {
+                    let StreamOutcome {
+                        content,
+                        reasoning,
+                        tool_calls,
+                        cancelled,
+                    } = outcome;
+                    if !reasoning.trim().is_empty() {
+                        if !reasoning_all.is_empty() {
+                            reasoning_all.push_str("\n\n");
+                        }
+                        reasoning_all.push_str(reasoning.trim());
+                    }
+                    if cancelled {
+                        // 用户手动停止：保留已生成的半截正文，落库为 stopped 而不是丢弃
+                        stopped = true;
+                        final_content = content;
+                        break;
+                    }
+                    (content, tool_calls)
+                }
                 Err(e) => {
                     let _ = db.delete_ai_message(user_msg.id);
                     return Err(e);
@@ -1401,7 +1457,10 @@ impl AiService {
                 break;
             }
 
-            // 有工具调用：追加 assistant tool_calls 消息 + 各 tool 结果
+            // 有工具调用：记下这一轮调工具前模型说的话，供前端时间线展示
+            round_texts.push(content.clone());
+
+            // 追加 assistant tool_calls 消息 + 各 tool 结果
             // P0: content: null 改为空字符串。OpenAI spec 允许 null，但 deepseek/glm 等部分实现
             // 遇到 null content 直接返回 400
             messages.push(json!({
@@ -1427,6 +1486,7 @@ impl AiService {
                         "argsJson": tc.args_json,
                         "result": "",
                         "status": "running",
+                        "round": round,
                     }),
                 );
             }
@@ -1437,11 +1497,12 @@ impl AiService {
             // 工具结果字符上限按模型上下文动态算（最小 4K）。此前硬编码 20 会把
             // get_note / search_notes 的结果截成几十字符的残片，AI 基于残缺内容作答。
             let result_limit = skills::result_limit_for(model.max_context);
-            let results: Vec<(String, String)> = futures::future::join_all(
+            let results: Vec<(String, String, u64)> = futures::future::join_all(
                 tool_calls.iter().map(|tc| async {
+                    let started = std::time::Instant::now();
                     let fut =
                         skills::dispatch_with_mcp(&app, db, &tc.name, &tc.args_json, None, result_limit);
-                    match tokio::time::timeout(
+                    let (result, status) = match tokio::time::timeout(
                         std::time::Duration::from_secs(tool_timeout_secs),
                         fut,
                     )
@@ -1462,19 +1523,22 @@ impl AiService {
                             ),
                             "error".to_string(),
                         ),
-                    }
+                    };
+                    (result, status, started.elapsed().as_millis() as u64)
                 }),
             )
             .await;
 
             // 按 tool_calls 原始顺序回注结果，保持 tool_call_id 顺序稳定
-            for (tc, (result_text, status)) in tool_calls.iter().zip(results) {
+            for (tc, (result_text, status, duration_ms)) in tool_calls.iter().zip(results) {
                 let sc = SkillCall {
                     id: tc.id.clone(),
                     name: tc.name.clone(),
                     args_json: tc.args_json.clone(),
                     result: result_text.clone(),
                     status,
+                    round: Some(round),
+                    duration_ms: Some(duration_ms),
                 };
                 let _ = app.emit("ai:tool_call", &sc);
                 all_skill_calls.push(sc);
@@ -1495,12 +1559,29 @@ impl AiService {
         } else {
             Some(serde_json::to_string(&all_skill_calls).unwrap_or_default())
         };
+        let meta = TurnMeta {
+            end_reason: if stopped { "stopped" } else { "done" }.into(),
+            error: None,
+            duration_ms: Some(turn_started.elapsed().as_millis() as u64),
+            round_texts: if round_texts.is_empty() {
+                None
+            } else {
+                Some(round_texts)
+            },
+            reasoning: if reasoning_all.trim().is_empty() {
+                None
+            } else {
+                Some(reasoning_all)
+            },
+        };
+        let meta_json = serde_json::to_string(&meta).ok();
         db.add_ai_message_full(
             conversation_id,
             "assistant",
             &final_content,
             None,
             skill_calls_json.as_deref(),
+            meta_json.as_deref(),
         )?;
         db.touch_ai_conversation(conversation_id)?;
 
@@ -2663,6 +2744,7 @@ mod context_budget_tests {
             content: content.into(),
             references: None,
             skill_calls: None,
+            turn_meta: None,
             created_at: String::new(),
         }
     }

@@ -532,7 +532,32 @@ pub struct AiMessage {
     /// 前端拿到后反序列化成 SkillCall[] 渲染折叠卡片；为 None 表示没调用过工具。
     /// 只在 role="assistant" 且启用 skills 的对话里会写入。
     pub skill_calls: Option<String>,
+    /// 一轮回复的收尾信息（JSON 序列化的 TurnMeta）；存量消息为 None
+    pub turn_meta: Option<String>,
     pub created_at: String,
+}
+
+/// 一轮回复的收尾信息
+///
+/// 前端据此把历史消息还原成和流式期间一致的「回复卡片」：
+/// 思考过程、各轮工具时间线、耗时、失败/停止结局。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnMeta {
+    /// "done" / "stopped" / "error"
+    pub end_reason: String,
+    /// end_reason = "error" 时的错误原文
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// 从收到提问到这一轮结束的耗时
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// 各轮调工具前模型说的话，下标 = 轮次
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub round_texts: Option<Vec<String>>,
+    /// 推理模型 reasoning_content 的思考过程
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
 }
 
 /// AI 聊天请求
@@ -1234,6 +1259,12 @@ pub struct SkillCall {
     pub result: String,
     /// "ok" / "error" / "running"（服务器侧持久化时只会写 ok/error）
     pub status: String,
+    /// 第几轮发起的调用（从 0 开始）；存量记录没有
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round: Option<usize>,
+    /// 工具执行耗时（毫秒）；running 时没有
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
 }
 
 // ─── AI 规划今日待办（T-005） ──────────────
