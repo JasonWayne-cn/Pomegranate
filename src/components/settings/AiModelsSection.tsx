@@ -19,9 +19,14 @@ import {
   CheckCircleOutlined,
   PlusOutlined,
 } from "@ant-design/icons";
-import { Pencil, Trash2, Zap } from "lucide-react";
-import { aiModelApi } from "@/lib/api";
-import type { AiModel, AiModelInput } from "@/types";
+import { Pencil, Power, Trash2, Zap } from "lucide-react";
+import { aiModelApi, aiProviderApi } from "@/lib/api";
+import type {
+  ActiveProviderInfo,
+  AiMetricsSnapshot,
+  AiModel,
+  AiModelInput,
+} from "@/types";
 
 /**
  * AI 模型配置。
@@ -145,6 +150,9 @@ export function AiModelsSection({ compact }: Props) {
   const [formOpen, setFormOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<AiModel | null>(null);
   const [testingModelId, setTestingModelId] = useState<number | null>(null);
+  const [activeProvider, setActiveProvider] = useState<ActiveProviderInfo | null>(null);
+  const [metrics, setMetrics] = useState<AiMetricsSnapshot | null>(null);
+  const [activatingId, setActivatingId] = useState<number | null>(null);
   const [form] = Form.useForm<AiModelInput>();
   const formRef = useRef<HTMLDivElement>(null);
   const watchedProvider = Form.useWatch("provider", form) || "ollama";
@@ -160,13 +168,32 @@ export function AiModelsSection({ compact }: Props) {
     }
   }
 
+  async function loadProviderInfo() {
+    try {
+      const [active, snapshot] = await Promise.all([
+        aiProviderApi.getActiveProvider(),
+        aiProviderApi.getMetrics(),
+      ]);
+      setActiveProvider(active);
+      setMetrics(snapshot);
+    } catch {
+      // 指标为辅助信息，读取失败不影响模型配置
+    }
+  }
+
   const loadModelsRef = useRef(loadModels);
   loadModelsRef.current = loadModels;
 
   useEffect(() => {
     // 与设置页原行为一致：避开首帧，交给下一轮事件循环
-    const timer = window.setTimeout(() => void loadModelsRef.current(), 0);
-    const onChanged = () => void loadModelsRef.current();
+    const timer = window.setTimeout(() => {
+      void loadModelsRef.current();
+      void loadProviderInfo();
+    }, 0);
+    const onChanged = () => {
+      void loadModelsRef.current();
+      void loadProviderInfo();
+    };
     window.addEventListener(AI_MODELS_CHANGED_EVENT, onChanged);
     return () => {
       window.clearTimeout(timer);
@@ -259,6 +286,23 @@ export function AiModelsSection({ compact }: Props) {
       notifyModelsChanged();
     } catch (e) {
       message.error(`设置失败: ${e}`);
+    }
+  }
+
+  async function handleActivateProvider(record: AiModel) {
+    setActivatingId(record.id);
+    try {
+      const active = await aiProviderApi.switchProvider({
+        provider_type: record.provider,
+        model_id: record.id,
+      });
+      setActiveProvider(active);
+      message.success(`已激活 Provider: ${active.display_name}`);
+      void loadProviderInfo();
+    } catch (e) {
+      message.error(`激活 Provider 失败: ${e}`);
+    } finally {
+      setActivatingId(null);
     }
   }
 
@@ -380,6 +424,26 @@ export function AiModelsSection({ compact }: Props) {
           <Button
             type="text"
             size="small"
+            icon={
+              <Power
+                size={14}
+                style={{
+                  color:
+                    activeProvider?.provider_type === record.provider &&
+                    activeProvider?.model_id === record.model_id
+                      ? "#52c41a"
+                      : undefined,
+                }}
+              />
+            }
+            loading={activatingId === record.id}
+            disabled={activatingId !== null && activatingId !== record.id}
+            onClick={() => void handleActivateProvider(record)}
+            title="设为当前活跃 Provider"
+          />
+          <Button
+            type="text"
+            size="small"
             icon={<Pencil size={14} />}
             onClick={() => openEditModel(record)}
           />
@@ -395,6 +459,7 @@ export function AiModelsSection({ compact }: Props) {
   ];
 
   return (
+    <>
     <Card
       id="settings-ai-models"
       size={compact ? "small" : "default"}
@@ -539,6 +604,40 @@ export function AiModelsSection({ compact }: Props) {
         scroll={{ x: 560 }}
       />
     </Card>
+
+    <Card
+      size={compact ? "small" : "default"}
+      title="AI 调用统计"
+      style={{ marginTop: 12 }}
+      styles={compact ? { body: { padding: 12 } } : undefined}
+      extra={
+        <Button size="small" onClick={() => void loadProviderInfo()}>
+          刷新
+        </Button>
+      }
+    >
+      <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs">
+        <span>
+          当前 Provider：
+          {activeProvider
+            ? `${activeProvider.display_name} (${activeProvider.model_id})`
+            : "未激活"}
+        </span>
+        <span>请求数：{metrics?.requests ?? 0}</span>
+        <span>错误数：{metrics?.errors ?? 0}</span>
+        <span>平均耗时：{metrics?.avg_latency_ms ?? 0} ms</span>
+        <span>最近耗时：{metrics?.last_latency_ms ?? 0} ms</span>
+      </div>
+      {metrics?.last_error && (
+        <div
+          className="text-xs mt-2"
+          style={{ color: token.colorError, wordBreak: "break-all" }}
+        >
+          最近错误：{metrics.last_error}
+        </div>
+      )}
+    </Card>
+    </>
   );
 }
 
