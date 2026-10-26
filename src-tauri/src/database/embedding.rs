@@ -137,8 +137,9 @@ impl Database {
             "SELECT ne.note_id, n.title, ne.content,
                     MIN(vec_distance_cosine(ne.vector, ?1)) AS distance
              FROM note_embeddings ne
-             LEFT JOIN notes n ON n.id = ne.note_id
+             JOIN notes n ON n.id = ne.note_id
              WHERE ne.model = ?2 AND ne.dim = ?3
+               AND n.is_deleted = 0 AND n.is_hidden = 0 AND n.is_encrypted = 0
              GROUP BY ne.note_id
              ORDER BY distance ASC
              LIMIT ?4",
@@ -153,13 +154,53 @@ impl Database {
         Ok(rows)
     }
 
-    /// 列出所有非空笔记的 `(id, content)`，用于全量重建向量。
+    /// 列出所有可检索笔记的 `(id, content)`，用于全量重建向量。
+    ///
+    /// 回收站（is_deleted）与隐藏（is_hidden）笔记不参与索引，避免被 RAG 召回。
     pub fn list_notes_for_embedding(&self) -> Result<Vec<(i64, String)>, AppError> {
         let conn = self.conn_lock()?;
-        let mut stmt = conn.prepare("SELECT id, content FROM notes WHERE content != ''")?;
+        let mut stmt = conn.prepare(
+            "SELECT id, content FROM notes
+             WHERE content != '' AND is_deleted = 0 AND is_hidden = 0
+               AND is_encrypted = 0",
+        )?;
         let rows = stmt
             .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// 列出所有可检索笔记的 id（增量索引 `All` 任务用，不加载正文）。
+    pub fn list_note_ids_for_embedding(&self) -> Result<Vec<i64>, AppError> {
+        let conn = self.conn_lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT id FROM notes
+             WHERE content != '' AND is_deleted = 0 AND is_hidden = 0
+               AND is_encrypted = 0",
+        )?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, i64>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// 读取单篇笔记正文用于增量索引。
+    ///
+    /// 已删除 / 隐藏 / 空正文返回 `None`，调用方据此删除旧向量。
+    pub fn get_note_content_for_embedding(
+        &self,
+        note_id: i64,
+    ) -> Result<Option<String>, AppError> {
+        let conn = self.conn_lock()?;
+        let row = conn
+            .query_row(
+                "SELECT content FROM notes
+                 WHERE id = ?1 AND content != ''
+                   AND is_deleted = 0 AND is_hidden = 0 AND is_encrypted = 0",
+                params![note_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        Ok(row)
     }
 }

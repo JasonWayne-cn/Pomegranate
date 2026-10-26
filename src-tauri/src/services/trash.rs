@@ -53,6 +53,7 @@ impl TrashService {
                 id
             )));
         }
+        crate::services::index_queue::enqueue_note(id);
         Ok(())
     }
 
@@ -70,6 +71,7 @@ impl TrashService {
                 id
             )));
         }
+        crate::services::index_queue::enqueue_note(id);
         Ok(folder_id.is_some())
     }
 
@@ -90,6 +92,7 @@ impl TrashService {
 
         // DB 成功后再清理文件（失败仅 warn）
         Self::cleanup_note_assets(data_dir, id, &source);
+        let _ = db.delete_note_embeddings(id);
         Ok(())
     }
 
@@ -130,6 +133,7 @@ impl TrashService {
             let folder_id = db.get_note_folder_id(*id).unwrap_or(None);
             if db.restore_note(*id)? {
                 restored += 1;
+                crate::services::index_queue::enqueue_note(*id);
                 if folder_id.is_none() {
                     to_root += 1;
                 }
@@ -153,6 +157,7 @@ impl TrashService {
             let source = db.get_note_source_path(*id).unwrap_or(None);
             if db.permanent_delete_note(*id)? {
                 Self::cleanup_note_assets(data_dir, *id, &source);
+                let _ = db.delete_note_embeddings(*id);
                 count += 1;
             }
         }
@@ -170,6 +175,7 @@ impl TrashService {
         // DB 成功后逐个清文件
         for (id, source) in &items {
             Self::cleanup_note_assets(data_dir, *id, source);
+            let _ = db.delete_note_embeddings(*id);
         }
 
         log::info!(

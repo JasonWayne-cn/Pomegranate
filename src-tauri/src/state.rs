@@ -17,7 +17,8 @@ pub type InternalMcpClient = rmcp::service::RunningService<rmcp::RoleClient, ()>
 
 /// 应用全局状态，通过 tauri::State 注入到 Command 中
 pub struct AppState {
-    pub db: Database,
+    /// 共享数据库句柄（后台索引队列等长生命周期任务需要持有）
+    pub db: Arc<Database>,
     /// 实例数据根目录（默认实例 = app_data_dir，多开实例 = app_data_dir/instance-N）
     /// 资产/PDF/sources/db 都基于此路径
     pub data_dir: PathBuf,
@@ -72,7 +73,7 @@ impl AppState {
         lock_file: Option<File>,
     ) -> Self {
         Self {
-            db,
+            db: Arc::new(db),
             data_dir,
             instance_id,
             ai_cancel: Mutex::new(std::collections::HashMap::new()),

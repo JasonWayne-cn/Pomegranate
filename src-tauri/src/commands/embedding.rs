@@ -38,10 +38,30 @@ pub fn save_embedding_config(
     input: EmbeddingConfigInput,
     dim: i64,
 ) -> Result<(), String> {
+    let previous = state.db.get_embedding_config().ok().flatten();
+
     state
         .db
         .save_embedding_config(&input, dim)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // 模型 / 维度变化：旧向量不可复用，清空后后台重建
+    let model_changed = previous
+        .as_ref()
+        .map_or(true, |p| p.model_id != input.model_id || p.dim != dim);
+    if model_changed {
+        state
+            .db
+            .clear_all_note_embeddings()
+            .map_err(|e| e.to_string())?;
+    }
+
+    let was_disabled = previous.as_ref().map_or(true, |p| !p.is_enabled);
+    if input.is_enabled && dim > 0 && (model_changed || was_disabled) {
+        crate::services::index_queue::enqueue_all();
+    }
+
+    Ok(())
 }
 
 /// 全量重建笔记向量（后台串行，进度通过 `ai:reindex_progress` 事件回报）。

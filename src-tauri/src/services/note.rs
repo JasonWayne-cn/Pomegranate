@@ -50,7 +50,9 @@ impl NoteService {
         if input.title.trim().is_empty() {
             return Err(AppError::InvalidInput("笔记标题不能为空".into()));
         }
-        db.create_note(input)
+        let note = db.create_note(input)?;
+        crate::services::index_queue::enqueue_note(note.id);
+        Ok(note)
     }
 
     /// 更新笔记
@@ -65,7 +67,9 @@ impl NoteService {
         // 必须在 update_note 之前 —— 此刻库里还是上一版；也必须在这一层而不是 DAO 里，
         // 因为 capture_auto 会自己去 get_note，在 DAO 的锁内再调会把同一个 Mutex 锁死。
         crate::services::snapshot::capture_auto(db, id);
-        db.update_note(id, input)
+        let note = db.update_note(id, input)?;
+        crate::services::index_queue::enqueue_note(id);
+        Ok(note)
     }
 
     /// 批量移动笔记到指定文件夹；返回实际移动的条数
@@ -88,7 +92,13 @@ impl NoteService {
         if ids.is_empty() {
             return Ok(0);
         }
-        db.soft_delete_notes_batch(ids)
+        let affected = db.soft_delete_notes_batch(ids)?;
+        if affected > 0 {
+            for &id in ids {
+                crate::services::index_queue::enqueue_note(id);
+            }
+        }
+        Ok(affected)
     }
 
     /// 批量给多篇笔记追加标签（不清除原有标签）；返回新增的关联条数
@@ -138,6 +148,7 @@ impl NoteService {
         if !deleted {
             return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
         }
+        crate::services::index_queue::enqueue_note(id);
         Ok(())
     }
 
@@ -183,7 +194,11 @@ impl NoteService {
 
     /// 全部移到回收站（软删，可在回收站恢复）
     pub fn trash_all(db: &Database) -> Result<usize, AppError> {
-        db.trash_all_notes()
+        let affected = db.trash_all_notes()?;
+        if affected > 0 {
+            crate::services::index_queue::enqueue_all();
+        }
+        Ok(affected)
     }
 
     /// 查询笔记列表（分页）
@@ -214,7 +229,11 @@ impl NoteService {
 
     /// 切换笔记"隐藏"状态
     pub fn set_hidden(db: &Database, id: i64, hidden: bool) -> Result<bool, AppError> {
-        db.set_note_hidden(id, hidden)
+        let changed = db.set_note_hidden(id, hidden)?;
+        if changed {
+            crate::services::index_queue::enqueue_note(id);
+        }
+        Ok(changed)
     }
 
     /// 列出所有隐藏笔记（分页 + 可选目录过滤）
@@ -309,6 +328,8 @@ impl NoteService {
             db.disable_note_encryption(id, &note.content)?;
             return Err(AppError::Custom(format!("图片加密迁移失败：{}", e)));
         }
+        // 加密后正文变为占位符：让后台索引删除该笔记的明文向量
+        crate::services::index_queue::enqueue_note(id);
         Ok(())
     }
 
@@ -354,6 +375,8 @@ impl NoteService {
             db.enable_note_encryption(id, PLACEHOLDER, &blob)?;
             return Err(AppError::Custom(format!("图片解密迁移失败：{}", e)));
         }
+        // 明文已恢复：重新索引该笔记
+        crate::services::index_queue::enqueue_note(id);
         Ok(())
     }
 

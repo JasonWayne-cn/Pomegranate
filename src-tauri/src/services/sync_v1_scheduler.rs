@@ -221,6 +221,12 @@ pub(crate) fn run_pull_blocking(
         app, // AppHandle 自身实现 Emitter
     )
     .map_err(|e| e.to_string())?;
+
+    // 拉取产生变更后重建向量；防抖队列会合并频繁同步
+    if r.downloaded > 0 || r.deleted_local > 0 {
+        crate::services::index_queue::enqueue_all();
+    }
+
     Ok(r)
 }
 

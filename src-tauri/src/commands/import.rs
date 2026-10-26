@@ -38,7 +38,7 @@ pub async fn import_selected_files(
     // ⚠️ 必须用 state.data_dir（已经过 DataDirResolver 解析），
     // 不能用 app.path().app_data_dir()（那是 OS 默认 framework 目录，不跟随用户改的数据目录）
     let app_data_dir = state.data_dir.clone();
-    services::import::ImportService::import_selected_files(
+    let result = services::import::ImportService::import_selected_files(
         &state.db,
         &file_paths,
         folder_id,
@@ -50,7 +50,14 @@ pub async fn import_selected_files(
         &app,
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    // 导入完成后增量索引新笔记
+    for note_id in result.note_ids.iter().chain(result.existing_note_ids.iter()) {
+        crate::services::index_queue::enqueue_note(*note_id);
+    }
+
+    Ok(result)
 }
 
 /// 打开单个 Markdown 文件：读取 → 创建新笔记 → 返回 note id

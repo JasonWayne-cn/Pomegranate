@@ -745,6 +745,9 @@ pub fn run() {
                 }
             }
 
+            // 启动笔记向量增量索引队列（后台防抖，不阻塞 IPC）
+            services::index_queue::init(state.db.clone());
+
             app.manage(state);
 
             // 外部目录挂载：给已存在的挂载点补放 asset 协议范围

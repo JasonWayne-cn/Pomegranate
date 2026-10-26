@@ -42,6 +42,7 @@ pub mod image_download;
 pub mod import;
 pub mod import_attachments;
 pub mod import_video_attachments;
+pub mod index_queue;
 pub mod legacy_api_url;
 pub mod links;
 pub mod mac_ocr;
