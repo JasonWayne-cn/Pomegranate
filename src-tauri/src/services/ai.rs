@@ -1479,12 +1479,12 @@ impl AiService {
         };
         let model = db.get_ai_model(conv_model_id)?;
 
-        // T-012: Skills 仅在非 ollama 时启用；其他 provider 都按 OpenAI 兼容协议处理
-        // （含 LM Studio / 自定义 baseUrl —— 用户得自己保证模型支持 tool_calls）
-        if model.provider == "ollama" {
+        // 能力驱动：Skills 工具循环要求模型支持 Function Calling。
+        // 用 AiModel.supports_tools 判断，而非硬编码 provider 字符串
+        // （Ollama 若不支持工具也会被拦；未来某 provider 支持则自动放行）。
+        if !model.supports_tools {
             return Err(AppError::Custom(
-                "Skills 功能暂不支持 Ollama 协议，请切换到 OpenAI 兼容模型（含本地 LM Studio）。"
-                    .into(),
+                "当前模型不支持工具调用（Function Calling），请切换到支持工具调用的模型。".into(),
             ));
         }
 
