@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 79;
+pub const SCHEMA_VERSION: i32 = 80;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -112,6 +112,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             76 => migrate_v76_to_v77(conn)?,
             77 => migrate_v77_to_v78(conn)?,
             78 => migrate_v78_to_v79(conn)?,
+            79 => migrate_v79_to_v80(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -2883,6 +2884,22 @@ fn migrate_v78_to_v79(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 79)?;
+    Ok(())
+}
+
+/// v79 -> v80: AI 会话级 Agent 配置（工具轮数 / 超时 / MCP 开关）
+fn migrate_v79_to_v80(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v79 -> v80 (AI 会话 Agent 配置)");
+
+    conn.execute_batch(
+        "
+        ALTER TABLE ai_conversations ADD COLUMN agent_max_rounds INTEGER NOT NULL DEFAULT 10;
+        ALTER TABLE ai_conversations ADD COLUMN agent_tool_timeout INTEGER NOT NULL DEFAULT 30;
+        ALTER TABLE ai_conversations ADD COLUMN agent_mcp_enabled INTEGER NOT NULL DEFAULT 1;
+        ",
+    )?;
+
+    set_version(conn, 80)?;
     Ok(())
 }
 

@@ -52,6 +52,12 @@ pub fn get_provider_capabilities() -> Result<Option<AiCapabilities>, String> {
     Ok(active.map(|p| p.capabilities().clone()))
 }
 
+/// 获取进程内 AI 调用指标（请求数 / 错误数 / 平均耗时 / 最近错误）
+#[tauri::command]
+pub fn get_ai_metrics() -> Result<crate::services::ai_metrics::AiMetricsSnapshot, String> {
+    Ok(crate::services::ai_metrics::snapshot())
+}
+
 // ─── Provider 切换 ────────────────────────────
 
 /// 切换到指定 AI Provider

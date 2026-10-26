@@ -139,6 +139,21 @@ pub fn update_ai_conversation_model(
         .map_err(|e| e.to_string())
 }
 
+/// 更新会话级 Agent 配置（工具轮数 / 工具超时 / 外部 MCP 开关）
+#[tauri::command]
+pub fn update_ai_conversation_agent_settings(
+    state: State<'_, AppState>,
+    id: i64,
+    max_rounds: i64,
+    tool_timeout: i64,
+    mcp_enabled: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .update_ai_conversation_agent_settings(id, max_rounds, tool_timeout, mcp_enabled)
+        .map_err(|e| e.to_string())
+}
+
 /// 设置对话挂载的笔记列表（A 方向：选 N 篇笔记 → 强制塞进对话上下文）
 ///
 /// 注意：每次调用都是**全量覆盖**，前端需要把"完整的最新选中列表"传过来；

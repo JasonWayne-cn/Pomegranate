@@ -20,6 +20,12 @@ interface AiChatStore {
   /** 批量清理：days 不传 = 全清；传 N = 清理 N 天前未活动的对话。返回删除条数 */
   cleanupConversations: (days?: number) => Promise<number>;
   updateConversationModel: (id: number, modelId: number) => Promise<void>;
+  updateAgentSettings: (
+    id: number,
+    maxRounds: number,
+    toolTimeout: number,
+    mcpEnabled: boolean,
+  ) => Promise<void>;
 }
 
 export const useAiChatStore = create<AiChatStore>((set, get) => ({
@@ -75,6 +81,22 @@ export const useAiChatStore = create<AiChatStore>((set, get) => ({
     set((s) => ({
       conversations: s.conversations.map((c) =>
         c.id === id ? { ...c, model_id: modelId } : c,
+      ),
+    }));
+  },
+
+  updateAgentSettings: async (id, maxRounds, toolTimeout, mcpEnabled) => {
+    await aiChatApi.updateAgentSettings(id, maxRounds, toolTimeout, mcpEnabled);
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              agent_max_rounds: maxRounds,
+              agent_tool_timeout: toolTimeout,
+              agent_mcp_enabled: mcpEnabled,
+            }
+          : c,
       ),
     }));
   },

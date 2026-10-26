@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod ai_metrics;
 pub mod app_lock;
 pub mod asr;
 pub mod asset_path;

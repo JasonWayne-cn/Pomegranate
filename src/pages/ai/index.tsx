@@ -3,9 +3,11 @@ import Markdown from "react-markdown";
 import {
   Button,
   Input,
+  InputNumber,
   Empty,
   message,
   Modal,
+  Popover,
   Select,
   Switch,
   Tooltip,
@@ -26,6 +28,7 @@ import {
   Loader2,
   Paperclip,
   Save,
+  Settings2,
   X,
   Copy,
   Quote,
@@ -132,6 +135,7 @@ function DesktopAiChatPage() {
   const loadConversations = useAiChatStore((s) => s.loadConversations);
   const createConversation = useAiChatStore((s) => s.createConversation);
   const updateConversationModel = useAiChatStore((s) => s.updateConversationModel);
+  const updateAgentSettings = useAiChatStore((s) => s.updateAgentSettings);
 
   const [messages, setMessages] = useState<AiMessage[]>([]);
   const [models, setModels] = useState<AiModel[]>([]);
@@ -156,6 +160,14 @@ function DesktopAiChatPage() {
   // 路线 A 会话附件：当前输入框「待发送」的附件列表（Excel/Text/PDF 混合），发送后清空
   const [pendingAttachments, setPendingAttachments] = useState<AttachmentPreview[]>([]);
   const [attachingFile, setAttachingFile] = useState(false);
+  // 会话级 Agent 设置（工具轮数 / 超时 / 外部 MCP 开关）
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [agentSaving, setAgentSaving] = useState(false);
+  const [agentDraft, setAgentDraft] = useState({
+    rounds: 10,
+    timeout: 30,
+    mcp: true,
+  });
 
   // ─── 消息气泡右键菜单 ────────────────────────
   const msgCtx = useContextMenu<AiMessage>();
@@ -439,6 +451,35 @@ function DesktopAiChatPage() {
     }
   }
 
+  function handleOpenAgentSettings() {
+    if (!activeConv) return;
+    setAgentDraft({
+      rounds: activeConv.agent_max_rounds ?? 10,
+      timeout: activeConv.agent_tool_timeout ?? 30,
+      mcp: activeConv.agent_mcp_enabled ?? true,
+    });
+    setAgentOpen(true);
+  }
+
+  async function handleSaveAgentSettings() {
+    if (!activeConvId) return;
+    setAgentSaving(true);
+    try {
+      await updateAgentSettings(
+        activeConvId,
+        agentDraft.rounds,
+        agentDraft.timeout,
+        agentDraft.mcp,
+      );
+      message.success("Agent 设置已保存");
+      setAgentOpen(false);
+    } catch (e) {
+      message.error(`保存 Agent 设置失败: ${e}`);
+    } finally {
+      setAgentSaving(false);
+    }
+  }
+
   const handleSend = useCallback(async (textOverride?: string) => {
     const raw = textOverride ?? inputText;
     const text = raw.trim();
@@ -717,6 +758,82 @@ function DesktopAiChatPage() {
                     />
                   </div>
                 </Tooltip>
+                <Popover
+                  open={agentOpen}
+                  onOpenChange={(open) => {
+                    if (open) {
+                      handleOpenAgentSettings();
+                    } else {
+                      setAgentOpen(false);
+                    }
+                  }}
+                  trigger="click"
+                  placement="bottomRight"
+                  title="Agent 设置"
+                  content={
+                    <div style={{ width: 260 }}>
+                      <div className="flex items-center justify-between py-1">
+                        <span className="text-xs">工具轮数上限</span>
+                        <InputNumber
+                          size="small"
+                          min={1}
+                          max={30}
+                          value={agentDraft.rounds}
+                          onChange={(v) =>
+                            setAgentDraft((d) => ({
+                              ...d,
+                              rounds: Number(v ?? 10),
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center justify-between py-1">
+                        <span className="text-xs">单工具超时（秒）</span>
+                        <InputNumber
+                          size="small"
+                          min={5}
+                          max={300}
+                          value={agentDraft.timeout}
+                          onChange={(v) =>
+                            setAgentDraft((d) => ({
+                              ...d,
+                              timeout: Number(v ?? 30),
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="flex items-center justify-between py-1">
+                        <span className="text-xs">启用外部 MCP 工具</span>
+                        <Switch
+                          size="small"
+                          checked={agentDraft.mcp}
+                          onChange={(v) =>
+                            setAgentDraft((d) => ({ ...d, mcp: v }))
+                          }
+                        />
+                      </div>
+                      <div className="flex justify-end pt-2">
+                        <Button
+                          size="small"
+                          type="primary"
+                          loading={agentSaving}
+                          onClick={handleSaveAgentSettings}
+                        >
+                          保存
+                        </Button>
+                      </div>
+                    </div>
+                  }
+                >
+                  <Tooltip title="Agent 设置（工具轮数 / 超时 / MCP）">
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<Settings2 size={14} />}
+                      disabled={!activeConvId || streaming}
+                    />
+                  </Tooltip>
+                </Popover>
                 {/* B 方向：把整个对话归档成笔记 */}
                 <Tooltip title="把整个对话归档成一篇笔记">
                   <Button

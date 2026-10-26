@@ -32,8 +32,9 @@ const AI_MODEL_COLS: &str =
 
 /// 把一行 ai_conversations 查询结果转成 AiConversation
 ///
-/// 列顺序约定（v25 起 6 列）：
-///   id, title, model_id, attached_note_ids, created_at, updated_at
+/// 列顺序约定（v80 起 9 列）：
+///   id, title, model_id, attached_note_ids, created_at, updated_at,
+///   agent_max_rounds, agent_tool_timeout, agent_mcp_enabled
 fn row_to_ai_conversation(row: &rusqlite::Row) -> rusqlite::Result<AiConversation> {
     let attached_json: String = row.get(3)?;
     // 反序列化失败回退空数组（防御性：旧数据 / 手动改坏的情况下不让查询炸）
@@ -45,10 +46,13 @@ fn row_to_ai_conversation(row: &rusqlite::Row) -> rusqlite::Result<AiConversatio
         attached_note_ids,
         created_at: row.get(4)?,
         updated_at: row.get(5)?,
+        agent_max_rounds: row.get(6)?,
+        agent_tool_timeout: row.get(7)?,
+        agent_mcp_enabled: row.get::<_, i32>(8)? != 0,
     })
 }
 
-const AI_CONV_COLS: &str = "id, title, model_id, attached_note_ids, created_at, updated_at";
+const AI_CONV_COLS: &str = "id, title, model_id, attached_note_ids, created_at, updated_at, agent_max_rounds, agent_tool_timeout, agent_mcp_enabled";
 
 #[cfg(test)]
 mod tests {
@@ -531,6 +535,40 @@ impl Database {
         )?;
         if affected == 0 {
             return Err(AppError::Custom(format!("对话 {} 不存在", id)));
+        }
+        Ok(())
+    }
+
+    /// 更新会话级 Agent 配置（工具轮数 / 超时 / MCP 开关）
+    ///
+    /// 做边界收敛：轮数 1-30、超时 5-300 秒，避免前端传入极端值拖垮请求。
+    pub fn update_ai_conversation_agent_settings(
+        &self,
+        id: i64,
+        max_rounds: i64,
+        tool_timeout: i64,
+        mcp_enabled: bool,
+    ) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE ai_conversations
+                SET agent_max_rounds = ?1,
+                    agent_tool_timeout = ?2,
+                    agent_mcp_enabled = ?3,
+                    updated_at = datetime('now', 'localtime')
+              WHERE id = ?4",
+            rusqlite::params![
+                max_rounds.clamp(1, 30),
+                tool_timeout.clamp(5, 300),
+                mcp_enabled as i64,
+                id
+            ],
+        )?;
+        if affected == 0 {
+            return Err(AppError::NotFound(format!("对话 {} 不存在", id)));
         }
         Ok(())
     }

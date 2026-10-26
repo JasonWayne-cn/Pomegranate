@@ -70,11 +70,13 @@ pub fn tool_schemas() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "get_note",
-                "description": "按 ID 读取一篇笔记的完整内容。在 search_notes 找到目标后，用这个取全文。",
+                "description": "按 ID 读取一篇笔记。长笔记会分页返回，若 next_offset 非空可继续按 offset 读取后续内容。",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "id": { "type": "integer", "description": "笔记 ID" }
+                        "id": { "type": "integer", "description": "笔记 ID" },
+                        "offset": { "type": "integer", "description": "起始字符偏移，默认 0；继续阅读时传上次返回的 next_offset" },
+                        "max_chars": { "type": "integer", "description": "本次最多返回字符数，默认 8000，最大 30000" }
                     },
                     "required": ["id"]
                 }
@@ -722,6 +724,10 @@ fn run_search_notes(
 #[derive(Debug, Deserialize)]
 struct GetNoteArgs {
     id: i64,
+    #[serde(default)]
+    offset: usize,
+    #[serde(default)]
+    max_chars: usize,
 }
 
 fn run_get_note(
@@ -744,11 +750,30 @@ fn run_get_note(
             )));
         }
     }
-    // content 是 markdown，直接回给 AI；截断在 dispatch 尾部统一做
+    // content 是 markdown；长笔记按字符分页，模型可用 next_offset 继续读
+    let total_chars = note.content.chars().count();
+    let offset = a.offset.min(total_chars);
+    let chunk_size = if a.max_chars == 0 {
+        8000
+    } else {
+        a.max_chars.clamp(1000, 30000)
+    };
+    let content: String = note
+        .content
+        .chars()
+        .skip(offset)
+        .take(chunk_size)
+        .collect();
+    let next = offset + content.chars().count();
+    let next_offset = if next < total_chars { Some(next) } else { None };
+
     Ok(serde_json::to_string(&json!({
         "id": note.id,
         "title": note.title,
-        "content": note.content,
+        "content": content,
+        "offset": offset,
+        "next_offset": next_offset,
+        "total_chars": total_chars,
         "folder_id": note.folder_id,
         "updated_at": note.updated_at,
     }))

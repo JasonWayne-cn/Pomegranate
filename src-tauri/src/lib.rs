@@ -1088,6 +1088,7 @@ pub fn run() {
             commands::ai_provider::list_ai_providers,
             commands::ai_provider::get_active_provider,
             commands::ai_provider::get_provider_capabilities,
+            commands::ai_provider::get_ai_metrics,
             commands::ai_provider::switch_ai_provider,
             commands::ai_provider::init_default_provider,
             // AI 模块
@@ -1103,6 +1104,7 @@ pub fn run() {
             commands::ai::delete_ai_conversations_before,
             commands::ai::rename_ai_conversation,
             commands::ai::update_ai_conversation_model,
+            commands::ai::update_ai_conversation_agent_settings,
             commands::ai::list_ai_messages,
             commands::ai::send_ai_message,
             commands::ai::cancel_ai_generation,

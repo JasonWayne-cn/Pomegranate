@@ -48,6 +48,7 @@ import type {
   AiProviderMetadata,
   ActiveProviderInfo,
   AiCapabilities,
+  AiMetricsSnapshot,
   SwitchProviderInput,
   AiProviderPreset,
   ImportedAiModels,
@@ -842,6 +843,8 @@ export const aiProviderApi = {
   /** 使用默认模型初始化 Provider */
   initDefault: () =>
     invoke<ActiveProviderInfo>("init_default_provider"),
+  /** 获取进程内 AI 调用指标 */
+  getMetrics: () => invoke<AiMetricsSnapshot>("get_ai_metrics"),
 };
 
 /** AI 模型 API */
@@ -946,6 +949,19 @@ export const aiChatApi = {
     invoke<void>("rename_ai_conversation", { id, title }),
   updateConversationModel: (id: number, modelId: number) =>
     invoke<void>("update_ai_conversation_model", { id, modelId }),
+  /** 更新会话级 Agent 配置（工具轮数 / 超时 / 外部 MCP 开关） */
+  updateAgentSettings: (
+    id: number,
+    maxRounds: number,
+    toolTimeout: number,
+    mcpEnabled: boolean,
+  ) =>
+    invoke<void>("update_ai_conversation_agent_settings", {
+      id,
+      maxRounds,
+      toolTimeout,
+      mcpEnabled,
+    }),
   listMessages: (conversationId: number) =>
     invoke<AiMessage[]>("list_ai_messages", { conversationId }),
   /**

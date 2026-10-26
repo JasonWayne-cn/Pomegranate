@@ -417,6 +417,7 @@ impl AiService {
         mut stream: ProviderStream,
         mut cancel_rx: watch::Receiver<bool>,
     ) -> Result<StreamOutcome, AppError> {
+        let started = std::time::Instant::now();
         let mut content = String::new();
         let mut reasoning = String::new();
         let mut tool_accum: std::collections::BTreeMap<u64, ToolCallAccum> =
@@ -452,6 +453,10 @@ impl AiService {
                             ProviderStreamEvent::Finish { reason } => finish_reason = reason,
                         },
                         Some(Err(e)) => {
+                            crate::services::ai_metrics::record_error(
+                                started.elapsed().as_millis() as u64,
+                                &e.to_string(),
+                            );
                             emitter.emit_error(&e.to_string());
                             return Err(e);
                         }
@@ -477,6 +482,10 @@ impl AiService {
             if let Some(reason) = &finish_reason {
                 if reason != "stop" && reason != "tool_calls" {
                     let msg = format!("AI 异常终止 (finish_reason={})", reason);
+                    crate::services::ai_metrics::record_error(
+                        started.elapsed().as_millis() as u64,
+                        &msg,
+                    );
                     emitter.emit_error(&msg);
                     return Err(AppError::Custom(msg));
                 }
@@ -487,6 +496,8 @@ impl AiService {
             .into_values()
             .filter(|t| !t.name.trim().is_empty())
             .collect();
+
+        crate::services::ai_metrics::record_success(started.elapsed().as_millis() as u64);
 
         Ok(StreamOutcome {
             content,
@@ -1030,21 +1041,29 @@ impl AiService {
         // 4. 构建历史消息并发送（支持自动重试递减历史）
         let history = db.list_ai_messages(conversation_id)?;
 
-        // 尝试不同的历史长度：20 → 10 → 4 → 0（仅当前消息）
-        let max_history_attempts = [20usize, 10, 4, 0];
+        // 历史预算：模型上下文的 25%（CJK 约 1.5 字符/token），下限 4K 字符。
+        // 失败时减半重试，替代原先按消息条数的 20/10/4/0。
+        let history_budget =
+            ((model.max_context.max(1) as f64) * CHARS_PER_TOKEN_CJK * 0.25).max(4000.0) as usize;
+        let budget_attempts = [
+            history_budget,
+            (history_budget / 2).max(1000),
+            (history_budget / 4).max(500),
+            0,
+        ];
         let mut last_error = None;
         let provider = Self::provider_for_model(&model)?;
         let chat_emitter = ChatEmitter { app: app.clone() };
 
-        for &max_hist in &max_history_attempts {
+        for &budget in &budget_attempts {
             let messages =
-                Self::build_messages(&history, &rag_context, &attached_context, max_hist);
+                Self::build_messages(&history, &rag_context, &attached_context, budget);
 
             log::info!(
-                "AI Request: model={}, messages={}, max_history={}",
+                "AI Request: model={}, messages={}, history_budget={}",
                 model.model_id,
                 messages.len(),
-                max_hist
+                budget
             );
 
             let result = async {
@@ -1076,8 +1095,8 @@ impl AiService {
                         || err_str.contains("context_length_exceeded")
                     {
                         log::warn!(
-                            "API 请求失败(max_history={}), 尝试减少历史: {}",
-                            max_hist,
+                            "API 请求失败(history_budget={}), 尝试减少历史: {}",
+                            budget,
                             err_str
                         );
                         last_error = Some(e.to_string());
@@ -1130,11 +1149,14 @@ impl AiService {
     }
 
     /// 构建发送给 AI 的消息列表
+    ///
+    /// `history_budget_chars` 是历史消息的字符预算：从最新消息往回选，
+    /// 超预算即停止（至少保留最新一条），避免长会话撑爆上下文。
     fn build_messages(
         history: &[AiMessage],
         rag_context: &str,
         attached_context: &str,
-        max_history: usize,
+        history_budget_chars: usize,
     ) -> Vec<Value> {
         let mut messages = Vec::new();
 
@@ -1168,20 +1190,23 @@ impl AiService {
             "content": system_prompt
         }));
 
-        // 历史消息：按 max_history 限制数量
-        let start = if history.len() > max_history {
-            history.len() - max_history
-        } else {
-            0
-        };
-        // 确保从 user 消息开始（不要从 assistant 消息开头）
-        let mut slice_start = start;
-        for i in start..history.len() {
-            if history[i].role == "user" {
-                slice_start = i;
+        // 历史消息：按字符预算从最新往回选；至少保留最新一条
+        let mut start = history.len();
+        let mut used = 0usize;
+        for i in (0..history.len()).rev() {
+            let cost = history[i].content.chars().count() + 32;
+            if start < history.len() && used + cost > history_budget_chars {
                 break;
             }
+            used += cost;
+            start = i;
         }
+        // 确保从 user 消息开始（不要从 assistant 消息开头）
+        let slice_start = history[start..]
+            .iter()
+            .position(|m| m.role == "user")
+            .map(|offset| start + offset)
+            .unwrap_or(start);
         // 过滤连续相同 role 的消息（保留最后一条），避免 API 报错
         let mut last_role = "system".to_string();
         for msg in &history[slice_start..] {
@@ -1206,7 +1231,7 @@ impl AiService {
     ///
     /// 与 `chat_stream` 的差异：
     /// - 请求里带 `tools` 字段，AI 可调 search_notes / get_note / list_tags 等
-    /// - 支持最多 `MAX_TOOL_ROUNDS` 轮 tool_call → tool_result → 再生成 的循环
+    /// - 支持会话级配置的 tool_call → tool_result → 再生成 循环轮数
     /// - 每次 tool_call 通过 `ai:tool_call` 事件推给前端（含 running / ok / error 状态）
     /// - 最终 assistant 消息的 `skill_calls_json` 字段记录整次对话的所有工具调用
     ///
@@ -1224,24 +1249,15 @@ impl AiService {
         user_message: &str,
         cancel_rx: watch::Receiver<bool>,
     ) -> Result<(), AppError> {
-        // 最多 MAX_TOOL_ROUNDS 轮"AI 调工具"，外加 1 轮"finalization"（不带 tools schema，强制最终答复）。
-        // 所以 `for round in 0..=MAX_TOOL_ROUNDS` 实际跑 MAX_TOOL_ROUNDS+1 次。
-        // 提高默认值以增强 Agent 能力（原 3 轮太受限）；保留硬上限防死循环，
-        // 后续可下沉为会话级配置（agent settings，见 ADR-0001 Phase 3）。
-        // 仍需小心 finalization 轮里模型可能输出"伪工具调用文本"（详见 strip_pseudo_tool_calls）。
-        const MAX_TOOL_ROUNDS: usize = 10;
+        // 1. 取会话配置与模型
+        let conv = db.get_ai_conversation(conversation_id)?;
+        let model = db.get_ai_model(conv.model_id)?;
 
-        // 1. 取会话使用的模型
-        let conv_model_id = {
-            let conn_guard = db.conn_lock()?;
-            let model_id: i64 = conn_guard.query_row(
-                "SELECT model_id FROM ai_conversations WHERE id = ?1",
-                [conversation_id],
-                |row| row.get(0),
-            )?;
-            model_id
-        };
-        let model = db.get_ai_model(conv_model_id)?;
+        // 会话级 Agent 配置：最多 N 轮"AI 调工具"，外加 1 轮 finalization
+        // （不带 tools schema，强制最终答复）；硬上限防死循环。
+        let max_tool_rounds = conv.agent_max_rounds.clamp(1, 30) as usize;
+        let tool_timeout_secs = conv.agent_tool_timeout.clamp(5, 300) as u64;
+        let mcp_enabled = conv.agent_mcp_enabled;
 
         // 能力驱动：Skills 工具循环要求模型支持 Function Calling。
         // 用 AiModel.supports_tools 判断，而非硬编码 provider 字符串
@@ -1296,13 +1312,17 @@ impl AiService {
         let mut final_content = String::new();
         // M5-3：tool_schemas 现在融合内置 5 skills + 所有 enabled 外部 MCP server 的工具
         // 工具命名约定：MCP 工具加 mcp__<server_id>__ 前缀；dispatch 时按前缀路由
-        let tool_schemas = skills::tool_schemas_with_mcp(&app).await;
+        let tool_schemas = if mcp_enabled {
+            skills::tool_schemas_with_mcp(&app).await
+        } else {
+            skills::tool_schemas()
+        };
         let provider = Self::provider_for_model(&model)?;
         let chat_emitter = ChatEmitter { app: app.clone() };
 
-        for round in 0..=MAX_TOOL_ROUNDS {
+        for round in 0..=max_tool_rounds {
             // 最后一轮不给 tools，强制 AI 给出最终答复（防死循环）
-            let allow_tools = round < MAX_TOOL_ROUNDS;
+            let allow_tools = round < max_tool_rounds;
 
             // finalization 轮：临时往 messages 里加一条 system 提示，劝模型不要继续模仿
             // 工具调用语法（前几轮的 tool_calls 历史会让模型有"再调一次"的惯性）。
@@ -1408,7 +1428,6 @@ impl AiService {
             // 并行执行：dispatch_with_mcp 按前缀路由（mcp__<id>__<name> → mcp_external，否则原 skills）。
             // 每个工具加超时，避免单个 MCP server 卡死拖垮整轮；
             // 失败/超时包装为友好提示（P1: 部分模型遇到 "ERROR: ..." 会直接放弃）。
-            const TOOL_TIMEOUT_SECS: u64 = 30;
             // 工具结果字符上限按模型上下文动态算（最小 4K）。此前硬编码 20 会把
             // get_note / search_notes 的结果截成几十字符的残片，AI 基于残缺内容作答。
             let result_limit = skills::result_limit_for(model.max_context);
@@ -1417,7 +1436,7 @@ impl AiService {
                     let fut =
                         skills::dispatch_with_mcp(&app, db, &tc.name, &tc.args_json, None, result_limit);
                     match tokio::time::timeout(
-                        std::time::Duration::from_secs(TOOL_TIMEOUT_SECS),
+                        std::time::Duration::from_secs(tool_timeout_secs),
                         fut,
                     )
                     .await
@@ -1433,7 +1452,7 @@ impl AiService {
                         Err(_) => (
                             format!(
                                 "工具 `{}` 调用超时（{}s），已跳过。",
-                                tc.name, TOOL_TIMEOUT_SECS
+                                tc.name, tool_timeout_secs
                             ),
                             "error".to_string(),
                         ),
@@ -2623,6 +2642,50 @@ mod plan_from_goal_tests {
         let b = generate_batch_id();
         assert_ne!(a, b, "batch_id 必须每次都不同");
         assert!(a.starts_with("plan_"));
+    }
+}
+
+#[cfg(test)]
+mod context_budget_tests {
+    use super::*;
+
+    fn msg(role: &str, content: &str) -> AiMessage {
+        AiMessage {
+            id: 0,
+            conversation_id: 0,
+            role: role.into(),
+            content: content.into(),
+            references: None,
+            skill_calls: None,
+            created_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn zero_budget_keeps_only_latest_user_message() {
+        let history = vec![
+            msg("user", "old"),
+            msg("assistant", "reply"),
+            msg("user", "latest"),
+        ];
+        let out = AiService::build_messages(&history, "", "", 0);
+        assert_eq!(out.len(), 2, "system + 最新一条");
+        assert_eq!(out[0]["role"], "system");
+        assert_eq!(out[1]["role"], "user");
+        assert_eq!(out[1]["content"], "latest");
+    }
+
+    #[test]
+    fn budget_includes_recent_messages_until_limit() {
+        let history = vec![
+            msg("user", &"a".repeat(100)),
+            msg("assistant", &"b".repeat(100)),
+            msg("user", &"c".repeat(100)),
+        ];
+        let out = AiService::build_messages(&history, "", "", 500);
+        assert_eq!(out.len(), 4, "system + 全部历史");
+        let capped = AiService::build_messages(&history, "", "", 150);
+        assert_eq!(capped.len(), 2, "预算只够最新一条");
     }
 }
 

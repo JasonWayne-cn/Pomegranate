@@ -507,6 +507,12 @@ pub struct AiConversation {
     /// 附加给本对话的笔记 ID 列表（JSON 数组反序列化后）
     /// 整个对话共享，类比 ChatGPT 项目里的 attached files
     pub attached_note_ids: Vec<i64>,
+    /// Agent 工具调用轮数上限（1-30）
+    pub agent_max_rounds: i64,
+    /// 单个工具调用超时（秒，5-300）
+    pub agent_tool_timeout: i64,
+    /// 是否启用外部 MCP 工具
+    pub agent_mcp_enabled: bool,
     pub created_at: String,
     pub updated_at: String,
 }

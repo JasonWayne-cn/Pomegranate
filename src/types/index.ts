@@ -1179,6 +1179,15 @@ export interface ActiveProviderInfo {
   capabilities: AiCapabilities;
 }
 
+/** 进程内 AI 调用指标 */
+export interface AiMetricsSnapshot {
+  requests: number;
+  errors: number;
+  avg_latency_ms: number;
+  last_latency_ms: number;
+  last_error: string | null;
+}
+
 /** AI 对话 */
 export interface AiConversation {
   id: number;
@@ -1190,6 +1199,12 @@ export interface AiConversation {
   scope_folder_id: number | null;
   /** 角色预设：提示词库里的一条（prompt_templates.id）；null = 不套角色 */
   preset_id: number | null;
+  /** Agent 工具调用轮数上限（1-30） */
+  agent_max_rounds: number;
+  /** 单个工具调用超时（秒，5-300） */
+  agent_tool_timeout: number;
+  /** 是否启用外部 MCP 工具 */
+  agent_mcp_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
