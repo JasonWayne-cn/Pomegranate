@@ -43,6 +43,8 @@ pub enum ProviderProtocol {
     OpenAiCompatible,
     /// Ollama 原生 `/api/chat`
     Ollama,
+    /// Anthropic 原生 `/v1/messages`
+    Anthropic,
 }
 
 // ─── 流式事件 ───────────────────────────────────
@@ -70,6 +72,21 @@ pub enum ProviderStreamEvent {
 /// 动态分发的 Provider 流
 pub type ProviderStream =
     Pin<Box<dyn Stream<Item = Result<ProviderStreamEvent, AppError>> + Send>>;
+
+// ─── 非流式补全选项 ─────────────────────────────
+
+/// 非流式补全参数（JSON 规划 / 写作建议等一次性请求）
+#[derive(Debug, Clone, Default)]
+pub struct CompletionOptions {
+    /// 最大输出 token；None = 由 Provider 默认值决定
+    pub max_tokens: Option<u32>,
+    /// 温度
+    pub temperature: Option<f32>,
+    /// 随机种子（OpenAI / Ollama 支持；Anthropic 忽略）
+    pub seed: Option<u32>,
+    /// 请求原生 JSON 模式（Provider 不支持时由 prompt 约束兜底）
+    pub json_mode: bool,
+}
 
 // ─── 元数据 ─────────────────────────────────────
 
@@ -122,7 +139,9 @@ pub struct AiProviderConfig {
 impl AiProviderConfig {
     /// 判定协议：优先使用显式 protocol 字段，兼容存量配置里的 `provider == "ollama"`。
     pub fn protocol_kind(&self) -> ProviderProtocol {
-        if self.protocol.as_deref() == Some("ollama")
+        if self.protocol.as_deref() == Some("anthropic") {
+            ProviderProtocol::Anthropic
+        } else if self.protocol.as_deref() == Some("ollama")
             || self.provider_type.eq_ignore_ascii_case("ollama")
         {
             ProviderProtocol::Ollama
@@ -134,7 +153,7 @@ impl AiProviderConfig {
     /// 由配置推导能力，供主链路做能力驱动判断。
     pub fn capabilities(&self) -> AiCapabilities {
         let protocol = self.protocol_kind();
-        let is_anthropic = self.protocol.as_deref() == Some("anthropic")
+        let is_anthropic = protocol == ProviderProtocol::Anthropic
             || self.provider_type.to_ascii_lowercase().contains("claude");
         let is_ollama = protocol == ProviderProtocol::Ollama;
 
@@ -193,6 +212,15 @@ pub trait AiProvider: Send + Sync {
         messages: Vec<Value>,
         tools: Vec<Value>,
     ) -> Result<ProviderStream, AppError>;
+
+    /// 非流式补全（一次性返回完整文本）
+    ///
+    /// `messages` 为 OpenAI 格式；各 Provider 负责协议转换。
+    async fn complete(
+        &self,
+        messages: Vec<Value>,
+        options: CompletionOptions,
+    ) -> Result<String, AppError>;
 
     /// 关闭 Provider，释放资源
     async fn shutdown(&self) -> Result<(), AppError> {

@@ -24,7 +24,7 @@ use std::pin::Pin;
 use crate::error::AppError;
 use crate::models::ai_provider::{
     AiCapabilities, AiProvider, AiProviderConfig, AiProviderMetadata, AiProviderPlugin,
-    ProviderProtocol, ProviderStream, ProviderStreamEvent,
+    CompletionOptions, ProviderProtocol, ProviderStream, ProviderStreamEvent,
 };
 use crate::services::ai::{
     build_ollama_client, build_openai_chat_url, format_ollama_send_error, format_openai_api_error,
@@ -91,6 +91,7 @@ impl AiProviderRegistry {
     /// 按配置创建（不切换 active），供按会话模型懒解析。
     fn create(&self, config: &AiProviderConfig) -> Result<Arc<dyn AiProvider>, AppError> {
         let key = match config.protocol_kind() {
+            ProviderProtocol::Anthropic => "anthropic",
             ProviderProtocol::Ollama => "ollama",
             ProviderProtocol::OpenAiCompatible
                 if config.provider_type.eq_ignore_ascii_case("deepseek") =>
@@ -386,6 +387,75 @@ impl AiProvider for OpenAiCompatibleProvider {
 
         Ok(Box::pin(openai_event_stream(response.bytes_stream())))
     }
+
+    async fn complete(
+        &self,
+        messages: Vec<Value>,
+        options: CompletionOptions,
+    ) -> Result<String, AppError> {
+        let (api_url, model_id, api_key) = {
+            let config = self
+                .config
+                .read()
+                .map_err(|e| AppError::Custom(format!("Config lock error: {}", e)))?;
+            (
+                config.api_url.clone(),
+                config.model_id.clone(),
+                config.api_key.clone(),
+            )
+        };
+        let url = build_openai_chat_url(&api_url);
+
+        let mut body = json!({
+            "model": model_id,
+            "messages": messages,
+            "stream": false,
+        });
+        if let Some(max_tokens) = options.max_tokens {
+            body["max_tokens"] = json!(max_tokens);
+        }
+        if let Some(temperature) = options.temperature {
+            body["temperature"] = json!(temperature);
+        }
+        if let Some(seed) = options.seed {
+            body["seed"] = json!(seed);
+        }
+        if options.json_mode && self.metadata.capabilities.supports_json_mode {
+            body["response_format"] = json!({ "type": "json_object" });
+        }
+
+        let mut request = self
+            .http_client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body);
+        if let Some(ref key) = api_key {
+            if !key.is_empty() {
+                request = request.header("Authorization", format!("Bearer {}", key));
+            }
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| AppError::Custom(format!("API 请求失败: {}", e)))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(AppError::Custom(format_openai_api_error(status, &body)));
+        }
+
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|e| AppError::Custom(format!("解析响应失败: {}", e)))?;
+        data["choices"][0]["message"]["content"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| {
+                AppError::Custom("AI 返回格式异常：缺少 choices[0].message.content".to_string())
+            })
+    }
 }
 
 /// Ollama 原生 Provider — `/api/chat` NDJSON 流
@@ -453,6 +523,594 @@ impl AiProvider for OllamaProvider {
         }
 
         Ok(Box::pin(ollama_event_stream(response.bytes_stream())))
+    }
+
+    async fn complete(
+        &self,
+        messages: Vec<Value>,
+        options: CompletionOptions,
+    ) -> Result<String, AppError> {
+        let (api_url, model_id) = {
+            let config = self
+                .config
+                .read()
+                .map_err(|e| AppError::Custom(format!("Config lock error: {}", e)))?;
+            (config.api_url.clone(), config.model_id.clone())
+        };
+        let url = format!("{}/api/chat", api_url.trim_end_matches('/'));
+
+        let mut ollama_options = serde_json::Map::new();
+        if let Some(max_tokens) = options.max_tokens {
+            ollama_options.insert("num_predict".into(), json!(max_tokens));
+        }
+        if let Some(temperature) = options.temperature {
+            ollama_options.insert("temperature".into(), json!(temperature));
+        }
+        if let Some(seed) = options.seed {
+            ollama_options.insert("seed".into(), json!(seed));
+        }
+
+        let response = build_ollama_client()
+            .post(&url)
+            .json(&json!({
+                "model": model_id,
+                "messages": messages,
+                "stream": false,
+                "options": ollama_options,
+            }))
+            .send()
+            .await
+            .map_err(|e| AppError::Custom(format_ollama_send_error(&e, &url)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(AppError::Custom(format!(
+                "Ollama 返回错误 {}: {}",
+                status, body
+            )));
+        }
+
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|e| AppError::Custom(format!("Ollama 响应解析失败: {}", e)))?;
+        Ok(data["message"]["content"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string())
+    }
+}
+
+// ─── 内置 Provider: Anthropic 原生 ──────────────
+
+/// Anthropic 官方 `/v1/messages` 协议
+///
+/// 与 OpenAI 兼容代理的区别：顶层 `system` 字段、content block 数组、
+/// `tool_use` / `tool_result` 块、SSE 事件名与 `input_json_delta`。
+pub struct AnthropicProvider {
+    metadata: AiProviderMetadata,
+    config: RwLock<AiProviderConfig>,
+    http_client: &'static Client,
+}
+
+impl AnthropicProvider {
+    pub fn new(config: AiProviderConfig) -> Self {
+        let metadata = metadata_for_config(&config, "Anthropic".to_string());
+        Self {
+            metadata,
+            config: RwLock::new(config),
+            http_client: http_client::shared(),
+        }
+    }
+
+    fn snapshot(&self) -> Result<AiProviderConfig, AppError> {
+        self.config
+            .read()
+            .map_err(|e| AppError::Custom(format!("Config lock error: {}", e)))
+            .map(|config| config.clone())
+    }
+}
+
+#[async_trait::async_trait]
+impl AiProvider for AnthropicProvider {
+    fn metadata(&self) -> &AiProviderMetadata {
+        &self.metadata
+    }
+
+    fn capabilities(&self) -> &AiCapabilities {
+        &self.metadata.capabilities
+    }
+
+    fn protocol(&self) -> ProviderProtocol {
+        ProviderProtocol::Anthropic
+    }
+
+    async fn stream_chat(
+        &self,
+        messages: Vec<Value>,
+        tools: Vec<Value>,
+    ) -> Result<ProviderStream, AppError> {
+        let config = self.snapshot()?;
+        let url = build_anthropic_url(&config.api_url);
+        let api_key = config.api_key.clone();
+        let options = CompletionOptions::default();
+        let body = build_anthropic_body(&config, &messages, &tools, &options, true);
+
+        let mut request = self
+            .http_client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .json(&body);
+        if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+            request = request.header("x-api-key", key);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| AppError::Custom(format!("Anthropic 请求失败: {}", e)))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(AppError::Custom(format_anthropic_error(status, &body)));
+        }
+
+        Ok(Box::pin(anthropic_event_stream(response.bytes_stream())))
+    }
+
+    async fn complete(
+        &self,
+        messages: Vec<Value>,
+        options: CompletionOptions,
+    ) -> Result<String, AppError> {
+        let config = self.snapshot()?;
+        let url = build_anthropic_url(&config.api_url);
+        let api_key = config.api_key.clone();
+        let body = build_anthropic_body(&config, &messages, &[], &options, false);
+
+        let mut request = self
+            .http_client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .json(&body);
+        if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+            request = request.header("x-api-key", key);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| AppError::Custom(format!("Anthropic 请求失败: {}", e)))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(AppError::Custom(format_anthropic_error(status, &body)));
+        }
+
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|e| AppError::Custom(format!("Anthropic 响应解析失败: {}", e)))?;
+        let text = data["content"]
+            .as_array()
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter(|b| b["type"].as_str() == Some("text"))
+                    .filter_map(|b| b["text"].as_str())
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+        if text.is_empty() {
+            return Err(AppError::Custom(
+                "Anthropic 返回格式异常：content 中没有文本块".to_string(),
+            ));
+        }
+        Ok(text)
+    }
+}
+
+const ANTHROPIC_VERSION: &str = "2023-06-01";
+
+fn build_anthropic_url(base: &str) -> String {
+    let base = base.trim_end_matches('/');
+    if base.ends_with("/messages") {
+        base.to_string()
+    } else if base.ends_with("/v1") {
+        format!("{}/messages", base)
+    } else {
+        format!("{}/v1/messages", base)
+    }
+}
+
+fn format_anthropic_error(status: reqwest::StatusCode, body: &str) -> String {
+    let api_msg = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
+        .unwrap_or_else(|| body.chars().take(200).collect());
+    format!("Anthropic API 错误 ({})：{}", status, api_msg)
+}
+
+fn build_anthropic_body(
+    config: &AiProviderConfig,
+    messages: &[Value],
+    tools: &[Value],
+    options: &CompletionOptions,
+    stream: bool,
+) -> Value {
+    let (system, converted) = to_anthropic_messages(messages);
+    let max_tokens = options
+        .max_tokens
+        .or_else(|| config.max_output_tokens.and_then(|n| u32::try_from(n).ok()))
+        .unwrap_or(4096);
+
+    let mut body = json!({
+        "model": config.model_id,
+        "max_tokens": max_tokens,
+        "messages": converted,
+        "stream": stream,
+    });
+    if let Some(system) = system {
+        body["system"] = json!(system);
+    }
+    if let Some(temperature) = options.temperature {
+        body["temperature"] = json!(temperature);
+    }
+
+    let tools = to_anthropic_tools(tools);
+    if !tools.is_empty() {
+        body["tools"] = json!(tools);
+        body["tool_choice"] = json!({ "type": "auto" });
+    }
+    body
+}
+
+/// OpenAI 格式 messages → Anthropic `(system, messages)`
+fn to_anthropic_messages(messages: &[Value]) -> (Option<String>, Vec<Value>) {
+    let mut system_parts: Vec<String> = Vec::new();
+    let mut out: Vec<Value> = Vec::new();
+
+    for message in messages {
+        let role = message["role"].as_str().unwrap_or("user");
+        match role {
+            "system" => {
+                if let Some(content) = message["content"].as_str() {
+                    if !content.is_empty() {
+                        system_parts.push(content.to_string());
+                    }
+                }
+            }
+            "tool" => {
+                let block = json!({
+                    "type": "tool_result",
+                    "tool_use_id": message["tool_call_id"].as_str().unwrap_or(""),
+                    "content": message["content"].as_str().unwrap_or(""),
+                });
+                push_user_block(&mut out, block);
+            }
+            "assistant" => {
+                let mut blocks: Vec<Value> = Vec::new();
+                if let Some(content) = message["content"].as_str() {
+                    if !content.is_empty() {
+                        blocks.push(json!({ "type": "text", "text": content }));
+                    }
+                }
+                if let Some(tool_calls) = message["tool_calls"].as_array() {
+                    for call in tool_calls {
+                        let args = call["function"]["arguments"].as_str().unwrap_or("{}");
+                        let input: Value = serde_json::from_str(args).unwrap_or_else(|_| json!({}));
+                        blocks.push(json!({
+                            "type": "tool_use",
+                            "id": call["id"].as_str().unwrap_or(""),
+                            "name": call["function"]["name"].as_str().unwrap_or(""),
+                            "input": input,
+                        }));
+                    }
+                }
+                if blocks.len() == 1 && blocks[0]["type"].as_str() == Some("text") {
+                    out.push(json!({
+                        "role": "assistant",
+                        "content": blocks[0]["text"],
+                    }));
+                } else if !blocks.is_empty() {
+                    out.push(json!({ "role": "assistant", "content": blocks }));
+                }
+            }
+            _ => {
+                let content = message["content"].clone();
+                push_user_content(&mut out, content);
+            }
+        }
+    }
+
+    let system = if system_parts.is_empty() {
+        None
+    } else {
+        Some(system_parts.join("\n\n"))
+    };
+    (system, out)
+}
+
+fn push_user_content(out: &mut Vec<Value>, content: Value) {
+    if let Some(last) = out.last_mut() {
+        if last["role"].as_str() == Some("user") {
+            match content {
+                Value::String(text) => {
+                    match &mut last["content"] {
+                        Value::String(existing) => {
+                            if !text.is_empty() {
+                                *existing = if existing.is_empty() {
+                                    text
+                                } else {
+                                    format!("{}\n\n{}", existing, text)
+                                };
+                            }
+                            return;
+                        }
+                        Value::Array(blocks) => {
+                            if !text.is_empty() {
+                                blocks.push(json!({ "type": "text", "text": text }));
+                            }
+                            return;
+                        }
+                        _ => {}
+                    }
+                    out.push(json!({ "role": "user", "content": text }));
+                    return;
+                }
+                Value::Array(more) => {
+                    match &mut last["content"] {
+                        Value::Array(blocks) => {
+                            blocks.extend(more);
+                            return;
+                        }
+                        Value::String(existing) => {
+                            let mut blocks = Vec::with_capacity(more.len() + 1);
+                            if !existing.is_empty() {
+                                blocks.push(json!({ "type": "text", "text": existing.clone() }));
+                            }
+                            blocks.extend(more);
+                            last["content"] = Value::Array(blocks);
+                            return;
+                        }
+                        _ => {}
+                    }
+                    out.push(json!({ "role": "user", "content": more }));
+                    return;
+                }
+                other => {
+                    out.push(json!({ "role": "user", "content": other }));
+                    return;
+                }
+            }
+        }
+    }
+    out.push(json!({ "role": "user", "content": content }));
+}
+
+fn push_user_block(out: &mut Vec<Value>, block: Value) {
+    if let Some(last) = out.last_mut() {
+        if last["role"].as_str() == Some("user") {
+            if let Some(blocks) = last["content"].as_array_mut() {
+                blocks.push(block);
+                return;
+            }
+            if let Some(text) = last["content"].as_str() {
+                let text_block = json!({ "type": "text", "text": text });
+                last["content"] = json!([text_block, block]);
+                return;
+            }
+        }
+    }
+    out.push(json!({ "role": "user", "content": [block] }));
+}
+
+/// OpenAI tools schema → Anthropic tools schema
+fn to_anthropic_tools(tools: &[Value]) -> Vec<Value> {
+    tools
+        .iter()
+        .filter_map(|tool| {
+            let function = &tool["function"];
+            let name = function["name"].as_str()?;
+            let mut out = json!({
+                "name": name,
+                "input_schema": function["parameters"].clone(),
+            });
+            if let Some(description) = function["description"].as_str() {
+                out["description"] = json!(description);
+            }
+            Some(out)
+        })
+        .collect()
+}
+
+fn map_anthropic_stop_reason(reason: &str) -> &str {
+    match reason {
+        "end_turn" | "stop_sequence" | "refusal" => "stop",
+        "tool_use" => "tool_calls",
+        "max_tokens" => "length",
+        other => other,
+    }
+}
+
+// ─── Anthropic SSE 解析 ─────────────────────────
+
+fn anthropic_event_stream<S>(
+    byte_stream: S,
+) -> impl Stream<Item = Result<ProviderStreamEvent, AppError>> + Send
+where
+    S: Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send + 'static,
+{
+    let state = AnthropicStreamState {
+        inner: Box::pin(byte_stream),
+        buffer: Vec::new(),
+        pending: VecDeque::new(),
+        finished: false,
+        errored: false,
+        finish_emitted: false,
+        stop_reason: None,
+        error: None,
+    };
+
+    futures::stream::unfold(state, |mut st| async move {
+        loop {
+            if let Some(event) = st.pending.pop_front() {
+                return Some((Ok(event), st));
+            }
+
+            if st.finished {
+                if !st.errored && !st.finish_emitted {
+                    st.finish_emitted = true;
+                    return Some((
+                        Ok(ProviderStreamEvent::Finish {
+                            reason: st.stop_reason.take(),
+                        }),
+                        st,
+                    ));
+                }
+                return None;
+            }
+
+            if let Some(pos) = st.buffer.iter().position(|b| *b == b'\n') {
+                let line_bytes: Vec<u8> = st.buffer.drain(..=pos).collect();
+                let line = String::from_utf8_lossy(&line_bytes);
+                let line = line.trim_end_matches(&['\r', '\n'][..]).to_string();
+                parse_anthropic_line(&line, &mut st.pending, &mut st.stop_reason, &mut st.error);
+                if let Some(err) = st.error.take() {
+                    st.finished = true;
+                    st.errored = true;
+                    st.buffer.clear();
+                    return Some((Err(AppError::Custom(err)), st));
+                }
+                continue;
+            }
+
+            match st.inner.next().await {
+                Some(Ok(bytes)) => st.buffer.extend_from_slice(&bytes),
+                Some(Err(e)) => {
+                    st.finished = true;
+                    st.errored = true;
+                    st.buffer.clear();
+                    return Some((Err(AppError::Custom(format!("流读取错误: {}", e))), st));
+                }
+                None => {
+                    if !st.buffer.is_empty() {
+                        let line = String::from_utf8_lossy(&st.buffer);
+                        let line = line.trim_end_matches(&['\r', '\n'][..]).to_string();
+                        st.buffer.clear();
+                        parse_anthropic_line(
+                            &line,
+                            &mut st.pending,
+                            &mut st.stop_reason,
+                            &mut st.error,
+                        );
+                    }
+                    st.finished = true;
+                }
+            }
+        }
+    })
+}
+
+struct AnthropicStreamState {
+    inner: Pin<Box<dyn Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Send>>,
+    buffer: Vec<u8>,
+    pending: VecDeque<ProviderStreamEvent>,
+    finished: bool,
+    errored: bool,
+    finish_emitted: bool,
+    stop_reason: Option<String>,
+    error: Option<String>,
+}
+
+fn parse_anthropic_line(
+    line: &str,
+    pending: &mut VecDeque<ProviderStreamEvent>,
+    stop_reason: &mut Option<String>,
+    error: &mut Option<String>,
+) {
+    if line.is_empty() || line.starts_with("event:") {
+        return;
+    }
+    let Some(json_str) = line.strip_prefix("data: ") else {
+        return;
+    };
+    let Ok(data) = serde_json::from_str::<Value>(json_str) else {
+        return;
+    };
+
+    match data["type"].as_str().unwrap_or("") {
+        "content_block_start" => {
+            let index = data["index"].as_u64().unwrap_or(0);
+            let block = &data["content_block"];
+            match block["type"].as_str().unwrap_or("") {
+                "tool_use" => pending.push_back(ProviderStreamEvent::ToolCallDelta {
+                    index,
+                    id: block["id"].as_str().map(str::to_string),
+                    name: block["name"].as_str().map(str::to_string),
+                    arguments: None,
+                }),
+                "text" => {
+                    if let Some(text) = block["text"].as_str() {
+                        if !text.is_empty() {
+                            pending.push_back(ProviderStreamEvent::Content(text.to_string()));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        "content_block_delta" => {
+            let index = data["index"].as_u64().unwrap_or(0);
+            let delta = &data["delta"];
+            match delta["type"].as_str().unwrap_or("") {
+                "text_delta" => {
+                    if let Some(text) = delta["text"].as_str() {
+                        if !text.is_empty() {
+                            pending.push_back(ProviderStreamEvent::Content(text.to_string()));
+                        }
+                    }
+                }
+                "thinking_delta" => {
+                    if let Some(thinking) = delta["thinking"].as_str() {
+                        if !thinking.is_empty() {
+                            pending.push_back(ProviderStreamEvent::Reasoning(
+                                thinking.to_string(),
+                            ));
+                        }
+                    }
+                }
+                "input_json_delta" => {
+                    if let Some(partial) = delta["partial_json"].as_str() {
+                        if !partial.is_empty() {
+                            pending.push_back(ProviderStreamEvent::ToolCallDelta {
+                                index,
+                                id: None,
+                                name: None,
+                                arguments: Some(partial.to_string()),
+                            });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        "message_delta" => {
+            if let Some(reason) = data["delta"]["stop_reason"].as_str() {
+                *stop_reason = Some(map_anthropic_stop_reason(reason).to_string());
+            }
+        }
+        "message_stop" => {}
+        "error" => {
+            let message = data["error"]["message"]
+                .as_str()
+                .unwrap_or("Anthropic 流返回错误");
+            *error = Some(message.to_string());
+        }
+        _ => {}
     }
 }
 
@@ -717,6 +1375,24 @@ fn openai_compatible_metadata() -> AiProviderMetadata {
     }
 }
 
+/// Anthropic Provider 元数据
+fn anthropic_metadata() -> AiProviderMetadata {
+    AiProviderMetadata {
+        provider_type: "anthropic".to_string(),
+        display_name: "Anthropic".to_string(),
+        description: "Anthropic 官方 API（/v1/messages，支持 tools 与流式）".to_string(),
+        default_base_url: "https://api.anthropic.com".to_string(),
+        default_model: "claude-sonnet-4-20250514".to_string(),
+        capabilities: AiCapabilities {
+            supports_streaming: true,
+            supports_vision: true,
+            supports_function_calling: true,
+            supports_json_mode: false,
+            max_output_tokens: Some(8192),
+        },
+    }
+}
+
 /// Ollama Provider 元数据
 fn ollama_metadata() -> AiProviderMetadata {
     AiProviderMetadata {
@@ -752,6 +1428,14 @@ pub fn register_builtin_providers(registry: &AiProviderRegistry) {
         metadata: ollama_metadata(),
         factory: Box::new(|config: AiProviderConfig| {
             Ok(Arc::new(OllamaProvider::new(config)) as Arc<dyn AiProvider>)
+        }),
+    });
+
+    // Anthropic 原生
+    registry.register(AiProviderPlugin {
+        metadata: anthropic_metadata(),
+        factory: Box::new(|config: AiProviderConfig| {
+            Ok(Arc::new(AnthropicProvider::new(config)) as Arc<dyn AiProvider>)
         }),
     });
 
@@ -872,16 +1556,33 @@ mod tests {
                 .set_read_timeout(Some(std::time::Duration::from_secs(5)))
                 .ok();
             let mut buf = Vec::new();
-            let mut tmp = [0u8; 1024];
-            loop {
+            let mut tmp = [0u8; 4096];
+            // 先读到请求头结束
+            while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
                 match socket.read(&mut tmp) {
                     Ok(0) => break,
-                    Ok(n) => {
-                        buf.extend_from_slice(&tmp[..n]);
-                        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-                            break;
-                        }
-                    }
+                    Ok(n) => buf.extend_from_slice(&tmp[..n]),
+                    Err(_) => break,
+                }
+            }
+            // 再按 Content-Length 读完请求体（Anthropic 请求体断言需要）
+            let header_end = buf
+                .windows(4)
+                .position(|w| w == b"\r\n\r\n")
+                .map(|p| p + 4)
+                .unwrap_or(buf.len());
+            let headers = String::from_utf8_lossy(&buf[..header_end]).to_lowercase();
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    line.strip_prefix("content-length:")
+                        .and_then(|v| v.trim().parse::<usize>().ok())
+                })
+                .unwrap_or(0);
+            while buf.len() < header_end + content_length {
+                match socket.read(&mut tmp) {
+                    Ok(0) => break,
+                    Ok(n) => buf.extend_from_slice(&tmp[..n]),
                     Err(_) => break,
                 }
             }
@@ -982,6 +1683,94 @@ data: [DONE]\n\n";
     }
 
     #[test]
+    fn anthropic_provider_round_trip_over_http() {
+        const RESPONSE: &str = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n\
+event: content_block_start\n\
+data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+event: content_block_delta\n\
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"你好\"}}\n\n\
+event: content_block_start\n\
+data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"search_notes\",\"input\":{}}}\n\n\
+event: content_block_delta\n\
+data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"query\\\":\\\"x\\\"}\"}}\n\n\
+event: message_delta\n\
+data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"}}\n\n\
+event: message_stop\n\
+data: {\"type\":\"message_stop\"}\n\n";
+
+        let (base, server) = spawn_once_server(RESPONSE);
+        let provider = AnthropicProvider::new(AiProviderConfig {
+            protocol: Some("anthropic".into()),
+            ..smoke_config("claude", &base)
+        });
+        let events = run_tokio(async move {
+            let stream = provider
+                .stream_chat(
+                    vec![
+                        json!({"role": "system", "content": "你是助手"}),
+                        json!({"role": "user", "content": "hi"}),
+                        json!({"role": "assistant", "content": "", "tool_calls": [{
+                            "id": "call_1", "type": "function",
+                            "function": {"name": "search_notes", "arguments": "{\"query\":\"x\"}"}
+                        }]}),
+                        json!({"role": "tool", "tool_call_id": "call_1", "content": "结果"}),
+                    ],
+                    vec![json!({
+                        "type": "function",
+                        "function": {
+                            "name": "search_notes",
+                            "description": "搜索笔记",
+                            "parameters": {"type": "object", "properties": {"query": {"type": "string"}}}
+                        }
+                    })],
+                )
+                .await
+                .expect("stream starts");
+            stream
+                .filter_map(|item| async move { item.ok() })
+                .collect::<Vec<_>>()
+                .await
+        });
+
+        let content: String = events
+            .iter()
+            .filter_map(|e| match e {
+                ProviderStreamEvent::Content(c) => Some(c.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(content, "你好");
+
+        let tool: Vec<&ProviderStreamEvent> = events
+            .iter()
+            .filter(|e| matches!(e, ProviderStreamEvent::ToolCallDelta { .. }))
+            .collect();
+        assert!(tool.len() >= 2, "tool deltas: {:?}", tool);
+        let args: String = events
+            .iter()
+            .filter_map(|e| match e {
+                ProviderStreamEvent::ToolCallDelta { arguments, .. } => arguments.as_deref(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(args, r#"{"query":"x"}"#);
+        assert!(events.iter().any(|e| matches!(
+            e,
+            ProviderStreamEvent::Finish { reason } if reason.as_deref() == Some("tool_calls")
+        )));
+
+        let request = server.join().expect("server thread");
+        assert!(request.starts_with("POST /v1/messages "), "{}", request);
+        let lower = request.to_lowercase();
+        assert!(lower.contains("x-api-key: sk-test"));
+        assert!(lower.contains("anthropic-version: 2023-06-01"));
+        assert!(request.contains("\"system\":\"你是助手\""), "{}", request);
+        assert!(request.contains("\"type\":\"tool_use\""), "{}", request);
+        assert!(request.contains("\"tool_use_id\":\"call_1\""), "{}", request);
+        assert!(request.contains("\"input_schema\""), "{}", request);
+    }
+
+    #[test]
     fn protocol_and_capabilities_are_derived_from_config() {
         let ollama = AiProviderConfig {
             provider_type: "ollama".into(),
@@ -1006,5 +1795,13 @@ data: [DONE]\n\n";
         assert_eq!(claude.protocol_kind(), ProviderProtocol::OpenAiCompatible);
         assert!(!claude.capabilities().supports_json_mode);
         assert!(claude.capabilities().supports_function_calling);
+
+        let native = AiProviderConfig {
+            protocol: Some("anthropic".into()),
+            ..claude
+        };
+        assert_eq!(native.protocol_kind(), ProviderProtocol::Anthropic);
+        assert!(!native.capabilities().supports_json_mode);
+        assert!(native.capabilities().supports_function_calling);
     }
 }

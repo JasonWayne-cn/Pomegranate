@@ -8,7 +8,8 @@ use tokio::sync::watch;
 use crate::database::Database;
 use crate::error::AppError;
 use crate::models::ai_provider::{
-    AiProvider, AiProviderConfig, ProviderProtocol, ProviderStream, ProviderStreamEvent,
+    AiProvider, AiProviderConfig, CompletionOptions, ProviderProtocol, ProviderStream,
+    ProviderStreamEvent,
 };
 use crate::models::{
     AiMessage, AiModel, AiModelInput, AiModelTestResult, AttachmentPreview, DraftNoteRequest,
@@ -781,84 +782,18 @@ impl AiService {
 
         // 每次调用换一个 seed，避免相同输入坍塌到同一答案；OpenAI / Ollama 都认这个键
         let seed: u32 = rand::random();
-        let timeout = std::time::Duration::from_secs(10);
         let provider = Self::provider_for_model(&model)?;
-        let raw = if provider.protocol() == ProviderProtocol::Ollama {
-            let client = build_ollama_client();
-            let url = format!("{}/api/chat", model.api_url.trim_end_matches('/'));
-            let response = client
-                .post(&url)
-                .timeout(timeout)
-                .json(&json!({
-                    "model": model.model_id,
-                    "messages": messages,
-                    "stream": false,
-                    "options": {
-                        "num_predict": 64,
-                        "temperature": 0.85,
-                        "top_p": 0.95,
-                        "seed": seed,
-                    }
-                }))
-                .send()
-                .await
-                .map_err(|e| AppError::Custom(format_ollama_send_error(&e, &url)))?;
-            if !response.status().is_success() {
-                let status = response.status();
-                let body = response.text().await.unwrap_or_default();
-                return Err(AppError::Custom(format!(
-                    "Ollama 返回错误 {}：{}",
-                    status,
-                    body.chars().take(200).collect::<String>()
-                )));
-            }
-            let body: Value = response
-                .json()
-                .await
-                .map_err(|e| AppError::Custom(format!("Ollama 响应解析失败: {}", e)))?;
-            body["message"]["content"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string()
-        } else {
-            let client = crate::services::http_client::shared();
-            let url = build_openai_chat_url(&model.api_url);
-            let mut request = client
-                .post(&url)
-                .timeout(timeout)
-                .header("Content-Type", "application/json")
-                .json(&json!({
-                    "model": model.model_id,
-                    "messages": messages,
-                    "max_tokens": 64,
-                    "temperature": 0.85,
-                    "top_p": 0.95,
-                    "seed": seed,
-                    "stream": false
-                }));
-            if let Some(key) = &model.api_key {
-                if !key.trim().is_empty() {
-                    request = request.header("Authorization", format!("Bearer {}", key));
-                }
-            }
-            let response = request
-                .send()
-                .await
-                .map_err(|e| AppError::Custom(format!("API 请求失败: {}", e)))?;
-            if !response.status().is_success() {
-                let status = response.status();
-                let body = response.text().await.unwrap_or_default();
-                return Err(AppError::Custom(format_openai_api_error(status, &body)));
-            }
-            let body: Value = response
-                .json()
-                .await
-                .map_err(|e| AppError::Custom(format!("响应解析失败: {}", e)))?;
-            body["choices"][0]["message"]["content"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string()
-        };
+        let raw = provider
+            .complete(
+                messages,
+                CompletionOptions {
+                    max_tokens: Some(64),
+                    temperature: Some(0.85),
+                    seed: Some(seed),
+                    json_mode: false,
+                },
+            )
+            .await?;
 
         // 清洗：去首尾空白 / 引号 / 句号；截断到 60 字（保险，模型偶尔不守 25 字约束）
         let cleaned: String = raw
@@ -1225,10 +1160,9 @@ impl AiService {
             system_prompt.push_str(rag_context);
         }
 
-        // 所有 provider 都按 OpenAI 兼容协议发送 system role message。
-        // 含 Claude：本项目 Claude 走 OpenAI 兼容代理（见 OpenAiCompatibleProvider /
-        // build_openai_chat_url 注释），并无 Anthropic 原生 system 字段，此前
-        // `provider != "claude"` 会静默丢弃 system prompt（ADR-0001 M2 修复）。
+        // 内部消息统一使用 OpenAI 格式。Claude 默认走 OpenAI 兼容代理；
+        // 若配置 protocol = "anthropic"，AnthropicProvider 会在发送前把
+        // system 消息提升为顶层 system 字段。
         messages.push(json!({
             "role": "system",
             "content": system_prompt
@@ -1573,7 +1507,7 @@ impl AiService {
 
     /// 聚合上下文（昨日/今日 daily 笔记 + 未完成任务 + 今日已有任务）→ 喂 AI → 解析 JSON
     ///
-    /// 故意走非流式：`response_format: json_object` 需要完整响应 + 前端不需要 token-by-token 体验。
+    /// 故意走非流式：需要完整 JSON 响应 + 前端不需要 token-by-token 体验。
     /// 返回 `PlanTodayResponse`，前端把 `tasks` 展示为可编辑清单，用户确认后批量写库。
     pub async fn plan_today(
         db: &Database,
@@ -1730,52 +1664,18 @@ impl AiService {
         ];
 
         // ─── 发请求 ────────────────────────────
-        let client = crate::services::http_client::shared();
-        let url = build_openai_chat_url(&model.api_url);
-        let mut req_body = json!({
-            "model": model.model_id,
-            "messages": messages,
-            "stream": false,
-            "response_format": { "type": "json_object" },
-            "max_tokens": 2000,
-        });
-        // Claude 兼容代理有些不支持 response_format，去掉该字段以防报错
-        if !provider.capabilities().supports_json_mode {
-            req_body
-                .as_object_mut()
-                .and_then(|m| m.remove("response_format"));
-        }
+        let content = provider
+            .complete(
+                messages,
+                CompletionOptions {
+                    max_tokens: Some(2000),
+                    json_mode: true,
+                    ..Default::default()
+                },
+            )
+            .await?;
 
-        let mut builder = client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&req_body);
-        if let Some(key) = &model.api_key {
-            if !key.is_empty() {
-                builder = builder.header("Authorization", format!("Bearer {}", key));
-            }
-        }
-        let response = builder
-            .send()
-            .await
-            .map_err(|e| AppError::Custom(format!("API 请求失败: {}", e)))?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_openai_api_error(status, &body)));
-        }
-
-        let resp_json: Value = response
-            .json()
-            .await
-            .map_err(|e| AppError::Custom(format!("解析响应失败: {}", e)))?;
-        let content = resp_json["choices"][0]["message"]["content"]
-            .as_str()
-            .ok_or_else(|| {
-                AppError::Custom("AI 返回格式异常：缺少 choices[0].message.content".to_string())
-            })?;
-
-        parse_plan_today_response(content).ok_or_else(|| {
+        parse_plan_today_response(&content).ok_or_else(|| {
             AppError::Custom(format!(
                 "AI 返回的 JSON 无法解析。原始响应：\n{}",
                 content.chars().take(400).collect::<String>()
@@ -1848,50 +1748,18 @@ impl AiService {
             json!({ "role": "user", "content": trimmed }),
         ];
 
-        let client = crate::services::http_client::shared();
-        let url = build_openai_chat_url(&model.api_url);
-        let mut req_body = json!({
-            "model": model.model_id,
-            "messages": messages,
-            "stream": false,
-            "response_format": { "type": "json_object" },
-            "max_tokens": 600,
-        });
-        if !provider.capabilities().supports_json_mode {
-            req_body
-                .as_object_mut()
-                .and_then(|m| m.remove("response_format"));
-        }
+        let content = provider
+            .complete(
+                messages,
+                CompletionOptions {
+                    max_tokens: Some(600),
+                    json_mode: true,
+                    ..Default::default()
+                },
+            )
+            .await?;
 
-        let mut builder = client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&req_body);
-        if let Some(key) = &model.api_key {
-            if !key.is_empty() {
-                builder = builder.header("Authorization", format!("Bearer {}", key));
-            }
-        }
-
-        let response = builder
-            .send()
-            .await
-            .map_err(|e| AppError::Custom(format!("API 请求失败: {}", e)))?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_openai_api_error(status, &body)));
-        }
-
-        let resp_json: Value = response
-            .json()
-            .await
-            .map_err(|e| AppError::Custom(format!("解析响应失败: {}", e)))?;
-        let content = resp_json["choices"][0]["message"]["content"]
-            .as_str()
-            .ok_or_else(|| AppError::Custom("AI 返回格式异常：缺少 content".into()))?;
-
-        parse_task_suggestion_response(content).ok_or_else(|| {
+        parse_task_suggestion_response(&content).ok_or_else(|| {
             AppError::Custom(format!(
                 "AI 返回的 JSON 无法解析。原始响应：\n{}",
                 content.chars().take(400).collect::<String>()
@@ -1910,7 +1778,7 @@ impl AiService {
     ///
     /// 设计要点：
     /// 1. 只把**目录路径字符串**喂给 AI，不喂笔记内容 → 避免大 prompt + 信息泄露
-    /// 2. 非流式 + `response_format: json_object`（Claude 兼容代理会自动去掉该字段）
+    /// 2. 非流式 + JSON 模式（不支持 response_format 的 Provider 由 prompt 约束）
     /// 3. 两轮兜底解析（原始 / 剥 markdown ``` ）
     ///
     /// 调用方不在这里写库；save 逻辑由前端 `folderApi` + `noteApi` 在 Modal 确认时触发。
@@ -1986,50 +1854,18 @@ impl AiService {
             serde_json::json!({ "role": "user", "content": user_content }),
         ];
 
-        let client = crate::services::http_client::shared();
-        let url = build_openai_chat_url(&model.api_url);
-        let mut req_body = serde_json::json!({
-            "model": model.model_id,
-            "messages": messages,
-            "stream": false,
-            "response_format": { "type": "json_object" },
-        });
-        if !provider.capabilities().supports_json_mode {
-            req_body
-                .as_object_mut()
-                .and_then(|m| m.remove("response_format"));
-        }
+        let content = provider
+            .complete(
+                messages,
+                CompletionOptions {
+                    max_tokens: Some(4096),
+                    json_mode: true,
+                    ..Default::default()
+                },
+            )
+            .await?;
 
-        let mut builder = client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&req_body);
-        if let Some(key) = &model.api_key {
-            if !key.is_empty() {
-                builder = builder.header("Authorization", format!("Bearer {}", key));
-            }
-        }
-        let response = builder
-            .send()
-            .await
-            .map_err(|e| AppError::Custom(format!("API 请求失败: {}", e)))?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_openai_api_error(status, &body)));
-        }
-
-        let resp_json: Value = response
-            .json()
-            .await
-            .map_err(|e| AppError::Custom(format!("解析响应失败: {}", e)))?;
-        let content = resp_json["choices"][0]["message"]["content"]
-            .as_str()
-            .ok_or_else(|| {
-                AppError::Custom("AI 返回格式异常：缺少 choices[0].message.content".to_string())
-            })?;
-
-        parse_draft_note_response(content).ok_or_else(|| {
+        parse_draft_note_response(&content).ok_or_else(|| {
             AppError::Custom(format!(
                 "AI 返回的 JSON 无法解析。原始响应：\n{}",
                 content.chars().take(400).collect::<String>()
@@ -2145,51 +1981,18 @@ impl AiService {
             json!({ "role": "user", "content": user_content }),
         ];
 
-        let client = crate::services::http_client::shared();
-        let url = build_openai_chat_url(&model.api_url);
-        let mut req_body = json!({
-            "model": model.model_id,
-            "messages": messages,
-            "stream": false,
-            "response_format": { "type": "json_object" },
-            "max_tokens": 4000,
-        });
-        if !provider.capabilities().supports_json_mode {
-            req_body
-                .as_object_mut()
-                .and_then(|m| m.remove("response_format"));
-        }
+        let content = provider
+            .complete(
+                messages,
+                CompletionOptions {
+                    max_tokens: Some(4000),
+                    json_mode: true,
+                    ..Default::default()
+                },
+            )
+            .await?;
 
-        let mut builder = client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&req_body);
-        if let Some(key) = &model.api_key {
-            if !key.is_empty() {
-                builder = builder.header("Authorization", format!("Bearer {}", key));
-            }
-        }
-        let response = builder
-            .send()
-            .await
-            .map_err(|e| AppError::Custom(format!("API 请求失败: {}", e)))?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_openai_api_error(status, &body)));
-        }
-
-        let resp_json: Value = response
-            .json()
-            .await
-            .map_err(|e| AppError::Custom(format!("解析响应失败: {}", e)))?;
-        let content = resp_json["choices"][0]["message"]["content"]
-            .as_str()
-            .ok_or_else(|| {
-                AppError::Custom("AI 返回格式异常：缺少 choices[0].message.content".to_string())
-            })?;
-
-        let mut parsed = parse_plan_from_goal_response(content).ok_or_else(|| {
+        let mut parsed = parse_plan_from_goal_response(&content).ok_or_else(|| {
             AppError::Custom(format!(
                 "AI 返回的 JSON 无法解析。原始响应：\n{}",
                 content.chars().take(400).collect::<String>()
@@ -2333,51 +2136,18 @@ impl AiService {
             json!({ "role": "user", "content": user_content }),
         ];
 
-        let client = crate::services::http_client::shared();
-        let url = build_openai_chat_url(&model.api_url);
-        let mut req_body = json!({
-            "model": model.model_id,
-            "messages": messages,
-            "stream": false,
-            "response_format": { "type": "json_object" },
-            "max_tokens": 6000,
-        });
-        if !provider.capabilities().supports_json_mode {
-            req_body
-                .as_object_mut()
-                .and_then(|m| m.remove("response_format"));
-        }
+        let content = provider
+            .complete(
+                messages,
+                CompletionOptions {
+                    max_tokens: Some(6000),
+                    json_mode: true,
+                    ..Default::default()
+                },
+            )
+            .await?;
 
-        let mut builder = client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&req_body);
-        if let Some(key) = &model.api_key {
-            if !key.is_empty() {
-                builder = builder.header("Authorization", format!("Bearer {}", key));
-            }
-        }
-        let response = builder
-            .send()
-            .await
-            .map_err(|e| AppError::Custom(format!("API 请求失败: {}", e)))?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_openai_api_error(status, &body)));
-        }
-
-        let resp_json: Value = response
-            .json()
-            .await
-            .map_err(|e| AppError::Custom(format!("解析响应失败: {}", e)))?;
-        let content = resp_json["choices"][0]["message"]["content"]
-            .as_str()
-            .ok_or_else(|| {
-                AppError::Custom("AI 返回格式异常：缺少 choices[0].message.content".to_string())
-            })?;
-
-        let mut parsed = parse_plan_from_goal_response(content).ok_or_else(|| {
+        let mut parsed = parse_plan_from_goal_response(&content).ok_or_else(|| {
             AppError::Custom(format!(
                 "AI 返回的 JSON 无法解析。原始响应：\n{}",
                 content.chars().take(400).collect::<String>()
