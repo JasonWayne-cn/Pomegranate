@@ -78,10 +78,11 @@ impl Database {
         Ok(())
     }
 
-    /// 保存/更新一篇笔记的向量（Phase 1 整篇一个向量，chunk_index=0）。
+    /// 保存/更新一篇笔记某个 chunk 的向量。
     pub fn upsert_note_embedding(
         &self,
         note_id: i64,
+        chunk_index: i64,
         content: &str,
         vector: &[f32],
         model: &str,
@@ -91,13 +92,13 @@ impl Database {
         let blob = crate::services::embedding::to_bytes(vector);
         conn.execute(
             "INSERT INTO note_embeddings (note_id, chunk_index, content, vector, model, dim)
-             VALUES (?1, 0, ?2, ?3, ?4, ?5)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(note_id, chunk_index) DO UPDATE SET
                content = excluded.content,
                vector = excluded.vector,
                model = excluded.model,
                dim = excluded.dim",
-            params![note_id, content, blob, model, dim],
+            params![note_id, chunk_index, content, blob, model, dim],
         )?;
         Ok(())
     }
@@ -109,6 +110,13 @@ impl Database {
             "DELETE FROM note_embeddings WHERE note_id = ?1",
             params![note_id],
         )?;
+        Ok(())
+    }
+
+    /// 清空所有笔记向量（全量重建前调用，避免残留旧的 chunk）。
+    pub fn clear_all_note_embeddings(&self) -> Result<(), AppError> {
+        let conn = self.conn_lock()?;
+        conn.execute("DELETE FROM note_embeddings", [])?;
         Ok(())
     }
 
@@ -127,10 +135,11 @@ impl Database {
 
         let mut stmt = conn.prepare(
             "SELECT ne.note_id, n.title, ne.content,
-                    vec_distance_cosine(ne.vector, ?1) AS distance
+                    MIN(vec_distance_cosine(ne.vector, ?1)) AS distance
              FROM note_embeddings ne
              LEFT JOIN notes n ON n.id = ne.note_id
              WHERE ne.model = ?2 AND ne.dim = ?3
+             GROUP BY ne.note_id
              ORDER BY distance ASC
              LIMIT ?4",
         )?;

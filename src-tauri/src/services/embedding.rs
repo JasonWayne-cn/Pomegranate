@@ -91,3 +91,29 @@ pub fn to_bytes(vec: &[f32]) -> Vec<u8> {
     }
     out
 }
+
+/// 把长文本按字符数切成多个块（embedding API 有单次输入上限）。
+///
+/// 阿里云 text-embedding 上限 8192 token（中文约 5~8K 字符），这里保守取 6000 字符，
+/// 给 token 换算留余量。切分不保证语义完整，但能保证每块都低于 API 上限。
+pub fn chunk_text(text: &str, max_chars: usize) -> Vec<&str> {
+    if text.chars().count() <= max_chars {
+        return vec![text];
+    }
+    let mut chunks = Vec::new();
+    let mut start = 0usize;
+    let mut count = 0usize;
+    for (i, c) in text.char_indices() {
+        if count >= max_chars {
+            chunks.push(&text[start..i]);
+            start = i;
+            count = 0;
+        }
+        count += 1;
+        let _ = c;
+    }
+    if start < text.len() {
+        chunks.push(&text[start..]);
+    }
+    chunks
+}

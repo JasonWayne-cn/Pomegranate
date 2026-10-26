@@ -67,23 +67,44 @@ pub async fn reindex_notes(
         .map_err(|e| e.to_string())?;
     let total = notes.len();
 
+    // 全量重建：先清空旧向量，避免笔记变短后残留旧的 chunk
+    state
+        .db
+        .clear_all_note_embeddings()
+        .map_err(|e| e.to_string())?;
+
+    // 单块字符上限：阿里云 text-embedding 单次输入 8192 token，保守取 6000 字符留余量
+    const CHUNK_CHARS: usize = 6000;
+
     let mut done = 0usize;
     let mut failed = 0usize;
     for (id, content) in notes {
-        match crate::services::embedding::embed(&cfg, &content).await {
-            Ok(vec) => {
-                if let Err(e) = state
-                    .db
-                    .upsert_note_embedding(id, &content, &vec, &cfg.model_id, cfg.dim)
-                {
-                    log::warn!("[reindex] 笔记 {} 向量入库失败: {}", id, e);
-                    failed += 1;
+        // 长笔记分块，每块单独 embed，避免超过 API 单次输入上限
+        let chunks = crate::services::embedding::chunk_text(&content, CHUNK_CHARS);
+        let mut note_failed = false;
+        for (idx, chunk) in chunks.iter().enumerate() {
+            match crate::services::embedding::embed(&cfg, chunk).await {
+                Ok(vec) => {
+                    if let Err(e) = state.db.upsert_note_embedding(
+                        id,
+                        idx as i64,
+                        chunk,
+                        &vec,
+                        &cfg.model_id,
+                        cfg.dim,
+                    ) {
+                        log::warn!("[reindex] 笔记 {} chunk {} 入库失败: {}", id, idx, e);
+                        note_failed = true;
+                    }
+                }
+                Err(e) => {
+                    log::warn!("[reindex] 笔记 {} chunk {} embed 失败: {}", id, idx, e);
+                    note_failed = true;
                 }
             }
-            Err(e) => {
-                log::warn!("[reindex] 笔记 {} embed 失败: {}", id, e);
-                failed += 1;
-            }
+        }
+        if note_failed {
+            failed += 1;
         }
         done += 1;
         let _ = app.emit(
