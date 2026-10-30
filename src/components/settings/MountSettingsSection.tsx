@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
@@ -14,9 +13,8 @@ import {
   Tag,
   Tooltip,
   message,
-  theme as antdTheme,
 } from "antd";
-import { HardDrive, Plus, RefreshCw, Settings2 } from "lucide-react";
+import { FolderOpen, HardDrive, Plus, RefreshCw, Settings2 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { mountApi } from "@/lib/api";
@@ -27,6 +25,7 @@ import type {
   MountScanProgress,
 } from "@/types";
 import { SyncTypeFields } from "./SyncTypeFields";
+import { MountFileBrowser } from "@/components/mounts/MountFileBrowser";
 
 interface Props {
   compact?: boolean;
@@ -53,8 +52,6 @@ function syncSummary(m: ExternalMount): string {
  * 文件浏览仍由 /mounts 页面负责，避免抽屉承载过重。
  */
 export function MountSettingsSection({ compact }: Props) {
-  const { token } = antdTheme.useToken();
-  const navigate = useNavigate();
   const [mounts, setMounts] = useState<ExternalMount[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanningId, setScanningId] = useState<number | null>(null);
@@ -64,6 +61,8 @@ export function MountSettingsSection({ compact }: Props) {
   const [editOpen, setEditOpen] = useState(false);
   const [editingMount, setEditingMount] = useState<ExternalMount | null>(null);
   const [editForm] = Form.useForm<ExternalMountUpdate>();
+  // 当前在下方内嵌浏览的挂载点；null = 收起文件列表
+  const [browseMountId, setBrowseMountId] = useState<number | null>(null);
 
   const loadMounts = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -79,6 +78,17 @@ export function MountSettingsSection({ compact }: Props) {
   useEffect(() => {
     void loadMounts();
   }, [loadMounts]);
+
+  // 挂载点被移除后收起文件列表
+  useEffect(() => {
+    if (
+      browseMountId != null &&
+      mounts.length > 0 &&
+      !mounts.some((m) => m.id === browseMountId)
+    ) {
+      setBrowseMountId(null);
+    }
+  }, [mounts, browseMountId]);
 
   useEffect(() => {
     let unlistenProgress: UnlistenFn | undefined;
@@ -224,6 +234,22 @@ export function MountSettingsSection({ compact }: Props) {
           <Space>
             <Button
               size="small"
+              type={browseMountId != null ? "primary" : "default"}
+              icon={<FolderOpen size={13} />}
+              onClick={() => {
+                if (mounts.length === 0) {
+                  message.info("还没有挂载外部目录");
+                  return;
+                }
+                setBrowseMountId((cur) =>
+                  cur == null ? mounts[0].id : null,
+                );
+              }}
+            >
+              {browseMountId != null ? "收起文件" : "浏览文件"}
+            </Button>
+            <Button
+              size="small"
               icon={<RefreshCw size={13} />}
               loading={loading}
               onClick={() => void loadMounts()}
@@ -299,6 +325,14 @@ export function MountSettingsSection({ compact }: Props) {
                 <Space wrap>
                   <Button
                     size="small"
+                    icon={<FolderOpen size={13} />}
+                    type={browseMountId === mount.id ? "primary" : "default"}
+                    onClick={() => setBrowseMountId(mount.id)}
+                  >
+                    浏览
+                  </Button>
+                  <Button
+                    size="small"
                     icon={<RefreshCw size={13} />}
                     loading={scanningId === mount.id}
                     onClick={() => void runScan(mount.id)}
@@ -321,17 +355,18 @@ export function MountSettingsSection({ compact }: Props) {
           ))
         )}
 
-        <div style={{ marginTop: 4 }}>
-          <Button
-            type="link"
-            size="small"
-            style={{ paddingLeft: 0, color: token.colorPrimary }}
-            onClick={() => navigate("/mounts")}
-          >
-            打开完整管理页 / 浏览文件
-          </Button>
-        </div>
       </Card>
+
+      {/* 文件列表内嵌在外部目录列表下方，不再跳转独立页面 */}
+      {browseMountId != null && (
+        <div style={{ marginTop: 12 }}>
+          <MountFileBrowser
+            mountId={browseMountId}
+            mountName={mounts.find((m) => m.id === browseMountId)?.name}
+            height={320}
+          />
+        </div>
+      )}
 
       <Modal
         title="添加外部目录"
