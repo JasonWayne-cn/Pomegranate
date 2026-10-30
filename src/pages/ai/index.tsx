@@ -287,6 +287,10 @@ function DesktopAiChatPage() {
         setLiveTurn(null);
         message.error(`AI 错误: ${event.payload}`);
       });
+      // 设置页/其它窗口新增、编辑、删除模型后刷新下拉列表
+      const modelsChangedUnlisten = await listen("ai:models-changed", () => {
+        void loadModels();
+      });
 
       if (cancelled) {
         // 注册期间已 unmount，立即解绑
@@ -296,6 +300,7 @@ function DesktopAiChatPage() {
         toolCallUnlisten();
         doneUnlisten();
         errorUnlisten();
+        modelsChangedUnlisten();
       } else {
         unlistens = [
           tokenUnlisten,
@@ -304,6 +309,7 @@ function DesktopAiChatPage() {
           toolCallUnlisten,
           doneUnlisten,
           errorUnlisten,
+          modelsChangedUnlisten,
         ];
       }
     })();

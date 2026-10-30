@@ -20,33 +20,55 @@ pub fn list_ai_models(state: State<'_, AppState>) -> Result<Vec<AiModel>, String
 
 /// 创建 AI 模型
 #[tauri::command]
-pub fn create_ai_model(state: State<'_, AppState>, input: AiModelInput) -> Result<AiModel, String> {
-    state.db.create_ai_model(&input).map_err(|e| e.to_string())
+pub fn create_ai_model(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    input: AiModelInput,
+) -> Result<AiModel, String> {
+    let model = state.db.create_ai_model(&input).map_err(|e| e.to_string())?;
+    // 通知所有窗口刷新模型下拉 / 列表
+    let _ = app.emit("ai:models-changed", ());
+    Ok(model)
 }
 
 /// 更新 AI 模型
 #[tauri::command]
 pub fn update_ai_model(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     id: i64,
     input: AiModelInput,
 ) -> Result<AiModel, String> {
-    state
+    let model = state
         .db
         .update_ai_model(id, &input)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("ai:models-changed", ());
+    Ok(model)
 }
 
 /// 删除 AI 模型
 #[tauri::command]
-pub fn delete_ai_model(state: State<'_, AppState>, id: i64) -> Result<(), String> {
-    state.db.delete_ai_model(id).map_err(|e| e.to_string())
+pub fn delete_ai_model(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<(), String> {
+    state.db.delete_ai_model(id).map_err(|e| e.to_string())?;
+    let _ = app.emit("ai:models-changed", ());
+    Ok(())
 }
 
 /// 设置默认 AI 模型
 #[tauri::command]
-pub fn set_default_ai_model(state: State<'_, AppState>, id: i64) -> Result<(), String> {
-    state.db.set_default_ai_model(id).map_err(|e| e.to_string())
+pub fn set_default_ai_model(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<(), String> {
+    state.db.set_default_ai_model(id).map_err(|e| e.to_string())?;
+    let _ = app.emit("ai:models-changed", ());
+    Ok(())
 }
 
 /// 测试 AI 模型连通性。
