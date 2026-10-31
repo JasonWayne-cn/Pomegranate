@@ -19,6 +19,7 @@ use crate::models::{
 };
 use crate::services::ai::AiService;
 use crate::services::note::NoteService;
+use crate::services::plugin_http::{self, PluginHttpRequest, PluginHttpResponse};
 use crate::services::search::SearchService;
 use crate::services::tasks::TaskService;
 use crate::state::AppState;
@@ -289,6 +290,21 @@ pub fn plugin_proxy_ai_models(
             max_output_tokens: m.max_output_tokens,
         })
         .collect())
+}
+
+/// 受控 HTTP 代理（network:request）
+///
+/// 仅允许访问白名单内的公共学术 API；禁用重定向；限制方法与体积。
+#[tauri::command]
+pub async fn plugin_proxy_http_request(
+    state: State<'_, AppState>,
+    token: String,
+    request: PluginHttpRequest,
+) -> Result<PluginHttpResponse, String> {
+    verify(&state, &token, Some("network:request")).map_err(|e| e.to_string())?;
+    plugin_http::request(request)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

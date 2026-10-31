@@ -25,6 +25,7 @@ const CardsPage = lazy(() => import("@/pages/cards"));
 const PromptsPage = lazy(() => import("@/pages/prompts"));
 const PluginsPage = lazy(() => import("@/pages/plugins"));
 const PluginPanelViewPage = lazy(() => import("@/pages/plugins/PluginPanelViewPage"));
+const ResearchPage = lazy(() => import("@/pages/research"));
 const HiddenPage = lazy(() => import("@/pages/hidden"));
 const QuickCreatePage = lazy(() => import("@/pages/quick-create"));
 const QuickCapturePage = lazy(() => import("@/pages/quick-capture"));
@@ -133,6 +134,7 @@ const router = createHashRouter([
       { path: "push", element: <LazyPage><PushPage /></LazyPage> },
       { path: "plugins", element: <LazyPage><PluginsPage /></LazyPage> },
       { path: "plugin-view/:viewId", element: <LazyPage><PluginPanelViewPage /></LazyPage> },
+      { path: "research", element: <LazyPage><ResearchPage /></LazyPage> },
       { path: "tasks", element: <LazyPage><TasksPage /></LazyPage> },
       { path: "task-session", element: <LazyPage><TaskSessionPage /></LazyPage> },
       { path: "cards", element: <LazyPage><CardsPage /></LazyPage> },

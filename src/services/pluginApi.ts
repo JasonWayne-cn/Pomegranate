@@ -28,6 +28,9 @@ import type {
   PluginEditorAPI,
   PluginAiAPI,
   PluginAiTokenPayload,
+  PluginHttpAPI,
+  PluginHttpRequest,
+  PluginHttpResponse,
   PluginTaskView,
 } from "@/types";
 import { PluginManager } from "@/services/pluginManager";
@@ -401,6 +404,21 @@ export function createAppAPI(
     },
   };
 
+  // ─── http 子 API（network:request）──────────
+  const http: PluginHttpAPI = {
+    request: async (input: PluginHttpRequest) => {
+      preCheck(pluginId, "network:request");
+      try {
+        return await invoke<PluginHttpResponse>("plugin_proxy_http_request", {
+          token,
+          request: input,
+        });
+      } catch (e) {
+        throw new Error(translateError(String(e)));
+      }
+    },
+  };
+
   // ─── invoke 桥接（Phase 1：直接透传，供插件调用现有 Rust Command）───
   const rawInvoke = async <T = unknown>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     try {
@@ -440,6 +458,7 @@ export function createAppAPI(
     ribbon,
     editor,
     ai,
+    http,
     invoke: rawInvoke,
     onTauriEvent: rawOnTauriEvent,
   };

@@ -402,6 +402,24 @@ export interface PluginSettingsAPI {
   createForm(container: HTMLElement, schema: PluginSettingsFormSchema): () => void;
 }
 
+/** 受控网络请求（network:request） */
+export interface PluginHttpRequest {
+  url: string;
+  method?: "GET" | "POST";
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+}
+
+export interface PluginHttpResponse {
+  status: number;
+  body: string;
+}
+
+export interface PluginHttpAPI {
+  request(input: PluginHttpRequest): Promise<PluginHttpResponse>;
+}
+
 /** 笔记子 API */
 export interface PluginNotesAPI {
   list(query?: NoteQuery): Promise<Note[]>;
@@ -431,6 +449,8 @@ export interface PluginAppAPI {
   editor: PluginEditorAPI;
   /** AI 对话能力 — 1.2.0 新增 */
   ai: PluginAiAPI;
+  /** 受控网络请求 — network:request */
+  http: PluginHttpAPI;
   /**
    * 通用 invoke 桥接（Phase 1 轻量方案，供插件调用现有 Rust Command）。
    * 直接透传 Tauri invoke，不做令牌/权限校验。

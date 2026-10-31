@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 80;
+pub const SCHEMA_VERSION: i32 = 82;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -113,6 +113,8 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             77 => migrate_v77_to_v78(conn)?,
             78 => migrate_v78_to_v79(conn)?,
             79 => migrate_v79_to_v80(conn)?,
+            80 => migrate_v80_to_v81(conn)?,
+            81 => migrate_v81_to_v82(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -2900,6 +2902,128 @@ fn migrate_v79_to_v80(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 80)?;
+    Ok(())
+}
+
+/// v80 -> v81: 功能扩展包（Engine Pack）与 PPT 作业
+fn migrate_v80_to_v81(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v80 -> v81 (扩展包 / PPT 作业)");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS extensions (
+            id                TEXT PRIMARY KEY,
+            name              TEXT NOT NULL,
+            version           TEXT NOT NULL,
+            kind              TEXT NOT NULL DEFAULT 'engine',
+            path              TEXT NOT NULL,
+            enabled           INTEGER NOT NULL DEFAULT 1,
+            status            TEXT NOT NULL DEFAULT 'installed',
+            content_hash      TEXT NOT NULL,
+            permissions_json  TEXT NOT NULL DEFAULT '[]',
+            supports_ppt      INTEGER NOT NULL DEFAULT 0,
+            manifest_json     TEXT NOT NULL,
+            installed_at      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at        TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS extension_versions (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            extension_id    TEXT NOT NULL,
+            version         TEXT NOT NULL,
+            path            TEXT NOT NULL,
+            content_hash    TEXT NOT NULL,
+            is_current      INTEGER NOT NULL DEFAULT 0,
+            installed_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            UNIQUE(extension_id, version)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_extension_versions_current
+            ON extension_versions(extension_id, is_current);
+
+        CREATE TABLE IF NOT EXISTS ppt_jobs (
+            id               TEXT PRIMARY KEY,
+            extension_id     TEXT NOT NULL,
+            status           TEXT NOT NULL,
+            title            TEXT NOT NULL,
+            template_id      TEXT,
+            workspace_path   TEXT NOT NULL,
+            project_path     TEXT,
+            pptx_path        TEXT,
+            final_pptx_path  TEXT,
+            error_code       TEXT,
+            error_message    TEXT,
+            log_tail         TEXT,
+            created_at       TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            started_at       TEXT,
+            finished_at      TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ppt_jobs_created
+            ON ppt_jobs(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_ppt_jobs_status
+            ON ppt_jobs(status);
+        ",
+    )?;
+
+    set_version(conn, 81)?;
+    Ok(())
+}
+
+/// v81 -> v82: 助研模块（课题 / 文献 / 产出）
+fn migrate_v81_to_v82(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v81 -> v82 (助研模块)");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS research_projects (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            title        TEXT NOT NULL,
+            field        TEXT NOT NULL DEFAULT '',
+            description  TEXT NOT NULL DEFAULT '',
+            keywords     TEXT NOT NULL DEFAULT '',
+            status       TEXT NOT NULL DEFAULT 'active',
+            created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS research_literature (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id     INTEGER NOT NULL REFERENCES research_projects(id) ON DELETE CASCADE,
+            title          TEXT NOT NULL,
+            authors        TEXT NOT NULL DEFAULT '',
+            year           INTEGER,
+            venue          TEXT NOT NULL DEFAULT '',
+            abstract_text  TEXT NOT NULL DEFAULT '',
+            url            TEXT NOT NULL DEFAULT '',
+            file_path      TEXT NOT NULL DEFAULT '',
+            notes          TEXT NOT NULL DEFAULT '',
+            tags           TEXT NOT NULL DEFAULT '',
+            status         TEXT NOT NULL DEFAULT 'to_read',
+            created_at     TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_research_literature_project
+            ON research_literature(project_id, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS research_outputs (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id   INTEGER NOT NULL REFERENCES research_projects(id) ON DELETE CASCADE,
+            kind         TEXT NOT NULL,
+            title        TEXT NOT NULL,
+            content      TEXT NOT NULL,
+            source_ref   TEXT NOT NULL DEFAULT '',
+            created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_research_outputs_project
+            ON research_outputs(project_id, updated_at DESC);
+        ",
+    )?;
+
+    set_version(conn, 82)?;
     Ok(())
 }
 

@@ -35,6 +35,7 @@ pub mod projects;
 pub mod prompt;
 pub mod push;
 pub mod reminder_sound;
+pub mod research;
 pub mod search;
 pub mod session;
 // 全局快捷键仅桌面端可用（移动端无此概念）

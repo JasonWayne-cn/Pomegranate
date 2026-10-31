@@ -107,7 +107,12 @@ impl PluginService {
         ensure_declared_main_exists(&dest, &installed_manifest)?;
         let installed_path = dest.to_string_lossy().to_string();
         let hash = compute_main_hash(&dest, &installed_manifest.main)?;
-        db.upsert_plugin(&installed_manifest, &installed_path, &hash)
+        let info = db.upsert_plugin(&installed_manifest, &installed_path, &hash)?;
+        // 重装时恢复卸载前备份的插件设置，避免 plugin_settings 外键级联删除造成数据丢失。
+        if let Err(error) = restore_plugin_settings(db, data_dir, &info.id) {
+            log::warn!("[plugin] 恢复 {} 的数据失败: {}", info.id, error);
+        }
+        Ok(info)
     }
 
     /// 启用插件。当前阶段只记录状态，不执行第三方代码。
@@ -123,8 +128,16 @@ impl PluginService {
     }
 
     /// 卸载插件：删除 app data/plugins/<plugin-id> 并移除数据库记录
+    ///
+    /// plugin_settings 通过外键级联删除；卸载前先把设置备份到
+    /// `<data_dir>/plugin-data-backups/<plugin-id>.json`，重装时自动恢复。
     pub fn uninstall(db: &Database, data_dir: &Path, plugin_id: &str) -> Result<bool, AppError> {
         validate_plugin_id(plugin_id)?;
+        match backup_plugin_settings(db, data_dir, plugin_id) {
+            Ok(()) => {}
+            Err(AppError::NotFound(_)) => {}
+            Err(error) => return Err(error),
+        }
         let plugin_dir = ensure_plugins_dir(data_dir)?.join(plugin_id);
         if plugin_dir.exists() {
             fs::remove_dir_all(&plugin_dir)?;
@@ -228,6 +241,47 @@ fn ensure_plugins_dir(data_dir: &Path) -> Result<PathBuf, AppError> {
     let dir = data_dir.join("plugins");
     fs::create_dir_all(&dir)?;
     Ok(dir)
+}
+
+/// 插件设置备份目录：放在 plugins 之外，避免被插件扫描器当作插件目录。
+fn plugin_data_backup_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("plugin-data-backups")
+}
+
+fn backup_plugin_settings(
+    db: &Database,
+    data_dir: &Path,
+    plugin_id: &str,
+) -> Result<(), AppError> {
+    let settings = db.get_plugin_settings(plugin_id)?;
+    if settings.is_empty() {
+        return Ok(());
+    }
+    let dir = plugin_data_backup_dir(data_dir);
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{plugin_id}.json"));
+    fs::write(&path, serde_json::to_vec_pretty(&settings)?)?;
+    Ok(())
+}
+
+fn restore_plugin_settings(
+    db: &Database,
+    data_dir: &Path,
+    plugin_id: &str,
+) -> Result<(), AppError> {
+    let path = plugin_data_backup_dir(data_dir).join(format!("{plugin_id}.json"));
+    if !path.is_file() {
+        return Ok(());
+    }
+    let bytes = fs::read(&path)?;
+    let settings: HashMap<String, serde_json::Value> = serde_json::from_slice(&bytes)?;
+    if settings.is_empty() {
+        let _ = fs::remove_file(&path);
+        return Ok(());
+    }
+    db.set_plugin_settings(plugin_id, &settings)?;
+    let _ = fs::remove_file(&path);
+    Ok(())
 }
 
 fn validate_manifest(manifest: &PluginManifest) -> Result<(), AppError> {

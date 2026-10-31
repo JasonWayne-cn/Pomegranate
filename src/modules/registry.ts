@@ -15,6 +15,7 @@ import {
   Trash2,
   EyeOff,
   Bell,
+  FlaskConical,
 } from "lucide-react";
 import type { ActiveView } from "@/store";
 import type { ModuleMeta } from "./types";
@@ -522,6 +523,23 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         kind: "link",
         description: "安装、启用插件，查看插件声明的权限与命令。",
         link: { to: "/plugins", label: "打开插件管理" },
+      },
+    ],
+  },
+
+  research: {
+    view: "research",
+    label: "助研",
+    icon: FlaskConical,
+    description: "围绕课题组织文献、前沿追踪、学术写作与数据分析",
+    helpFile: "research.md",
+    panels: [
+      {
+        id: "open",
+        title: "助研工作台",
+        kind: "link",
+        description: "按课题管理文献与 AI 产出，支持导出为笔记。",
+        link: { to: "/research", label: "打开助研工作台" },
       },
     ],
   },

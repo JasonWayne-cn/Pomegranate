@@ -79,6 +79,7 @@ export type ActiveView =
   | "prompts"
   | "push"
   | "plugins"
+  | "research"
   | "about"
   | "trash"
   | "hidden";

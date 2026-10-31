@@ -60,6 +60,7 @@ pub mod note_excerpt;
 pub mod orphan_scan;
 pub mod pdf;
 pub mod plugin;
+pub mod plugin_http;
 pub mod plugin_token;
 pub mod plugin_rate_limit;
 // 插件系统：元数据管理、manifest 校验、安装/卸载
@@ -73,6 +74,7 @@ pub mod provider_registry;
 pub mod push;
 pub mod quick_capture;
 pub mod reminder_sound;
+pub mod research;
 pub mod safe_filename;
 pub mod search;
 pub mod session_manager;

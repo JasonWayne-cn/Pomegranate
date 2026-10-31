@@ -980,6 +980,8 @@ pub fn run() {
             commands::plugin_proxy::plugin_proxy_ai_chat_sync,
             commands::plugin_proxy::plugin_proxy_ai_models,
             commands::plugin_proxy::plugin_proxy_ai_cancel,
+            // 插件 proxy — 受控网络（network:request）
+            commands::plugin_proxy::plugin_proxy_http_request,
             // 插件 proxy — 待办（阶段 2）
             commands::plugin_proxy::plugin_proxy_tasks_list,
             commands::plugin_proxy::plugin_proxy_tasks_get,
@@ -987,6 +989,21 @@ pub fn run() {
             commands::plugin_proxy::plugin_proxy_tasks_update,
             commands::plugin_proxy::plugin_proxy_tasks_complete,
             commands::plugin_proxy::plugin_proxy_tasks_delete,
+            // 助研模块
+            commands::research::research_list_projects,
+            commands::research::research_create_project,
+            commands::research::research_update_project,
+            commands::research::research_delete_project,
+            commands::research::research_list_literature,
+            commands::research::research_create_literature,
+            commands::research::research_update_literature,
+            commands::research::research_delete_literature,
+            commands::research::research_list_outputs,
+            commands::research::research_create_output,
+            commands::research::research_update_output,
+            commands::research::research_delete_output,
+            commands::research::research_export_output_to_note,
+            commands::research::research_ai_generate,
             // 笔记模块
             commands::notes::create_note,
             commands::notes::update_note,

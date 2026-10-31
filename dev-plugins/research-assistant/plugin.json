@@ -1,0 +1,27 @@
+{
+  "id": "research-assistant",
+  "name": "AI 助研",
+  "version": "1.0.0",
+  "description": "课题、文献检索、论文精读、学术写作与数据分析，数据保存在插件自身设置中",
+  "author": "Pomegranate",
+  "main": "main.js",
+  "styles": "styles.css",
+  "minAppVersion": "2.1.0",
+  "permissions": [
+    "ai:chat",
+    "ai:models",
+    "notes:read",
+    "notes:write",
+    "settings:read",
+    "settings:write",
+    "network:request"
+  ],
+  "contributes": {
+    "commands": [
+      { "id": "research.open", "title": "打开 AI 助研" }
+    ],
+    "sidebarViews": [
+      { "id": "research-view", "title": "AI 助研" }
+    ]
+  }
+}
