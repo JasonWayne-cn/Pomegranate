@@ -24,18 +24,21 @@
 - 原生图表增强：沿用模板调色板，补充图例、数据标签、网格线与图表字体
 - 程序化图表布局：按 `chart` 数据渲染柱状/折线/饼图，新增 `chart` 页面结构与图标装饰
 - 页面节奏：`density` 影响卡片字号、图表留白与布局密度
-- 历史作业恢复：从 `job.json` 回显生成方式、原生图表与页数
+- 历史作业恢复：从 `job.json` 回显生成方式、原生图表、页数、标题与模板
+- 演讲备注：导出后统一把每页 `speakerNote` 写入 PPTX 备注页
+- 末页图表：有 `chart` 数据时优先图表布局，不再被 Summary 覆盖
 
 ### 验证
 
-- `cargo test "services::ppt"`：31 passed
+- `cargo test "services::ppt"`：34 passed
 - `cargo check`：通过
 - `npx tsc --noEmit`：通过
 - `npx vitest run`：537 passed
-- 扩展 unittest：21 passed
+- 扩展 unittest：22 passed
 - 程序化 4 个新增布局目检通过
 - 13 页导出原生 PPTX 成功，图表、流程和卡片保留
-- 新增图表布局单测：柱状/折线/饼图 SVG 结构通过
+- 新增图表布局单测：柱状/折线/饼图 SVG 结构与末页图表布局通过
+- 原生图表导出冒烟：pptx 含 `ppt/charts/chart*.xml`，演讲备注写入 notesSlides
 
 ### 待办
 

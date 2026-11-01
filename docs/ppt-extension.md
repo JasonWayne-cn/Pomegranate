@@ -244,7 +244,8 @@ status: ready | running | succeeded | failed | cancelled
 | `ppt_extension_render_draft` | 生成草稿，只写 `svg_output/` |
 | `ppt_extension_render_ai_draft` | 按模式生成草稿（programmatic / oneShot / bestOf） |
 | `ppt_extension_regenerate_ai_page` | 单页重新生成（可选模型） |
-| `ppt_extension_job_options` | 读取作业渲染选项（生成方式/原生图表/页数） |
+| `ppt_extension_job_options` | 读取作业渲染选项（生成方式/原生图表/页数），并回显标题、版式与图表模板 |
+| `ppt_extension_source_file` | 返回作业固化素材 `input/source.md` 的绝对路径 |
 | `ppt_extension_page_selection` | 读取每页评分、候选与选中索引 |
 | `ppt_extension_page_candidates` | 读取程序化或 AI 页面候选 SVG |
 | `ppt_extension_select_page_candidate` | 手动切换页面候选 |
