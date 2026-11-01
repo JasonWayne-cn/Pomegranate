@@ -36,12 +36,15 @@ import {
   Sparkles,
   EyeOff,
   Globe,
+  Presentation,
+  Package,
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FolderOutlined } from "@ant-design/icons";
 import type { DataNode } from "antd/es/tree";
 import { useAppStore } from "@/store";
 import { folderApi, importApi } from "@/lib/api";
+import { extensionApi } from "@/lib/api/extension";
 import type { Folder, ScannedFile } from "@/types";
 import { NewNoteButton } from "@/components/NewNoteButton";
 import { OpenFileButton } from "@/components/OpenFileButton";
@@ -59,6 +62,7 @@ const navItems = [
   { key: "/tags", icon: <Tags size={16} />, label: "标签" },
   { key: "/tasks", icon: <CheckSquare size={16} />, label: "待办" },
   { key: "/ai", icon: <Bot size={16} />, label: "AI 问答" },
+  { key: "/extensions", icon: <Package size={16} />, label: "扩展包" },
   { key: "/about", icon: <Info size={16} />, label: "关于" },
 ];
 
@@ -127,10 +131,37 @@ export function Sidebar() {
     refreshTaskStats();
   }, [refreshTaskStats]);
 
+  // PPT 扩展启用后才显示入口
+  const [pptEnabled, setPptEnabled] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    extensionApi
+      .list()
+      .then((list) => {
+        if (!cancelled) {
+          setPptEnabled(list.some((item) => item.enabled && item.supportsPpt));
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const allNavItems = useMemo(() => {
+    if (!pptEnabled) return navItems;
+    const about = navItems.find((item) => item.key === "/about");
+    return [
+      ...navItems.filter((item) => item.key !== "/about"),
+      { key: "/ppt", icon: <Presentation size={16} />, label: "PPT 生成" },
+      ...(about ? [about] : []),
+    ];
+  }, [pptEnabled]);
+
   // 在导航项"待办"上叠加红色 Badge（紧急数=0 时自动隐藏，不占空间）
   const menuItems = useMemo(
     () =>
-      navItems.map((item) => {
+      allNavItems.map((item) => {
         if (item.key !== "/tasks") return item;
         return {
           ...item,
@@ -147,7 +178,7 @@ export function Sidebar() {
           ),
         };
       }),
-    [urgentTodoCount],
+    [allNavItems, urgentTodoCount],
   );
 
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -665,7 +696,7 @@ export function Sidebar() {
   }
 
   /** 当前路径匹配 */
-  const selectedNav = navItems.find((item) =>
+  const selectedNav = allNavItems.find((item) =>
     item.key === "/"
       ? location.pathname === "/"
       : location.pathname.startsWith(item.key),

@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 82;
+pub const SCHEMA_VERSION: i32 = 83;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -115,6 +115,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             79 => migrate_v79_to_v80(conn)?,
             80 => migrate_v80_to_v81(conn)?,
             81 => migrate_v81_to_v82(conn)?,
+            82 => migrate_v82_to_v83(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -3024,6 +3025,22 @@ fn migrate_v81_to_v82(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 82)?;
+    Ok(())
+}
+
+/// v82 -> v83: PPT 多阶段流程（作业 stage）
+fn migrate_v82_to_v83(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v82 -> v83 (PPT 作业阶段)");
+
+    conn.execute_batch(
+        "
+        ALTER TABLE ppt_jobs ADD COLUMN stage TEXT NOT NULL DEFAULT 'outline_ready';
+        UPDATE ppt_jobs
+           SET stage = CASE WHEN status = 'succeeded' THEN 'done' ELSE 'outline_ready' END;
+        ",
+    )?;
+
+    set_version(conn, 83)?;
     Ok(())
 }
 

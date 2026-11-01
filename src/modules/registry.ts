@@ -9,6 +9,8 @@ import {
   Layers,
   NotebookText,
   Plug,
+  Package,
+  Presentation,
   Search,
   Sparkles,
   Tags,
@@ -523,6 +525,40 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         kind: "link",
         description: "安装、启用插件，查看插件声明的权限与命令。",
         link: { to: "/plugins", label: "打开插件管理" },
+      },
+    ],
+  },
+
+  extensions: {
+    view: "extensions",
+    label: "扩展包",
+    icon: Package,
+    description: "按需安装的本地功能扩展包（如 PPT 生成引擎）",
+    helpFile: "extensions.md",
+    panels: [
+      {
+        id: "manage",
+        title: "扩展包管理",
+        kind: "link",
+        description: "导入 zip 安装扩展，启用/禁用与完整性校验。",
+        link: { to: "/extensions", label: "打开扩展包管理" },
+      },
+    ],
+  },
+
+  ppt: {
+    view: "ppt",
+    label: "PPT 生成",
+    icon: Presentation,
+    description: "选择多个文档生成可编辑 PPTX（需要安装 PPT 扩展包）",
+    helpFile: "ppt.md",
+    panels: [
+      {
+        id: "open",
+        title: "文档生成 PPT",
+        kind: "link",
+        description: "选择文档、版式与导出目录，生成可编辑 PPTX。",
+        link: { to: "/ppt", label: "打开 PPT 生成" },
       },
     ],
   },

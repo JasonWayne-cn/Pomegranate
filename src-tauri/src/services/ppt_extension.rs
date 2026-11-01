@@ -404,6 +404,7 @@ impl PptExtensionService {
                 "extraRequirements": input.extra_requirements,
                 "timeoutSecs": input.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(30, 7200),
                 "nativeCharts": input.native_charts.unwrap_or(false),
+                "modelId": input.model_id,
             },
             "templatesDir": "templates",
             "outputDir": "output",
@@ -858,6 +859,118 @@ impl PptExtensionService {
     /// 校验并规范化一份前端传来的大纲，不落盘。
     pub fn validate_plan(plan: Value) -> PptPlan {
         ppt_plan::normalize_plan(plan, "", "", None)
+    }
+
+    /// 复用现有素材与作业设置，重新调用 AI 生成大纲。
+    pub async fn regenerate_plan(
+        db: &Database,
+        job_id: &str,
+        slide_count: Option<usize>,
+        model_id: Option<i64>,
+        cancel: Arc<AtomicBool>,
+        app: Option<AppHandle>,
+    ) -> Result<PptPlan, AppError> {
+        let mut job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {} 不存在", job_id)))?;
+        if job.status == "running" {
+            return Err(AppError::InvalidInput(
+                "作业正在运行，不能重新生成大纲".into(),
+            ));
+        }
+        let job_dir = PathBuf::from(&job.workspace_path);
+        let source_path = job_dir.join("input").join("source.md");
+        let source = fs::read_to_string(&source_path).map_err(|_| {
+            AppError::NotFound("作业缺少 input/source.md，无法重新生成大纲".into())
+        })?;
+        if source.trim().is_empty() {
+            return Err(AppError::InvalidInput(
+                "素材正文为空，无法重新生成大纲".into(),
+            ));
+        }
+
+        let spec_path = job_dir.join("job.json");
+        let spec = if spec_path.is_file() {
+            serde_json::from_str::<Value>(&fs::read_to_string(&spec_path)?)?
+        } else {
+            json!({})
+        };
+        let options = spec.get("options").cloned().unwrap_or_else(|| json!({}));
+        let title = spec
+            .get("source")
+            .and_then(|source| source.get("title"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(job.title.as_str())
+            .to_string();
+        let audience = options
+            .get("audience")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let language = options
+            .get("language")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let extra_requirements = options
+            .get("extraRequirements")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        let input = PptJobInput {
+            note_ids: Vec::new(),
+            mount_note_ids: Vec::new(),
+            local_files: Vec::new(),
+            manual_text: String::new(),
+            title,
+            audience,
+            slide_count,
+            layout_id: job.template_id.clone(),
+            chart_ids: Vec::new(),
+            language,
+            extra_requirements,
+            export_dir: None,
+            model_id,
+            planning_id: None,
+            timeout_secs: None,
+            native_charts: None,
+        };
+
+        emit_system_log(app.as_ref(), "正在重新生成大纲...");
+        let plan = build_plan_with_ai(
+            db,
+            &input,
+            &source,
+            app.as_ref(),
+            &cancel,
+            Duration::from_secs(DEFAULT_PLANNING_TIMEOUT_SECS),
+        )
+        .await?;
+
+        ppt_plan::write_plan(&job_dir, &plan)?;
+        update_job_json_plan(&job_dir, &plan)?;
+        update_job_json_plan_options(&job_dir, slide_count, model_id)?;
+        clear_draft_pages(&job_dir)?;
+        clear_output_pptx(&job_dir)?;
+
+        job.status = "ready".into();
+        job.stage = STAGE_OUTLINE_READY.into();
+        job.pptx_path = None;
+        job.final_pptx_path = None;
+        job.error_code = None;
+        job.error_message = None;
+        job.log_tail = None;
+        job.started_at = None;
+        job.finished_at = None;
+        db.update_ppt_job(&job)?;
+        emit_system_log(
+            app.as_ref(),
+            &format!("大纲已重新生成：{} 页", plan.slides.len()),
+        );
+        Ok(plan)
     }
 
     /// 根据素材标题/摘要，推断一个 PPT 标题与最可能的汇报对象。
@@ -1489,6 +1602,28 @@ fn natural_page_cmp(left: &str, right: &str) -> std::cmp::Ordering {
     }
 }
 
+fn update_job_json_plan_options(
+    job_dir: &Path,
+    slide_count: Option<usize>,
+    model_id: Option<i64>,
+) -> Result<(), AppError> {
+    let path = job_dir.join("job.json");
+    let mut spec = if path.is_file() {
+        serde_json::from_str::<Value>(&fs::read_to_string(&path)?)?
+    } else {
+        json!({})
+    };
+    if !spec.is_object() {
+        spec = json!({});
+    }
+    if !spec.get("options").map(Value::is_object).unwrap_or(false) {
+        spec["options"] = json!({});
+    }
+    spec["options"]["slideCount"] = json!(slide_count);
+    spec["options"]["modelId"] = json!(model_id);
+    write_json_atomic(&path, &spec)
+}
+
 fn update_job_json_plan(job_dir: &Path, plan: &PptPlan) -> Result<(), AppError> {
     let path = job_dir.join("job.json");
     let mut spec = if path.is_file() {
@@ -1651,6 +1786,31 @@ mod tests {
         assert_eq!(parse_page_number("P12.svg"), Some(12));
         assert_eq!(parse_page_number("cover.svg"), None);
         assert!(natural_page_cmp("P02.svg", "P10.svg").is_lt());
+    }
+
+    #[test]
+    fn persists_regenerate_options_without_losing_plan() {
+        let dir = std::env::temp_dir().join(format!("ppt-opts-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("job.json"),
+            serde_json::to_vec_pretty(&json!({
+                "plan": { "title": "保留大纲", "slides": [] },
+                "options": { "audience": "测试" }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        update_job_json_plan_options(&dir, Some(8), Some(3)).unwrap();
+        let spec: Value =
+            serde_json::from_str(&fs::read_to_string(dir.join("job.json")).unwrap()).unwrap();
+        assert_eq!(spec["options"]["slideCount"], 8);
+        assert_eq!(spec["options"]["modelId"], 3);
+        assert_eq!(spec["options"]["audience"], "测试");
+        assert_eq!(spec["plan"]["title"], "保留大纲");
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -8,6 +8,7 @@ pub mod dataset_query;
 mod dataset_query_tests;
 pub mod dataview;
 pub mod embedding;
+pub mod extensions;
 pub mod folders;
 pub mod links;
 pub mod mcp_servers;

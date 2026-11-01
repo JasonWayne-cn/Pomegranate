@@ -1308,6 +1308,36 @@ export interface AiStreamChunk {
   → 进入编辑器界面
 ```
 
+### 7. PPT 扩展生成流程（五阶段）
+
+```
+素材与设置 → 风格确认 → 大纲确认 → 草稿修改 → 最终导出
+```
+
+```
+job.stage:
+  outline_ready
+    → rendering_draft
+    → draft_ready
+    → exporting
+    → done
+```
+
+| 阶段 | 行为 | 状态 |
+|---|---|---|
+| 素材与设置 | 选择素材，AI 建议标题与汇报对象 | 已完成 |
+| 风格确认 | 版式封面预览、中文名称与说明，确认版式/图表 | 已完成 |
+| 大纲确认 | 编辑 `plan.json`，调整页序/标题/要点 | 已完成 |
+| 草稿修改 | 预览 `project/svg_output/`，修改内容后重渲染 | 已完成 |
+| 最终导出 | 质量门禁 + `svg_to_pptx.py` / python-pptx | 已完成 |
+
+引擎通过 `job.json` 的 `options.stage` 区分 `render` / `export` / `full`。  
+`ppt_jobs.stage` 持久化阶段；草稿资产通过受控的 job 资产读取接口暴露给前端。  
+阶段可回退：内容未变时前进直接复用已有大纲/草稿/导出结果；大纲页支持设置页数并重新生成大纲。  
+第一版草稿修改只做内容级编辑，不做 SVG 元素自由拖拽。
+
+详细设计见 [ppt-extension.md](./ppt-extension.md)。
+
 ---
 
 ## 性能策略

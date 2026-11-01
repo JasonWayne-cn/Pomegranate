@@ -453,6 +453,8 @@ function DesktopSettingsPage() {
                 <div id="settings-sync">
                   <SyncTabs />
                 </div>
+
+                <AppLockSection />
               </div>
             ),
           },
@@ -462,8 +464,8 @@ function DesktopSettingsPage() {
             label: <span className="flex items-center gap-2"><Layers size={16} />功能扩展</span>,
             children: (
               <div className="settings-tabs-stack">
-                <AppLockSection />
                 <McpHttpSection />
+                <FeatureModulesSection title="侧边栏" />
               </div>
             ),
           },
@@ -550,8 +552,6 @@ function DesktopSettingsPage() {
             label: <span className="flex items-center gap-2"><Rocket size={16} />更新启动</span>,
             children: (
               <div className="settings-tabs-stack">
-                <FeatureModulesSection title="侧边栏" />
-
                 <Card id="settings-update" title="软件更新">
                   <Space wrap>
                     <Button

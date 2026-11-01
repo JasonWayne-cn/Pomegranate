@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# 扩展包构建中间目录与 Python 缓存
+build/
+__pycache__/
+*.pyc
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

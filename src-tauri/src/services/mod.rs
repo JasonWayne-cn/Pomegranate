@@ -28,6 +28,11 @@ pub mod embedding;
 pub mod excel_parser;
 pub mod export;
 pub mod export_html;
+// 功能扩展包（Engine Pack）：安装、校验、启停、运行
+pub mod extension;
+pub mod extension_runner;
+pub mod ppt_extension;
+pub mod ppt_plan;
 pub mod export_merge;
 // Word 导出仅桌面端：docx_rs 在 Android target 编译失败
 pub mod doc_extract;

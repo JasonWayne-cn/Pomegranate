@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, RwLock};
 
 use tokio::sync::{watch, Notify};
@@ -62,6 +63,10 @@ pub struct AppState {
     pub plugin_rate_limiter: PluginRateLimiter,
     /// Claude Code Agent Runner 活跃进程表（session_id → 进程句柄）
     pub claude_agent_processes: Arc<Mutex<std::collections::HashMap<String, AgentProcessHandle>>>,
+    /// PPT 扩展作业取消标志（job_id → cancel flag）
+    pub ppt_job_cancel: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
+    /// PPT 大纲规划取消标志（planning_id → cancel flag）
+    pub ppt_plan_cancel: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
 }
 
 impl AppState {
@@ -93,6 +98,8 @@ impl AppState {
             plugin_tokens: PluginTokenRegistry::default(),
             plugin_rate_limiter: PluginRateLimiter::new(),
             claude_agent_processes: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            ppt_job_cancel: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            ppt_plan_cancel: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 }

@@ -14,12 +14,15 @@ import {
   Bot,
   Bell,
   Plug,
+  Package,
+  Presentation,
   Trash2,
   Info,
   EyeOff,
 } from "lucide-react";
 import { useAppStore } from "@/store";
 import type { ActiveView } from "@/store";
+import { extensionApi } from "@/lib/api/extension";
 import { pluginManager } from "@/services/pluginManager";
 import type { PluginSidebarItemDef } from "@/types";
 import { resolvePluginIconComponent } from "@/components/plugin/pluginIcons";
@@ -83,9 +86,19 @@ const MAIN_GROUPS: ActivityItem[][] = [
   ],
 ];
 
+/** PPT 扩展启用后才显示的视图 */
+const PPT_ITEM: ActivityItem = {
+  view: "ppt",
+  route: "/ppt",
+  label: "PPT 生成",
+  icon: <Presentation size={18} />,
+  core: true,
+};
+
 /** 底部视图（放最下方，视觉上与主视图分组） */
 const BOTTOM_ITEMS: ActivityItem[] = [
   { view: "plugins", route: "/plugins", label: "插件", icon: <Plug size={18} /> },
+  { view: "extensions", route: "/extensions", label: "扩展包", icon: <Package size={18} />, core: true },
   { view: "trash", route: "/trash", label: "回收站", icon: <Trash2 size={18} />, core: true },
   // 「关于」承担原标题栏设置按钮的入口职责：直接打开设置页的关于 Tab
   { view: "about", route: "/settings?tab=about", label: "关于", icon: <Info size={18} />, core: true },
@@ -103,9 +116,12 @@ const ROUTE_TO_VIEW: Array<[string, ActiveView]> = [
   ["/cards", "cards"],
   ["/graph", "graph"],
   ["/ai", "ai"],
+  ["/research", "research"],
   ["/prompts", "prompts"],
   ["/push", "push"],
   ["/plugins", "plugins"],
+  ["/extensions", "extensions"],
+  ["/ppt", "ppt"],
   ["/hidden", "hidden"],
   ["/trash", "trash"],
   ["/about", "about"],
@@ -136,6 +152,22 @@ export function ActivityBar() {
   const isHiddenUnlocked = useAppStore((s) => s.isHiddenUnlocked);
   const enabledViews = useAppStore((s) => s.enabledViews);
   const [unlockOpen, setUnlockOpen] = useState(false);
+
+  // PPT 入口仅在扩展已安装且启用时出现；安装/启停后由扩展页派发事件刷新。
+  const [pptEnabled, setPptEnabled] = useState(false);
+  useEffect(() => {
+    const refresh = () => {
+      extensionApi
+        .list()
+        .then((list) => {
+          setPptEnabled(list.some((item) => item.enabled && item.supportsPpt));
+        })
+        .catch(() => setPptEnabled(false));
+    };
+    refresh();
+    window.addEventListener("app:extensions-changed", refresh);
+    return () => window.removeEventListener("app:extensions-changed", refresh);
+  }, []);
 
   /** 是否显示某项：核心永远显示；可选项看用户是否在设置里启用 */
   const isVisible = (item: ActivityItem) =>
@@ -437,6 +469,7 @@ export function ActivityBar() {
       }}
     >
       {MAIN_GROUPS.flat().filter(isVisible).map(renderItem)}
+      {pptEnabled && renderItem(PPT_ITEM)}
 
       {/* 插件主区：按 group 分桶，桶之间用细分隔线区分；与内置导航之间也加一条 */}
       {groupedPluginItems.main.length > 0 && renderPluginDivider("plugin-top-divider")}

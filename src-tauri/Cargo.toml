@@ -59,7 +59,7 @@ tauri-plugin-process = "2"
 # reqwest：移动端 NDK 不带 OpenSSL，统一用 rustls-tls（桌面端也能用，行为一致；
 # 系统证书池靠 rustls-native-certs 加载，避免迁移成本）
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "rustls-tls-native-roots"] }
-tokio = { version = "1", features = ["sync", "fs", "io-util", "rt", "rt-multi-thread"] }
+tokio = { version = "1", features = ["sync", "fs", "io-util", "rt", "rt-multi-thread", "time"] }
 # T-024b S3 协议 backend：rust-s3 0.34 即使开 tokio-rustls-tls 也强制带 native-tls/openssl
 # 链接，移动端 NDK 不带 OpenSSL 编译失败 → 整段移到 target.desktop dependencies
 # 移动端按 T-M014 计划改"手动同步 + 仅 WebDAV/local"，等 rust-s3 修了 features 隔离再启用
@@ -84,6 +84,8 @@ sha2 = "0.10"
 hostname = "0.4"
 urlencoding = "2"
 aes-gcm = "0.10"
+# 扩展包离线签名验证（Ed25519，纯 Rust，无平台依赖）
+ed25519-dalek = "2"
 # T-007 笔记加密：Argon2id 密码派生 + zeroize 在 drop 时清零敏感内存；rand 生成盐/nonce
 argon2 = "0.5"
 zeroize = { version = "1", features = ["zeroize_derive"] }

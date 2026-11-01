@@ -27,6 +27,7 @@ import {
   Cog,
   ChevronsDownUp,
   GitBranch,
+  Search,
   LayoutTemplate,
   ExternalLink,
   Copy,
@@ -410,7 +411,6 @@ export function NotesPanel() {
   const [initialLoading, setInitialLoading] = useState(
     () => useAppStore.getState().prefetchedFolders === null,
   );
-  const [folderExpanded, setFolderExpanded] = useState(true);
 
   // 文件夹展开状态由 store 的"折叠集合"派生：collapsed 之外的所有文件夹 id 视为展开。
   // 这样新建文件夹默认展开（因为不在 collapsed 集合里），符合直觉；
@@ -1702,6 +1702,38 @@ export function NotesPanel() {
         <div style={{ flex: 1, display: "flex" }}>
           <NewNoteButton block />
         </div>
+        <Button
+          type="text"
+          size="small"
+          icon={<GitBranch size={14} />}
+          onClick={() =>
+            navigate(
+              selectedFolderId
+                ? `/graph?folder=${selectedFolderId}`
+                : "/graph",
+            )
+          }
+          style={{ width: 30, height: 30, padding: 0 }}
+          title={
+            selectedFolderId ? "查看此文件夹的文档关系" : "查看全库文档关系"
+          }
+        />
+        <Button
+          type="text"
+          size="small"
+          icon={<Search size={14} />}
+          onClick={() => navigate("/search")}
+          style={{ width: 30, height: 30, padding: 0 }}
+          title="检索"
+        />
+        <Button
+          type="text"
+          size="small"
+          icon={<FolderPlus size={14} />}
+          onClick={() => setCreatingRoot(true)}
+          style={{ width: 30, height: 30, padding: 0 }}
+          title="新建文件夹"
+        />
         <OpenFileButton />
       </div>
 
@@ -1756,59 +1788,10 @@ export function NotesPanel() {
         }}
       >
         <div
-          className="flex items-center justify-between cursor-pointer select-none"
-          style={{
-            color: token.colorTextSecondary,
-            fontSize: 12,
-            paddingLeft: 16,
-            paddingRight: 16,
-            paddingTop: 12,
-            paddingBottom: 8,
-          }}
-          onClick={() => setFolderExpanded(!folderExpanded)}
+          style={{ padding: "4px 12px 0" }}
+          tabIndex={0}
+          onKeyDown={handleTreeKeyDown}
         >
-          <span className="flex items-center gap-1">
-            {folderExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            文件夹
-          </span>
-          <Button
-            type="text"
-            size="small"
-            icon={<GitBranch size={14} />}
-            onClick={(e) => {
-              e.stopPropagation();
-              // 选中文件夹时只看该文件夹（含子文件夹）；否则看全库
-              navigate(
-                selectedFolderId
-                  ? `/graph?folder=${selectedFolderId}`
-                  : "/graph",
-              );
-            }}
-            style={{ width: 24, height: 24, padding: 0 }}
-            title={
-              selectedFolderId
-                ? "查看此文件夹的文档关系"
-                : "查看全库文档关系"
-            }
-          />
-          <Button
-            type="text"
-            size="small"
-            icon={<FolderPlus size={14} />}
-            onClick={(e) => {
-              e.stopPropagation();
-              setCreatingRoot(true);
-            }}
-            style={{ width: 24, height: 24, padding: 0 }}
-          />
-        </div>
-
-        {folderExpanded && (
-          <div
-            style={{ padding: "0 12px" }}
-            tabIndex={0}
-            onKeyDown={handleTreeKeyDown}
-          >
             {creatingRoot && (
               <Input
                 size="small"
@@ -1946,7 +1929,6 @@ export function NotesPanel() {
               )
             )}
           </div>
-        )}
       </div>
 
       {/* 右键菜单（幻影锚点） */}
