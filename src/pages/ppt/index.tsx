@@ -12,6 +12,7 @@ import {
   Pagination,
   Popconfirm,
   Progress,
+  Segmented,
   Select,
   Space,
   Steps,
@@ -61,9 +62,13 @@ import type {
   PptJobEvent,
   PptLocalFileSource,
   PptLogEvent,
+  PptDraftGenerationMode,
+  PptDraftPageEvent,
   PptMetaSource,
+  PptPageCandidatesResponse,
   PptPageSelection,
   PptPlan,
+  PptPlanProgressEvent,
   PptSlide,
 } from "@/types/extension";
 
@@ -209,8 +214,17 @@ export default function PptPage() {
   const [draftSvgs, setDraftSvgs] = useState<Record<string, string>>({});
   const [draftLoading, setDraftLoading] = useState(false);
   const [pageSelection, setPageSelection] = useState<PptPageSelection | null>(null);
+  const [pageCandidates, setPageCandidates] =
+    useState<PptPageCandidatesResponse | null>(null);
+  const [candidateLoading, setCandidateLoading] = useState(false);
   const [regenPage, setRegenPage] = useState<number | null>(null);
   const [selectedDraftFile, setSelectedDraftFile] = useState<string | null>(null);
+  const [planProgress, setPlanProgress] = useState<PptPlanProgressEvent | null>(null);
+  const [draftProgress, setDraftProgress] = useState<PptDraftPageEvent | null>(null);
+  const [draftDoneCount, setDraftDoneCount] = useState(0);
+  const [draftMode, setDraftMode] =
+    useState<PptDraftGenerationMode>("programmatic");
+  const draftDonePages = useRef<Set<number>>(new Set());
 
   const folderName = useMemo(() => {
     const map = new Map<number, string>();
@@ -499,6 +513,42 @@ export default function PptPage() {
           }
         }
       };
+      register(
+        await listen<PptPlanProgressEvent>("ppt-extension://plan-progress", (event) => {
+          setPlanProgress(event.payload);
+        }),
+      );
+      register(
+        await listen<PptDraftPageEvent>("ppt-extension://draft-page", (event) => {
+          const payload = event.payload;
+          setDraftProgress(payload);
+          if (["selected", "reused", "fallback", "failed"].includes(payload.status)) {
+            if (!draftDonePages.current.has(payload.page)) {
+              draftDonePages.current.add(payload.page);
+              setDraftDoneCount(draftDonePages.current.size);
+            }
+          }
+          if (payload.status === "selected" || payload.status === "reused") {
+            const file = `P${String(payload.page).padStart(2, "0")}.svg`;
+            void (async () => {
+              try {
+                const svg = await pptExtensionApi.readDraftPage(payload.jobId, file);
+                setDraftPages((prev) => {
+                  if (prev.some((item) => item.file === file)) return prev;
+                  return [
+                    ...prev,
+                    { file, page: payload.page, title: `P${payload.page}` },
+                  ].sort((left, right) => left.page - right.page);
+                });
+                setDraftSvgs((prev) => ({ ...prev, [file]: svg }));
+                setSelectedDraftFile((current) => current ?? file);
+              } catch {
+                // 页面文件可能尚未落盘，完成事件会统一刷新
+              }
+            })();
+          }
+        }),
+      );
       register(await listen<PptJobEvent>("ppt-extension://job", onJobEvent));
       register(await listen<PptJobEvent>("ppt-extension://done", onJobEvent));
       register(await listen<PptJobEvent>("ppt-extension://error", onJobEvent));
@@ -778,8 +828,19 @@ export default function PptPage() {
       setPlan(normalized);
       setPlanDirty(false);
       setStyleDirty(false);
-      await pptExtensionApi.renderAiDraft(updatedJob.id, 3);
+      draftDonePages.current = new Set();
+      setDraftDoneCount(0);
+      setDraftProgress(null);
+      setDraftLoading(true);
       setStep(3);
+      const effectiveCount = draftMode === "bestOf" ? 3 : 1;
+      void pptExtensionApi
+        .renderAiDraft(updatedJob.id, effectiveCount, draftMode)
+        .catch((error) => {
+        setRunning(false);
+        setDraftLoading(false);
+        message.error(`草稿生成失败：${String(error)}`);
+      });
     } catch (e) {
       setRunning(false);
       message.error(`启动草稿渲染失败：${String(e)}`);
@@ -826,8 +887,19 @@ export default function PptPage() {
       setPlan(normalized);
       setPlanDirty(false);
       setStyleDirty(false);
-      await pptExtensionApi.renderAiDraft(job.id, 3);
+      draftDonePages.current = new Set();
+      setDraftDoneCount(0);
+      setDraftProgress(null);
+      setDraftLoading(true);
       setStep(3);
+      const effectiveCount = draftMode === "bestOf" ? 3 : 1;
+      void pptExtensionApi
+        .renderAiDraft(job.id, effectiveCount, draftMode)
+        .catch((error) => {
+        setRunning(false);
+        setDraftLoading(false);
+        message.error(`草稿生成失败：${String(error)}`);
+      });
     } catch (e) {
       setRunning(false);
       message.error(`重新生成草稿失败：${String(e)}`);
@@ -853,6 +925,31 @@ export default function PptPage() {
       message.error(`重新生成第 ${page} 页失败：${String(e)}`);
     } finally {
       setRegenPage(null);
+    }
+  }
+
+  async function handleSelectCandidate(index: number) {
+    if (!job || !selectedDraftSlide) return;
+    try {
+      await pptExtensionApi.selectPageCandidate(
+        job.id,
+        selectedDraftSlide.page,
+        index,
+      );
+      const file = `P${String(selectedDraftSlide.page).padStart(2, "0")}.svg`;
+      const svg = await pptExtensionApi.readDraftPage(job.id, file);
+      setDraftSvgs((prev) => ({ ...prev, [file]: svg }));
+      setPageCandidates((prev) =>
+        prev ? { ...prev, selected: index } : prev,
+      );
+      try {
+        setPageSelection(await pptExtensionApi.getPageSelection(job.id));
+      } catch {
+        // 评分刷新失败不影响页面切换
+      }
+      message.success("已切换结构候选");
+    } catch (e) {
+      message.error(`切换候选失败：${String(e)}`);
     }
   }
 
@@ -888,7 +985,10 @@ export default function PptPage() {
 
   async function resumeJob(record: PptJob) {
     try {
-      const nextPlan = await pptExtensionApi.getPlan(record.id);
+      const [nextPlan, options] = await Promise.all([
+        pptExtensionApi.getPlan(record.id),
+        pptExtensionApi.getJobOptions(record.id).catch(() => null),
+      ]);
       setJob(record);
       setPlan(nextPlan);
       setPlanDirty(false);
@@ -896,6 +996,18 @@ export default function PptPage() {
       setStep(stepForStage(record.stage));
       setHistoryOpen(false);
       if (record.status === "running") setRunning(true);
+      if (options) {
+        const mode = options.generationMode;
+        if (mode === "bestOf" || mode === "oneShot" || mode === "programmatic") {
+          setDraftMode(mode);
+        }
+        if (typeof options.nativeCharts === "boolean") {
+          setNativeCharts(options.nativeCharts);
+        }
+        if (typeof options.slideCount === "number") {
+          setSlideCount(options.slideCount);
+        }
+      }
       if (["draft_ready", "exporting", "done"].includes(record.stage)) {
         void loadDraft(record.id);
       }
@@ -1046,6 +1158,28 @@ export default function PptPage() {
     : -1;
   const selectedDraftSlide =
     selectedDraftIndex >= 0 ? plan?.slides[selectedDraftIndex] : undefined;
+  useEffect(() => {
+    if (!job?.id || !selectedDraftSlide?.page) {
+      setPageCandidates(null);
+      return;
+    }
+    let cancelled = false;
+    setCandidateLoading(true);
+    void pptExtensionApi
+      .getPageCandidates(job.id, selectedDraftSlide.page)
+      .then((data) => {
+        if (!cancelled) setPageCandidates(data);
+      })
+      .catch(() => {
+        if (!cancelled) setPageCandidates(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCandidateLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.id, selectedDraftSlide?.page, draftSvgs]);
   const reuseDraft = canReuseDraft(job, planDirty, styleDirty);
   const reuseExport = canReuseExport(job, planDirty, styleDirty);
 
@@ -1142,6 +1276,20 @@ export default function PptPage() {
           { title: "最终导出" },
         ]}
       />
+
+      {running && step <= 2 && planProgress && (
+        <Alert
+          className="mb-4"
+          type="info"
+          showIcon
+          message={planProgress.message}
+          description={
+            planProgress.total > 0
+              ? `进度 ${planProgress.current}/${planProgress.total} · 阶段 ${planProgress.stage}`
+              : `阶段：${planProgress.stage}`
+          }
+        />
+      )}
 
       {step === 0 && (
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -1809,9 +1957,45 @@ export default function PptPage() {
           }
         >
           <Space direction="vertical" size="middle" className="w-full">
+            <div className="flex flex-wrap items-center gap-3">
+              <Text strong>生成方式</Text>
+              <Segmented
+                value={draftMode}
+                disabled={running}
+                onChange={(value) =>
+                  setDraftMode(value as PptDraftGenerationMode)
+                }
+                options={[
+                  { label: "程序化生成", value: "programmatic" },
+                  { label: "一次性生成", value: "oneShot" },
+                  { label: "多次生成", value: "bestOf" },
+                ]}
+              />
+              <Text type="secondary" className="text-xs">
+                {draftMode === "bestOf"
+                  ? "每页最多 3 个 AI 候选，质量优先、耗时最长"
+                  : draftMode === "oneShot"
+                    ? "每页 1 次 AI 连续生成，接近上游 skill，速度与质量平衡"
+                    : "Rust 程序化排版，3 个结构候选选优，不调用 AI 生成页面，速度最快"}
+              </Text>
+            </div>
             {running ? (
               <>
-                <Progress percent={progressPercent} status="active" />
+                <Progress
+                  percent={
+                    draftProgress && draftProgress.total > 0
+                      ? Math.round(
+                          (draftDoneCount / draftProgress.total) * 100,
+                        )
+                      : progressPercent
+                  }
+                  status="active"
+                />
+                {draftProgress && (
+                  <Text type="secondary">
+                    {`草稿生成中：${draftDoneCount}/${draftProgress.total} · 当前 P${draftProgress.page} · 候选 ${draftProgress.candidateCount || "…"} · ${draftProgress.status}`}
+                  </Text>
+                )}
                 <div className="max-h-[240px] overflow-y-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-xs">
                   {logs.length === 0 ? (
                     <Text type="secondary">等待引擎输出…</Text>
@@ -1930,6 +2114,48 @@ export default function PptPage() {
                       ) : (
                         <Empty description="选择左侧页面预览" />
                       )}
+                      {selectedDraftSlide &&
+                        pageCandidates &&
+                        pageCandidates.candidates.length > 1 && (
+                          <Card
+                            size="small"
+                            loading={candidateLoading}
+                            title="页面候选"
+                          >
+                            <div className="grid grid-cols-3 gap-2">
+                              {pageCandidates.candidates.map((candidate) => (
+                                <button
+                                  key={candidate.index}
+                                  type="button"
+                                  onClick={() =>
+                                    void handleSelectCandidate(candidate.index)
+                                  }
+                                  className={`rounded border p-1 text-left ${
+                                    candidate.index === pageCandidates.selected
+                                      ? "border-blue-500 ring-2 ring-blue-200"
+                                      : "border-slate-200"
+                                  }`}
+                                >
+                                  <img
+                                    src={svgDataUrl(candidate.svg)}
+                                    alt={candidate.motif}
+                                    className="w-full"
+                                  />
+                                  <div className="mt-1 flex items-center justify-between text-xs">
+                                    <span>{candidate.motif}</span>
+                                    <Tag
+                                      color={
+                                        candidate.score >= 70 ? "green" : "gold"
+                                      }
+                                    >
+                                      {candidate.score}
+                                    </Tag>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </Card>
+                        )}
                       {selectedDraftSlide && (
                         <Card
                           size="small"

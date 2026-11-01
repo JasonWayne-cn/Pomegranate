@@ -11,6 +11,7 @@ import type {
   PptLocalFileSource,
   PptMetaSource,
   PptMetaSuggestion,
+  PptPageCandidatesResponse,
   PptPageSelection,
   PptPlan,
 } from "@/types/extension";
@@ -66,16 +67,43 @@ export const pptExtensionApi = {
       chartIds: options.chartIds ?? null,
       nativeCharts: options.nativeCharts ?? null,
     }),
-  renderAiDraft: (jobId: string, candidateCount = 2) =>
-    invoke<void>("ppt_extension_render_ai_draft", { jobId, candidateCount }),
-  regenerateAiPage: (jobId: string, page: number, candidateCount = 2) =>
+  renderAiDraft: (
+    jobId: string,
+    candidateCount = 3,
+    mode: "bestOf" | "oneShot" | "programmatic" = "bestOf",
+  ) =>
+    invoke<void>("ppt_extension_render_ai_draft", {
+      jobId,
+      candidateCount,
+      mode,
+    }),
+  regenerateAiPage: (
+    jobId: string,
+    page: number,
+    candidateCount = 3,
+    modelId: number | null = null,
+  ) =>
     invoke<void>("ppt_extension_regenerate_ai_page", {
       jobId,
       page,
       candidateCount,
+      modelId,
     }),
+  getJobOptions: (jobId: string) =>
+    invoke<Record<string, unknown>>("ppt_extension_job_options", { jobId }),
   getPageSelection: (jobId: string) =>
     invoke<PptPageSelection>("ppt_extension_page_selection", { jobId }),
+  getPageCandidates: (jobId: string, page: number) =>
+    invoke<PptPageCandidatesResponse>("ppt_extension_page_candidates", {
+      jobId,
+      page,
+    }),
+  selectPageCandidate: (jobId: string, page: number, index: number) =>
+    invoke<void>("ppt_extension_select_page_candidate", {
+      jobId,
+      page,
+      index,
+    }),
   rerenderDraft: (
     jobId: string,
     options: {

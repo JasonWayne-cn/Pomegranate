@@ -201,6 +201,40 @@ export interface PptPageSelection {
   pages: PptPageSelectionEntry[];
 }
 
+export interface PptPageCandidate {
+  index: number;
+  motif: string;
+  score: number;
+  issues: string[];
+  svg: string;
+}
+
+export interface PptPageCandidatesResponse {
+  page: number;
+  selected: number;
+  candidates: PptPageCandidate[];
+}
+
+export interface PptPlanProgressEvent {
+  jobId: string;
+  stage: "understanding" | "planning" | "validating" | "repairing";
+  current: number;
+  total: number;
+  message: string;
+}
+
+export type PptDraftGenerationMode = "bestOf" | "oneShot" | "programmatic";
+
+export interface PptDraftPageEvent {
+  jobId: string;
+  page: number;
+  total: number;
+  status: "generating" | "selected" | "reused" | "fallback" | "failed";
+  score: number;
+  candidateCount: number;
+  issues: string[];
+}
+
 export interface PptJob {
   id: string;
   extensionId: string;
