@@ -5094,4 +5094,130 @@ mod tests {
         ];
         assert_eq!(pick_fast_model_id(&user, &models), 1);
     }
+
+    fn setup_ppt_job(prefix: &str) -> (Database, PathBuf, PptJob) {
+        let root = std::env::temp_dir().join(format!("{prefix}-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let db = Database::init(root.join("test.db").to_str().unwrap()).unwrap();
+        let workspace = root.join("workspace");
+        fs::create_dir_all(workspace.join("input")).unwrap();
+        let job = PptJob {
+            id: format!("job-{}", Uuid::new_v4()),
+            extension_id: "ppt-master".into(),
+            status: "ready".into(),
+            stage: STAGE_OUTLINE_READY.into(),
+            title: "测试演示".into(),
+            template_id: Some("layout-a".into()),
+            workspace_path: workspace.to_string_lossy().to_string(),
+            project_path: None,
+            pptx_path: None,
+            final_pptx_path: None,
+            error_code: None,
+            error_message: None,
+            log_tail: None,
+            created_at: "2026-11-01T00:00:00+08:00".into(),
+            started_at: None,
+            finished_at: None,
+        };
+        db.insert_ppt_job(&job).unwrap();
+        (db, root, job)
+    }
+
+    #[test]
+    fn job_options_merges_source_and_template_fields() {
+        let (db, root, job) = setup_ppt_job("ppt-options");
+        let spec = json!({
+            "source": { "title": "素材标题" },
+            "templates": { "layoutId": "layout-x", "chartIds": ["area_chart"] },
+            "options": {
+                "generationMode": "bestOf",
+                "nativeCharts": true,
+                "slideCount": 8,
+                "title": "旧标题"
+            }
+        });
+        fs::write(
+            PathBuf::from(&job.workspace_path).join("job.json"),
+            serde_json::to_vec_pretty(&spec).unwrap(),
+        )
+        .unwrap();
+
+        let options = PptExtensionService::job_options(&db, &job.id).unwrap();
+        assert_eq!(options["title"], "素材标题");
+        assert_eq!(options["layoutId"], "layout-x");
+        assert_eq!(options["chartIds"][0], "area_chart");
+        assert_eq!(options["generationMode"], "bestOf");
+        assert_eq!(options["nativeCharts"], true);
+        assert_eq!(options["slideCount"], 8);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn source_file_returns_fixed_source_path() {
+        let (db, root, job) = setup_ppt_job("ppt-source");
+        let source = PathBuf::from(&job.workspace_path)
+            .join("input")
+            .join("source.md");
+        fs::write(&source, "# 素材\n\n正文").unwrap();
+
+        let path = PptExtensionService::source_file(&db, &job.id).unwrap();
+        assert_eq!(PathBuf::from(&path), source);
+        assert!(Path::new(&path).is_file());
+
+        fs::remove_file(&source).unwrap();
+        assert!(PptExtensionService::source_file(&db, &job.id).is_err());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn ai_selection_saves_candidates_and_cleans_stale_files() {
+        let root = std::env::temp_dir().join(format!("ppt-ai-selection-{}", Uuid::new_v4()));
+        let project = root.join("project");
+        fs::create_dir_all(&project).unwrap();
+        let candidates = vec![
+            PageCandidateScore {
+                score: 92,
+                issues: Vec::new(),
+                hard_fail: false,
+                // data-pptx 属性应在落盘时清除。
+                svg: "<svg data-pptx-foo=\"1\"><text>A</text></svg>".into(),
+            },
+            PageCandidateScore {
+                score: 80,
+                issues: vec!["轻微越界".into()],
+                hard_fail: false,
+                svg: "<svg><text>B</text></svg>".into(),
+            },
+            PageCandidateScore {
+                score: 60,
+                issues: Vec::new(),
+                hard_fail: false,
+                svg: "<svg><text>C</text></svg>".into(),
+            },
+        ];
+        update_ai_selection(&project, 2, &candidates[1].svg, &candidates).unwrap();
+
+        for index in 1..=3 {
+            let file = project.join(format!("candidates/P02_{index}.svg"));
+            assert!(file.is_file(), "候选文件 {index} 应存在");
+        }
+        let saved = fs::read_to_string(project.join("candidates/P02_1.svg")).unwrap();
+        assert!(!saved.contains("data-pptx-"));
+
+        let selection: Value = serde_json::from_str(
+            &fs::read_to_string(project.join("page_selection.json")).unwrap(),
+        )
+        .unwrap();
+        let entry = &selection["pages"][0];
+        assert_eq!(entry["page"], 2);
+        assert_eq!(entry["selected"], 1);
+        assert_eq!(entry["mode"], "ai");
+        assert_eq!(entry["candidates"][1]["file"], "candidates/P02_2.svg");
+
+        // 新一页只有 1 个候选时，旧的 2/3 候选文件应被清理。
+        update_ai_selection(&project, 2, &candidates[0].svg, &candidates[..1]).unwrap();
+        assert!(!project.join("candidates/P02_2.svg").exists());
+        assert!(!project.join("candidates/P02_3.svg").exists());
+        let _ = fs::remove_dir_all(root);
+    }
 }
