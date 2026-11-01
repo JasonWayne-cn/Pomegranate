@@ -345,6 +345,15 @@ pub fn ppt_extension_job_options(
     PptExtensionService::job_options(&state.db, &job_id).map_err(Into::into)
 }
 
+/// 返回作业固化素材 source.md 的绝对路径。
+#[tauri::command]
+pub fn ppt_extension_source_file(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<String, String> {
+    PptExtensionService::source_file(&state.db, &job_id).map_err(Into::into)
+}
+
 /// 读取逐页候选与评分。
 #[tauri::command]
 pub fn ppt_extension_page_selection(

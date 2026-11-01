@@ -91,6 +91,8 @@ export const pptExtensionApi = {
     }),
   getJobOptions: (jobId: string) =>
     invoke<Record<string, unknown>>("ppt_extension_job_options", { jobId }),
+  getSourceFile: (jobId: string) =>
+    invoke<string>("ppt_extension_source_file", { jobId }),
   getPageSelection: (jobId: string) =>
     invoke<PptPageSelection>("ppt_extension_page_selection", { jobId }),
   getPageCandidates: (jobId: string, page: number) =>

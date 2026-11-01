@@ -4631,10 +4631,49 @@ impl PptExtensionService {
             .get_ppt_job(job_id)?
             .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
         let spec = load_job_spec(&PathBuf::from(&job.workspace_path));
-        Ok(spec
+        let mut options = spec
             .get("options")
             .cloned()
-            .unwrap_or_else(|| json!({})))
+            .unwrap_or_else(|| json!({}));
+        // 设置页回显除了 options 还需要标题、版式与图表模板；
+        // 之前只返回 options，历史作业返回设置时这些字段会显示为空。
+        if let Some(object) = options.as_object_mut() {
+            let title = spec
+                .pointer("/source/title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(job.title.as_str())
+                .to_string();
+            object.insert("title".into(), Value::String(title));
+            object.insert(
+                "layoutId".into(),
+                spec.pointer("/templates/layoutId")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            );
+            object.insert(
+                "chartIds".into(),
+                spec.pointer("/templates/chartIds")
+                    .cloned()
+                    .unwrap_or_else(|| json!([])),
+            );
+        }
+        Ok(options)
+    }
+
+    /// 返回作业固化素材 `input/source.md` 的绝对路径，供前端打开查看。
+    pub fn source_file(db: &Database, job_id: &str) -> Result<String, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let path = PathBuf::from(&job.workspace_path)
+            .join("input")
+            .join("source.md");
+        if !path.is_file() {
+            return Err(AppError::NotFound("作业缺少 input/source.md".into()));
+        }
+        Ok(path.to_string_lossy().to_string())
     }
 
     /// 读取逐页候选评分，供草稿页展示。

@@ -658,6 +658,10 @@ export default function PptPage() {
       message.warning("请填写 PPT 标题");
       return false;
     }
+    // 历史作业的素材已固化在 source.md 中，无需重新选择文档。
+    if (job && plan) {
+      return true;
+    }
     if (selectedCount === 0 && !manualText.trim()) {
       message.warning("请至少添加一个文档/本地文件，或填写补充材料");
       return false;
@@ -967,6 +971,15 @@ export default function PptPage() {
     }
   }
 
+  async function openSourceFile(jobId: string) {
+    try {
+      const path = await pptExtensionApi.getSourceFile(jobId);
+      await openPath(path);
+    } catch (e) {
+      message.error(`打开素材失败：${String(e)}`);
+    }
+  }
+
   async function editOutline() {
     if (!job) return;
     if (plan) {
@@ -1007,6 +1020,34 @@ export default function PptPage() {
         if (typeof options.slideCount === "number") {
           setSlideCount(options.slideCount);
         }
+        // 回填设置页字段，否则打开历史作业后返回风格/设置会显示为空。
+        if (typeof options.title === "string" && options.title.trim()) {
+          setTitle(options.title.trim());
+          titleTouched.current = true;
+        }
+        if (typeof options.audience === "string") {
+          setAudience(options.audience);
+          audienceTouched.current = true;
+        }
+        setLayoutId(
+          typeof options.layoutId === "string" ? options.layoutId : undefined,
+        );
+        setChartIds(
+          Array.isArray(options.chartIds)
+            ? options.chartIds.filter(
+                (id): id is string => typeof id === "string",
+              )
+            : [],
+        );
+        if (typeof options.language === "string" && options.language) {
+          setLanguage(options.language);
+        }
+        if (typeof options.extraRequirements === "string") {
+          setExtraRequirements(options.extraRequirements);
+        }
+        setModelId(
+          typeof options.modelId === "number" ? options.modelId : undefined,
+        );
       }
       if (["draft_ready", "exporting", "done"].includes(record.stage)) {
         void loadDraft(record.id);
@@ -1149,6 +1190,11 @@ export default function PptPage() {
       })),
     [catalog],
   );
+
+  const selectedLayoutLabel = useMemo(() => {
+    if (!layoutId) return "";
+    return layoutDisplayName(layoutId, catalog?.layouts?.[layoutId]);
+  }, [layoutId, catalog]);
 
   const selectedDraftPage = draftPages.find(
     (page) => page.file === selectedDraftFile,
@@ -1306,6 +1352,33 @@ export default function PptPage() {
             </Text>
           }
         >
+          {job &&
+            plan &&
+            selectedNotes.length === 0 &&
+            localSources.length === 0 &&
+            !manualText.trim() && (
+              <Alert
+                type="info"
+                showIcon
+                className="mb-3"
+                message="当前打开的是历史作业"
+                description={
+                  <Space size={4} wrap>
+                    <span>
+                      素材已固化为作业内的 source.md，重新生成大纲会复用这份素材；如需更换素材，请新建作业。
+                    </span>
+                    <Button
+                      type="link"
+                      size="small"
+                      className="!h-auto !p-0"
+                      onClick={() => void openSourceFile(job.id)}
+                    >
+                      查看 source.md
+                    </Button>
+                  </Space>
+                }
+              />
+            )}
           <div className="mb-3 flex items-center gap-2">
             <Input.Search
               allowClear
@@ -1499,7 +1572,28 @@ export default function PptPage() {
           </div>
         </Card>
 
-        <Card title="生成设置">
+        <Card
+          title="生成设置"
+          extra={
+            <Space wrap>
+              <Button
+                type="primary"
+                icon={<Sparkles size={16} />}
+                onClick={goToStyle}
+              >
+                下一步：选择风格
+              </Button>
+              {job && !running && (
+                <Button
+                  icon={<RotateCcw size={14} />}
+                  onClick={() => void handleRenderDraft()}
+                >
+                  用当前大纲重新生成草稿
+                </Button>
+              )}
+            </Space>
+          }
+        >
           <Space direction="vertical" size="middle" className="w-full">
             <div>
               <Text className="mb-1 block">PPT 标题</Text>
@@ -1587,23 +1681,6 @@ export default function PptPage() {
                 placeholder="例如：偏重工艺流程图、少用文字"
               />
             </div>
-            <Space wrap>
-              <Button
-                type="primary"
-                icon={<Sparkles size={16} />}
-                onClick={goToStyle}
-              >
-                下一步：选择风格
-              </Button>
-              {job && !running && (
-                <Button
-                  icon={<RotateCcw size={14} />}
-                  onClick={() => void handleRenderDraft()}
-                >
-                  用当前大纲重新生成草稿
-                </Button>
-              )}
-            </Space>
           </Space>
         </Card>
       </div>
@@ -1611,7 +1688,11 @@ export default function PptPage() {
 
       {step === 1 && (
         <Card
-          title="风格确认"
+          title={
+            selectedLayoutLabel
+              ? `风格确认 · ${selectedLayoutLabel}`
+              : "风格确认（未选择版式）"
+          }
           extra={
             <Space wrap>
               <Button onClick={backToSettings}>返回设置</Button>
@@ -1768,11 +1849,11 @@ export default function PptPage() {
           title={`大纲确认（${plan.slides.length} 页）`}
           extra={
             <Space wrap>
-              <Button icon={<Plus size={14} />} onClick={addSlide}>
-                添加页
-              </Button>
               <Button onClick={() => setStep(1)} disabled={running}>
                 返回风格
+              </Button>
+              <Button icon={<Plus size={14} />} onClick={addSlide}>
+                添加页
               </Button>
               <Button
                 type="primary"
@@ -2275,11 +2356,11 @@ export default function PptPage() {
                 <Button size="small" onClick={() => setStep(3)}>
                   返回草稿
                 </Button>
-                <Button size="small" onClick={() => void editOutline()}>
-                  修改大纲
-                </Button>
                 <Button size="small" onClick={backToSettings}>
                   返回设置
+                </Button>
+                <Button size="small" onClick={() => void editOutline()}>
+                  修改大纲
                 </Button>
                 <Button
                   size="small"

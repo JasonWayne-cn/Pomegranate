@@ -1012,6 +1012,7 @@ pub fn run() {
             commands::ppt_extension::ppt_extension_render_ai_draft,
             commands::ppt_extension::ppt_extension_regenerate_ai_page,
             commands::ppt_extension::ppt_extension_job_options,
+            commands::ppt_extension::ppt_extension_source_file,
             commands::ppt_extension::ppt_extension_page_selection,
             commands::ppt_extension::ppt_extension_page_candidates,
             commands::ppt_extension::ppt_extension_select_page_candidate,
