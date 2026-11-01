@@ -251,11 +251,12 @@ fn choose_layout(slide: &PptSlide, index: usize, total: usize) -> Layout {
     if index == 0 {
         return Layout::Cover;
     }
-    if index + 1 == total {
-        return Layout::Summary;
-    }
+    // 有图表数据时优先图表布局，避免末页被 Summary 覆盖。
     if chart_data(slide).is_some() {
         return Layout::Chart;
+    }
+    if index + 1 == total {
+        return Layout::Summary;
     }
     let chart = slide.chart_type.to_ascii_lowercase();
     let relation = slide.relation.to_ascii_lowercase();
@@ -2157,6 +2158,14 @@ mod tests {
         let pie = render_chart(&plan.slides[1], "chart-pie");
         assert!(pie.contains("<path"));
         assert!(!pie.contains("NaN"));
+
+        // 末页有图表数据时仍应使用图表布局，而不是 Summary。
+        let last_plan = PptPlan {
+            title: "末页图表".into(),
+            slides: vec![make_slide(1, "封面"), make_slide(2, "数据结论")],
+        };
+        let last = render_programmatic_page(&last_plan, &last_plan.slides[1], 1, None);
+        assert_eq!(last.layout, "chart");
     }
 
     #[test]
