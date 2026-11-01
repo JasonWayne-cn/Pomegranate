@@ -2187,19 +2187,40 @@ def export_with_ppt_master(
     return target
 
 
+def spec_palette(project: Path) -> list[str]:
+    """从 spec_lock.md 提取模板主色，供原生图表使用。"""
+    path = project / "spec_lock.md"
+    try:
+        text = read_text(path, 200_000)
+    except Exception:  # noqa: BLE001
+        return []
+    seen: list[str] = []
+    for match in re.finditer(r"#([0-9A-Fa-f]{6})", text):
+        color = "#" + match.group(1).upper()
+        if color in {"#FFFFFF", "#000000"} or color in seen:
+            continue
+        seen.append(color)
+        if len(seen) >= 6:
+            break
+    return seen
+
+
 def export_with_python_pptx(
     plan: dict,
     output: Path,
     native_charts: bool = False,
+    palette: list[str] | None = None,
 ) -> Path:
     try:
         from pptx import Presentation  # type: ignore
+        from pptx.dml.color import RGBColor  # type: ignore
         from pptx.util import Inches, Pt  # type: ignore
         from pptx.chart.data import CategoryChartData  # type: ignore
         from pptx.enum.chart import (  # type: ignore
             XL_CHART_TYPE,
             XL_LEGEND_POSITION,
         )
+        from pptx.enum.shapes import MSO_SHAPE  # type: ignore
     except Exception:  # noqa: BLE001
         fail(
             "MISSING_DEPENDENCY",
@@ -2217,8 +2238,14 @@ def export_with_python_pptx(
         "doughnut": getattr(XL_CHART_TYPE, "DOUGHNUT"),
         "radar": getattr(XL_CHART_TYPE, "RADAR", getattr(XL_CHART_TYPE, "LINE_MARKERS")),
     }
+    colors = [color for color in (palette or []) if re.match(r"^#[0-9A-Fa-f]{6}$", color)]
+    colors = colors or ["#0071BC", "#FFC000", "#C1232D", "#0B4F8A"]
 
-    def add_bullets(page, slide, top, height):
+    def rgb(hex_color: str):
+        value = hex_color.lstrip("#")
+        return RGBColor(int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16))
+
+    def add_bullets(page, slide, top, height, size=18):
         body = page.shapes.add_textbox(
             Inches(0.9), Inches(top), Inches(11.5), Inches(height)
         )
@@ -2229,10 +2256,12 @@ def export_with_python_pptx(
         )
         if not bullets:
             bullets = ["（本页由文档大纲生成，可在工程目录中补充内容）"]
-        for index, bullet in enumerate(bullets):
+        for index, bullet in enumerate(bullets[:5]):
             paragraph = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
             paragraph.text = f"• {bullet}"
-            paragraph.font.size = Pt(20)
+            paragraph.font.size = Pt(size)
+            paragraph.font.name = "Microsoft YaHei"
+            paragraph.font.color.rgb = rgb("#1F2937")
 
     prs = Presentation()
     prs.slide_width = Inches(13.333)
@@ -2240,22 +2269,36 @@ def export_with_python_pptx(
     blank = prs.slide_layouts[6]
     for slide in plan["slides"]:
         page = prs.slides.add_slide(blank)
+        # 顶部色带 + 标题，保持与模板页相近的视觉起点。
+        band = page.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Inches(0),
+            Inches(0),
+            prs.slide_width,
+            Inches(0.12),
+        )
+        band.fill.solid()
+        band.fill.fore_color.rgb = rgb(colors[0])
+        band.line.fill.background()
         title_box = page.shapes.add_textbox(
-            Inches(0.8), Inches(0.6), Inches(11.7), Inches(1.0)
+            Inches(0.8), Inches(0.5), Inches(11.7), Inches(0.9)
         )
         title_frame = title_box.text_frame
         title_frame.text = slide["title"]
-        title_frame.paragraphs[0].font.size = Pt(32)
+        title_frame.paragraphs[0].font.size = Pt(30)
         title_frame.paragraphs[0].font.bold = True
+        title_frame.paragraphs[0].font.name = "Microsoft YaHei"
+        title_frame.paragraphs[0].font.color.rgb = rgb(colors[0])
 
         chart = normalize_chart(slide.get("chart")) if native_charts else None
         if chart:
-            add_bullets(page, slide, 1.7, 1.4)
+            add_bullets(page, slide, 1.5, 1.1, size=15)
             try:
                 data = CategoryChartData()
                 data.categories = chart["categories"]
+                chart_kind = str(chart.get("type") or "column").lower()
                 kind = chart_types.get(
-                    str(chart.get("type") or "column").lower(),
+                    chart_kind,
                     getattr(XL_CHART_TYPE, "COLUMN_CLUSTERED"),
                 )
                 series = chart["series"][:1] if kind in (
@@ -2267,16 +2310,62 @@ def export_with_python_pptx(
                 frame = page.shapes.add_chart(
                     kind,
                     Inches(0.8),
-                    Inches(3.2),
+                    Inches(2.8),
                     Inches(11.7),
-                    Inches(3.7),
+                    Inches(4.2),
                     data,
                 )
                 chart_object = frame.chart
                 chart_object.has_legend = True
                 chart_object.legend.position = XL_LEGEND_POSITION.BOTTOM
                 chart_object.legend.include_in_layout = False
+                chart_object.legend.font.size = Pt(11)
+                chart_object.legend.font.name = "Microsoft YaHei"
                 chart_object.has_title = False
+                chart_object.font.size = Pt(11)
+                chart_object.font.name = "Microsoft YaHei"
+                plot = chart_object.plots[0]
+                if kind in (
+                    getattr(XL_CHART_TYPE, "COLUMN_CLUSTERED"),
+                    getattr(XL_CHART_TYPE, "BAR_CLUSTERED"),
+                ):
+                    plot.gap_width = 60
+                # 系列配色沿用模板调色板。
+                for index, series_obj in enumerate(plot.series):
+                    series_obj.format.fill.solid()
+                    series_obj.format.fill.fore_color.rgb = rgb(
+                        colors[index % len(colors)]
+                    )
+                    if kind in (
+                        getattr(XL_CHART_TYPE, "LINE_MARKERS"),
+                        getattr(XL_CHART_TYPE, "AREA"),
+                    ):
+                        series_obj.format.line.color.rgb = rgb(
+                            colors[index % len(colors)]
+                        )
+                # 数据标签与网格线，提升原生图表的可读性。
+                if kind not in (
+                    getattr(XL_CHART_TYPE, "PIE"),
+                    getattr(XL_CHART_TYPE, "DOUGHNUT"),
+                ):
+                    plot.has_data_labels = True
+                    plot.data_labels.font.size = Pt(10)
+                    plot.data_labels.number_format = "0.##"
+                    value_axis = chart_object.value_axis
+                    value_axis.has_major_gridlines = True
+                    value_axis.major_gridlines.format.line.color.rgb = rgb("#D9E2EC")
+                    value_axis.tick_labels.font.size = Pt(10)
+                    category_axis = chart_object.category_axis
+                    category_axis.tick_labels.font.size = Pt(10)
+                if kind == getattr(XL_CHART_TYPE, "DOUGHNUT"):
+                    try:
+                        chart_object.plots[0].doughnut_hole_size = 55
+                    except Exception:  # noqa: BLE001
+                        pass
+                log(
+                    f"P{slide.get('page', '?')} 原生图表：{chart_kind} / "
+                    f"{len(series)} 系列",
+                )
             except Exception as exc:  # noqa: BLE001
                 log(
                     f"P{slide.get('page', '?')} 原生图表创建失败，回退纯文本: {exc}",
@@ -2524,7 +2613,12 @@ def export_pptx(plan: dict, project: Path, output: Path, options: dict) -> int:
     )
     if native_charts and has_chart:
         try:
-            artifact = export_with_python_pptx(plan, output, native_charts=True)
+            artifact = export_with_python_pptx(
+                plan,
+                output,
+                native_charts=True,
+                palette=spec_palette(project),
+            )
             log("使用 PowerPoint 原生图表导出")
         except Exception as exc:  # noqa: BLE001
             log(f"原生图表导出失败，回退标准导出: {exc}", "warn")
