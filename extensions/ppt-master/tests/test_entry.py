@@ -138,6 +138,28 @@ class EntryTests(unittest.TestCase):
         self.assertEqual(entry.resolve_stage({"options": {"stage": "export"}}), "export")
         self.assertEqual(entry.resolve_stage({"options": {"stage": "unknown"}}), "full")
 
+    def test_copy_layout_assets_copies_images_to_project_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            templates = root / "templates" / "layouts" / "demo" / "templates"
+            templates.mkdir(parents=True)
+            cover = templates / "01_cover.svg"
+            cover.write_text("<svg/>", encoding="utf-8")
+            images = root / "templates" / "layouts" / "demo" / "images"
+            images.mkdir()
+            (images / "logo.png").write_bytes(b"png")
+            (root / "templates" / "layouts" / "demo" / "exports").mkdir()
+            project = root / "project"
+            project.mkdir()
+
+            entry.copy_layout_assets({"cover": cover}, project, "demo")
+
+            self.assertEqual((project / "images" / "logo.png").read_bytes(), b"png")
+            self.assertTrue(
+                (project / "templates" / "layout_demo" / "01_cover.svg").is_file()
+            )
+            self.assertFalse((project / "exports").exists())
+
     def test_bullet_parts_does_not_duplicate_long_sentence(self):
         label, detail, _ = entry._bullet_parts(
             "P06 的检测圆是特定手部空间近似元素，不是所有工种的统一净距。"
@@ -216,6 +238,65 @@ class EntryTests(unittest.TestCase):
         rendered = "".join(element.itertext())
         self.assertIn("…", rendered)
         self.assertNotIn("需要补读的文献清单", rendered)
+
+    def test_localize_template_labels(self):
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg">'
+            '<text id="content-panel-label">CONTENT AREA</text>'
+            '<text id="tbl-head-1">ITEM</text>'
+            '<text id="tbl-head-2">PARAMETER</text>'
+            '<text id="tbl-head-3">NOTE</text>'
+            "</svg>"
+        )
+        result = entry.localize_template_labels(svg)
+        self.assertIn("内容要点", result)
+        self.assertIn("条目与说明", result)
+        self.assertNotIn("PARAMETER", result)
+        self.assertNotIn(">NOTE<", result)
+
+    def test_choose_page_type_varies_by_content(self):
+        pages = {
+            key: Path(f"{key}.svg")
+            for key in (
+                "cover",
+                "toc",
+                "chapter",
+                "content",
+                "content_table",
+                "content_cards",
+                "safety_notice",
+                "process_steps",
+                "ending",
+            )
+        }
+
+        def pick(title, bullets=None):
+            slide = {
+                "title": title,
+                "bullets": bullets or ["A：1", "B：2", "C：3", "D：4"],
+            }
+            return entry.choose_page_type(slide, 1, 10, pages)
+
+        self.assertEqual(pick("证据等级与使用边界"), "safety_notice")
+        self.assertEqual(pick("项目改进路线建议"), "process_steps")
+        self.assertEqual(pick("结论与后续阅读清单"), "content_table")
+        self.assertEqual(pick("核心结论"), "content")
+        self.assertEqual(pick("手部可达与人因研究"), "content_cards")
+        self.assertEqual(
+            entry.choose_page_type({"title": "封面", "bullets": []}, 0, 10, pages),
+            "cover",
+        )
+        self.assertEqual(
+            entry.choose_page_type({"title": "下一步", "bullets": []}, 9, 10, pages),
+            "ending",
+        )
+        # 首尾页有实质要点时改用内容版式，避免封面吞掉内容
+        self.assertEqual(
+            entry.choose_page_type(
+                {"title": "手部研究", "bullets": ["A", "B", "C", "D"]}, 0, 10, pages
+            ),
+            "content_cards",
+        )
 
     def test_drop_empty_cards_removes_and_reflows(self):
         cards = []

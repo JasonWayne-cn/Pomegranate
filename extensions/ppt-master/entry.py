@@ -142,6 +142,17 @@ def copy_layout_assets(pages: dict[str, Path], project: Path, layout_id: str) ->
     for source in pages.values():
         shutil.copy2(source, dest / source.name)
 
+    # 模板 SVG 可能通过 ../images/、../assets/ 引用同目录资源；
+    # 生成页位于 project/svg_output/，因此资源需复制到 project/<name>/。
+    first = next(iter(pages.values()))
+    layout_root = first.parent.parent if first.parent.name == "templates" else first.parent
+    if not layout_root.is_dir():
+        return
+    for child in layout_root.iterdir():
+        if not child.is_dir() or child.name in {"templates", "exports"}:
+            continue
+        shutil.copytree(child, project / child.name, dirs_exist_ok=True)
+
 
 def normalize_chart(chart: object) -> dict | None:
     if not isinstance(chart, dict):
@@ -1045,6 +1056,20 @@ def _shift_element(element: ET.Element, dx: float, dy: float) -> None:
         _shift_element(child, dx, dy)
 
 
+def localize_template_labels(svg: str) -> str:
+    """把模板里的英文占位标签换成中文，避免成稿出现 CONTENT AREA 等残留。"""
+    svg = svg.replace(">CONTENT AREA<", ">内容要点<")
+    # 表格数据行横跨三列，表头改为单列标题，删除多余的两列标签。
+    svg = re.sub(
+        r'<text\b[^>]*\bid="tbl-head-2"[^>]*>.*?</text>', "", svg, flags=re.S
+    )
+    svg = re.sub(
+        r'<text\b[^>]*\bid="tbl-head-3"[^>]*>.*?</text>', "", svg, flags=re.S
+    )
+    svg = svg.replace(">ITEM<", ">条目与说明<")
+    return svg
+
+
 def _drop_empty_cards(svg: str, bullet_count: int) -> str:
     """按实际条目数删除空卡并重排剩余卡片。
 
@@ -1180,7 +1205,9 @@ def fill_layout_svg(
             colors=chart_colors,
         )
     svg = re.sub(r"\{\{[A-Z0-9_]+\}\}", "", svg)
-    return _drop_empty_cards(svg, len(slide.get("bullets") or []))
+    return localize_template_labels(
+        _drop_empty_cards(svg, len(slide.get("bullets") or []))
+    )
 
 
 SVG_NS = "http://www.w3.org/2000/svg"
@@ -1667,7 +1694,9 @@ def fill_structured_layout(
                 result, token, value, max_width=max_width, min_size=10
             )
     result = re.sub(r"\{\{[A-Z0-9_]+\}\}", "", result)
-    return _drop_empty_cards(result, len(slide.get("bullets") or []))
+    return localize_template_labels(
+        _drop_empty_cards(result, len(slide.get("bullets") or []))
+    )
 
 
 def choose_page_type(
@@ -1677,21 +1706,43 @@ def choose_page_type(
     pages: dict[str, Path],
 ) -> str | None:
     available = set(pages)
-    if index == 0 and "cover" in available:
-        return "cover"
-    if index == total - 1 and total > 2 and "ending" in available:
-        return "ending"
     title = slide.get("title") or ""
+    bullets = [str(item) for item in (slide.get("bullets") or [])]
+    # 封面/结束页只承担标题与一句摘要；有实质要点时改用内容版式，避免丢内容。
+    if index == 0 and "cover" in available and len(bullets) < 3:
+        return "cover"
+    if (
+        index == total - 1
+        and total > 2
+        and "ending" in available
+        and len(bullets) < 3
+    ):
+        return "ending"
     if "toc" in available and re.search(r"目录|agenda|contents", title, re.I):
         return "toc"
     if "chapter" in available and re.match(
         r"^(第.+?[章节部分]|part\s*\d+|section\s*\d+)", title, re.I
     ):
         return "chapter"
-    bullets = slide.get("bullets") or []
-    if "content_table" in available and any("|" in str(item) for item in bullets):
+    # 按内容语义选择版式，避免所有内容页都落到同一种卡片版式。
+    if "content" in available and re.search(
+        r"研究范围|核心结论|总体|概述|总览|研究定位|总结", title
+    ):
+        return "content"
+    if "safety_notice" in available and re.search(
+        r"边界|风险|注意|限制|禁止|误区|不能", title
+    ):
+        return "safety_notice"
+    if "process_steps" in available and re.search(
+        r"路线|步骤|流程|阶段|实施|行动|下一步|落地|推进", title
+    ):
+        return "process_steps"
+    if "content_table" in available and len(bullets) >= 4 and (
+        any("|" in item for item in bullets)
+        or re.search(r"清单|对比|等级|参数|指标|矩阵|优先级", title)
+    ):
         return "content_table"
-    if "content_cards" in available and len(bullets) >= 4:
+    if "content_cards" in available and len(bullets) >= 3:
         return "content_cards"
     if "content_text_image" in available and slide.get("images"):
         return "content_text_image"
@@ -2215,6 +2266,11 @@ def main() -> int:
             fail("NO_DRAFT", "草稿目录为空，请先生成草稿")
         log(f"导出阶段：复用现有草稿 {len(draft_pages)} 页")
         progress("export", 70, "读取已确认草稿")
+        # 复用已有 SVG 时仍补齐模板图片等资源，避免 svg_to_pptx 因缺图回退。
+        layout = (job.get("templates") or {}).get("layoutId") or "default"
+        pages = layout_pages(layout)
+        if pages:
+            copy_layout_assets(pages, project, layout)
         # 复用已有 SVG 时仍需把实际字号补进 spec_lock，避免质量门禁误判。
         (project / "spec_lock.md").write_text(
             build_spec_lock(plan, job, collect_font_sizes(project)),

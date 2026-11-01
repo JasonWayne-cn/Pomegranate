@@ -63,7 +63,7 @@
   "protocolVersion": 1,
   "id": "ppt-master",
   "name": "PPT Master 生成引擎",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "kind": "ppt-engine",
   "minAppVersion": "2.1.0",
   "platforms": ["windows-x86_64"],
@@ -200,6 +200,7 @@ status: ready | running | succeeded | failed | cancelled
 | `spec_lock.md` | 机器可执行契约（配色/字体/页面） |
 | `slide_plan.json` | 页面大纲 |
 | `svg_output/` | 渲染出的页面 |
+| `images/` / `assets/` | 从版式复制的图片等外部资源（供 SVG 引用） |
 | `notes/total.md` | 讲稿 |
 | `exports/` | 上游引擎导出的原始 pptx |
 

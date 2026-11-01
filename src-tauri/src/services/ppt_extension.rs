@@ -1304,6 +1304,7 @@ async fn build_plan_with_ai(
     let prompt = format!(
         "你是 PPT 内容规划助手。{page_instruction}\n\
          标题：{title}\n听众：{audience}\n额外要求：{extra}\n\
+         大纲结构：第 1 页为封面，只填 title 和一句 coreMessage，bullets 为空；最后 1 页为结束页，title 用“下一步”或“结论”，bullets 不超过 2 条；中间页按内容展开。\n\
          每页 bullets 必须使用“短标题：具体说明”的格式：冒号前是不超过 12 字的短标题，冒号后是 20–60 字的说明。\n\
          不要把整句长文本当作标题，也不要把同一句话同时写成标题和说明。\n\
          每页根据素材实际内容写 3–6 条要点；内容不足时减少条目，不要为凑满模板而重复、拆分或编造内容。\n\

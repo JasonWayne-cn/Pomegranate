@@ -13,7 +13,7 @@
 - 生成可编辑 PPTX，支持导出目录、打开工程、取消生成
 - 生成过程流式输出阶段、进度与日志
 
-当前扩展包版本：**1.2.0**。
+当前扩展包版本：**1.2.1**。
 
 ## 2. 架构
 
@@ -74,7 +74,7 @@
 
 ### 4.1 当前已实现流程（五阶段）
 
-1. 侧边栏进入「扩展包」，安装 `ppt-master-extension-1.2.0-win7-x64.zip`
+1. 侧边栏进入「扩展包」，安装 `ppt-master-extension-1.2.1-win7-x64.zip`
 2. 启用扩展，侧边栏出现「PPT 生成」
 3. **素材与设置**：搜索并添加文档，或点击「添加本地文件」；AI 会根据素材建议标题与汇报对象
 4. 按需调整标题、汇报对象、导出目录、语言与额外要求，点击「下一步：选择风格」
@@ -203,9 +203,10 @@
 
 - `spec_lock.md` 声明字号角色：`caption 14`、`label 15`、`body_small 20`、`body 24`、`page_title 32`、`section_title 37`、`title 44`
 - 文本超出画布时自动缩小/换行
+- 导出前会把版式的 `images/`、`assets/` 等资源复制到工程根目录，确保 SVG 中的 `../images/...` 能被 `svg_to_pptx.py` 解析
 - 质量检查通过后调用 `svg_to_pptx.py` 原生导出
 - 质量检查或原生导出失败时回退 python-pptx
-- 回退产物为纯文本，不含版式/配色，仅作为兜底
+- 回退产物为纯文本，不含版式/配色，仅作为兜底；若模板含外部图片，请优先检查 `project/images/` 是否存在
 
 ### 5.7 流式进度与交互
 
@@ -254,7 +255,7 @@ node scripts/build-ppt-extension.mjs \
 输出：
 
 ```
-dist/extensions/ppt-master-extension-1.2.0-win7-x64.zip
+dist/extensions/ppt-master-extension-1.2.1-win7-x64.zip
 ```
 
 Lite 包前置条件：
@@ -302,7 +303,7 @@ node scripts/build-ppt-extension.mjs \
 
 ## 9. 后续工作
 
-### 已完成（截至 1.2.0）
+### 已完成（截至 1.2.1）
 
 - 结构化 layout 支持：解析 `data-pptx-placeholder`
 - 原生 PowerPoint 图表对象（可选开关）
@@ -351,6 +352,7 @@ node scripts/build-ppt-extension.mjs \
 | 1.1.2 | 同步上游 7 个中文场景模板；版式选择框显示中文名与说明；扩展通用占位符解析 |
 | 1.1.3 | 首屏性能优化：本地文件延迟提取、状态不再哈希全目录、版式支持度改为构建期索引 |
 | 1.2.0 | 五阶段生成流程：风格封面预览、草稿渲染与页面预览/编辑、确认后导出；作业 stage 持久化；阶段前进复用；大纲页数设置与重新生成；图表模板中文名与说明 |
+| 1.2.1 | 修复模板外部图片未复制导致 `svg_to_pptx` 失败并回退纯文本；导出阶段自动补齐版式 images/assets |
 
 ## 12. 关键文件
 
@@ -369,7 +371,7 @@ node scripts/build-ppt-extension.mjs \
 | `src/lib/pptLayouts.ts` | 版式中文名称与说明映射 |
 | `src/types/extension.ts` | 前端类型 |
 | `extensions/ppt-master/entry.py` | Python Executor（结构化 layout / 原生图表） |
-| `extensions/ppt-master/extension.json` | 扩展清单（1.2.0） |
+| `extensions/ppt-master/extension.json` | 扩展清单（1.2.1） |
 | `extensions/ppt-master/tests/test_entry.py` | Python 纯函数测试 |
 | `scripts/build-ppt-extension.mjs` | 扩展包构建与可选签名 |
 | `docs/ppt-extension.md` | 详细设计文档 |
