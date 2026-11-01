@@ -100,13 +100,16 @@
   → 点击“生成大纲”：
       Rust 收集正文（跳过加密笔记，按源截断并标记）
       → input/source.md + source_manifest.json
-      → AI 生成 plan.json（最多 2 次，失败则按标题降级；支持取消/超时）
+      → AI 生成 plan.json（指定页数时先出标题清单再逐页扩展；最多 2 次，失败则按标题降级；支持取消/超时）
   → 大纲确认：编辑 plan.json / job.json
-  → 点击“生成草稿”：
-      job.json options.stage = "render"
-      → entry.py 写设计说明/大纲并生成 project/svg_output/*.svg
+  → 点击“生成草稿”：先在草稿页选择生成方式
+      - 程序化（默认）：Rust 渲染 13 种页面结构，每页最多 3 个 motif 候选
+      - 一次性：每页 1 次 AI 连续生成，失败修复 1 次
+      - 多次：每页自适应 1–3 个 AI 候选 + LLM 评审
+      → 逐页写入 project/svg_output/*.svg，并发送 draft-page 事件（AI 模式两页并发）
+      → 程序化与 AI 候选都保存到 project/candidates/Pxx_1..3.svg
       → 不导出 PPTX；作业 stage = draft_ready
-  → 草稿修改：读取 SVG 预览，编辑标题/核心信息/要点/页序后重新生成草稿
+  → 草稿修改：逐页预览；程序化页可切换结构候选；支持单页重新生成
   → 点击“导出 PPTX”：
       job.json options.stage = "export"
       → entry.py 跳过渲染，对现有 svg_output 执行质量检查与导出
@@ -122,11 +125,11 @@ status: ready | running | succeeded | failed | cancelled
 ```
 
 | 阶段 | 行为 | 负责层 |
-|---|---|---|
+| --- | --- | --- |
 | 素材与设置 | 选文档/本地文件，AI 建议标题与汇报对象 | React + Rust |
 | 风格确认 | 版式封面预览、中文名称/说明、图表与原生图表开关 | React + 扩展 asset |
 | 大纲确认 | 编辑 `plan.json`，调整页序/标题/要点 | React + Rust |
-| 草稿修改 | 读取并预览 `project/svg_output/*.svg`，修改内容/页序后重渲染 | React + Rust + 引擎 |
+| 草稿修改 | 逐页预览；选择生成方式；程序化页可切换结构候选；可单页重新生成 | React + Rust + 引擎 |
 | 最终导出 | 质量门禁 + `svg_to_pptx.py` / python-pptx | Rust + 引擎 |
 
 - `ppt_jobs.stage` 持久化作业阶段；历史作业可“继续”到对应步骤。
@@ -146,14 +149,18 @@ status: ready | running | succeeded | failed | cancelled
 ```
 
 | stage | 行为 |
-|---|---|
+| --- | --- |
 | `render` | 只写设计说明/大纲并生成 `svg_output/`，不导出 PPTX |
 | `export` | 跳过渲染，对现有 `svg_output/` 执行质量检查与导出 |
 | `full` | 保持一次性渲染+导出行为，兼容旧作业 |
 
 草稿修改范围：
 
-- 第一版只做内容级编辑：标题、核心信息、要点、页序。
+- 内容级编辑：标题、核心信息、要点、页序。
+- 生成方式：程序化（默认）/ 一次性 / 多次，可在草稿页顶部切换。
+- 程序化页与 AI 模式都保存最多 3 个页面候选，草稿页可点击缩略图切换。
+- 支持单页重新生成；程序化模式不调用 AI 生成 SVG。
+- 打开历史作业时从 `job.json` 恢复生成方式、原生图表开关与页数。
 - 编辑 `plan.json` 后重新渲染草稿，再做最终导出。
 - 不做 SVG 元素自由拖拽；该能力属于后续可视化编辑器阶段。
 
@@ -175,31 +182,36 @@ status: ready | running | succeeded | failed | cancelled
 ### 字段说明
 
 | 字段 | 必填 | 用途 |
-|---|---|---|
+| --- | --- | --- |
 | PPT 标题 | 是 | AI 规划主题；任务名称；导出文件名；`design_spec.md` 标题 |
 | 汇报对象 | 否 | 告诉 AI 讲给谁听，影响内容深度、语气、案例与页面组织；写入设计说明与 `spec_lock.md` |
 | 版式模板 | 否 | 按页型选择 cover/chapter/content/ending 等 SVG 骨架，并填充占位符；资源复制到 `templates/layout_<id>/` |
 | 图表模板 | 否 | 选择 33 种可视化模板（中文名称 + 适用说明）；读取其类型与配色，将数据绘制为可编辑 SVG 片段嵌入内容区域 |
-| 页数 | — | 当前设置页暂不提供手动页数；由 AI 根据素材自动决定，后端仍保留 1–40 页能力 |
+| 页数 | 否 | 可指定 1–40 页；指定 ≥3 页时启用两阶段页级大纲，否则由 AI 根据素材决定 |
 | 导出目录 | 否 | 选择后复制最终 PPTX；最近一次选择会自动记住 |
 
 ### 进度与交互
 
 - 生成过程通过 `ppt-extension://log` 流式推送：素材收集、AI 规划、作业创建、引擎渲染、质量检查、导出。
+- 大纲阶段发送 `plan-progress`（理解/规划/校验/修复、当前块或页）。
+- 草稿阶段发送 `draft-page`（页号、状态、分数、候选数），前端逐页加入草稿列表。
 - 引擎的 JSONL 事件会在界面中解析为可读进度与日志，不再显示原始 JSON。
 - 支持取消：Windows 下会终止整个扩展进程树。
-- 已支持风格确认、大纲确认、草稿预览/修改和导出前确认。
+- 已支持风格确认、大纲确认、草稿预览/修改、候选切换和导出前确认。
 - 草稿阶段只渲染 `svg_output`，最终导出阶段复用现有草稿，二者分两次引擎运行。
 - 作业事件同时携带 `stage`，前端据此切换步骤。
 
 ### 中间文件
 
 | 文件 | 作用 |
-|---|---|
+| --- | --- |
 | `design_spec.md` | 人类可读设计说明 |
 | `spec_lock.md` | 机器可执行契约（配色/字体/页面） |
 | `slide_plan.json` | 页面大纲 |
+| `input/understanding.md` | 素材分块理解结果 |
 | `svg_output/` | 渲染出的页面 |
+| `candidates/` | 程序化与 AI 模式的页面候选（`Pxx_1..3.svg`） |
+| `page_selection.json` | 每页评分、候选文件、选中索引 |
 | `images/` / `assets/` | 从版式复制的图片等外部资源（供 SVG 引用） |
 | `notes/total.md` | 讲稿 |
 | `exports/` | 上游引擎导出的原始 pptx |
@@ -209,7 +221,7 @@ status: ready | running | succeeded | failed | cancelled
 ## 5. 命令清单
 
 | Command | 说明 |
-|---|---|
+| --- | --- |
 | `extension_list` | 已安装扩展包 |
 | `extension_inspect_zip` | 预检 zip |
 | `extension_install_zip` | 安装 zip |
@@ -230,6 +242,12 @@ status: ready | running | succeeded | failed | cancelled
 | `ppt_extension_regenerate_plan` | 复用素材与设置重新生成大纲（可指定页数/模型） |
 | `ppt_extension_start_job` | 启动扩展进程（兼容旧的一次性流程） |
 | `ppt_extension_render_draft` | 生成草稿，只写 `svg_output/` |
+| `ppt_extension_render_ai_draft` | 按模式生成草稿（programmatic / oneShot / bestOf） |
+| `ppt_extension_regenerate_ai_page` | 单页重新生成（可选模型） |
+| `ppt_extension_job_options` | 读取作业渲染选项（生成方式/原生图表/页数） |
+| `ppt_extension_page_selection` | 读取每页评分、候选与选中索引 |
+| `ppt_extension_page_candidates` | 读取程序化或 AI 页面候选 SVG |
+| `ppt_extension_select_page_candidate` | 手动切换页面候选 |
 | `ppt_extension_rerender_draft` | 修改大纲/选项后重新生成草稿 |
 | `ppt_extension_export_draft` | 对现有草稿执行质量门禁并导出 PPTX |
 | `ppt_extension_list_draft_pages` | 列出草稿页面 |
@@ -245,6 +263,8 @@ status: ready | running | succeeded | failed | cancelled
 事件：
 
 - `ppt-extension://log` `{ jobId, stream, line }`
+- `ppt-extension://plan-progress` `{ jobId, stage, current, total, message }`
+- `ppt-extension://draft-page` `{ jobId, page, total, status, score, candidateCount, issues }`
 - `ppt-extension://job` `{ jobId, status, stage, job }`
 - `ppt-extension://done` / `ppt-extension://error` `{ jobId, status, stage, job }`
 
@@ -271,7 +291,7 @@ node scripts/build-ppt-extension.mjs \
 
 输出：`dist/extensions/ppt-master-extension-<version>-win7-x64.zip`
 
-签名包安装前，主程序需要配置 `PPT_EXTENSION_PUBLIC_KEY`（base64 32 字节公钥）；
+签名包安装前，主程序需要配置 `PPT_EXTENSION_PUBLIC_KEY`（base64 32 字节公钥）；\
 未配置时会拒绝安装带签名的包。未签名包不受影响。
 
 构建脚本会：
@@ -311,27 +331,49 @@ Lite 包（不带 Python）运行前需保证系统 Python 已安装 `python-ppt
 ## 9. 验收清单
 
 - [ ] 未安装扩展：应用正常启动，无 PPT 入口，无新进程
+
 - [ ] 安装 zip：预检通过后安装成功，入口出现
+
 - [ ] 禁用/卸载：入口消失，进程不再可启动
+
 - [ ] 多文档：至少 2 个文档 + 1 个挂载文件生成成功
+
 - [ ] 中间文件：工程目录包含 design_spec/spec_lock/slide_plan/svg_output
+
 - [ ] 风格确认：版式卡片显示封面预览与中文说明
+
 - [ ] 草稿阶段：生成 svg_output 但不产生 pptx，stage=draft_ready
+
+- [ ] 草稿模式：程序化/一次性/多次可切换，程序化不调用页级 AI
+
+- [ ] 程序化候选：每页最多 3 个结构候选，可点击切换并同步预览
+
+- [ ] 大纲进度：理解/规划/校验/修复阶段有 `plan-progress` 事件
+
+- [ ] 草稿进度：逐页出现草稿图，`draft-page` 事件携带页号与分数
+
 - [ ] 草稿修改：编辑内容/页序后重新生成，预览同步刷新
+
 - [ ] 历史续作：按 stage 恢复到草稿/导出步骤
+
 - [ ] 导出：选择目录后 pptx 复制成功，stage=done
+
 - [ ] 取消/超时：状态正确，进程被终止
+
 - [ ] 损坏包/缺 Python：给出明确错误
+
 - [ ] Win7 目标环境验证（或明确标记不支持）
 
 ## 10. 已知限制
 
 - 模板方案 A：仅 layouts + charts，不支持 brand/deck/融合。
 - 支持 `{{PLACEHOLDER}}` 与 `data-pptx-placeholder` 两类 layout；未标注的复杂模板会回退内置渲染器。
-- 默认使用 SVG 矢量图表；开启原生图表后，图表页使用 python-pptx 原生图表，但不沿用版式。
+- 默认使用 SVG 矢量图表；开启原生图表后，图表页使用 python-pptx 原生图表（沿用模板调色板、图例、数据标签与网格线），但不叠加版式 SVG。
 - Executor 是内置的确定性渲染器，不包含 ppt-master 的 Agent 规划能力。
 - 扩展包签名可选；未签名包仍依赖哈希与本地来源信任。
 - 不支持在线更新，升级需重新导入 zip；已支持版本回滚。
 - 草稿修改只做内容级编辑（标题/核心信息/要点/页序），不做 SVG 元素拖拽。
-- 重新生成草稿会重渲染全部页面，暂不支持单页增量重渲染。
+- 支持单页重新生成；程序化模式支持切换结构候选。
+- 程序化渲染为 14 种页面结构（含图表页）的精简实现，不是上游 12 layout × 15 motif 的全量体系。
+- 程序化与 AI 模式的候选缩略图都保留最多 3 个；AI 草稿按两页并发，跨页去重使用视觉签名集合。
 - 风格预览使用版式首张封面 SVG；复杂模板的外部字体/图片在 WebView 预览中可能缺失。
