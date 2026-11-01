@@ -11,7 +11,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::error::AppError;
-use crate::models::extension::{PptPlan, PptSlide};
+use crate::models::extension::{PptContentBlock, PptPlan, PptSlide};
 
 pub const MAX_SLIDES: usize = 40;
 pub const MAX_BULLETS: usize = 8;
@@ -67,10 +67,7 @@ pub fn normalize_plan(
             slides.push(PptSlide {
                 page: index as u32 + 1,
                 title: truncate_chars(&heading, MAX_TITLE_CHARS),
-                core_message: String::new(),
-                bullets: Vec::new(),
-                chart: None,
-                images: Vec::new(),
+                ..Default::default()
             });
         }
     }
@@ -79,18 +76,110 @@ pub fn normalize_plan(
         slides.push(PptSlide {
             page: 1,
             title: title.clone(),
-            core_message: String::new(),
-            bullets: Vec::new(),
-            chart: None,
-            images: Vec::new(),
+            ..Default::default()
         });
     }
 
     for (index, slide) in slides.iter_mut().enumerate() {
         slide.page = index as u32 + 1;
+        // 旧大纲或用户手工编辑可能只有 bullets：派生内容块，保证后续规划/渲染字段完整。
+        if slide.content_blocks.is_empty() && !slide.bullets.is_empty() {
+            slide.content_blocks = slide
+                .bullets
+                .iter()
+                .map(|bullet| {
+                    let (label, detail) = split_label_detail(bullet);
+                    PptContentBlock {
+                        label,
+                        text: bullet.clone(),
+                        detail,
+                    }
+                })
+                .collect();
+        }
+        if slide.page_theme.is_empty() {
+            slide.page_theme = slide.title.clone();
+        }
+        if slide.main_claim.is_empty() {
+            slide.main_claim = slide.core_message.clone();
+        }
+        if slide.content_scope.is_empty() {
+            slide.content_scope = slide
+                .content_blocks
+                .iter()
+                .map(|block| block.text.as_str())
+                .filter(|text| !text.is_empty())
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" | ");
+            if slide.content_scope.is_empty() {
+                slide.content_scope = slide.core_message.clone();
+            }
+        }
     }
 
     PptPlan { title, slides }
+}
+
+fn text_field(
+    object: &serde_json::Map<String, Value>,
+    camel: &str,
+    snake: &str,
+    limit: usize,
+) -> String {
+    object
+        .get(camel)
+        .or_else(|| object.get(snake))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| truncate_chars(value, limit))
+        .unwrap_or_default()
+}
+
+fn string_list(
+    object: &serde_json::Map<String, Value>,
+    camel: &str,
+    snake: &str,
+    item_limit: usize,
+    max_items: usize,
+) -> Vec<String> {
+    object
+        .get(camel)
+        .or_else(|| object.get(snake))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| truncate_chars(value, item_limit))
+                .take(max_items)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn normalize_choice(value: &str, allowed: &[&str], fallback: &str) -> String {
+    let normalized = value.trim().to_ascii_lowercase();
+    if allowed.contains(&normalized.as_str()) {
+        normalized
+    } else {
+        fallback.to_string()
+    }
+}
+
+fn split_label_detail(text: &str) -> (String, String) {
+    let value = text.trim();
+    if let Some((label, detail)) = value.split_once('：').or_else(|| value.split_once(':')) {
+        let label = label.trim();
+        let detail = detail.trim();
+        if !label.is_empty() && !detail.is_empty() {
+            return (truncate_chars(label, 40), truncate_chars(detail, 240));
+        }
+    }
+    (truncate_chars(value, 40), String::new())
 }
 
 fn normalize_slide(value: &Value, page: usize) -> Option<PptSlide> {
@@ -103,44 +192,40 @@ fn normalize_slide(value: &Value, page: usize) -> Option<PptSlide> {
         .map(|value| truncate_chars(value, MAX_TITLE_CHARS))
         .unwrap_or_else(|| format!("第 {} 页", page));
 
-    let core_message = object
-        .get("coreMessage")
-        .or_else(|| object.get("core_message"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .map(|value| truncate_chars(value, MAX_CORE_CHARS))
-        .unwrap_or_default();
-
-    let bullets = object
-        .get("bullets")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| truncate_chars(value, MAX_BULLET_CHARS))
-                .take(MAX_BULLETS)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let core_message = text_field(object, "coreMessage", "core_message", MAX_CORE_CHARS);
+    let bullets = string_list(object, "bullets", "bullets", MAX_BULLET_CHARS, MAX_BULLETS);
 
     let chart = object.get("chart").and_then(normalize_chart);
-    let images = object
-        .get("images")
+    let images = string_list(object, "images", "images", 512, 4);
+
+    let content_blocks = object
+        .get("contentBlocks")
+        .or_else(|| object.get("content_blocks"))
         .and_then(Value::as_array)
         .map(|items| {
             items
                 .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .take(4)
-                .map(ToOwned::to_owned)
+                .take(6)
+                .filter_map(|item| {
+                    let block = item.as_object()?;
+                    let label = text_field(block, "label", "label", 40);
+                    let text = text_field(block, "text", "text", MAX_BULLET_CHARS);
+                    let detail = text_field(block, "detail", "detail", 320);
+                    if label.is_empty() && text.is_empty() && detail.is_empty() {
+                        None
+                    } else {
+                        Some(PptContentBlock {
+                            label,
+                            text,
+                            detail,
+                        })
+                    }
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+
+    let evidence = string_list(object, "evidence", "evidence", 240, 8);
 
     Some(PptSlide {
         page: page as u32,
@@ -149,6 +234,36 @@ fn normalize_slide(value: &Value, page: usize) -> Option<PptSlide> {
         bullets,
         chart,
         images,
+        page_theme: text_field(object, "pageTheme", "page_theme", 120),
+        main_claim: text_field(object, "mainClaim", "main_claim", MAX_CORE_CHARS),
+        content_scope: text_field(object, "contentScope", "content_scope", MAX_CORE_CHARS),
+        content_blocks,
+        evidence,
+        relation: normalize_choice(
+            &text_field(object, "relation", "relation", 32),
+            &["timeline", "category", "compare", "cause", "process", "none"],
+            "none",
+        ),
+        chart_type: normalize_choice(
+            &text_field(object, "chartType", "chart_type", 32),
+            &[
+                "cards",
+                "timeline",
+                "process",
+                "matrix",
+                "compare",
+                "highlight",
+                "summary",
+            ],
+            "",
+        ),
+        density: normalize_choice(
+            &text_field(object, "density", "density", 24),
+            &["anchor", "dense", "breathing", "balanced"],
+            "balanced",
+        ),
+        visual_intent: text_field(object, "visualIntent", "visual_intent", 400),
+        speaker_note: text_field(object, "speakerNote", "speaker_note", 800),
     })
 }
 

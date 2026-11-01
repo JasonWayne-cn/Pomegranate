@@ -129,6 +129,12 @@ export interface PptChartData {
   series: Array<{ name: string; values: number[] }>;
 }
 
+export interface PptContentBlock {
+  label: string;
+  text: string;
+  detail: string;
+}
+
 export interface PptSlide {
   page: number;
   title: string;
@@ -136,6 +142,26 @@ export interface PptSlide {
   bullets: string[];
   chart?: PptChartData | null;
   images?: string[];
+  /** 页面主题，相邻页不重复 */
+  pageTheme?: string;
+  /** 本页一句话主张 */
+  mainClaim?: string;
+  /** 本页内容范围 */
+  contentScope?: string;
+  /** 结构化内容块 */
+  contentBlocks?: PptContentBlock[];
+  /** 来自素材的证据或事实 */
+  evidence?: string[];
+  /** timeline | category | compare | cause | process | none */
+  relation?: string;
+  /** cards | timeline | process | matrix | compare | highlight | summary */
+  chartType?: string;
+  /** anchor | dense | breathing | balanced */
+  density?: string;
+  /** 视觉意图说明 */
+  visualIntent?: string;
+  /** 演讲备注 */
+  speakerNote?: string;
 }
 
 export interface PptPlan {
@@ -155,6 +181,24 @@ export interface PptDraftPage {
   file: string;
   page: number;
   title: string;
+}
+
+export interface PptPageCandidateScore {
+  score: number;
+  issues: string[];
+}
+
+export interface PptPageSelectionEntry {
+  page: number;
+  /** 被选中的候选序号（当前恒为 0，候选已按分数排序） */
+  selected: number;
+  score: number;
+  issues: string[];
+  candidates: PptPageCandidateScore[];
+}
+
+export interface PptPageSelection {
+  pages: PptPageSelectionEntry[];
 }
 
 export interface PptJob {

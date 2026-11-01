@@ -239,6 +239,99 @@ class EntryTests(unittest.TestCase):
         self.assertIn("…", rendered)
         self.assertNotIn("需要补读的文献清单", rendered)
 
+    def test_alternate_page_type_breaks_runs(self):
+        pages = {
+            "content_cards": Path("cards.svg"),
+            "content_table": Path("table.svg"),
+            "content": Path("content.svg"),
+        }
+        self.assertEqual(
+            entry.alternate_page_type(
+                "content_cards",
+                "content_cards",
+                pages,
+                ["A：1", "B：2", "C：3", "D：4"],
+            ),
+            "content_table",
+        )
+        self.assertEqual(
+            entry.alternate_page_type(
+                "content_cards", "content_cards", pages, ["A", "B", "C"]
+            ),
+            "content",
+        )
+        self.assertEqual(
+            entry.alternate_page_type(
+                "content_table",
+                "content_table",
+                pages,
+                ["A：1", "B：2", "C：3", "D：4"],
+            ),
+            "content_cards",
+        )
+
+    def test_slot_capacity_merges_overflow(self):
+        slide = {
+            "page": 1,
+            "title": "文献页",
+            "bullets": ["A：1", "B：2", "C：3", "D：4", "E：5", "F：6"],
+        }
+        plan = {"title": "演示", "slides": [slide]}
+        job = {"options": {}}
+        self.assertEqual(
+            entry._resolve_token("ROW_5_DATA", slide, 0, plan, job, "章节"),
+            "E：5；F：6",
+        )
+        self.assertEqual(
+            entry._resolve_token("NOTICE_3_TITLE", slide, 0, plan, job, "章节"),
+            "C",
+        )
+
+    def test_choose_page_type_uses_structured_intent(self):
+        pages = {
+            key: Path(f"{key}.svg")
+            for key in (
+                "content",
+                "content_table",
+                "content_cards",
+                "safety_notice",
+                "process_steps",
+            )
+        }
+        bullets = ["A：1", "B：2", "C：3", "D：4"]
+        self.assertEqual(
+            entry.choose_page_type(
+                {
+                    "title": "P01 基线",
+                    "relation": "timeline",
+                    "chartType": "process",
+                    "bullets": bullets,
+                },
+                1,
+                10,
+                pages,
+            ),
+            "process_steps",
+        )
+        self.assertEqual(
+            entry.choose_page_type(
+                {"title": "某页", "chartType": "compare", "bullets": bullets},
+                1,
+                10,
+                pages,
+            ),
+            "content_table",
+        )
+        self.assertEqual(
+            entry.choose_page_type(
+                {"title": "某页", "chartType": "cards", "bullets": bullets},
+                1,
+                10,
+                pages,
+            ),
+            "content_cards",
+        )
+
     def test_localize_template_labels(self):
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg">'

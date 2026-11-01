@@ -208,8 +208,20 @@ pub struct PptJobInput {
     pub native_charts: Option<bool>,
 }
 
+/// PPT 单页内容块（结构化规划的最小单元）
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PptContentBlock {
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub detail: String,
+}
+
 /// PPT 单页大纲
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PptSlide {
     #[serde(default)]
@@ -225,6 +237,36 @@ pub struct PptSlide {
     pub chart: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<String>,
+    /// 页面主题（与相邻页不重复）
+    #[serde(default)]
+    pub page_theme: String,
+    /// 本页一句话主张
+    #[serde(default)]
+    pub main_claim: String,
+    /// 本页内容范围说明
+    #[serde(default)]
+    pub content_scope: String,
+    /// 结构化内容块：label / text / detail
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_blocks: Vec<PptContentBlock>,
+    /// 来自素材的证据或事实
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<String>,
+    /// 内容关系：timeline / category / compare / cause / process / none
+    #[serde(default)]
+    pub relation: String,
+    /// 推荐图表或版式：cards / timeline / process / matrix / compare / highlight / summary
+    #[serde(default)]
+    pub chart_type: String,
+    /// 密度：anchor / dense / breathing / balanced
+    #[serde(default)]
+    pub density: String,
+    /// 视觉意图说明，供逐页生成提示词使用
+    #[serde(default)]
+    pub visual_intent: String,
+    /// 演讲备注
+    #[serde(default)]
+    pub speaker_note: String,
 }
 
 /// PPT 大纲（plan.json）

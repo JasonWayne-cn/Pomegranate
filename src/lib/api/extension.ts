@@ -11,6 +11,7 @@ import type {
   PptLocalFileSource,
   PptMetaSource,
   PptMetaSuggestion,
+  PptPageSelection,
   PptPlan,
 } from "@/types/extension";
 
@@ -65,6 +66,16 @@ export const pptExtensionApi = {
       chartIds: options.chartIds ?? null,
       nativeCharts: options.nativeCharts ?? null,
     }),
+  renderAiDraft: (jobId: string, candidateCount = 2) =>
+    invoke<void>("ppt_extension_render_ai_draft", { jobId, candidateCount }),
+  regenerateAiPage: (jobId: string, page: number, candidateCount = 2) =>
+    invoke<void>("ppt_extension_regenerate_ai_page", {
+      jobId,
+      page,
+      candidateCount,
+    }),
+  getPageSelection: (jobId: string) =>
+    invoke<PptPageSelection>("ppt_extension_page_selection", { jobId }),
   rerenderDraft: (
     jobId: string,
     options: {

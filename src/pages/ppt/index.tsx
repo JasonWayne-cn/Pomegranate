@@ -62,6 +62,7 @@ import type {
   PptLocalFileSource,
   PptLogEvent,
   PptMetaSource,
+  PptPageSelection,
   PptPlan,
   PptSlide,
 } from "@/types/extension";
@@ -207,6 +208,8 @@ export default function PptPage() {
   const [draftPages, setDraftPages] = useState<PptDraftPage[]>([]);
   const [draftSvgs, setDraftSvgs] = useState<Record<string, string>>({});
   const [draftLoading, setDraftLoading] = useState(false);
+  const [pageSelection, setPageSelection] = useState<PptPageSelection | null>(null);
+  const [regenPage, setRegenPage] = useState<number | null>(null);
   const [selectedDraftFile, setSelectedDraftFile] = useState<string | null>(null);
 
   const folderName = useMemo(() => {
@@ -292,6 +295,11 @@ export default function PptPage() {
       );
       const map = Object.fromEntries(entries);
       setDraftSvgs(map);
+      try {
+        setPageSelection(await pptExtensionApi.getPageSelection(jobId));
+      } catch {
+        setPageSelection(null);
+      }
       setSelectedDraftFile((current) =>
         current && map[current] ? current : pages[0]?.file ?? null,
       );
@@ -770,7 +778,7 @@ export default function PptPage() {
       setPlan(normalized);
       setPlanDirty(false);
       setStyleDirty(false);
-      await pptExtensionApi.renderDraft(updatedJob.id);
+      await pptExtensionApi.renderAiDraft(updatedJob.id, 3);
       setStep(3);
     } catch (e) {
       setRunning(false);
@@ -818,11 +826,33 @@ export default function PptPage() {
       setPlan(normalized);
       setPlanDirty(false);
       setStyleDirty(false);
-      await pptExtensionApi.rerenderDraft(job.id);
+      await pptExtensionApi.renderAiDraft(job.id, 3);
       setStep(3);
     } catch (e) {
       setRunning(false);
       message.error(`重新生成草稿失败：${String(e)}`);
+    }
+  }
+
+  async function handleRegeneratePage(page: number) {
+    if (!job) return;
+    setRegenPage(page);
+    try {
+      await pptExtensionApi.regenerateAiPage(job.id, page, 3);
+      const file = `P${String(page).padStart(2, "0")}.svg`;
+      const svg = await pptExtensionApi.readDraftPage(job.id, file);
+      setDraftSvgs((prev) => ({ ...prev, [file]: svg }));
+      try {
+        setPageSelection(await pptExtensionApi.getPageSelection(job.id));
+      } catch {
+        // 评分读取失败不影响预览刷新
+      }
+      setSelectedDraftFile(file);
+      message.success(`P${page} 已重新生成`);
+    } catch (e) {
+      message.error(`重新生成第 ${page} 页失败：${String(e)}`);
+    } finally {
+      setRegenPage(null);
     }
   }
 
@@ -1852,6 +1882,37 @@ export default function PptPage() {
                                   {page.file}
                                 </Text>
                               </div>
+                              {(() => {
+                                const selection = pageSelection?.pages.find(
+                                  (item) => item.page === page.page,
+                                );
+                                if (!selection) return null;
+                                return (
+                                  <Tag
+                                    color={
+                                      selection.score >= 70
+                                        ? "green"
+                                        : selection.score >= 55
+                                          ? "gold"
+                                          : "red"
+                                    }
+                                  >
+                                    {selection.score}
+                                  </Tag>
+                                );
+                              })()}
+                              <Tooltip title="重新生成此页">
+                                <Button
+                                  size="small"
+                                  type="text"
+                                  loading={regenPage === page.page}
+                                  icon={<RotateCcw size={13} />}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleRegeneratePage(page.page);
+                                  }}
+                                />
+                              </Tooltip>
                             </div>
                           </List.Item>
                         )}

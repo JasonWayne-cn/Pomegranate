@@ -997,6 +997,28 @@ def _resolve_token(
             return item.get("coreMessage") or ""
         return item.get("coreMessage") or item.get("title") or ""
 
+    # 模板槽位数量有限（表格 5 行、提示 3 条、流程 5 步、卡片 6 张）；
+    # 超出的要点合并到最后一个槽位，避免直接丢失。
+    capacity = {"ROW": 5, "NOTICE": 3, "STEP": 5, "CARD": 6}.get(prefix)
+    if capacity and number == capacity and len(bullets) > capacity:
+        remainder = bullets[number - 1 :]
+        if suffix in ("TITLE", "LABEL", "NAME", "THEME"):
+            return _bullet_parts(remainder[0])[0]
+        if suffix in (
+            "DETAIL",
+            "DESC",
+            "NOTE",
+            "POSITIONING",
+            "STAGE",
+            "IMPACT",
+            "QUESTION",
+            "HIGHLIGHT",
+        ):
+            return "；".join(
+                _bullet_parts(item)[1] or item for item in remainder
+            )
+        return "；".join(remainder)
+
     raw = item_at(number)
     label, detail, value = _bullet_parts(raw)
     if suffix in ("TITLE", "LABEL", "NAME", "THEME", "TOOL"):
@@ -1724,9 +1746,35 @@ def choose_page_type(
         r"^(第.+?[章节部分]|part\s*\d+|section\s*\d+)", title, re.I
     ):
         return "chapter"
+    # 优先使用结构化规划给出的页面意图，标题关键词只作为兜底。
+    chart_type = str(slide.get("chartType") or slide.get("chart_type") or "").strip().lower()
+    relation = str(slide.get("relation") or "").strip().lower()
+    density = str(slide.get("density") or "").strip().lower()
+    if chart_type in ("timeline", "process") and "process_steps" in available:
+        return "process_steps"
+    if chart_type in ("compare", "matrix") and "content_table" in available:
+        return "content_table"
+    if chart_type == "cards" and "content_cards" in available:
+        return "content_cards"
+    if chart_type == "highlight" and "safety_notice" in available:
+        return "safety_notice"
+    if chart_type == "summary" and "content" in available:
+        return "content"
+    if relation in ("timeline", "process") and "process_steps" in available:
+        return "process_steps"
+    if relation == "compare" and "content_table" in available:
+        return "content_table"
+    if relation == "cause" and "content" in available:
+        return "content"
+    if relation == "category" and "content_cards" in available:
+        return "content_cards"
+    if density == "anchor" and "content" in available:
+        return "content"
+    if density == "dense" and len(bullets) >= 4 and "content_table" in available:
+        return "content_table"
     # 按内容语义选择版式，避免所有内容页都落到同一种卡片版式。
     if "content" in available and re.search(
-        r"研究范围|核心结论|总体|概述|总览|研究定位|总结", title
+        r"研究范围|核心结论|总体|概述|总览|研究定位|总结|优先|先读|阅读顺序", title
     ):
         return "content"
     if "safety_notice" in available and re.search(
@@ -1739,9 +1787,13 @@ def choose_page_type(
         return "process_steps"
     if "content_table" in available and len(bullets) >= 4 and (
         any("|" in item for item in bullets)
-        or re.search(r"清单|对比|等级|参数|指标|矩阵|优先级", title)
+        or re.search(r"清单|对比|等级|参数|指标|矩阵|优先级|^P\d|P\d+\s*[/、,，]", title)
     ):
         return "content_table"
+    if "content" in available and re.search(
+        r"用法|如何进入|怎么用|实现路径|进入软件", title
+    ):
+        return "content"
     if "content_cards" in available and len(bullets) >= 3:
         return "content_cards"
     if "content_text_image" in available and slide.get("images"):
@@ -1752,6 +1804,29 @@ def choose_page_type(
         if "content" in page_type:
             return page_type
     return None
+
+
+def alternate_page_type(
+    page_type: str | None,
+    previous: str | None,
+    pages: dict[str, Path],
+    bullets: list[str],
+) -> str | None:
+    """连续两页使用同一版式时切换到备选版式，避免整份 PPT 节奏单一。"""
+    if not page_type or page_type != previous:
+        return page_type
+    options = {
+        "content_cards": ("content_table", "content"),
+        "content_table": ("content_cards", "content"),
+        "content": ("content_cards",),
+    }.get(page_type, ())
+    for option in options:
+        if option not in pages:
+            continue
+        if option == "content_table" and len(bullets) < 4:
+            continue
+        return option
+    return page_type
 
 
 def normalize_plan(plan: dict, source: str, job: dict) -> dict:
@@ -2266,6 +2341,38 @@ def main() -> int:
             fail("NO_DRAFT", "草稿目录为空，请先生成草稿")
         log(f"导出阶段：复用现有草稿 {len(draft_pages)} 页")
         progress("export", 70, "读取已确认草稿")
+        # AI 页面是整页绝对坐标，不能携带模板 master/layout/bounds 元数据；
+        # 否则 flat 导出会因结构校验失败回退纯文本（图表/表格丢失）。
+        selection_path = project / "page_selection.json"
+        ai_pages: set[int] = set()
+        if selection_path.is_file():
+            try:
+                selection = json.loads(selection_path.read_text(encoding="utf-8"))
+                ai_pages = {
+                    int(item["page"])
+                    for item in selection.get("pages", [])
+                    if isinstance(item, dict) and "page" in item
+                }
+            except Exception:
+                ai_pages = set()
+        for page in draft_pages:
+            match = re.match(r"P(\d+)\.svg$", page.name, re.I)
+            if not match or int(match.group(1)) not in ai_pages:
+                continue
+            text = page.read_text(encoding="utf-8")
+            cleaned = re.sub(r'\s+data-pptx-[A-Za-z0-9_-]+="[^"]*"', "", text)
+            for pattern in (
+                r'\s+dominant-baseline="[^"]*"',
+                r'\s+alignment-baseline="[^"]*"',
+                r'\s+paint-order="[^"]*"',
+                r'\s+vector-effect="[^"]*"',
+                r'\s+mix-blend-mode="[^"]*"',
+                r'\s+isolation="[^"]*"',
+            ):
+                cleaned = re.sub(pattern, "", cleaned)
+            if cleaned != text:
+                page.write_text(cleaned, encoding="utf-8")
+                log(f"已清理 {page.name} 的不兼容 SVG 属性")
         # 复用已有 SVG 时仍补齐模板图片等资源，避免 svg_to_pptx 因缺图回退。
         layout = (job.get("templates") or {}).get("layoutId") or "default"
         pages = layout_pages(layout)
@@ -2280,12 +2387,32 @@ def main() -> int:
         return export_pptx(plan, project, output, options)
 
     progress("render", 40, "生成 SVG 页面")
-    # 重新渲染时清理旧页，避免删减页数后残留过期 SVG。
-    for stale in (project / "svg_output").glob("*.svg"):
-        try:
-            stale.unlink()
-        except OSError:
-            pass
+    # AI 页级生成失败时只渲染 fallbackPages，保留已生成的 AI 页面。
+    fallback_pages: set[int] = set()
+    raw_fallback = options.get("fallbackPages")
+    if isinstance(raw_fallback, list):
+        for item in raw_fallback:
+            try:
+                fallback_pages.add(int(item))
+            except (TypeError, ValueError):
+                continue
+    if fallback_pages:
+        log(f"仅渲染模板兜底页: {sorted(fallback_pages)}")
+        for stale in (project / "svg_output").glob("*.svg"):
+            match = re.match(r"^P(\d+)\.svg$", stale.name, re.I)
+            if not match or int(match.group(1)) not in fallback_pages:
+                continue
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+    else:
+        # 完整渲染时清理旧页，避免删减页数后残留过期 SVG。
+        for stale in (project / "svg_output").glob("*.svg"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
     layout = (job.get("templates") or {}).get("layoutId") or "default"
     pages = layout_pages(layout)
     if pages:
@@ -2294,8 +2421,12 @@ def main() -> int:
     preferred_chart_ids = (job.get("templates") or {}).get("chartIds") or []
     preferred_chart = preferred_chart_ids[0] if preferred_chart_ids else None
     section_name = plan["title"]
+    previous_type = None
 
     for index, slide in enumerate(plan["slides"]):
+        if fallback_pages and int(slide.get("page") or 0) not in fallback_pages:
+            log(f"P{slide.get('page', 0):02d} 保留 AI 草稿，跳过模板渲染")
+            continue
         filename = f"P{slide['page']:02d}.svg"
         svg: str | None = None
         chart = chart_data_for_slide(slide, preferred_chart)
@@ -2319,6 +2450,7 @@ def main() -> int:
                         chart=chart,
                         colors=colors,
                     )
+                    previous_type = content_type
                     log(
                         f"P{slide['page']:02d} 使用结构化版式+图表: "
                         f"{layout}/{content_type}"
@@ -2341,6 +2473,10 @@ def main() -> int:
 
         if svg is None:
             page_type = choose_page_type(slide, index, len(plan["slides"]), pages)
+            page_type = alternate_page_type(
+                page_type, previous_type, pages, slide.get("bullets") or []
+            )
+            previous_type = page_type
             if page_type and pages.get(page_type):
                 base = pages[page_type].read_text(encoding="utf-8")
                 if "data-pptx-placeholder" in base:

@@ -292,6 +292,55 @@ pub fn ppt_extension_render_draft(
     .map_err(Into::into)
 }
 
+/// 逐页 AI 生成草稿；失败页自动回退模板渲染。
+#[tauri::command]
+pub async fn ppt_extension_render_ai_draft(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+    candidate_count: Option<usize>,
+) -> Result<(), String> {
+    PptExtensionService::render_ai_draft(
+        app,
+        state.db.clone(),
+        state.ppt_job_cancel.clone(),
+        job_id,
+        candidate_count.unwrap_or(3).clamp(1, 3),
+    )
+    .await
+    .map_err(Into::into)
+}
+
+/// 单页重新生成 AI 草稿。
+#[tauri::command]
+pub async fn ppt_extension_regenerate_ai_page(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+    page: u32,
+    candidate_count: Option<usize>,
+) -> Result<(), String> {
+    PptExtensionService::regenerate_ai_page(
+        app,
+        state.db.clone(),
+        state.ppt_job_cancel.clone(),
+        job_id,
+        page,
+        candidate_count.unwrap_or(3).clamp(1, 3),
+    )
+    .await
+    .map_err(Into::into)
+}
+
+/// 读取逐页候选与评分。
+#[tauri::command]
+pub fn ppt_extension_page_selection(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<Value, String> {
+    PptExtensionService::page_selection(&state.db, &job_id).map_err(Into::into)
+}
+
 /// 修改大纲后重新生成草稿。
 #[tauri::command]
 pub fn ppt_extension_rerender_draft(
