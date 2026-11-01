@@ -104,6 +104,26 @@ impl AiEventEmitter for NoopAiEmitter {
     fn emit_error(&self, _error: &str) {}
 }
 
+/// 把流式 token 回调给调用方，用于在不暴露事件协议的场景下推进度。
+struct CallbackEmitter<F>
+where
+    F: FnMut(&str) + Send,
+{
+    callback: std::sync::Mutex<F>,
+}
+
+impl<F> AiEventEmitter for CallbackEmitter<F>
+where
+    F: FnMut(&str) + Send,
+{
+    fn emit_token(&self, content: &str) {
+        if let Ok(mut callback) = self.callback.lock() {
+            callback(content);
+        }
+    }
+    fn emit_error(&self, _error: &str) {}
+}
+
 pub struct AiService;
 
 /// 获取用于 Ollama 的 HTTP 客户端：始终绕过系统代理。
@@ -603,13 +623,30 @@ impl AiService {
         prompt: &str,
         model_id: Option<i64>,
     ) -> Result<String, AppError> {
+        Self::complete_once_with_progress(db, prompt, model_id, |_| {}).await
+    }
+
+    /// 一次性生成，并把每个流式 token 交给 `on_token` 回调。
+    ///
+    /// 供 PPT 规划这类"结果要等全部生成完才可用、但希望显示增量进度"的场景使用。
+    pub async fn complete_once_with_progress<F>(
+        db: &Database,
+        prompt: &str,
+        model_id: Option<i64>,
+        on_token: F,
+    ) -> Result<String, AppError>
+    where
+        F: FnMut(&str) + Send,
+    {
         let model = match model_id {
             Some(id) => db.get_ai_model(id)?,
             None => db.get_default_ai_model()?,
         };
         let messages = vec![json!({ "role": "user", "content": prompt })];
         let (_tx, cancel_rx) = tokio::sync::watch::channel(false);
-        let emitter = NoopAiEmitter;
+        let emitter = CallbackEmitter {
+            callback: std::sync::Mutex::new(on_token),
+        };
         let provider = Self::provider_for_model(&model)?;
         let stream = provider.stream_chat(messages, Vec::new()).await?;
         Ok(Self::drive_provider_stream(&emitter, stream, cancel_rx)

@@ -124,7 +124,7 @@ pub async fn ppt_extension_create_job(
         input,
         Some(app),
         cancel,
-        Duration::from_secs(180),
+        Duration::from_secs(420),
     )
     .await;
     if let Ok(mut map) = state.ppt_plan_cancel.lock() {
@@ -299,6 +299,7 @@ pub async fn ppt_extension_render_ai_draft(
     state: State<'_, AppState>,
     job_id: String,
     candidate_count: Option<usize>,
+    mode: Option<String>,
 ) -> Result<(), String> {
     PptExtensionService::render_ai_draft(
         app,
@@ -306,6 +307,7 @@ pub async fn ppt_extension_render_ai_draft(
         state.ppt_job_cancel.clone(),
         job_id,
         candidate_count.unwrap_or(3).clamp(1, 3),
+        crate::services::ppt_extension::DraftGenerationMode::parse(mode.as_deref()),
     )
     .await
     .map_err(Into::into)
@@ -319,6 +321,7 @@ pub async fn ppt_extension_regenerate_ai_page(
     job_id: String,
     page: u32,
     candidate_count: Option<usize>,
+    model_id: Option<i64>,
 ) -> Result<(), String> {
     PptExtensionService::regenerate_ai_page(
         app,
@@ -327,9 +330,19 @@ pub async fn ppt_extension_regenerate_ai_page(
         job_id,
         page,
         candidate_count.unwrap_or(3).clamp(1, 3),
+        model_id,
     )
     .await
     .map_err(Into::into)
+}
+
+/// 读取作业渲染选项（生成方式、原生图表等）。
+#[tauri::command]
+pub fn ppt_extension_job_options(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<Value, String> {
+    PptExtensionService::job_options(&state.db, &job_id).map_err(Into::into)
 }
 
 /// 读取逐页候选与评分。
@@ -339,6 +352,28 @@ pub fn ppt_extension_page_selection(
     job_id: String,
 ) -> Result<Value, String> {
     PptExtensionService::page_selection(&state.db, &job_id).map_err(Into::into)
+}
+
+/// 读取程序化渲染的候选 SVG。
+#[tauri::command]
+pub fn ppt_extension_page_candidates(
+    state: State<'_, AppState>,
+    job_id: String,
+    page: u32,
+) -> Result<Value, String> {
+    PptExtensionService::page_candidates(&state.db, &job_id, page).map_err(Into::into)
+}
+
+/// 手动选择一个结构候选。
+#[tauri::command]
+pub fn ppt_extension_select_page_candidate(
+    state: State<'_, AppState>,
+    job_id: String,
+    page: u32,
+    index: usize,
+) -> Result<(), String> {
+    PptExtensionService::select_page_candidate(&state.db, &job_id, page, index)
+        .map_err(Into::into)
 }
 
 /// 修改大纲后重新生成草稿。
@@ -404,10 +439,12 @@ pub fn ppt_extension_read_draft_page(
 
 #[tauri::command]
 pub fn ppt_extension_cancel_job(
+    app: AppHandle,
     state: State<'_, AppState>,
     job_id: String,
 ) -> Result<(), String> {
-    PptExtensionService::cancel_job(&state.ppt_job_cancel, &job_id).map_err(Into::into)
+    PptExtensionService::cancel_job(&state.db, &state.ppt_job_cancel, Some(&app), &job_id)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -426,6 +463,8 @@ pub fn ppt_extension_list_jobs(
     state: State<'_, AppState>,
     limit: Option<usize>,
 ) -> Result<Vec<PptJob>, String> {
+    // 顺手回收崩溃/强杀后残留的 running 作业，避免一直显示"生成中"。
+    let _ = PptExtensionService::recover_stale_jobs(&state.db);
     state
         .db
         .list_ppt_jobs(limit.unwrap_or(30).clamp(1, 200))

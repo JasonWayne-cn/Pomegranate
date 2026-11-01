@@ -267,6 +267,32 @@ fn normalize_slide(value: &Value, page: usize) -> Option<PptSlide> {
     })
 }
 
+/// 把局部修复结果按 `page` 合并回原大纲；返回成功覆盖的页数。
+///
+/// 修复返回的 JSON 只包含有问题的页面，因此不能走 `normalize_plan`（它会重新编号），
+/// 而是逐页规范化后按页码替换。
+pub fn merge_repaired_slides(plan: &mut PptPlan, value: &Value) -> usize {
+    let Some(items) = value.get("slides").and_then(Value::as_array) else {
+        return 0;
+    };
+    let mut merged = 0usize;
+    for item in items {
+        let Some(page) = item.get("page").and_then(Value::as_u64) else {
+            continue;
+        };
+        let page = page as u32;
+        let Some(normalized) = normalize_slide(item, page as usize) else {
+            continue;
+        };
+        if let Some(target) = plan.slides.iter_mut().find(|slide| slide.page == page) {
+            *target = normalized;
+            target.page = page;
+            merged += 1;
+        }
+    }
+    merged
+}
+
 /// 图表数据清洗：类型白名单、分类上限、系列补齐/截断、非数字归零。
 pub fn normalize_chart(value: &Value) -> Option<Value> {
     let object = value.as_object()?;
@@ -441,6 +467,42 @@ mod tests {
             "series": [{"name": "S", "values": [1]}]
         }))
         .is_none());
+    }
+
+    #[test]
+    fn merges_repaired_slides_by_page() {
+        let mut plan = normalize_plan(
+            json!({
+                "title": "T",
+                "slides": [
+                    {"page": 1, "title": "封面"},
+                    {"page": 2, "title": "旧标题", "coreMessage": "旧"},
+                    {"page": 3, "title": "第三页"}
+                ]
+            }),
+            "T",
+            "",
+            None,
+        );
+        let merged = merge_repaired_slides(
+            &mut plan,
+            &json!({
+                "slides": [{
+                    "page": 2,
+                    "title": "新标题",
+                    "coreMessage": "新",
+                    "contentBlocks": [
+                        {"label": "A", "text": "要点一", "detail": ""},
+                        {"label": "B", "text": "要点二", "detail": ""}
+                    ]
+                }]
+            }),
+        );
+        assert_eq!(merged, 1);
+        assert_eq!(plan.slides.len(), 3);
+        assert_eq!(plan.slides[1].title, "新标题");
+        assert_eq!(plan.slides[1].content_blocks.len(), 2);
+        assert_eq!(plan.slides[2].title, "第三页");
     }
 
     #[test]

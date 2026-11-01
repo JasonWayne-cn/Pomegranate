@@ -33,6 +33,7 @@ pub mod extension;
 pub mod extension_runner;
 pub mod ppt_extension;
 pub mod ppt_plan;
+pub mod ppt_programmatic_renderer;
 pub mod export_merge;
 // Word 导出仅桌面端：docx_rs 在 Android target 编译失败
 pub mod doc_extract;

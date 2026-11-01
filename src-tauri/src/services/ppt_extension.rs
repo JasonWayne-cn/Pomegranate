@@ -10,12 +10,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use futures::StreamExt;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::database::Database;
 use crate::error::AppError;
+use crate::models::AiModel;
 use crate::models::extension::{
     PptDraftPage, PptJob, PptJobInput, PptLocalFileSource, PptMetaSource, PptMetaSuggestion,
     PptPlan, PptSlide, PptSourceMeta,
@@ -28,16 +30,21 @@ use crate::services::extension_runner;
 use crate::services::import::read_text_auto_encoding;
 use crate::services::note::NoteService;
 use crate::services::pdf::PdfService;
+use crate::services::ppt_programmatic_renderer;
 use crate::services::ppt_plan;
 use crate::services::safe_filename;
 
 const MAX_SOURCE_CHARS: usize = 200_000;
 const MAX_PER_SOURCE_CHARS: usize = 40_000;
 const DEFAULT_TIMEOUT_SECS: u64 = 900;
-const DEFAULT_PLANNING_TIMEOUT_SECS: u64 = 180;
+const DEFAULT_PLANNING_TIMEOUT_SECS: u64 = 420;
 const MAX_PLANNING_ATTEMPTS: usize = 2;
 const MAX_DRAFT_PAGES: usize = 120;
 const MAX_DRAFT_PAGE_BYTES: u64 = 8 * 1024 * 1024;
+/// running 作业超过该分钟数、且产物也长时间无更新，视为僵尸作业。
+const STALE_JOB_MINUTES: i64 = 30;
+/// 产物最近一次更新距今超过该分钟数，才允许判定为僵尸，避免误杀慢速渲染。
+const STALE_ACTIVITY_MINUTES: u64 = 15;
 
 pub const STAGE_OUTLINE_READY: &str = "outline_ready";
 pub const STAGE_RENDERING_DRAFT: &str = "rendering_draft";
@@ -77,6 +84,35 @@ enum PlanRunError {
     Ai(String),
 }
 
+/// 草稿生成方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DraftGenerationMode {
+    /// 每页 1 次 AI，连续生成，失败修复 1 次；接近上游 skill 的连续生成。
+    OneShot,
+    /// Rust 程序化渲染，每页 3 个 motif 候选选 1。
+    Programmatic,
+    /// 当前多候选：自适应 1–3 个 AI 候选 + 评分 + 评审。
+    BestOf,
+}
+
+impl DraftGenerationMode {
+    pub fn parse(value: Option<&str>) -> Self {
+        match value.unwrap_or("bestOf").trim().to_ascii_lowercase().as_str() {
+            "oneshot" | "one-shot" | "single" => Self::OneShot,
+            "programmatic" | "program" | "rust" => Self::Programmatic,
+            _ => Self::BestOf,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::OneShot => "oneShot",
+            Self::Programmatic => "programmatic",
+            Self::BestOf => "bestOf",
+        }
+    }
+}
+
 pub struct PptExtensionService;
 
 fn emit_system_log(app: Option<&AppHandle>, message: &str) {
@@ -90,6 +126,169 @@ fn emit_system_log(app: Option<&AppHandle>, message: &str) {
             }),
         );
     }
+}
+
+fn emit_plan_progress(
+    app: Option<&AppHandle>,
+    job_id: &str,
+    stage: &str,
+    current: usize,
+    total: usize,
+    message: &str,
+) {
+    if let Some(app) = app {
+        let _ = app.emit(
+            "ppt-extension://plan-progress",
+            json!({
+                "jobId": job_id,
+                "stage": stage,
+                "current": current,
+                "total": total,
+                "message": message,
+            }),
+        );
+    }
+}
+
+/// 大纲阶段日志同时落盘到 `<作业>/logs/plan.log`。
+///
+/// 之前 `emit_system_log` 只往前端发事件，窗口关掉或页面切换后日志就丢了，
+/// 无法事后判断"这次重新生成大纲到底卡在哪一步、花了多久"。
+struct PlanLog {
+    file: Mutex<Option<fs::File>>,
+}
+
+impl PlanLog {
+    fn for_job(job_dir: &Path) -> Self {
+        let logs_dir = job_dir.join("logs");
+        let _ = fs::create_dir_all(&logs_dir);
+        let path = logs_dir.join("plan.log");
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .ok();
+        let log = Self {
+            file: Mutex::new(file),
+        };
+        log.write(&format!(
+            "=== 大纲生成开始 {} ===",
+            chrono::Local::now().to_rfc3339()
+        ));
+        log
+    }
+
+    fn write(&self, message: &str) {
+        let Ok(mut guard) = self.file.lock() else {
+            return;
+        };
+        let Some(file) = guard.as_mut() else {
+            return;
+        };
+        use std::io::Write;
+        let line = format!(
+            "[{}] {}\n",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
+            message
+        );
+        let _ = file.write_all(line.as_bytes());
+        let _ = file.flush();
+    }
+
+    fn emit(&self, app: Option<&AppHandle>, message: &str) {
+        emit_system_log(app, message);
+        self.write(message);
+    }
+
+    fn finish(&self, message: &str) {
+        self.write(message);
+        self.write(&format!(
+            "=== 大纲生成结束 {} ===",
+            chrono::Local::now().to_rfc3339()
+        ));
+    }
+}
+
+/// 作业最近一次产物写入时间（只扫有限目录，避免全盘遍历）。
+fn latest_activity_time(job_dir: &Path) -> Option<std::time::SystemTime> {
+    let mut latest: Option<std::time::SystemTime> = None;
+    let files = [
+        job_dir.join("job.json"),
+        job_dir.join("plan.json"),
+        job_dir.join("project").join("page_selection.json"),
+    ];
+    for path in files {
+        if let Ok(modified) = fs::metadata(&path).and_then(|meta| meta.modified()) {
+            latest = Some(latest.map_or(modified, |current| current.max(modified)));
+        }
+    }
+    let dirs = [
+        job_dir.join("project").join("svg_output"),
+        job_dir.join("logs"),
+        job_dir.join("output"),
+    ];
+    for dir in dirs {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if let Ok(modified) = entry.metadata().and_then(|meta| meta.modified()) {
+                latest = Some(latest.map_or(modified, |current| current.max(modified)));
+            }
+        }
+    }
+    latest
+}
+
+fn job_started_at(job: &PptJob) -> Option<chrono::DateTime<chrono::Local>> {
+    job.started_at
+        .as_deref()
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&chrono::Local))
+}
+
+/// 判定 running 作业是否已经失去进展。
+fn job_is_stale(job: &PptJob) -> bool {
+    if job.status != "running" {
+        return false;
+    }
+    let started_stale = job_started_at(job)
+        .map(|started| (chrono::Local::now() - started).num_minutes() >= STALE_JOB_MINUTES)
+        .unwrap_or(true);
+    if !started_stale {
+        return false;
+    }
+    let job_dir = PathBuf::from(&job.workspace_path);
+    latest_activity_time(&job_dir)
+        .and_then(|time| time.elapsed().ok())
+        .map(|elapsed| elapsed.as_secs() >= STALE_ACTIVITY_MINUTES * 60)
+        .unwrap_or(true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_draft_page(
+    app: &AppHandle,
+    job_id: &str,
+    page: u32,
+    total: usize,
+    status: &str,
+    score: i32,
+    candidate_count: usize,
+    issues: &[String],
+) {
+    let _ = app.emit(
+        "ppt-extension://draft-page",
+        json!({
+            "jobId": job_id,
+            "page": page,
+            "total": total,
+            "status": status,
+            "score": score,
+            "candidateCount": candidate_count,
+            "issues": issues,
+        }),
+    );
 }
 
 impl PptExtensionService {
@@ -364,25 +563,36 @@ impl PptExtensionService {
             fs::create_dir_all(dir)?;
         }
 
+        let plan_log = PlanLog::for_job(&workspace);
+        plan_log.emit(
+            app.as_ref(),
+            &format!(
+                "已收集 {} 个素材，共 {} 字符（{} 个被截断）",
+                sources.len(),
+                source_md.chars().count(),
+                truncated_count
+            ),
+        );
+
         fs::write(input_dir.join("source.md"), &source_md)?;
         fs::write(
             input_dir.join("source_manifest.json"),
             serde_json::to_vec_pretty(&sources)?,
         )?;
 
-        emit_system_log(app.as_ref(), "AI 正在分块理解素材...");
-        let understanding_timeout = planning_timeout.min(Duration::from_secs(150));
+        plan_log.emit(app.as_ref(), "AI 正在分块理解素材...");
         let understanding = build_understanding_with_ai(
             db,
             &input,
             &source_md,
+            &job_id,
             app.as_ref(),
             &cancel,
-            understanding_timeout,
+            &plan_log,
         )
         .await?;
         fs::write(input_dir.join("understanding.md"), &understanding)?;
-        emit_system_log(
+        plan_log.emit(
             app.as_ref(),
             &format!(
                 "素材理解完成：{} 字符",
@@ -390,19 +600,21 @@ impl PptExtensionService {
             ),
         );
 
-        emit_system_log(app.as_ref(), "AI 正在规划大纲...");
+        plan_log.emit(app.as_ref(), "AI 正在规划大纲...");
         let plan = build_plan_with_ai(
             db,
             &input,
             &source_md,
             &understanding,
+            &job_id,
             app.as_ref(),
             &cancel,
             planning_timeout,
+            &plan_log,
         )
         .await?;
         let slide_count = plan.slides.len();
-        emit_system_log(app.as_ref(), &format!("大纲已生成：{} 页", slide_count));
+        plan_log.emit(app.as_ref(), &format!("大纲已生成：{} 页", slide_count));
 
         ppt_plan::write_plan(&workspace, &plan)?;
 
@@ -456,6 +668,7 @@ impl PptExtensionService {
             finished_at: None,
         };
         db.insert_ppt_job(&job)?;
+        plan_log.finish(&format!("作业已就绪：{} 页", slide_count));
         emit_system_log(app.as_ref(), "作业已就绪，准备启动引擎");
         Ok(job)
     }
@@ -936,11 +1149,85 @@ impl PptExtensionService {
             .get_ppt_job(job_id)?
             .ok_or_else(|| AppError::NotFound(format!("作业 {} 不存在", job_id)))?;
         if job.status == "running" {
-            return Err(AppError::InvalidInput(
-                "作业正在运行，不能重新生成大纲".into(),
-            ));
+            if !job_is_stale(&job) {
+                return Err(AppError::InvalidInput(
+                    "作业正在运行，不能重新生成大纲".into(),
+                ));
+            }
+            job.status = "failed".into();
+            job.error_code = Some("stale_running".into());
+            job.error_message = Some("上一次运行已长时间无进展，已自动终止".into());
+            job.finished_at = Some(chrono::Local::now().to_rfc3339());
+            db.update_ppt_job(&job)?;
         }
+
         let job_dir = PathBuf::from(&job.workspace_path);
+        let plan_log = PlanLog::for_job(&job_dir);
+        let started = Instant::now();
+
+        job.status = "running".into();
+        job.started_at = Some(chrono::Local::now().to_rfc3339());
+        job.finished_at = None;
+        job.error_code = None;
+        job.error_message = None;
+        db.update_ppt_job(&job)?;
+
+        let result = Self::regenerate_plan_inner(
+            db,
+            &job,
+            &job_dir,
+            slide_count,
+            model_id,
+            &cancel,
+            app.as_ref(),
+            &plan_log,
+        )
+        .await;
+
+        match &result {
+            Ok(plan) => {
+                job.status = "ready".into();
+                job.stage = STAGE_OUTLINE_READY.into();
+                job.pptx_path = None;
+                job.final_pptx_path = None;
+                job.error_code = None;
+                job.error_message = None;
+                job.log_tail = None;
+                job.started_at = None;
+                job.finished_at = None;
+                plan_log.finish(&format!(
+                    "大纲已重新生成：{} 页，耗时 {:.1}s",
+                    plan.slides.len(),
+                    started.elapsed().as_secs_f64()
+                ));
+            }
+            Err(error) => {
+                job.status = "failed".into();
+                job.error_code = Some("planning_failed".into());
+                job.error_message = Some(error.to_string());
+                job.finished_at = Some(chrono::Local::now().to_rfc3339());
+                plan_log.finish(&format!(
+                    "大纲生成失败：{}（耗时 {:.1}s）",
+                    error,
+                    started.elapsed().as_secs_f64()
+                ));
+            }
+        }
+        db.update_ppt_job(&job)?;
+        result
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn regenerate_plan_inner(
+        db: &Database,
+        job: &PptJob,
+        job_dir: &Path,
+        slide_count: Option<usize>,
+        model_id: Option<i64>,
+        cancel: &Arc<AtomicBool>,
+        app: Option<&AppHandle>,
+        plan_log: &PlanLog,
+    ) -> Result<PptPlan, AppError> {
         let source_path = job_dir.join("input").join("source.md");
         let source = fs::read_to_string(&source_path).map_err(|_| {
             AppError::NotFound("作业缺少 input/source.md，无法重新生成大纲".into())
@@ -1003,16 +1290,18 @@ impl PptExtensionService {
 
         let understanding_path = job_dir.join("input").join("understanding.md");
         let understanding = if understanding_path.is_file() {
+            plan_log.emit(app, "复用已有素材理解（不重复分析素材）");
             fs::read_to_string(&understanding_path).unwrap_or_default()
         } else {
-            emit_system_log(app.as_ref(), "正在补充素材理解...");
+            plan_log.emit(app, "正在补充素材理解...");
             match build_understanding_with_ai(
                 db,
                 &input,
                 &source,
-                app.as_ref(),
-                &cancel,
-                Duration::from_secs(DEFAULT_PLANNING_TIMEOUT_SECS),
+                &job.id,
+                app,
+                cancel,
+                plan_log,
             )
             .await
             {
@@ -1021,8 +1310,8 @@ impl PptExtensionService {
                     value
                 }
                 Err(error) => {
-                    emit_system_log(
-                        app.as_ref(),
+                    plan_log.emit(
+                        app,
                         &format!("素材理解失败，使用素材节选继续：{}", error),
                     );
                     source.clone()
@@ -1030,38 +1319,25 @@ impl PptExtensionService {
             }
         };
 
-        emit_system_log(app.as_ref(), "正在重新生成大纲...");
+        plan_log.emit(app, "正在重新生成大纲...");
         let plan = build_plan_with_ai(
             db,
             &input,
             &source,
             &understanding,
-            app.as_ref(),
-            &cancel,
+            &job.id,
+            app,
+            cancel,
             Duration::from_secs(DEFAULT_PLANNING_TIMEOUT_SECS),
+            plan_log,
         )
         .await?;
 
-        ppt_plan::write_plan(&job_dir, &plan)?;
-        update_job_json_plan(&job_dir, &plan)?;
-        update_job_json_plan_options(&job_dir, slide_count, model_id)?;
-        clear_draft_pages(&job_dir)?;
-        clear_output_pptx(&job_dir)?;
-
-        job.status = "ready".into();
-        job.stage = STAGE_OUTLINE_READY.into();
-        job.pptx_path = None;
-        job.final_pptx_path = None;
-        job.error_code = None;
-        job.error_message = None;
-        job.log_tail = None;
-        job.started_at = None;
-        job.finished_at = None;
-        db.update_ppt_job(&job)?;
-        emit_system_log(
-            app.as_ref(),
-            &format!("大纲已重新生成：{} 页", plan.slides.len()),
-        );
+        ppt_plan::write_plan(job_dir, &plan)?;
+        update_job_json_plan(job_dir, &plan)?;
+        update_job_json_plan_options(job_dir, slide_count, model_id)?;
+        clear_draft_pages(job_dir)?;
+        clear_output_pptx(job_dir)?;
         Ok(plan)
     }
 
@@ -1349,17 +1625,66 @@ impl PptExtensionService {
     }
 
     pub fn cancel_job(
+        db: &Database,
         cancels: &Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
+        app: Option<&AppHandle>,
         job_id: &str,
     ) -> Result<(), AppError> {
-        let map = cancels
-            .lock()
-            .map_err(|e| AppError::Custom(e.to_string()))?;
-        let flag = map
-            .get(job_id)
-            .ok_or_else(|| AppError::NotFound("作业不在运行中".into()))?;
-        flag.store(true, Ordering::SeqCst);
+        // 1) 进程还在跑：置取消标志，由 extension_runner 轮询后终止子进程。
+        {
+            let map = cancels
+                .lock()
+                .map_err(|e| AppError::Custom(e.to_string()))?;
+            if let Some(flag) = map.get(job_id) {
+                flag.store(true, Ordering::SeqCst);
+                return Ok(());
+            }
+        }
+
+        // 2) 内存里没有（应用重启 / 拉起进程前失败）：以数据库状态为准。
+        //    过去这里直接返回 "作业不在进行中"，导致残留 running 的作业无法取消。
+        let Some(mut job) = db.get_ppt_job(job_id)? else {
+            return Err(AppError::NotFound(format!("作业 {} 不存在", job_id)));
+        };
+        if job.status != "running" {
+            return Err(AppError::InvalidInput("作业已经结束，无需取消".into()));
+        }
+        job.status = "cancelled".into();
+        job.error_code = Some("CANCELLED".into());
+        job.error_message = Some("用户取消了生成".into());
+        job.finished_at = Some(chrono::Local::now().to_rfc3339());
+        db.update_ppt_job(&job)?;
+        if let Some(app) = app {
+            let _ = app.emit(
+                "ppt-extension://job",
+                json!({ "jobId": job.id, "status": "cancelled", "stage": job.stage }),
+            );
+        }
         Ok(())
+    }
+
+    /// 回收失去进展的 running 作业。
+    ///
+    /// 应用崩溃 / 被强杀时 DB 会残留 `status=running`，下次操作会被
+    /// "作业正在运行"挡住，因此列表加载时顺手清理。
+    pub fn recover_stale_jobs(db: &Database) -> Result<usize, AppError> {
+        let jobs = db.list_ppt_jobs(usize::MAX)?;
+        let mut recovered = 0usize;
+        for mut job in jobs {
+            if !job_is_stale(&job) {
+                continue;
+            }
+            job.status = "failed".into();
+            job.error_code = Some("stale_running".into());
+            job.error_message = Some(format!(
+                "作业超过 {} 分钟无进展，已自动标记失败，可重新生成",
+                STALE_JOB_MINUTES
+            ));
+            job.finished_at = Some(chrono::Local::now().to_rfc3339());
+            db.update_ppt_job(&job)?;
+            recovered += 1;
+        }
+        Ok(recovered)
     }
 
     pub fn cleanup_jobs(db: &Database, keep_latest: usize) -> Result<usize, AppError> {
@@ -1380,7 +1705,16 @@ impl PptExtensionService {
 
 const UNDERSTANDING_CHUNK_CHARS: usize = 8_000;
 const UNDERSTANDING_MAX_CHUNKS: usize = 16;
-const PLANNING_SOURCE_CHARS: usize = 60_000;
+/// 理解阶段并发度：块与块之间没有依赖，并发可把耗时压到接近 1/N。
+const UNDERSTANDING_CONCURRENCY: usize = 3;
+/// 单块理解超时；并发后不再需要 150 秒的长等待。
+const UNDERSTANDING_CHUNK_TIMEOUT_SECS: u64 = 120;
+/// 理解阶段总时长上限：超过后使用已完成的部分继续规划。
+const UNDERSTANDING_TOTAL_TIMEOUT_SECS: u64 = 300;
+/// 规划阶段只取素材理解（已是素材的提炼），避免再塞一份原始素材。
+const PLANNING_CONTEXT_CHARS: usize = 30_000;
+/// 理解结果过短时补一小段原始素材，避免信息不足。
+const PLANNING_SOURCE_FALLBACK_CHARS: usize = 15_000;
 const PLAN_CONTENT_REPAIR_ATTEMPTS: usize = 1;
 
 const PLAN_PLACEHOLDER_PHRASES: &[&str] = &[
@@ -1443,6 +1777,91 @@ fn split_source_chunks(source: &str, limit: usize, max_chunks: usize) -> Vec<Str
     chunks
 }
 
+const REASONING_MODEL_HINTS: &[&str] = &[
+    "reasoner",
+    "thinking",
+    "qwq",
+    "deepseek-r1",
+    "o1-preview",
+    "o1-mini",
+    "o3-",
+    "o4-",
+];
+const FAST_MODEL_HINTS: &[&str] = &["flash", "mini", "turbo", "plus", "chat"];
+
+fn looks_reasoning_model(model_id: &str) -> bool {
+    let value = model_id.to_ascii_lowercase();
+    REASONING_MODEL_HINTS
+        .iter()
+        .any(|hint| value.contains(hint))
+}
+
+fn looks_fast_model(model_id: &str) -> bool {
+    let value = model_id.to_ascii_lowercase();
+    FAST_MODEL_HINTS.iter().any(|hint| value.contains(hint))
+}
+
+/// 理解 / 合并这类"提炼"任务不需要推理能力。
+///
+/// 用户选的模型不是推理模型时原样沿用；只有用户选了 reasoner 一类的模型，
+/// 才从已配置模型里挑一个非推理模型来跑理解阶段，规划阶段仍然使用用户模型。
+fn fast_model_id(db: &Database, preferred: Option<i64>) -> Option<i64> {
+    let user_model = match preferred {
+        Some(id) => db.get_ai_model(id).ok(),
+        None => db.get_default_ai_model().ok(),
+    };
+    let Some(user_model) = user_model else {
+        return preferred;
+    };
+    let models = db.list_ai_models().unwrap_or_default();
+    Some(pick_fast_model_id(&user_model, &models))
+}
+
+fn normalize_api_url(url: &str) -> String {
+    url.trim().trim_end_matches('/').to_ascii_lowercase()
+}
+
+/// 为用户模型挑一个用于理解阶段的快模型。
+///
+/// 只在**同一 API 地址（同厂商）**内切换：不同厂商的 Key 不通用，
+/// 跨厂商自动选择会直接 401，反而让理解阶段全线失败。
+/// 没有同源快模型时沿用用户模型。
+fn pick_fast_model_id(user: &AiModel, models: &[AiModel]) -> i64 {
+    if !looks_reasoning_model(&user.model_id) {
+        return user.id;
+    }
+    let user_api = normalize_api_url(&user.api_url);
+    models
+        .iter()
+        .filter(|model| model.id != user.id)
+        .filter(|model| normalize_api_url(&model.api_url) == user_api)
+        .filter(|model| !looks_reasoning_model(&model.model_id))
+        .min_by_key(|model| if looks_fast_model(&model.model_id) { 0 } else { 1 })
+        .map(|model| model.id)
+        .unwrap_or(user.id)
+}
+
+/// 按字符上限拼接多段文本，超出部分直接截断（用于控制合并理解的输入体积）。
+fn join_with_limit(items: &[String], limit: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for item in items {
+        if used >= limit {
+            break;
+        }
+        if used > 0 {
+            out.push_str("\n\n---\n\n");
+            used += 5;
+        }
+        let remaining = limit.saturating_sub(used);
+        for ch in item.chars().take(remaining) {
+            out.push(ch);
+            used += 1;
+        }
+    }
+    out
+}
+
 fn understanding_chunk_prompt(title: &str, chunk: &str, index: usize, total: usize) -> String {
     format!(
         "你是 PPT 素材分析助手。主题：{title}。\n\
@@ -1459,7 +1878,7 @@ fn understanding_chunk_prompt(title: &str, chunk: &str, index: usize, total: usi
 fn merge_understanding_prompt(
     title: &str,
     audience: &str,
-    drafts: &[String],
+    drafts: &str,
 ) -> String {
     format!(
         "你是 PPT 策划助手。把下列分块理解合并成一份可直接用于制作 PPT 的完整理解，输出中文 Markdown：\n\
@@ -1472,8 +1891,7 @@ fn merge_understanding_prompt(
          7. 关键证据清单\n\
          8. 仍需补充的信息\n\
          要求去重、合并冲突、不要编造、不要大段复述原文。\n\
-         主题：{title}\n受众：{audience}\n\n分块理解：\n{}",
-        drafts.join("\n\n---\n\n")
+         主题：{title}\n受众：{audience}\n\n分块理解：\n{drafts}"
     )
 }
 
@@ -1481,61 +1899,121 @@ async fn build_understanding_with_ai(
     db: &Database,
     input: &PptJobInput,
     source: &str,
+    job_id: &str,
     app: Option<&AppHandle>,
     cancel: &Arc<AtomicBool>,
-    timeout: Duration,
+    plan_log: &PlanLog,
 ) -> Result<String, AppError> {
     let chunks = split_source_chunks(source, UNDERSTANDING_CHUNK_CHARS, UNDERSTANDING_MAX_CHUNKS);
     if chunks.is_empty() {
         return Ok(String::new());
     }
-    let mut drafts: Vec<String> = Vec::new();
-    for (index, chunk) in chunks.iter().enumerate() {
-        if cancel.load(Ordering::SeqCst) {
-            return Err(AppError::Custom("已取消大纲生成".into()));
-        }
-        emit_system_log(
-            app,
-            &format!(
-                "AI 正在理解素材 {}/{}（{} 字）...",
-                index + 1,
-                chunks.len(),
-                chunk.chars().count()
-            ),
-        );
-        let prompt = understanding_chunk_prompt(&input.title, chunk, index + 1, chunks.len());
-        let future = AiService::complete_once(db, &prompt, input.model_id);
-        match await_cancellable(future, cancel, timeout).await {
-            Ok(text) if !text.trim().is_empty() => drafts.push(text.trim().to_string()),
+
+    // 理解是"提炼"任务，不需要推理模型的思考开销。
+    let model_id = fast_model_id(db, input.model_id);
+    let total = chunks.len();
+    let concurrency = UNDERSTANDING_CONCURRENCY.clamp(1, total);
+    let chunk_timeout = Duration::from_secs(UNDERSTANDING_CHUNK_TIMEOUT_SECS);
+    let total_timeout = Duration::from_secs(UNDERSTANDING_TOTAL_TIMEOUT_SECS);
+    let started = Instant::now();
+
+    plan_log.emit(
+        app,
+        &format!("AI 正在并行理解素材（{total} 块，并发 {concurrency}）..."),
+    );
+    emit_plan_progress(
+        app,
+        job_id,
+        "understanding",
+        0,
+        total,
+        &format!("AI 正在并行理解素材（0/{total}）"),
+    );
+
+    let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut stream = futures::stream::iter(
+        chunks
+            .into_iter()
+            .enumerate()
+            .map(move |(index, chunk)| {
+                let prompt = understanding_chunk_prompt(&input.title, &chunk, index + 1, total);
+                let cancel = cancel.clone();
+                let completed = completed.clone();
+                let app = app.cloned();
+                let job_id = job_id.to_string();
+                async move {
+                    if cancel.load(Ordering::SeqCst) {
+                        return (index, Err(PlanRunError::Cancelled));
+                    }
+                    let future = AiService::complete_once(db, &prompt, model_id);
+                    let result = await_cancellable(future, &cancel, chunk_timeout).await;
+                    let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                    plan_log.write(&format!("素材块 {}/{} 结束", index + 1, total));
+                    emit_plan_progress(
+                        app.as_ref(),
+                        &job_id,
+                        "understanding",
+                        done,
+                        total,
+                        &format!("AI 已完成素材理解 {done}/{total}"),
+                    );
+                    (index, result)
+                }
+            }),
+    )
+    .buffer_unordered(concurrency);
+
+    let mut finished: Vec<(usize, String)> = Vec::new();
+    while let Some((index, result)) = stream.next().await {
+        match result {
+            Ok(text) if !text.trim().is_empty() => {
+                finished.push((index, text.trim().to_string()))
+            }
             Ok(_) => {}
             Err(PlanRunError::Cancelled) => {
                 return Err(AppError::Custom("已取消大纲生成".into()));
             }
-            Err(PlanRunError::Timeout) => emit_system_log(
+            Err(PlanRunError::Timeout) => plan_log.emit(
                 app,
                 &format!("素材第 {} 块理解超时，已跳过", index + 1),
             ),
-            Err(PlanRunError::Ai(error)) => emit_system_log(
+            Err(PlanRunError::Ai(error)) => plan_log.emit(
                 app,
                 &format!("素材第 {} 块理解失败：{}", index + 1, error),
             ),
         }
+        if started.elapsed() >= total_timeout {
+            plan_log.emit(
+                app,
+                &format!(
+                    "素材理解达到总时长上限 {} 秒，使用已完成的部分继续",
+                    total_timeout.as_secs()
+                ),
+            );
+            break;
+        }
     }
+    drop(stream);
+
+    // 并发完成顺序不可控，按原始块序号恢复顺序，保证理解结果与素材顺序一致。
+    finished.sort_by_key(|(index, _)| *index);
+    let mut drafts: Vec<String> = finished.into_iter().map(|(_, text)| text).collect();
 
     if drafts.is_empty() {
-        emit_system_log(app, "素材理解不可用，规划阶段回退到素材节选");
-        return Ok(source.chars().take(PLANNING_SOURCE_CHARS).collect());
+        plan_log.emit(app, "素材理解不可用，规划阶段回退到素材节选");
+        return Ok(source.chars().take(PLANNING_CONTEXT_CHARS).collect());
     }
     if drafts.len() == 1 {
         return Ok(drafts.remove(0));
     }
 
-    emit_system_log(app, "AI 正在合并分块理解...");
-    let prompt = merge_understanding_prompt(&input.title, &input.audience, &drafts);
-    let future = AiService::complete_once(db, &prompt, input.model_id);
-    match await_cancellable(future, cancel, timeout).await {
+    plan_log.emit(app, "AI 正在合并分块理解...");
+    let combined = join_with_limit(&drafts, PLANNING_CONTEXT_CHARS);
+    let prompt = merge_understanding_prompt(&input.title, &input.audience, &combined);
+    let future = AiService::complete_once(db, &prompt, model_id);
+    match await_cancellable(future, cancel, chunk_timeout.max(Duration::from_secs(90))).await {
         Ok(text) if !text.trim().is_empty() => Ok(text.trim().to_string()),
-        Ok(_) => Ok(drafts.join("\n\n---\n\n")),
+        Ok(_) => Ok(combined),
         Err(PlanRunError::Cancelled) => Err(AppError::Custom("已取消大纲生成".into())),
         Err(error) => {
             let reason = match error {
@@ -1543,11 +2021,8 @@ async fn build_understanding_with_ai(
                 PlanRunError::Ai(message) => message,
                 PlanRunError::Cancelled => "已取消".to_string(),
             };
-            emit_system_log(
-                app,
-                &format!("{}，使用分块理解原文继续", reason),
-            );
-            Ok(drafts.join("\n\n---\n\n"))
+            plan_log.emit(app, &format!("{}，使用分块理解原文继续", reason));
+            Ok(combined)
         }
     }
 }
@@ -1607,18 +2082,59 @@ fn validate_plan_content(plan: &PptPlan) -> Vec<String> {
     issues
 }
 
+/// 从小节校验问题里提取页码，例如 `P07 缺少 coreMessage` → 7。
+fn issue_pages(issues: &[String]) -> Vec<u32> {
+    let mut pages: Vec<u32> = issues
+        .iter()
+        .filter_map(|issue| {
+            let rest = issue.strip_prefix('P')?;
+            let digits: String = rest
+                .chars()
+                .take_while(|ch| ch.is_ascii_digit())
+                .collect();
+            digits.parse::<u32>().ok()
+        })
+        .collect();
+    pages.sort_unstable();
+    pages.dedup();
+    pages
+}
+
 fn plan_repair_prompt(
     input: &PptJobInput,
     plan: &PptPlan,
     issues: &[String],
+    pages: &[u32],
     understanding: &str,
 ) -> String {
-    let plan_json = serde_json::to_string_pretty(plan).unwrap_or_default();
+    // 只发送有问题的页面，修复后按 page 合并回去，避免整份大纲重生成。
+    let selected: Vec<&PptSlide> = if pages.is_empty() {
+        plan.slides.iter().collect()
+    } else {
+        plan.slides
+            .iter()
+            .filter(|slide| pages.contains(&slide.page))
+            .collect()
+    };
+    let plan_json = serde_json::to_string_pretty(&selected).unwrap_or_default();
+    let page_hint = if pages.is_empty() {
+        "需要修复的页面：全部".to_string()
+    } else {
+        format!(
+            "需要修复的页面：{}",
+            pages
+                .iter()
+                .map(|page| format!("P{page:02}"))
+                .collect::<Vec<_>>()
+                .join("、")
+        )
+    };
     format!(
-        "修复这份 PPT 结构化大纲。只输出 JSON，不要 markdown。\n\
+        "修复这份 PPT 大纲中**指定页面**。只输出 JSON，不要 markdown。\n\
          必须保持与原文相同的主题和事实，不要编造数字、年份、排名或奖项。\n\
-         修复问题：{}\n\n\
+         修复问题：{issues}\n{page_hint}\n\n\
          要求：\n\
+         - 只输出需要修复的页面，保持每页 page 字段与输入一致，不要新增或删除页面。\n\
          - 第 1 页封面只保留 title 和 coreMessage，bullets 为空。\n\
          - 最后 1 页结束页 bullets 不超过 2 条。\n\
          - 中间页每页 3–6 个 contentBlocks，每个含 label/text/detail。\n\
@@ -1629,13 +2145,16 @@ fn plan_repair_prompt(
          - chartType 取 cards/timeline/process/matrix/compare/highlight/summary。\n\
          - density 取 anchor/dense/breathing/balanced。\n\n\
          JSON 结构：\n\
-         {{\"title\":\"...\",\"slides\":[{{\"page\":1,\"title\":\"...\",\"pageTheme\":\"...\",\"mainClaim\":\"...\",\"contentScope\":\"...\",\"coreMessage\":\"...\",\"contentBlocks\":[{{\"label\":\"...\",\"text\":\"...\",\"detail\":\"...\"}}],\"evidence\":[\"...\"],\"relation\":\"none\",\"chartType\":\"cards\",\"density\":\"balanced\",\"visualIntent\":\"...\",\"bullets\":[\"...\"],\"speakerNote\":\"...\",\"chart\":null}}]}}\n\n\
+         {{\"slides\":[{{\"page\":1,\"title\":\"...\",\"pageTheme\":\"...\",\"mainClaim\":\"...\",\"contentScope\":\"...\",\"coreMessage\":\"...\",\"contentBlocks\":[{{\"label\":\"...\",\"text\":\"...\",\"detail\":\"...\"}}],\"evidence\":[\"...\"],\"relation\":\"none\",\"chartType\":\"cards\",\"density\":\"balanced\",\"visualIntent\":\"...\",\"bullets\":[\"...\"],\"speakerNote\":\"...\",\"chart\":null}}]}}\n\n\
          标题：{title}\n听众：{audience}\n\n\
-         素材理解：\n{understanding}\n\n当前大纲：\n{plan_json}",
-        issues.join("；"),
+         素材理解：\n{understanding}\n\n待修复页面：\n{plan_json}",
+        issues = issues.join("；"),
         title = input.title,
         audience = input.audience,
-        understanding = understanding.chars().take(PLANNING_SOURCE_CHARS).collect::<String>(),
+        understanding = understanding
+            .chars()
+            .take(PLANNING_CONTEXT_CHARS)
+            .collect::<String>(),
     )
 }
 
@@ -1648,15 +2167,21 @@ async fn repair_plan_with_ai(
     app: Option<&AppHandle>,
     cancel: &Arc<AtomicBool>,
     planning_timeout: Duration,
+    plan_log: &PlanLog,
 ) -> Result<PptPlan, AppError> {
-    let prompt = plan_repair_prompt(input, plan, issues, understanding);
+    let pages = issue_pages(issues);
+    let prompt = plan_repair_prompt(input, plan, issues, &pages, understanding);
     for attempt in 0..PLAN_CONTENT_REPAIR_ATTEMPTS {
         if cancel.load(Ordering::SeqCst) {
             return Err(AppError::Custom("已取消大纲生成".into()));
         }
-        emit_system_log(
+        plan_log.emit(
             app,
-            &format!("大纲内容修复第 {} 次尝试...", attempt + 1),
+            &format!(
+                "大纲内容修复第 {} 次尝试（{} 页）...",
+                attempt + 1,
+                if pages.is_empty() { plan.slides.len() } else { pages.len() }
+            ),
         );
         let future = AiService::complete_once(db, &prompt, input.model_id);
         match await_cancellable(future, cancel, planning_timeout).await {
@@ -1664,22 +2189,25 @@ async fn repair_plan_with_ai(
                 if let Some(value) = extract_json(&text)
                     .and_then(|json| serde_json::from_str::<Value>(&json).ok())
                 {
-                    return Ok(ppt_plan::normalize_plan(
-                        value,
-                        &input.title,
-                        understanding,
-                        input.slide_count,
-                    ));
+                    let mut repaired = plan.clone();
+                    let merged = ppt_plan::merge_repaired_slides(&mut repaired, &value);
+                    if merged > 0 {
+                        plan_log.emit(app, &format!("已局部修复 {} 页", merged));
+                        return Ok(repaired);
+                    }
+                    plan_log.emit(app, "修复结果未包含可匹配的页面，保留原大纲");
+                } else {
+                    plan_log.emit(app, "大纲内容修复返回内容不是合法 JSON");
                 }
             }
             Err(PlanRunError::Cancelled) => {
                 return Err(AppError::Custom("已取消大纲生成".into()));
             }
             Err(PlanRunError::Timeout) => {
-                emit_system_log(app, "大纲内容修复超时");
+                plan_log.emit(app, "大纲内容修复超时");
             }
             Err(PlanRunError::Ai(message)) => {
-                emit_system_log(app, &format!("大纲内容修复失败：{}", message));
+                plan_log.emit(app, &format!("大纲内容修复失败：{}", message));
             }
         }
     }
@@ -1691,10 +2219,38 @@ async fn build_plan_with_ai(
     input: &PptJobInput,
     source: &str,
     understanding: &str,
+    job_id: &str,
     app: Option<&AppHandle>,
     cancel: &Arc<AtomicBool>,
     planning_timeout: Duration,
+    plan_log: &PlanLog,
 ) -> Result<PptPlan, AppError> {
+    // 指定页数时优先使用两阶段规划，进度可以精确到每一页；
+    // 标题阶段或逐页扩展失败时回退到单次规划，保证仍有可用大纲。
+    if input.slide_count.map(|count| count >= 3).unwrap_or(false) {
+        match build_plan_two_stage(
+            db,
+            input,
+            source,
+            understanding,
+            job_id,
+            app,
+            cancel,
+            planning_timeout,
+            plan_log,
+        )
+        .await
+        {
+            Ok(plan) => return Ok(plan),
+            Err(AppError::Custom(message)) if message.contains("取消") => {
+                return Err(AppError::Custom(message));
+            }
+            Err(error) => plan_log.emit(
+                app,
+                &format!("两阶段规划不可用（{error}），回退单次规划"),
+            ),
+        }
+    }
     let page_instruction = match input.slide_count {
         Some(count) => format!(
             "请根据素材生成约 {} 页左右的演示大纲。",
@@ -1702,11 +2258,38 @@ async fn build_plan_with_ai(
         ),
         None => "页数不固定，请根据素材内容自行决定合适的页数（通常 6–15 页）。".to_string(),
     };
+    let expected_pages = input.slide_count.unwrap_or(0).clamp(0, 40);
+    let planning_message = if expected_pages > 0 {
+        format!("正在规划 {expected_pages} 页大纲")
+    } else {
+        "正在规划大纲（页数由素材决定）".to_string()
+    };
+    emit_plan_progress(
+        app,
+        job_id,
+        "planning",
+        0,
+        expected_pages,
+        &planning_message,
+    );
+    // 规划只发素材理解（它已经是素材的提炼）；理解过短时才补一小段原始素材。
     let understanding_excerpt: String = understanding
         .chars()
-        .take(PLANNING_SOURCE_CHARS)
+        .take(PLANNING_CONTEXT_CHARS)
         .collect();
-    let source_excerpt: String = source.chars().take(PLANNING_SOURCE_CHARS).collect();
+    let source_excerpt: String = if understanding_excerpt.trim().chars().count() < 4_000 {
+        source
+            .chars()
+            .take(PLANNING_SOURCE_FALLBACK_CHARS)
+            .collect()
+    } else {
+        String::new()
+    };
+    let source_block = if source_excerpt.trim().is_empty() {
+        String::new()
+    } else {
+        format!("\n\n素材节选：\n{source_excerpt}")
+    };
     let prompt = format!(
         "你是 PPT 内容规划助手。{page_instruction}\n\
          标题：{title}\n听众：{audience}\n额外要求：{extra}\n\
@@ -1722,18 +2305,17 @@ async fn build_plan_with_ai(
          {{\"type\":\"line|column|bar|pie|donut|area|gantt|radar|scatter\",\"categories\":[\"...\"],\"series\":[{{\"name\":\"...\",\"values\":[数字]}}]}}\n\
          只输出 JSON，不要 markdown 代码块。JSON 结构：\n\
          {{\"title\":\"...\",\"slides\":[{{\"page\":1,\"title\":\"...\",\"pageTheme\":\"...\",\"mainClaim\":\"...\",\"contentScope\":\"...\",\"coreMessage\":\"...\",\"contentBlocks\":[{{\"label\":\"...\",\"text\":\"...\",\"detail\":\"...\"}}],\"evidence\":[\"...\"],\"relation\":\"none\",\"chartType\":\"cards\",\"density\":\"balanced\",\"visualIntent\":\"...\",\"bullets\":[\"...\"],\"speakerNote\":\"...\",\"chart\":null}}]}}\n\n\
-         素材理解：\n{understanding}\n\n\
-         素材节选：\n{source}",
+         素材理解：\n{understanding}{source_block}",
         page_instruction = page_instruction,
         title = input.title,
         audience = input.audience,
         extra = input.extra_requirements.clone().unwrap_or_default(),
         understanding = if understanding_excerpt.trim().is_empty() {
-            "（暂无，直接依据素材节选规划）"
+            "（暂无）"
         } else {
             understanding_excerpt.as_str()
         },
-        source = source_excerpt,
+        source_block = source_block,
     );
 
     let mut last_reason = String::new();
@@ -1741,11 +2323,60 @@ async fn build_plan_with_ai(
         if cancel.load(Ordering::SeqCst) {
             return Err(AppError::Custom("已取消大纲生成".into()));
         }
-        emit_system_log(
+        plan_log.emit(
             app,
-            &format!("AI 规划第 {} 次尝试…", attempt + 1),
+            &format!(
+                "AI 规划第 {} 次尝试…（输入 {} 字符）",
+                attempt + 1,
+                prompt.chars().count()
+            ),
         );
-        let future = AiService::complete_once(db, &prompt, input.model_id);
+        // 流式输出时按已出现的 "page" 字段估算已生成页数，给出真实增量进度。
+        let progress_app = app.cloned();
+        let progress_job = job_id.to_string();
+        let mut tail = String::new();
+        let mut page_count = 0usize;
+        let mut last_reported = 0usize;
+        let future = AiService::complete_once_with_progress(
+            db,
+            &prompt,
+            input.model_id,
+            move |chunk| {
+                let mut probe = String::with_capacity(tail.len() + chunk.len());
+                probe.push_str(&tail);
+                probe.push_str(chunk);
+                let added = probe
+                    .matches("\"page\"")
+                    .count()
+                    .saturating_sub(tail.matches("\"page\"").count());
+                page_count += added;
+                let reported = if expected_pages > 0 {
+                    page_count.min(expected_pages)
+                } else {
+                    page_count
+                };
+                if reported > last_reported {
+                    last_reported = reported;
+                    let message = if expected_pages > 0 {
+                        format!("AI 已生成 {reported}/{expected_pages} 页")
+                    } else {
+                        format!("AI 已生成 {reported} 页")
+                    };
+                    emit_plan_progress(
+                        progress_app.as_ref(),
+                        &progress_job,
+                        "planning",
+                        reported,
+                        expected_pages,
+                        &message,
+                    );
+                }
+                // 只保留尾部，避免同一个 "page" 在跨 chunk 时被重复计数。
+                let chars: Vec<char> = probe.chars().collect();
+                let start = chars.len().saturating_sub(16);
+                tail = chars[start..].iter().collect();
+            },
+        );
         match await_cancellable(future, cancel, planning_timeout).await {
             Ok(text) => {
                 let parsed = extract_json(&text)
@@ -1772,52 +2403,18 @@ async fn build_plan_with_ai(
                                 source,
                                 input.slide_count,
                             );
-                            let issues = validate_plan_content(&plan);
-                            if !issues.is_empty() {
-                                emit_system_log(
-                                    app,
-                                    &format!(
-                                        "大纲内容校验发现 {} 项问题，尝试修复",
-                                        issues.len()
-                                    ),
-                                );
-                                match repair_plan_with_ai(
-                                    db,
-                                    input,
-                                    &plan,
-                                    &issues,
-                                    understanding,
-                                    app,
-                                    cancel,
-                                    planning_timeout,
-                                )
-                                .await
-                                {
-                                    Ok(repaired) => {
-                                        let remaining = validate_plan_content(&repaired);
-                                        if remaining.is_empty() {
-                                            return Ok(repaired);
-                                        }
-                                        emit_system_log(
-                                            app,
-                                            &format!(
-                                                "修复后仍有 {} 项问题，保留原始大纲",
-                                                remaining.len()
-                                            ),
-                                        );
-                                    }
-                                    Err(AppError::Custom(message))
-                                        if message.contains("取消") =>
-                                    {
-                                        return Err(AppError::Custom(message));
-                                    }
-                                    Err(error) => emit_system_log(
-                                        app,
-                                        &format!("大纲内容修复失败：{}", error),
-                                    ),
-                                }
-                            }
-                            return Ok(plan);
+                            return finalize_plan_with_validation(
+                                db,
+                                input,
+                                plan,
+                                understanding,
+                                job_id,
+                                app,
+                                cancel,
+                                planning_timeout,
+                                plan_log,
+                            )
+                            .await;
                         }
                         last_reason = "AI 返回的大纲为空或缺少页面标题".to_string();
                     }
@@ -1833,11 +2430,11 @@ async fn build_plan_with_ai(
             Err(PlanRunError::Ai(err)) => last_reason = err,
         }
         if attempt + 1 < MAX_PLANNING_ATTEMPTS {
-            emit_system_log(app, &format!("AI 规划失败：{}；准备重试", last_reason));
+            plan_log.emit(app, &format!("AI 规划失败：{}；准备重试", last_reason));
         }
     }
 
-    emit_system_log(
+    plan_log.emit(
         app,
         &format!("AI 规划不可用（{}），已按文档标题生成降级大纲", last_reason),
     );
@@ -1847,6 +2444,351 @@ async fn build_plan_with_ai(
         source,
         input.slide_count,
     ))
+}
+
+/// 校验大纲内容；有问题时尝试修复，修复失败保留原大纲。
+#[allow(clippy::too_many_arguments)]
+async fn finalize_plan_with_validation(
+    db: &Database,
+    input: &PptJobInput,
+    plan: PptPlan,
+    understanding: &str,
+    job_id: &str,
+    app: Option<&AppHandle>,
+    cancel: &Arc<AtomicBool>,
+    planning_timeout: Duration,
+    plan_log: &PlanLog,
+) -> Result<PptPlan, AppError> {
+    let issues = validate_plan_content(&plan);
+    if issues.is_empty() {
+        emit_plan_progress(app, job_id, "validating", 1, 1, "大纲校验通过");
+        return Ok(plan);
+    }
+    emit_plan_progress(
+        app,
+        job_id,
+        "validating",
+        0,
+        1,
+        &format!("大纲校验发现 {} 项问题", issues.len()),
+    );
+    plan_log.emit(
+        app,
+        &format!("大纲内容校验发现 {} 项问题，尝试修复", issues.len()),
+    );
+    emit_plan_progress(app, job_id, "repairing", 1, 1, "正在修复大纲内容");
+    match repair_plan_with_ai(
+        db,
+        input,
+        &plan,
+        &issues,
+        understanding,
+        app,
+        cancel,
+        planning_timeout,
+        plan_log,
+    )
+    .await
+    {
+        Ok(repaired) => {
+            let remaining = validate_plan_content(&repaired);
+            if remaining.is_empty() {
+                emit_plan_progress(
+                    app,
+                    job_id,
+                    "validating",
+                    1,
+                    1,
+                    "大纲修复完成并通过校验",
+                );
+                return Ok(repaired);
+            }
+            plan_log.emit(
+                app,
+                &format!(
+                    "修复后仍有 {} 项问题，保留原始大纲",
+                    remaining.len()
+                ),
+            );
+        }
+        Err(AppError::Custom(message)) if message.contains("取消") => {
+            return Err(AppError::Custom(message));
+        }
+        Err(error) => plan_log.emit(
+            app,
+            &format!("大纲内容修复失败：{}", error),
+        ),
+    }
+    Ok(plan)
+}
+
+/// 两阶段页级大纲：先确定页标题清单，再逐页扩展。
+/// 只在用户明确指定页数时启用；第一阶段失败会回退到单次规划。
+#[allow(clippy::too_many_arguments)]
+async fn build_plan_two_stage(
+    db: &Database,
+    input: &PptJobInput,
+    source: &str,
+    understanding: &str,
+    job_id: &str,
+    app: Option<&AppHandle>,
+    cancel: &Arc<AtomicBool>,
+    planning_timeout: Duration,
+    plan_log: &PlanLog,
+) -> Result<PptPlan, AppError> {
+    let page_count = input.slide_count.unwrap_or(0).clamp(3, 40);
+    let understanding_excerpt: String = understanding
+        .chars()
+        .take(PLANNING_CONTEXT_CHARS)
+        .collect();
+    let titles_prompt = format!(
+        "你是 PPT 内容规划助手。请先只规划页面标题清单，不展开正文。\n\
+         标题：{title}\n听众：{audience}\n额外要求：{extra}\n\
+         必须恰好输出 {page_count} 页：第 1 页是封面，最后 1 页是结束页，中间页覆盖素材的主要主题。\n\
+         每页给出 page 和 title，pageTheme 用一句话概括该页主题；相邻页 pageTheme 不得重复。\n\
+         只输出 JSON，不要 markdown 代码块：\n\
+         {{\"title\":\"...\",\"slides\":[{{\"page\":1,\"title\":\"...\",\"pageTheme\":\"...\"}}]}}\n\n\
+         素材理解：\n{understanding}",
+        title = input.title,
+        audience = input.audience,
+        extra = input.extra_requirements.clone().unwrap_or_default(),
+        page_count = page_count,
+        understanding = if understanding_excerpt.trim().is_empty() {
+            "（暂无）"
+        } else {
+            understanding_excerpt.as_str()
+        },
+    );
+    plan_log.emit(
+        app,
+        &format!(
+            "两阶段大纲：先生成 {page_count} 页标题清单（输入 {} 字符）",
+            titles_prompt.chars().count()
+        ),
+    );
+    emit_plan_progress(
+        app,
+        job_id,
+        "planning",
+        0,
+        page_count,
+        &format!("正在规划 {page_count} 页标题"),
+    );
+    let first_stage_timeout = planning_timeout.min(Duration::from_secs(180));
+    let titles_text = await_cancellable(
+        AiService::complete_once(db, &titles_prompt, input.model_id),
+        cancel,
+        first_stage_timeout,
+    )
+    .await
+    .map_err(|error| match error {
+        PlanRunError::Cancelled => AppError::Custom("已取消大纲生成".into()),
+        PlanRunError::Timeout => AppError::Custom("标题规划超时".into()),
+        PlanRunError::Ai(message) => AppError::Custom(message),
+    })?;
+    let titles = extract_json(&titles_text)
+        .and_then(|json| serde_json::from_str::<Value>(&json).ok())
+        .and_then(|value| value.get("slides").and_then(Value::as_array).cloned())
+        .unwrap_or_default();
+    let mut title_list: Vec<(String, String)> = titles
+        .iter()
+        .filter_map(|item| {
+            let title = item.get("title").and_then(Value::as_str)?.trim().to_string();
+            if title.is_empty() {
+                return None;
+            }
+            let theme = item
+                .get("pageTheme")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            Some((title, theme))
+        })
+        .collect();
+    title_list.truncate(page_count);
+    if title_list.len() < 3 || title_list.len() * 2 < page_count {
+        return Err(AppError::Custom("标题清单不足，回退单次规划".into()));
+    }
+    // 补齐用户要求的页数：标题不足时在末尾补内容页占位，后续扩展会生成真实内容。
+    while title_list.len() < page_count {
+        let index = title_list.len() + 1;
+        title_list.push((format!("第 {index} 部分"), String::new()));
+    }
+    emit_plan_progress(
+        app,
+        job_id,
+        "planning",
+        0,
+        title_list.len(),
+        &format!("标题清单已完成，共 {} 页，开始逐页扩展", title_list.len()),
+    );
+
+    let title_lines = title_list
+        .iter()
+        .enumerate()
+        .map(|(index, (title, theme))| {
+            if theme.is_empty() {
+                format!("{}. {}", index + 1, title)
+            } else {
+                format!("{}. {}（{}）", index + 1, title, theme)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let source_excerpt: String = if understanding_excerpt.trim().chars().count() < 4_000 {
+        source.chars().take(PLANNING_SOURCE_FALLBACK_CHARS).collect()
+    } else {
+        String::new()
+    };
+    let source_block = if source_excerpt.trim().is_empty() {
+        String::new()
+    } else {
+        format!("\n\n素材节选：\n{source_excerpt}")
+    };
+
+    let mut expanded: Vec<Option<Value>> = vec![None; title_list.len()];
+    for chunk_start in (0..title_list.len()).step_by(2) {
+        if cancel.load(Ordering::SeqCst) {
+            return Err(AppError::Custom("已取消大纲生成".into()));
+        }
+        let chunk_end = (chunk_start + 2).min(title_list.len());
+        let mut futures = Vec::new();
+        for index in chunk_start..chunk_end {
+            let (title, theme) = title_list[index].clone();
+            let prompt = format!(
+                "你是 PPT 内容规划助手。请只扩展第 {page} 页，输出该页完整结构化内容。\n\
+                 总标题：{deck_title}\n听众：{audience}\n额外要求：{extra}\n\
+                 完整页面清单：\n{title_lines}\n\n\
+                 本页标题：{title}\n本页主题：{theme}\n\
+                 {page_role}\n\
+                 必须输出：pageTheme、mainClaim、contentScope、contentBlocks、evidence、relation、chartType、density、visualIntent、speakerNote、bullets。\n\
+                 contentBlocks 3–6 个，每个含 label（不超过 12 字）、text（20–60 字）、detail（可选）。\n\
+                 evidence 必须来自素材或素材理解，不得编造数字、年份、排名、奖项。\n\
+                 relation 取 timeline/category/compare/cause/process/none；chartType 取 cards/timeline/process/matrix/compare/highlight/summary；density 取 anchor/dense/breathing/balanced。\n\
+                 如果适合图表，增加 chart：{{\"type\":\"line|column|bar|pie|donut|area|gantt|radar|scatter\",\"categories\":[\"...\"],\"series\":[{{\"name\":\"...\",\"values\":[数字]}}]}}，否则 chart 为 null。\n\
+                 只输出一个 JSON 对象，不要 markdown 代码块：\n\
+                 {{\"page\":{page},\"title\":\"...\",\"pageTheme\":\"...\",\"mainClaim\":\"...\",\"contentScope\":\"...\",\"coreMessage\":\"...\",\"contentBlocks\":[{{\"label\":\"...\",\"text\":\"...\",\"detail\":\"...\"}}],\"evidence\":[\"...\"],\"relation\":\"none\",\"chartType\":\"cards\",\"density\":\"balanced\",\"visualIntent\":\"...\",\"bullets\":[\"...\"],\"speakerNote\":\"...\",\"chart\":null}}\n\n\
+                 素材理解：\n{understanding}{source_block}",
+                page = index + 1,
+                deck_title = input.title,
+                audience = input.audience,
+                extra = input.extra_requirements.clone().unwrap_or_default(),
+                title_lines = title_lines,
+                title = title,
+                theme = if theme.is_empty() { "（未指定）" } else { theme.as_str() },
+                page_role = if index == 0 {
+                    "这是封面页：只填 title 和一句 coreMessage，bullets/contentBlocks 为空。"
+                } else if index + 1 == title_list.len() {
+                    "这是结束页：bullets 不超过 2 条，简要收束全篇。"
+                } else {
+                    "这是内容页：围绕本页主题展开，不要与相邻页重复。"
+                },
+                understanding = if understanding_excerpt.trim().is_empty() {
+                    "（暂无）"
+                } else {
+                    understanding_excerpt.as_str()
+                },
+                source_block = source_block,
+            );
+            futures.push(expand_plan_slide(
+                db,
+                prompt,
+                input.model_id,
+                cancel,
+                index,
+            ));
+        }
+        let results = if futures.len() == 1 {
+            vec![futures.remove(0).await]
+        } else {
+            let first = futures.remove(0);
+            let second = futures.remove(0);
+            let (left, right) = tokio::join!(first, second);
+            vec![left, right]
+        };
+        for result in results {
+            if let Some((index, value)) = result {
+                expanded[index] = Some(value);
+                let done = expanded.iter().filter(|item| item.is_some()).count();
+                emit_plan_progress(
+                    app,
+                    job_id,
+                    "planning",
+                    done,
+                    title_list.len(),
+                    &format!(
+                        "AI 正在扩展第 {}/{} 页",
+                        index + 1,
+                        title_list.len()
+                    ),
+                );
+            }
+        }
+    }
+    let missing = expanded.iter().filter(|item| item.is_none()).count();
+    if missing > 0 {
+        return Err(AppError::Custom(format!(
+            "{missing} 页扩展失败，回退单次规划"
+        )));
+    }
+    let slides = expanded
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, value)| {
+            let mut value = value?;
+            value["page"] = json!(index + 1);
+            if value
+                .get("title")
+                .and_then(Value::as_str)
+                .map(|title| title.trim().is_empty())
+                .unwrap_or(true)
+            {
+                value["title"] = json!(title_list[index].0);
+            }
+            Some(value)
+        })
+        .collect::<Vec<_>>();
+    let raw = json!({ "title": input.title, "slides": slides });
+    let plan = ppt_plan::normalize_plan(raw, &input.title, source, input.slide_count);
+    plan_log.emit(
+        app,
+        &format!("两阶段大纲完成：{} 页，开始内容校验", plan.slides.len()),
+    );
+    finalize_plan_with_validation(
+        db,
+        input,
+        plan,
+        understanding,
+        job_id,
+        app,
+        cancel,
+        planning_timeout,
+        plan_log,
+    )
+    .await
+}
+
+async fn expand_plan_slide(
+    db: &Database,
+    prompt: String,
+    model_id: Option<i64>,
+    cancel: &Arc<AtomicBool>,
+    index: usize,
+) -> Option<(usize, Value)> {
+    let text = await_cancellable(
+        AiService::complete_once(db, &prompt, model_id),
+        cancel,
+        Duration::from_secs(150),
+    )
+    .await
+    .ok()?;
+    let value = extract_json(&text)
+        .and_then(|json| serde_json::from_str::<Value>(&json).ok())?;
+    if !value.as_object()?.contains_key("title") {
+        return None;
+    }
+    Some((index, value))
 }
 
 /// 等待一个可能较慢的 Future，同时支持取消与超时。
@@ -2384,11 +3326,16 @@ fn page_generation_prompt(
     )
 }
 
+/// 视觉签名只取开头一段，用于跨页结构去重；并发渲染时以集合形式共享。
+fn visual_signature(svg: &str) -> String {
+    svg.chars().take(600).collect()
+}
+
 fn score_svg_candidate(
     svg: &str,
     slide: &PptSlide,
     allowed_colors: &std::collections::HashSet<String>,
-    previous_svg: Option<&str>,
+    previous_svgs: &[String],
 ) -> PageCandidateScore {
     let mut score = 100i32;
     let mut issues = Vec::new();
@@ -2491,13 +3438,14 @@ fn score_svg_candidate(
         score -= 15;
         issues.push("未覆盖 evidence".to_string());
     }
-    if let Some(previous) = previous_svg {
-        let current_lead: String = svg.chars().take(600).collect();
-        let previous_lead: String = previous.chars().take(600).collect();
-        if !current_lead.trim().is_empty() && current_lead == previous_lead {
-            score -= 20;
-            issues.push("与上一页结构过于相似".to_string());
-        }
+    let current_lead = visual_signature(svg);
+    if !current_lead.trim().is_empty()
+        && previous_svgs
+            .iter()
+            .any(|previous| visual_signature(previous) == current_lead)
+    {
+        score -= 20;
+        issues.push("与已生成页面结构过于相似".to_string());
     }
 
     PageCandidateScore {
@@ -2523,6 +3471,266 @@ fn svg_review_digest(svg: &str) -> String {
         elements,
         svg.len()
     )
+}
+
+/// 返回 (是否需要第 2 个候选, 是否需要第 3 个候选)。
+fn adaptive_candidate_plan(
+    first_score: Option<i32>,
+    first_hard_fail: bool,
+    max_candidates: usize,
+) -> (bool, bool) {
+    let first_strong = first_score
+        .map(|score| !first_hard_fail && score >= 85)
+        .unwrap_or(false);
+    if first_strong || max_candidates <= 1 {
+        return (false, false);
+    }
+    let need_third = max_candidates > 2
+        && first_score
+            .map(|score| first_hard_fail || score < 55)
+            .unwrap_or(true);
+    (true, need_third)
+}
+
+async fn request_candidate_score(
+    db: &Database,
+    model_id: Option<i64>,
+    prompt: String,
+    slide: &PptSlide,
+    allowed_colors: &std::collections::HashSet<String>,
+    previous_svgs: &[String],
+    cancel: &AtomicBool,
+) -> Option<PageCandidateScore> {
+    let future = AiService::complete_once(db, &prompt, model_id);
+    let text = await_cancellable(future, cancel, Duration::from_secs(AI_PAGE_TIMEOUT_SECS))
+        .await
+        .ok()?;
+    let svg = extract_svg_block(&text)?;
+    Some(score_svg_candidate(
+        &svg,
+        slide,
+        allowed_colors,
+        previous_svgs,
+    ))
+}
+
+struct PageDraftOutcome {
+    index: usize,
+    chosen: Option<PageCandidateScore>,
+    candidates: Vec<PageCandidateScore>,
+}
+
+/// 生成单页的全部候选（含自适应追加、LLM 评审与一次修复）。
+/// 只负责生成与评分，落盘和 selection 更新由调用方串行完成。
+#[allow(clippy::too_many_arguments)]
+async fn generate_ai_page_candidates(
+    app: &AppHandle,
+    db: &Database,
+    job_id: &str,
+    plan: &PptPlan,
+    slide: &PptSlide,
+    index: usize,
+    spec_lock: &str,
+    understanding: &str,
+    template_hint: &str,
+    allowed_colors: &std::collections::HashSet<String>,
+    model_id: Option<i64>,
+    effective_candidates: usize,
+    previous_svgs: &[String],
+    cancel: &AtomicBool,
+) -> PageDraftOutcome {
+    emit_draft_page(
+        app,
+        job_id,
+        slide.page,
+        plan.slides.len(),
+        "generating",
+        0,
+        0,
+        &[],
+    );
+    emit_system_log(
+        Some(app),
+        &format!(
+            "P{:02} 正在生成候选（最多 {} 个）...",
+            slide.page, effective_candidates
+        ),
+    );
+    let previous_title = index
+        .checked_sub(1)
+        .and_then(|value| plan.slides.get(value))
+        .map(|item| item.title.as_str())
+        .unwrap_or("");
+    let next_title = plan
+        .slides
+        .get(index + 1)
+        .map(|item| item.title.as_str())
+        .unwrap_or("");
+    let directions = [
+        "结构优先：清晰标题层级、编号/分组与稳定网格",
+        "视觉优先：大数字、色块、图表或强对比图形，减少文字块",
+        "叙事优先：用一条主线组织内容，强调因果/流程/对比关系",
+    ];
+    let prompt_for = |candidate_index: usize| {
+        page_generation_prompt(
+            plan,
+            slide,
+            spec_lock,
+            understanding,
+            previous_title,
+            next_title,
+            directions[candidate_index % directions.len()],
+            template_hint,
+        )
+    };
+    let mut candidates: Vec<PageCandidateScore> = Vec::new();
+    if let Some(first) = request_candidate_score(
+        db,
+        model_id,
+        prompt_for(0),
+        slide,
+        allowed_colors,
+        previous_svgs,
+        cancel,
+    )
+    .await
+    {
+        candidates.push(first);
+    }
+    let first_score = candidates.first().map(|candidate| candidate.score);
+    let first_hard_fail = candidates
+        .first()
+        .map(|candidate| candidate.hard_fail)
+        .unwrap_or(false);
+    let (need_second, need_third) =
+        adaptive_candidate_plan(first_score, first_hard_fail, effective_candidates);
+    if need_second {
+        if need_third {
+            let (second, third) = tokio::join!(
+                request_candidate_score(
+                    db,
+                    model_id,
+                    prompt_for(1),
+                    slide,
+                    allowed_colors,
+                    previous_svgs,
+                    cancel,
+                ),
+                request_candidate_score(
+                    db,
+                    model_id,
+                    prompt_for(2),
+                    slide,
+                    allowed_colors,
+                    previous_svgs,
+                    cancel,
+                )
+            );
+            if let Some(candidate) = second {
+                candidates.push(candidate);
+            }
+            if let Some(candidate) = third {
+                candidates.push(candidate);
+            }
+        } else if let Some(second) = request_candidate_score(
+            db,
+            model_id,
+            prompt_for(1),
+            slide,
+            allowed_colors,
+            previous_svgs,
+            cancel,
+        )
+        .await
+        {
+            candidates.push(second);
+        }
+    }
+    candidates.sort_by(|left, right| right.score.cmp(&left.score));
+    if candidates.len() >= 2
+        && candidates[0].score - candidates[1].score <= 5
+        && candidates[0].score < 85
+    {
+        if let Some(position) =
+            review_candidates_with_ai(db, slide, &candidates, model_id, cancel).await
+        {
+            if position > 0 && position < candidates.len() {
+                let picked = candidates.remove(position);
+                candidates.insert(0, picked);
+                emit_system_log(
+                    Some(app),
+                    &format!("P{:02} AI 评审改选了候选 {}", slide.page, position + 1),
+                );
+            }
+        }
+    }
+    let mut chosen = candidates.first().cloned();
+    if let Some(current) = chosen.clone() {
+        if current.hard_fail || current.score < AI_PAGE_MIN_SCORE {
+            emit_system_log(
+                Some(app),
+                &format!(
+                    "P{:02} 候选未达门槛（{}），带错误信息进行一次修复重试",
+                    slide.page, current.score
+                ),
+            );
+            let repair_prompt = format!(
+                "{}\n\n上一次生成存在以下问题：{}\n请只修复这些问题并重新输出完整 SVG。",
+                page_generation_prompt(
+                    plan,
+                    slide,
+                    spec_lock,
+                    understanding,
+                    previous_title,
+                    next_title,
+                    directions[0],
+                    template_hint,
+                ),
+                current.issues.join("；"),
+            );
+            let future = AiService::complete_once(db, &repair_prompt, model_id);
+            if let Ok(text) = await_cancellable(
+                future,
+                cancel,
+                Duration::from_secs(AI_PAGE_TIMEOUT_SECS),
+            )
+            .await
+            {
+                if let Some(svg) = extract_svg_block(&text) {
+                    let repaired =
+                        score_svg_candidate(&svg, slide, allowed_colors, previous_svgs);
+                    if !repaired.hard_fail && repaired.score > current.score {
+                        chosen = Some(repaired.clone());
+                    }
+                    candidates.push(repaired);
+                }
+            }
+        }
+    }
+    // 修复重试可能让候选超过 3 个；保留选中项，移除最低分的额外候选。
+    if candidates.len() > 3 {
+        if let Some(chosen_svg) = chosen.as_ref().map(|candidate| &candidate.svg) {
+            while candidates.len() > 3 {
+                let remove_index = candidates
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, candidate)| &candidate.svg != chosen_svg)
+                    .min_by_key(|(_, candidate)| candidate.score)
+                    .map(|(index, _)| index);
+                match remove_index {
+                    Some(index) => {
+                        candidates.remove(index);
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+    PageDraftOutcome {
+        index,
+        chosen,
+        candidates,
+    }
 }
 
 async fn review_candidates_with_ai(
@@ -2607,11 +3815,76 @@ fn job_model_id(spec: &Value) -> Option<i64> {
         .and_then(Value::as_i64)
 }
 
-fn update_draft_selection(
+/// 保存 AI 候选 SVG，并记录每个候选的文件、分数与选中项。
+/// 返回的 selected 是选中候选在 `candidates` 中的下标。
+fn update_ai_selection(
     project: &Path,
     page: u32,
-    selected: &PageCandidateScore,
+    selected_svg: &str,
     candidates: &[PageCandidateScore],
+) -> Result<(), AppError> {
+    let candidates_dir = project.join("candidates");
+    fs::create_dir_all(&candidates_dir)?;
+    let mut files = Vec::with_capacity(candidates.len());
+    for (index, candidate) in candidates.iter().enumerate() {
+        let relative = format!("candidates/P{page:02}_{}.svg", index + 1);
+        fs::write(project.join(&relative), sanitize_ai_svg(&candidate.svg))?;
+        files.push(relative);
+    }
+    // 清理上一轮多出来的候选文件，避免候选缩略图串页。
+    for index in candidates.len() + 1..=3 {
+        let _ = fs::remove_file(
+            candidates_dir.join(format!("P{page:02}_{index}.svg")),
+        );
+    }
+    let selected = candidates
+        .iter()
+        .position(|candidate| candidate.svg == selected_svg)
+        .unwrap_or(0);
+    let selected_score = candidates
+        .get(selected)
+        .map(|candidate| candidate.score)
+        .unwrap_or(0);
+    let selected_issues = candidates
+        .get(selected)
+        .map(|candidate| candidate.issues.clone())
+        .unwrap_or_default();
+    let path = project.join("page_selection.json");
+    let mut value = fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .unwrap_or_else(|| json!({ "pages": [] }));
+    if !value.get("pages").map(Value::is_array).unwrap_or(false) {
+        value["pages"] = json!([]);
+    }
+    let entry = json!({
+        "page": page,
+        "selected": selected,
+        "score": selected_score,
+        "issues": selected_issues,
+        "mode": "ai",
+        "candidates": candidates.iter().enumerate().map(|(index, candidate)| json!({
+            "index": index,
+            "motif": format!("候选 {}", index + 1),
+            "score": candidate.score,
+            "issues": candidate.issues,
+            "file": files.get(index),
+        })).collect::<Vec<_>>(),
+    });
+    if let Some(pages) = value.get_mut("pages").and_then(Value::as_array_mut) {
+        pages.retain(|item| item.get("page").and_then(Value::as_u64) != Some(page as u64));
+        pages.push(entry);
+        pages.sort_by_key(|item| item.get("page").and_then(Value::as_u64).unwrap_or(0));
+    }
+    write_json_file(&path, &value)
+}
+
+fn update_programmatic_selection(
+    project: &Path,
+    page: u32,
+    selected_index: usize,
+    selected: &PageCandidateScore,
+    details: &[ppt_programmatic_renderer::ProgrammaticCandidate],
 ) -> Result<(), AppError> {
     let path = project.join("page_selection.json");
     let mut value = fs::read_to_string(&path)
@@ -2623,12 +3896,16 @@ fn update_draft_selection(
     }
     let entry = json!({
         "page": page,
-        "selected": 0,
+        "selected": selected_index,
         "score": selected.score,
         "issues": selected.issues,
-        "candidates": candidates.iter().map(|candidate| json!({
+        "mode": "programmatic",
+        "candidates": details.iter().enumerate().map(|(index, candidate)| json!({
+            "index": index,
+            "motif": candidate.motif,
             "score": candidate.score,
             "issues": candidate.issues,
+            "file": format!("candidates/P{page:02}_{}.svg", index + 1),
         })).collect::<Vec<_>>(),
     });
     if let Some(pages) = value.get_mut("pages").and_then(Value::as_array_mut) {
@@ -2640,13 +3917,12 @@ fn update_draft_selection(
 }
 
 impl PptExtensionService {
-    /// 逐页生成 AI SVG 草稿；失败页回退到扩展模板渲染。
-    pub async fn render_ai_draft(
+    /// 程序化渲染草稿：不调用 AI 生成 SVG，每页 3 个 motif 候选选 1。
+    pub async fn render_programmatic_draft(
         app: AppHandle,
         db: Arc<Database>,
         cancels: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
         job_id: String,
-        candidate_count: usize,
     ) -> Result<(), AppError> {
         let mut job = db
             .get_ppt_job(&job_id)?
@@ -2661,7 +3937,215 @@ impl PptExtensionService {
         if plan.slides.is_empty() {
             return Err(AppError::InvalidInput("大纲为空，无法生成草稿".into()));
         }
-        let spec = load_job_spec(&job_dir);
+        let mut spec = load_job_spec(&job_dir);
+        if !spec.get("options").map(Value::is_object).unwrap_or(false) {
+            spec["options"] = json!({});
+        }
+        spec["options"]["generationMode"] = json!("programmatic");
+        write_json_file(&job_dir.join("job.json"), &spec)?;
+
+        let extension = ExtensionService::get(&db, &job.extension_id)?;
+        let layout_id = job.template_id.clone().unwrap_or_default();
+        let template_base = PathBuf::from(&extension.path)
+            .join("templates")
+            .join("layouts")
+            .join(&layout_id);
+        let template_dir = if template_base.join("templates").is_dir() {
+            template_base.join("templates")
+        } else {
+            template_base.clone()
+        };
+        let template_dir = template_dir.is_dir().then_some(template_dir);
+        let spec_lock = build_spec_lock(template_dir.as_deref(), &plan);
+        fs::write(project.join("spec_lock.md"), &spec_lock)?;
+        let colors = template_colors(template_dir.as_deref());
+        let palette = ppt_programmatic_renderer::ProgrammaticPalette::from_colors(&colors);
+
+        job.status = "running".into();
+        job.stage = "rendering_draft".into();
+        job.started_at = Some(chrono::Local::now().to_rfc3339());
+        job.finished_at = None;
+        job.error_code = None;
+        job.error_message = None;
+        db.update_ppt_job(&job)?;
+        let _ = app.emit(
+            "ppt-extension://job",
+            json!({ "jobId": job.id, "status": "running", "stage": job.stage }),
+        );
+        emit_system_log(
+            Some(&app),
+            &format!(
+                "开始程序化渲染：{} 页 × 最多 3 个结构候选",
+                plan.slides.len()
+            ),
+        );
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        if let Ok(mut map) = cancels.lock() {
+            map.insert(job.id.clone(), cancel.clone());
+        }
+
+        let mut previous_motif: Option<String> = None;
+        let mut motif_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for (index, slide) in plan.slides.iter().enumerate() {
+            if cancel.load(Ordering::SeqCst) {
+                if let Ok(mut map) = cancels.lock() {
+                    map.remove(&job.id);
+                }
+                job.status = "cancelled".into();
+                job.error_code = Some("CANCELLED".into());
+                job.error_message = Some("用户取消了程序化渲染".into());
+                job.finished_at = Some(chrono::Local::now().to_rfc3339());
+                db.update_ppt_job(&job)?;
+                let _ = app.emit(
+                    "ppt-extension://error",
+                    json!({ "jobId": job.id, "status": "cancelled", "stage": job.stage, "job": job }),
+                );
+                return Ok(());
+            }
+            emit_draft_page(
+                &app,
+                &job.id,
+                slide.page,
+                plan.slides.len(),
+                "generating",
+                0,
+                3,
+                &[],
+            );
+            let rendered =
+                ppt_programmatic_renderer::render_programmatic_page_with_palette(
+                    &plan,
+                    slide,
+                    index,
+                    previous_motif.as_deref(),
+                    &motif_counts,
+                    &palette,
+                );
+            let candidates_dir = project.join("candidates");
+            fs::create_dir_all(&candidates_dir)?;
+            let details: Vec<_> = rendered
+                .candidate_details
+                .iter()
+                .take(3)
+                .cloned()
+                .collect();
+            for (index, candidate) in details.iter().enumerate() {
+                fs::write(
+                    candidates_dir.join(format!("P{:02}_{}.svg", slide.page, index + 1)),
+                    &candidate.svg,
+                )?;
+            }
+            fs::write(page_svg_path(&project, slide.page), &rendered.svg)?;
+            let selected_index = details
+                .iter()
+                .position(|candidate| {
+                    candidate.motif == rendered.motif && candidate.score == rendered.score
+                })
+                .unwrap_or(0);
+            let selected = PageCandidateScore {
+                score: rendered.score,
+                issues: rendered.issues.clone(),
+                hard_fail: false,
+                svg: rendered.svg.clone(),
+            };
+            update_programmatic_selection(
+                &project,
+                slide.page,
+                selected_index,
+                &selected,
+                &details,
+            )?;
+            if rendered.used_fallback || !rendered.issues.is_empty() {
+                emit_system_log(
+                    Some(&app),
+                    &format!(
+                        "P{:02} 布局回退/QA 问题：{}",
+                        slide.page,
+                        if rendered.issues.is_empty() {
+                            "已回退到简单布局".to_string()
+                        } else {
+                            rendered.issues.join("；")
+                        }
+                    ),
+                );
+            }
+            *motif_counts
+                .entry(rendered.motif.to_string())
+                .or_insert(0) += 1;
+            previous_motif = Some(rendered.motif.to_string());
+            emit_draft_page(
+                &app,
+                &job.id,
+                slide.page,
+                plan.slides.len(),
+                "selected",
+                rendered.score,
+                rendered.candidates,
+                &[],
+            );
+            emit_system_log(
+                Some(&app),
+                &format!(
+                    "P{:02} 程序化渲染：layout={} motif={} score={}",
+                    slide.page, rendered.layout, rendered.motif, rendered.score
+                ),
+            );
+        }
+
+        if let Ok(mut map) = cancels.lock() {
+            map.remove(&job.id);
+        }
+        job.status = "succeeded".into();
+        job.stage = STAGE_DRAFT_READY.into();
+        job.pptx_path = None;
+        job.final_pptx_path = None;
+        job.project_path = Some(project.to_string_lossy().to_string());
+        job.finished_at = Some(chrono::Local::now().to_rfc3339());
+        db.update_ppt_job(&job)?;
+        emit_system_log(
+            Some(&app),
+            &format!("程序化草稿完成：{} 页", plan.slides.len()),
+        );
+        let _ = app.emit(
+            "ppt-extension://done",
+            json!({ "jobId": job.id, "status": "succeeded", "stage": job.stage, "job": job }),
+        );
+        Ok(())
+    }
+
+    /// 逐页生成 AI SVG 草稿；失败页回退到扩展模板渲染。
+    pub async fn render_ai_draft(
+        app: AppHandle,
+        db: Arc<Database>,
+        cancels: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
+        job_id: String,
+        candidate_count: usize,
+        mode: DraftGenerationMode,
+    ) -> Result<(), AppError> {
+        let mut job = db
+            .get_ppt_job(&job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        if job.status == "running" {
+            return Err(AppError::InvalidInput("作业正在运行".into()));
+        }
+        if mode == DraftGenerationMode::Programmatic {
+            return Self::render_programmatic_draft(app, db, cancels, job_id).await;
+        }
+        let job_dir = PathBuf::from(&job.workspace_path);
+        let project = job_dir.join("project");
+        fs::create_dir_all(project.join("svg_output"))?;
+        let plan = ppt_plan::read_plan(&job_dir, &job.title)?;
+        if plan.slides.is_empty() {
+            return Err(AppError::InvalidInput("大纲为空，无法生成草稿".into()));
+        }
+        let mut spec = load_job_spec(&job_dir);
+        if !spec.get("options").map(Value::is_object).unwrap_or(false) {
+            spec["options"] = json!({});
+        }
+        spec["options"]["generationMode"] = json!(mode.as_str());
+        write_json_file(&job_dir.join("job.json"), &spec)?;
         let model_id = job_model_id(&spec);
         let understanding = fs::read_to_string(job_dir.join("input").join("understanding.md"))
             .unwrap_or_default();
@@ -2700,12 +4184,18 @@ impl PptExtensionService {
             "ppt-extension://job",
             json!({ "jobId": job.id, "status": "running", "stage": job.stage }),
         );
+        let effective_candidates = if mode == DraftGenerationMode::OneShot {
+            1
+        } else {
+            candidate_count.max(1).min(3)
+        };
         emit_system_log(
             Some(&app),
             &format!(
-                "开始逐页 AI 生成：{} 页 × {} 候选",
+                "开始逐页 AI 生成：{} 页 × {} 候选（{}）",
                 plan.slides.len(),
-                candidate_count.max(1)
+                effective_candidates,
+                mode.as_str()
             ),
         );
 
@@ -2714,16 +4204,39 @@ impl PptExtensionService {
             map.insert(job.id.clone(), cancel.clone());
         }
 
-        let directions = [
-            "结构优先：清晰标题层级、编号/分组与稳定网格",
-            "视觉优先：大数字、色块、图表或强对比图形，减少文字块",
-            "叙事优先：用一条主线组织内容，强调因果/流程/对比关系",
-        ];
+        let mut signatures: Vec<String> = Vec::new();
         let mut failures: Vec<u32> = Vec::new();
-        let mut previous_svg: Option<String> = None;
         let mut selected_pages = 0usize;
+        // 断点续跑：已有且达标的页面直接复用。
+        let mut reused_pages: std::collections::HashMap<u32, i32> =
+            std::collections::HashMap::new();
+        if let Ok(text) = fs::read_to_string(project.join("page_selection.json")) {
+            if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                if let Some(items) = value.get("pages").and_then(Value::as_array) {
+                    for item in items {
+                        let page = item
+                            .get("page")
+                            .and_then(Value::as_u64)
+                            .map(|value| value as u32);
+                        let score = item
+                            .get("score")
+                            .and_then(Value::as_i64)
+                            .map(|value| value as i32);
+                        if let (Some(page), Some(score)) = (page, score) {
+                            if score >= 80 && page_svg_path(&project, page).is_file() {
+                                reused_pages.insert(page, score);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-        for (index, slide) in plan.slides.iter().enumerate() {
+        let template_hint =
+            fs::read_to_string(project.join("template_hint.svg")).unwrap_or_default();
+        // 页级并发 2：视觉签名以集合形式传递，避免并发页互相覆盖去重状态。
+        let mut chunk_start = 0usize;
+        while chunk_start < plan.slides.len() {
             if cancel.load(Ordering::SeqCst) {
                 if let Ok(mut map) = cancels.lock() {
                     map.remove(&job.id);
@@ -2739,164 +4252,198 @@ impl PptExtensionService {
                 );
                 return Ok(());
             }
-            emit_system_log(
-                Some(&app),
-                &format!("P{:02} 正在生成 {} 个候选...", slide.page, candidate_count.max(1)),
-            );
-            let previous_title = index
-                .checked_sub(1)
-                .and_then(|value| plan.slides.get(value))
-                .map(|item| item.title.as_str())
-                .unwrap_or("");
-            let next_title = plan
-                .slides
-                .get(index + 1)
-                .map(|item| item.title.as_str())
-                .unwrap_or("");
-            let template_hint = fs::read_to_string(project.join("template_hint.svg"))
-                .unwrap_or_default();
-            let mut candidates: Vec<PageCandidateScore> = Vec::new();
-            for candidate_index in 0..candidate_count.max(1) {
-                let direction = directions[candidate_index % directions.len()];
-                let prompt = page_generation_prompt(
-                    &plan,
-                    slide,
-                    &spec_lock,
-                    &understanding,
-                    previous_title,
-                    next_title,
-                    direction,
-                    &template_hint,
-                );
-                let future = AiService::complete_once(&db, &prompt, model_id);
-                match await_cancellable(
-                    future,
-                    &cancel,
-                    Duration::from_secs(AI_PAGE_TIMEOUT_SECS),
-                )
-                .await
-                {
-                    Ok(text) => {
-                        if let Some(svg) = extract_svg_block(&text) {
-                            let scored = score_svg_candidate(
-                                &svg,
-                                slide,
-                                &allowed_colors,
-                                previous_svg.as_deref(),
-                            );
-                            candidates.push(scored);
+            let chunk_end = (chunk_start + 2).min(plan.slides.len());
+            let mut pending: Vec<(usize, &PptSlide)> = Vec::new();
+            for index in chunk_start..chunk_end {
+                let slide = &plan.slides[index];
+                if let Some(score) = reused_pages.get(&slide.page).copied() {
+                    let path = page_svg_path(&project, slide.page);
+                    if let Ok(existing) = fs::read_to_string(&path) {
+                        let cleaned = sanitize_ai_svg(&existing);
+                        if cleaned != existing {
+                            let _ = fs::write(&path, &cleaned);
                         }
+                        signatures.push(cleaned);
                     }
-                    Err(PlanRunError::Cancelled) => break,
-                    Err(PlanRunError::Timeout) => emit_system_log(
+                    selected_pages += 1;
+                    emit_draft_page(
+                        &app,
+                        &job.id,
+                        slide.page,
+                        plan.slides.len(),
+                        "reused",
+                        score,
+                        0,
+                        &[],
+                    );
+                    emit_system_log(
                         Some(&app),
-                        &format!("P{:02} 候选 {} 超时", slide.page, candidate_index + 1),
-                    ),
-                    Err(PlanRunError::Ai(message)) => emit_system_log(
-                        Some(&app),
-                        &format!("P{:02} 候选 {} 失败：{}", slide.page, candidate_index + 1, message),
-                    ),
+                        &format!("P{:02} 复用已有草稿（score={score}）", slide.page),
+                    );
+                } else {
+                    pending.push((index, slide));
                 }
             }
-            candidates.sort_by(|left, right| right.score.cmp(&left.score));
-            if candidates.len() >= 2 && candidates[0].score - candidates[1].score <= 5 {
-                if let Some(index) =
-                    review_candidates_with_ai(&db, slide, &candidates, model_id, &cancel).await
-                {
-                    if index > 0 && index < candidates.len() {
-                        let picked = candidates.remove(index);
-                        candidates.insert(0, picked);
-                        emit_system_log(
-                            Some(&app),
-                            &format!("P{:02} AI 评审改选了候选 {}", slide.page, index + 1),
-                        );
-                    }
-                }
-            }
-            let Some(mut chosen) = candidates.first().cloned() else {
-                failures.push(slide.page);
-                emit_system_log(
-                    Some(&app),
-                    &format!("P{:02} 未获得可用 SVG，改用模板兜底", slide.page),
-                );
-                continue;
-            };
-            if chosen.hard_fail || chosen.score < AI_PAGE_MIN_SCORE {
-                emit_system_log(
-                    Some(&app),
-                    &format!(
-                        "P{:02} 候选未达门槛（{}），带错误信息进行一次修复重试",
-                        slide.page, chosen.score
-                    ),
-                );
-                let repair_prompt = format!(
-                    "{}\n\n上一次生成存在以下问题：{}\n请只修复这些问题并重新输出完整 SVG。",
-                    page_generation_prompt(
+            if !pending.is_empty() {
+                let snapshot = signatures.clone();
+                let outcomes = if pending.len() == 1 {
+                    let (index, slide) = pending[0];
+                    vec![generate_ai_page_candidates(
+                        &app,
+                        &db,
+                        &job.id,
                         &plan,
                         slide,
+                        index,
                         &spec_lock,
                         &understanding,
-                        previous_title,
-                        next_title,
-                        directions[0],
                         &template_hint,
-                    ),
-                    chosen.issues.join("；"),
-                );
-                let future = AiService::complete_once(&db, &repair_prompt, model_id);
-                if let Ok(text) = await_cancellable(
-                    future,
-                    &cancel,
-                    Duration::from_secs(AI_PAGE_TIMEOUT_SECS),
-                )
-                .await
-                {
-                    if let Some(svg) = extract_svg_block(&text) {
-                        let repaired = score_svg_candidate(
-                            &svg,
-                            slide,
+                        &allowed_colors,
+                        model_id,
+                        effective_candidates,
+                        &snapshot,
+                        &cancel,
+                    )
+                    .await]
+                } else {
+                    let (left, right) = tokio::join!(
+                        generate_ai_page_candidates(
+                            &app,
+                            &db,
+                            &job.id,
+                            &plan,
+                            pending[0].1,
+                            pending[0].0,
+                            &spec_lock,
+                            &understanding,
+                            &template_hint,
                             &allowed_colors,
-                            previous_svg.as_deref(),
-                        );
-                        if !repaired.hard_fail && repaired.score > chosen.score {
-                            chosen = repaired.clone();
-                        }
-                        candidates.push(repaired);
+                            model_id,
+                            effective_candidates,
+                            &snapshot,
+                            &cancel,
+                        ),
+                        generate_ai_page_candidates(
+                            &app,
+                            &db,
+                            &job.id,
+                            &plan,
+                            pending[1].1,
+                            pending[1].0,
+                            &spec_lock,
+                            &understanding,
+                            &template_hint,
+                            &allowed_colors,
+                            model_id,
+                            effective_candidates,
+                            &snapshot,
+                            &cancel,
+                        )
+                    );
+                    vec![left, right]
+                };
+                if cancel.load(Ordering::SeqCst) {
+                    if let Ok(mut map) = cancels.lock() {
+                        map.remove(&job.id);
                     }
+                    job.status = "cancelled".into();
+                    job.error_code = Some("CANCELLED".into());
+                    job.error_message = Some("用户取消了 AI 草稿生成".into());
+                    job.finished_at = Some(chrono::Local::now().to_rfc3339());
+                    db.update_ppt_job(&job)?;
+                    let _ = app.emit(
+                        "ppt-extension://error",
+                        json!({ "jobId": job.id, "status": "cancelled", "stage": job.stage, "job": job }),
+                    );
+                    return Ok(());
+                }
+                for outcome in outcomes {
+                    let slide = &plan.slides[outcome.index];
+                    if !outcome.candidates.is_empty() {
+                        let selected_svg = outcome
+                            .chosen
+                            .as_ref()
+                            .map(|candidate| candidate.svg.as_str())
+                            .unwrap_or("");
+                        update_ai_selection(
+                            &project,
+                            slide.page,
+                            selected_svg,
+                            &outcome.candidates,
+                        )?;
+                    }
+                    let Some(chosen) = outcome.chosen else {
+                        failures.push(slide.page);
+                        emit_draft_page(
+                            &app,
+                            &job.id,
+                            slide.page,
+                            plan.slides.len(),
+                            "fallback",
+                            0,
+                            0,
+                            &["未获得可用 SVG".to_string()],
+                        );
+                        emit_system_log(
+                            Some(&app),
+                            &format!("P{:02} 未获得可用 SVG，改用模板兜底", slide.page),
+                        );
+                        continue;
+                    };
+                    if chosen.hard_fail || chosen.score < AI_PAGE_MIN_SCORE {
+                        failures.push(slide.page);
+                        emit_draft_page(
+                            &app,
+                            &job.id,
+                            slide.page,
+                            plan.slides.len(),
+                            "fallback",
+                            chosen.score,
+                            outcome.candidates.len(),
+                            &chosen.issues,
+                        );
+                        emit_system_log(
+                            Some(&app),
+                            &format!(
+                                "P{:02} 修复后仍未达门槛（{}），改用模板兜底：{}",
+                                slide.page,
+                                chosen.score,
+                                chosen.issues.join("；")
+                            ),
+                        );
+                        continue;
+                    }
+                    let path = page_svg_path(&project, slide.page);
+                    let cleaned_svg = sanitize_ai_svg(&chosen.svg);
+                    fs::write(&path, &cleaned_svg)?;
+                    signatures.push(cleaned_svg);
+                    selected_pages += 1;
+                    emit_draft_page(
+                        &app,
+                        &job.id,
+                        slide.page,
+                        plan.slides.len(),
+                        "selected",
+                        chosen.score,
+                        outcome.candidates.len(),
+                        &chosen.issues,
+                    );
+                    emit_system_log(
+                        Some(&app),
+                        &format!(
+                            "P{:02} 已选用候选：score={} issues={}",
+                            slide.page,
+                            chosen.score,
+                            if chosen.issues.is_empty() {
+                                "none".to_string()
+                            } else {
+                                chosen.issues.join("；")
+                            }
+                        ),
+                    );
                 }
             }
-            update_draft_selection(&project, slide.page, &chosen, &candidates)?;
-            if chosen.hard_fail || chosen.score < AI_PAGE_MIN_SCORE {
-                failures.push(slide.page);
-                emit_system_log(
-                    Some(&app),
-                    &format!(
-                        "P{:02} 修复后仍未达门槛（{}），改用模板兜底：{}",
-                        slide.page,
-                        chosen.score,
-                        chosen.issues.join("；")
-                    ),
-                );
-                continue;
-            }
-            let path = page_svg_path(&project, slide.page);
-            let cleaned_svg = sanitize_ai_svg(&chosen.svg);
-            fs::write(&path, &cleaned_svg)?;
-            previous_svg = Some(cleaned_svg);
-            selected_pages += 1;
-            emit_system_log(
-                Some(&app),
-                &format!(
-                    "P{:02} 已选用候选：score={} issues={}",
-                    slide.page,
-                    chosen.score,
-                    if chosen.issues.is_empty() {
-                        "none".to_string()
-                    } else {
-                        chosen.issues.join("；")
-                    }
-                ),
-            );
+            chunk_start = chunk_end;
         }
 
         if let Ok(mut map) = cancels.lock() {
@@ -2958,6 +4505,7 @@ impl PptExtensionService {
         job_id: String,
         page: u32,
         candidate_count: usize,
+        model_id_override: Option<i64>,
     ) -> Result<(), AppError> {
         let job = db
             .get_ppt_job(&job_id)?
@@ -2980,7 +4528,7 @@ impl PptExtensionService {
             .position(|item| item.page == page)
             .unwrap_or(0);
         let spec = load_job_spec(&job_dir);
-        let model_id = job_model_id(&spec);
+        let model_id = model_id_override.or_else(|| job_model_id(&spec));
         let understanding = fs::read_to_string(job_dir.join("input").join("understanding.md"))
             .unwrap_or_default();
         let extension = ExtensionService::get(&db, &job.extension_id)?;
@@ -3015,6 +4563,7 @@ impl PptExtensionService {
             .map(|item| item.title.as_str())
             .unwrap_or("");
         let existing = fs::read_to_string(page_svg_path(&project, page)).ok();
+        let existing_signatures: Vec<String> = existing.iter().cloned().collect();
         let directions = [
             "结构优先：清晰标题层级、编号/分组与稳定网格",
             "视觉优先：大数字、色块、图表或强对比图形，减少文字块",
@@ -3039,7 +4588,7 @@ impl PptExtensionService {
                             &svg,
                             &slide,
                             &allowed_colors,
-                            existing.as_deref(),
+                            &existing_signatures,
                         ));
                     }
                 }
@@ -3068,12 +4617,24 @@ impl PptExtensionService {
             page_svg_path(&project, page),
             sanitize_ai_svg(&best.svg),
         )?;
-        update_draft_selection(&project, page, &best, &candidates)?;
+        update_ai_selection(&project, page, &best.svg, &candidates)?;
         emit_system_log(
             Some(&app),
             &format!("第 {page} 页已重新生成：score={}", best.score),
         );
         Ok(())
+    }
+
+    /// 读取 job.json 的 options，供历史作业恢复生成方式与渲染设置。
+    pub fn job_options(db: &Database, job_id: &str) -> Result<Value, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let spec = load_job_spec(&PathBuf::from(&job.workspace_path));
+        Ok(spec
+            .get("options")
+            .cloned()
+            .unwrap_or_else(|| json!({})))
     }
 
     /// 读取逐页候选评分，供草稿页展示。
@@ -3088,6 +4649,127 @@ impl PptExtensionService {
             .map(Ok)
             .unwrap_or_else(|| Ok(json!({ "pages": [] })))
     }
+
+    /// 读取程序化渲染的候选 SVG，供草稿页预览和手动选择。
+    pub fn page_candidates(
+        db: &Database,
+        job_id: &str,
+        page: u32,
+    ) -> Result<Value, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let project = PathBuf::from(&job.workspace_path).join("project");
+        let selection = fs::read_to_string(project.join("page_selection.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .unwrap_or_else(|| json!({ "pages": [] }));
+        let entry = selection
+            .get("pages")
+            .and_then(Value::as_array)
+            .and_then(|pages| {
+                pages
+                    .iter()
+                    .find(|item| item.get("page").and_then(Value::as_u64) == Some(page as u64))
+            });
+        let selected = entry
+            .and_then(|item| item.get("selected"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        let mut candidates = Vec::new();
+        if let Some(items) = entry
+            .and_then(|item| item.get("candidates"))
+            .and_then(Value::as_array)
+        {
+            for (index, item) in items.iter().enumerate() {
+                let Some(file) = item.get("file").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some(path) = safe_candidate_path(&project, file) else {
+                    continue;
+                };
+                let Ok(svg) = fs::read_to_string(&path) else {
+                    continue;
+                };
+                if svg.len() > 1_000_000 {
+                    continue;
+                }
+                candidates.push(json!({
+                    "index": index,
+                    "motif": item.get("motif").cloned().unwrap_or(Value::Null),
+                    "score": item.get("score").cloned().unwrap_or(json!(0)),
+                    "issues": item.get("issues").cloned().unwrap_or(json!([])),
+                    "svg": svg,
+                }));
+            }
+        }
+        Ok(json!({
+            "page": page,
+            "selected": selected,
+            "candidates": candidates,
+        }))
+    }
+
+    /// 手动选择一个结构候选，写回 svg_output 并更新 selection。
+    pub fn select_page_candidate(
+        db: &Database,
+        job_id: &str,
+        page: u32,
+        index: usize,
+    ) -> Result<(), AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let project = PathBuf::from(&job.workspace_path).join("project");
+        let selection_path = project.join("page_selection.json");
+        let mut selection = fs::read_to_string(&selection_path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .unwrap_or_else(|| json!({ "pages": [] }));
+        let Some(pages) = selection.get_mut("pages").and_then(Value::as_array_mut) else {
+            return Err(AppError::InvalidInput("selection 结构无效".into()));
+        };
+        let Some(entry) = pages
+            .iter_mut()
+            .find(|item| item.get("page").and_then(Value::as_u64) == Some(page as u64))
+        else {
+            return Err(AppError::NotFound(format!("第 {page} 页没有候选记录")));
+        };
+        let (file, score, issues) = {
+            let Some(items) = entry.get("candidates").and_then(Value::as_array) else {
+                return Err(AppError::NotFound(format!("第 {page} 页没有候选")));
+            };
+            let Some(candidate) = items.get(index) else {
+                return Err(AppError::InvalidInput("候选序号越界".into()));
+            };
+            let file = candidate
+                .get("file")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::InvalidInput("候选缺少文件".into()))?
+                .to_string();
+            let score = candidate.get("score").cloned().unwrap_or(json!(0));
+            let issues = candidate.get("issues").cloned().unwrap_or(json!([]));
+            (file, score, issues)
+        };
+        let path = safe_candidate_path(&project, &file)
+            .ok_or_else(|| AppError::NotFound("候选文件不存在或路径无效".into()))?;
+        let svg = fs::read_to_string(path)?;
+        fs::write(page_svg_path(&project, page), svg)?;
+        entry["selected"] = json!(index);
+        entry["score"] = score;
+        entry["issues"] = issues;
+        write_json_file(&selection_path, &selection)?;
+        Ok(())
+    }
+}
+
+fn safe_candidate_path(project: &Path, file: &str) -> Option<PathBuf> {
+    let normalized = file.replace('\\', "/");
+    if !normalized.starts_with("candidates/") || normalized.contains("..") {
+        return None;
+    }
+    let path = project.join(&normalized);
+    path.is_file().then_some(path)
 }
 
 #[cfg(test)]
@@ -3259,13 +4941,13 @@ mod tests {
             ..Default::default()
         };
         let good = "<svg viewBox=\"0 0 1280 720\"><text x=\"100\" y=\"100\" font-size=\"20\">关键事实与说明</text></svg>";
-        let score = score_svg_candidate(good, &slide, &std::collections::HashSet::new(), None);
+        let score = score_svg_candidate(good, &slide, &std::collections::HashSet::new(), &[]);
         assert!(!score.hard_fail);
         assert!(score.score > 40);
 
         let bad =
             "<svg viewBox=\"0 0 1280 720\"><use href=\"#x\"/><text>Prompt</text></svg>";
-        let score = score_svg_candidate(bad, &slide, &std::collections::HashSet::new(), None);
+        let score = score_svg_candidate(bad, &slide, &std::collections::HashSet::new(), &[]);
         assert!(score.hard_fail);
         assert!(score.issues.iter().any(|issue| issue.contains("use")));
     }
@@ -3276,5 +4958,101 @@ mod tests {
         let svg = extract_svg_block(text).unwrap();
         assert!(svg.starts_with("<svg"));
         assert!(svg.ends_with("</svg>"));
+    }
+
+    #[test]
+    fn adaptive_candidate_plan_matches_thresholds() {
+        assert_eq!(adaptive_candidate_plan(Some(90), false, 3), (false, false));
+        assert_eq!(adaptive_candidate_plan(Some(70), false, 3), (true, false));
+        assert_eq!(adaptive_candidate_plan(Some(40), false, 3), (true, true));
+        assert_eq!(adaptive_candidate_plan(Some(40), true, 3), (true, true));
+        assert_eq!(adaptive_candidate_plan(None, true, 3), (true, true));
+        assert_eq!(adaptive_candidate_plan(Some(40), false, 1), (false, false));
+    }
+
+    #[test]
+    fn parses_draft_generation_modes() {
+        assert_eq!(DraftGenerationMode::parse(None), DraftGenerationMode::BestOf);
+        assert_eq!(
+            DraftGenerationMode::parse(Some("oneShot")),
+            DraftGenerationMode::OneShot
+        );
+        assert_eq!(
+            DraftGenerationMode::parse(Some("programmatic")),
+            DraftGenerationMode::Programmatic
+        );
+        assert_eq!(
+            DraftGenerationMode::parse(Some("bestOf")),
+            DraftGenerationMode::BestOf
+        );
+    }
+
+    #[test]
+    fn rejects_candidate_path_traversal() {
+        let project = std::env::temp_dir().join("ppt-safe-candidate-test");
+        assert!(safe_candidate_path(&project, "../secret.svg").is_none());
+        assert!(safe_candidate_path(&project, "candidates/../x.svg").is_none());
+        assert!(safe_candidate_path(&project, "other/1.svg").is_none());
+    }
+
+    fn test_model(id: i64, model_id: &str, api_url: &str) -> AiModel {
+        AiModel {
+            id,
+            name: model_id.to_string(),
+            provider: "custom".into(),
+            protocol: "openai_compatible".into(),
+            api_url: api_url.into(),
+            api_key: None,
+            model_id: model_id.into(),
+            is_default: false,
+            max_context: 32_000,
+            supports_tools: false,
+            supports_vision: false,
+            max_output_tokens: None,
+            created_at: "2026-01-01T00:00:00+08:00".into(),
+        }
+    }
+
+    #[test]
+    fn fast_model_keeps_non_reasoning_user_model() {
+        let user = test_model(1, "deepseek-chat", "https://api.deepseek.com");
+        let models = vec![
+            user.clone(),
+            test_model(2, "qwen-plus", "https://dashscope.aliyuncs.com"),
+        ];
+        assert_eq!(pick_fast_model_id(&user, &models), 1);
+    }
+
+    #[test]
+    fn fast_model_prefers_same_provider() {
+        let user = test_model(1, "deepseek-reasoner", "https://api.deepseek.com");
+        let models = vec![
+            user.clone(),
+            test_model(2, "qwen-plus", "https://dashscope.aliyuncs.com"),
+            test_model(3, "deepseek-chat", "https://api.deepseek.com/"),
+        ];
+        // 同厂商的 deepseek-chat 优先，即使千问 id 更小且也命中快模型关键字。
+        assert_eq!(pick_fast_model_id(&user, &models), 3);
+    }
+
+    #[test]
+    fn fast_model_never_crosses_provider() {
+        let user = test_model(1, "deepseek-reasoner", "https://api.deepseek.com");
+        let models = vec![
+            user.clone(),
+            test_model(2, "qwen-plus", "https://dashscope.aliyuncs.com"),
+        ];
+        // 只有跨厂商快模型时沿用用户模型，避免 Key 不通用导致 401。
+        assert_eq!(pick_fast_model_id(&user, &models), 1);
+    }
+
+    #[test]
+    fn fast_model_ignores_same_provider_reasoning_models() {
+        let user = test_model(1, "deepseek-reasoner", "https://api.deepseek.com");
+        let models = vec![
+            user.clone(),
+            test_model(2, "deepseek-r1", "https://api.deepseek.com"),
+        ];
+        assert_eq!(pick_fast_model_id(&user, &models), 1);
     }
 }
