@@ -12,6 +12,7 @@ import re
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -425,6 +426,68 @@ class EntryTests(unittest.TestCase):
         self.assertAlmostEqual(positions["card-3"][1], 394.0)
         self.assertAlmostEqual(positions["card-4"][0], 656.0)
         self.assertAlmostEqual(positions["card-4"][1], 394.0)
+
+
+    def test_native_chart_export_and_speaker_notes(self):
+        try:
+            import pptx  # noqa: F401
+        except Exception:  # noqa: BLE001
+            self.skipTest("python-pptx not installed")
+        plan = {
+            "title": "原生图表冒烟",
+            "slides": [
+                {
+                    "page": 1,
+                    "title": "季度数据",
+                    "coreMessage": "",
+                    "bullets": ["口径说明"],
+                    "speakerNote": "第一页备注：说明统计口径。",
+                    "chart": {
+                        "type": "column",
+                        "categories": ["一季度", "二季度", "三季度"],
+                        "series": [{"name": "产量", "values": [12, 19, 27]}],
+                    },
+                },
+                {
+                    "page": 2,
+                    "title": "结论",
+                    "coreMessage": "",
+                    "bullets": ["结论一"],
+                    "speakerNote": "第二页备注：强调增长趋势。",
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            artifact = entry.export_with_python_pptx(
+                plan,
+                output,
+                native_charts=True,
+                palette=["#0B4F8A", "#FFC000", "#C1232D"],
+            )
+            self.assertTrue(artifact.is_file())
+            self.assertTrue(entry.attach_speaker_notes(artifact, plan))
+            with zipfile.ZipFile(artifact) as archive:
+                names = archive.namelist()
+                self.assertTrue(
+                    any(
+                        name.startswith("ppt/charts/chart") and name.endswith(".xml")
+                        for name in names
+                    )
+                )
+                note_names = [
+                    name
+                    for name in names
+                    if name.startswith("ppt/notesSlides/notesSlide")
+                    and name.endswith(".xml")
+                ]
+                self.assertTrue(note_names)
+                note_text = "".join(
+                    archive.read(name).decode("utf-8", "ignore")
+                    for name in note_names
+                )
+                self.assertIn("第一页备注", note_text)
+                self.assertIn("第二页备注", note_text)
 
 
 if __name__ == "__main__":

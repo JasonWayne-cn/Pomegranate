@@ -2604,6 +2604,34 @@ def main() -> int:
     return export_pptx(plan, project, output, options)
 
 
+def speaker_note_of(slide: dict) -> str:
+    return str(slide.get("speakerNote") or slide.get("speaker_note") or "").strip()
+
+
+def attach_speaker_notes(pptx_path: Path, plan: dict) -> bool:
+    """把每页 speakerNote 写入 PPTX 备注页；无备注时不做任何改动。"""
+    notes = [speaker_note_of(slide) for slide in plan.get("slides") or []]
+    if not any(notes):
+        return False
+    try:
+        from pptx import Presentation  # type: ignore
+    except Exception as exc:  # noqa: BLE001
+        log(f"python-pptx 不可用，跳过演讲备注: {exc}", "warn")
+        return False
+    try:
+        prs = Presentation(str(pptx_path))
+        for slide, note in zip(prs.slides, notes):
+            if not note:
+                continue
+            slide.notes_slide.notes_text_frame.text = note
+        prs.save(str(pptx_path))
+        log(f"已写入 {sum(1 for note in notes if note)} 页演讲备注")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log(f"写入演讲备注失败: {exc}", "warn")
+        return False
+
+
 def export_pptx(plan: dict, project: Path, output: Path, options: dict) -> int:
     progress("export", 75, "导出 PPTX")
     artifact: Path | None = None
@@ -2641,6 +2669,9 @@ def export_pptx(plan: dict, project: Path, output: Path, options: dict) -> int:
         )
     if artifact is None:
         artifact = export_with_python_pptx(plan, output)
+
+    # 无论走 SVG 还是原生图表导出，都补齐演讲备注。
+    attach_speaker_notes(artifact, plan)
 
     size = artifact.stat().st_size
     emit(
