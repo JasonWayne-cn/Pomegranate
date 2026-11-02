@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="SimSun, Songti SC, serif" data-pptx-master="oriental-master" data-pptx-master-name="Oriental Classic Research Master" data-pptx-layout="modern-application" data-pptx-layout-name="Modern Application">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F5F3EF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="3" fill="#D4A84B" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="title-rule" x1="80" y1="128" x2="760" y2="128" stroke="#D4A84B" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ma-card-1" x="80" y="168" width="540" height="194" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ma-card-bar-1" x="80" y="168" width="540" height="4" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ma-card-label-1" x="104" y="206" font-size="16" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <rect id="ma-card-2" x="660" y="168" width="540" height="194" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ma-card-bar-2" x="660" y="168" width="540" height="4" fill="#B8860B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ma-card-label-2" x="684" y="206" font-size="16" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <rect id="ma-card-3" x="80" y="390" width="540" height="194" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ma-card-bar-3" x="80" y="390" width="540" height="4" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ma-card-label-3" x="104" y="428" font-size="16" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <rect id="ma-card-4" x="660" y="390" width="540" height="194" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ma-card-bar-4" x="660" y="390" width="540" height="4" fill="#B8860B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ma-card-label-4" x="684" y="428" font-size="16" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="page-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 56 1000 60"><text id="page-title-slot-carrier" data-pptx-carrier="true" x="80" y="106" font-size="30" fill="#2C3E50" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="ma-card-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="104 222 492 32"><text id="ma-card-title-slot-1-carrier" data-pptx-carrier="true" x="104" y="248" font-size="15" fill="#2C3E50" font-weight="bold">{{APPLICATION_1_TITLE}}</text></g>
+  <g id="ma-card-body-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="104 264 492 76"><text id="ma-card-body-slot-1-carrier" data-pptx-carrier="true" x="104" y="292" font-size="12" fill="#4A5568">{{APPLICATION_1_DETAIL}}</text></g>
+  <g id="ma-card-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="684 222 492 32"><text id="ma-card-title-slot-2-carrier" data-pptx-carrier="true" x="684" y="248" font-size="15" fill="#2C3E50" font-weight="bold">{{APPLICATION_2_TITLE}}</text></g>
+  <g id="ma-card-body-slot-2" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="684 264 492 76"><text id="ma-card-body-slot-2-carrier" data-pptx-carrier="true" x="684" y="292" font-size="12" fill="#4A5568">{{APPLICATION_2_DETAIL}}</text></g>
+  <g id="ma-card-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="104 444 492 32"><text id="ma-card-title-slot-3-carrier" data-pptx-carrier="true" x="104" y="470" font-size="15" fill="#2C3E50" font-weight="bold">{{APPLICATION_3_TITLE}}</text></g>
+  <g id="ma-card-body-slot-3" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="104 486 492 76"><text id="ma-card-body-slot-3-carrier" data-pptx-carrier="true" x="104" y="514" font-size="12" fill="#4A5568">{{APPLICATION_3_DETAIL}}</text></g>
+  <g id="ma-card-title-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="684 444 492 32"><text id="ma-card-title-slot-4-carrier" data-pptx-carrier="true" x="684" y="470" font-size="15" fill="#2C3E50" font-weight="bold">{{APPLICATION_4_TITLE}}</text></g>
+  <g id="ma-card-body-slot-4" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="684 486 492 76"><text id="ma-card-body-slot-4-carrier" data-pptx-carrier="true" x="684" y="514" font-size="12" fill="#4A5568">{{APPLICATION_4_DETAIL}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#8B9A9A">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#8B9A9A" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

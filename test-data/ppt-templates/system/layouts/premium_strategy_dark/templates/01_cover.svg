@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="premium-master" data-pptx-master-name="Premium Strategy Master" data-pptx-layout="cover" data-pptx-layout-name="Cover">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F0F5F7" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="cover-bg" x="0" y="0" width="1280" height="720" fill="#0D2B3E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#C9A227" data-pptx-layer="master" data-pptx-editable="false"/>
+  <circle id="cover-ring-1" cx="1080" cy="360" r="250" fill="none" stroke="#1D4A63" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="cover-ring-2" cx="1080" cy="360" r="180" fill="none" stroke="#1D4A63" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="cover-ring-3" cx="1080" cy="360" r="110" fill="none" stroke="#1D4A63" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cover-gold-tag" x="64" y="64" width="188" height="32" fill="#C9A227" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cover-tag-text" x="80" y="86" font-size="12" fill="#0D2B3E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">深度战略评估报告</text>
+  <line id="cover-rule" x1="64" y1="352" x2="620" y2="352" stroke="#C9A227" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cover-bottom-left" x="64" y="650" font-size="10" fill="#7ED4E6" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">STRATEGIC REVIEW · CONFIDENTIAL</text>
+  <text id="cover-bottom-right" x="1216" y="650" font-size="12" fill="#7ED4E6" font-weight="bold" text-anchor="end" data-pptx-layer="layout" data-pptx-editable="false">2025</text>
+  <g id="cover-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="64 200 900 120"><text id="cover-title-slot-carrier" data-pptx-carrier="true" x="64" y="270" font-size="46" fill="#FFFFFF" font-weight="bold">{{TITLE}}</text></g>
+  <g id="cover-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="64 300 900 60"><text id="cover-subtitle-slot-carrier" data-pptx-carrier="true" x="64" y="326" font-size="20" fill="#7ED4E6">{{SUBTITLE}}</text></g>
+  <g id="cover-meta-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="64 380 760 50"><text id="cover-meta-slot-carrier" data-pptx-carrier="true" x="64" y="408" font-size="13" fill="#B8C7CE">{{META_LINE}}</text></g>
+  <g id="cover-context-slot" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="64 440 760 60"><text id="cover-context-slot-carrier" data-pptx-carrier="true" x="64" y="468" font-size="12" fill="#718096">{{CONTEXT_LINE}}</text></g>
+</svg>

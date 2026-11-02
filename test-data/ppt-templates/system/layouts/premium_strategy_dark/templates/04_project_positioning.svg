@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="premium-master" data-pptx-master-name="Premium Strategy Master" data-pptx-layout="project-positioning" data-pptx-layout-name="Project Positioning">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F0F5F7" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#C9A227" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="content-top-band" x="0" y="4" width="1280" height="84" fill="#0D2B3E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="content-kicker" x="64" y="30" font-size="9" fill="#7ED4E6" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">STRATEGIC ASSESSMENT</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="pp-left-panel" x="64" y="160" width="520" height="444" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pp-left-label" x="88" y="198" font-size="9" fill="#718096" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">STRATEGIC POSITION</text>
+  <rect id="pp-right-panel" x="616" y="160" width="600" height="444" rx="4" fill="#0D2B3E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pp-right-label" x="646" y="200" font-size="9" fill="#7ED4E6" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">LOCATION &amp; CASCADE</text>
+  <circle id="pp-node-1" cx="700" cy="382" r="14" fill="#C9A227" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="pp-node-2" cx="774" cy="434" r="14" fill="#7ED4E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="pp-node-3" cx="848" cy="330" r="14" fill="#7ED4E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="pp-node-4" cx="922" cy="382" r="14" fill="#C9A227" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="pp-node-5" cx="996" cy="434" r="14" fill="#7ED4E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="pp-node-6" cx="1070" cy="330" r="14" fill="#7ED4E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="pp-node-7" cx="1144" cy="382" r="14" fill="#C9A227" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="pp-flow" x1="700" y1="330" x2="1144" y2="382" stroke="#7ED4E6" stroke-width="2" stroke-dasharray="4,4" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pp-map-caption" x="646" y="552" font-size="11" fill="#B8C7CE" data-pptx-layer="layout" data-pptx-editable="false">七级梯级电站空间关系示意</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="64 38 1120 42"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="64" y="72" font-size="22" fill="#FFFFFF" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="64 106 1120 30"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="64" y="128" font-size="13" fill="#718096">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#718096">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#718096" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="pp-left-title-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="88 212 464 50"><text id="pp-left-title-slot-carrier" data-pptx-carrier="true" x="88" y="248" font-size="20" fill="#0D2B3E" font-weight="bold">{{POSITION_STATEMENT}}</text></g>
+  <g id="pp-left-body-slot" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="88 276 464 290"><text id="pp-left-body-slot-carrier" data-pptx-carrier="true" x="88" y="306" font-size="13" fill="#718096">{{POSITION_DETAIL}}</text></g>
+  <g id="pp-map-note-slot" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="646 566 540 26"><text id="pp-map-note-slot-carrier" data-pptx-carrier="true" x="646" y="584" font-size="10" fill="#7ED4E6">{{MAP_NOTE}}</text></g>
+</svg>

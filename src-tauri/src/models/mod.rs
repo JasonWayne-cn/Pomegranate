@@ -1,5 +1,6 @@
 pub mod ai_provider;
 pub mod extension;
+pub mod ppt_template;
 pub mod research;
 // 将常用 Provider 类型提升到 models 层，方便 commands 层直接 use
 pub use ai_provider::{

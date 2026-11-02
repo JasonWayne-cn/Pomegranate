@@ -1002,6 +1002,18 @@ pub fn run() {
             commands::extension::extension_ppt_layout_preview,
             commands::extension::extension_list_versions,
             commands::extension::extension_rollback,
+            // 用户 PPT 模板导入
+            commands::ppt_template::ppt_template_inspect,
+            commands::ppt_template::ppt_template_install,
+            commands::ppt_template::ppt_template_list,
+            commands::ppt_template::ppt_template_catalog,
+            commands::ppt_template::ppt_template_preview,
+            commands::ppt_template::ppt_template_rename,
+            commands::ppt_template::ppt_template_set_enabled,
+            commands::ppt_template::ppt_template_delete,
+            commands::ppt_template::ppt_template_verify,
+            commands::ppt_template::ppt_template_export,
+            commands::ppt_template::ppt_template_reconcile,
             // PPT 扩展作业
             commands::ppt_extension::ppt_extension_status,
             commands::ppt_extension::ppt_extension_suggest_meta,

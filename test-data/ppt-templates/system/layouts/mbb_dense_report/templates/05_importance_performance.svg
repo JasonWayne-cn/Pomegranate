@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="mbb-master" data-pptx-master-name="MBB Report Master" data-pptx-layout="importance-performance-matrix" data-pptx-layout-name="Importance-Performance Matrix">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="6" fill="#18345E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="mx-panel" x="80" y="168" width="760" height="470" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="mx-q1" x="110" y="198" width="345" height="195" fill="#FEF2F2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="mx-q2" x="455" y="198" width="345" height="195" fill="#EFF6FF" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="mx-q3" x="110" y="393" width="345" height="195" fill="#F8FAFC" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="mx-q4" x="455" y="393" width="345" height="195" fill="#FEFCE8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="mx-v" x1="455" y1="198" x2="455" y2="588" stroke="#94A3B8" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="mx-h" x1="110" y1="393" x2="800" y2="393" stroke="#94A3B8" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="mx-q1-label" x="128" y="230" font-size="11" fill="#DC2626" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">URGENT FIX</text>
+  <text id="mx-q2-label" x="473" y="230" font-size="11" fill="#2563EB" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">PROTECT</text>
+  <text id="mx-q3-label" x="128" y="425" font-size="11" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">MONITOR</text>
+  <text id="mx-q4-label" x="473" y="425" font-size="11" fill="#F59E0B" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">LOW PRIORITY</text>
+  <text id="mx-x-label" x="455" y="636" font-size="11" fill="#475569" font-weight="bold" text-anchor="middle" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">PERFORMANCE SCORE →</text>
+  <text id="mx-y-label" x="62" y="393" font-size="11" fill="#475569" font-weight="bold" text-anchor="middle" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">IMPORTANCE</text>
+  <circle id="mx-dot-1" cx="320" cy="300" r="10" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="mx-dot-label-1" x="338" y="305" font-size="11" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">F1</text>
+  <circle id="mx-dot-2" cx="600" cy="270" r="10" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="mx-dot-label-2" x="618" y="275" font-size="11" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">F2</text>
+  <circle id="mx-dot-3" cx="250" cy="500" r="10" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="mx-dot-label-3" x="268" y="505" font-size="11" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">F3</text>
+  <circle id="mx-dot-4" cx="520" cy="470" r="10" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="mx-dot-label-4" x="538" y="475" font-size="11" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">F4</text>
+  <circle id="mx-dot-5" cx="700" cy="520" r="10" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="mx-dot-label-5" x="718" y="525" font-size="11" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">F5</text>
+  <rect id="mx-legend-panel" x="880" y="168" width="320" height="470" rx="8" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="mx-legend-title" x="904" y="206" font-size="11" fill="#18345E" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">HOW TO READ</text>
+  <rect id="mx-legend-dot-0" x="904" y="240" width="12" height="12" fill="#DC2626" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="mx-legend-text-0" x="928" y="251" font-size="12" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">High importance / low performance</text>
+  <rect id="mx-legend-dot-1" x="904" y="292" width="12" height="12" fill="#2563EB" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="mx-legend-text-1" x="928" y="303" font-size="12" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">High importance / high performance</text>
+  <rect id="mx-legend-dot-2" x="904" y="344" width="12" height="12" fill="#F59E0B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="mx-legend-text-2" x="928" y="355" font-size="12" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">Low importance / low performance</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="page-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="page-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1E293B" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="page-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="page-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="mx-insight-slot" data-pptx-placeholder="object" data-pptx-idx="2" data-pptx-bounds="904 420 272 180"><text id="mx-insight-slot-carrier" data-pptx-carrier="true" x="904" y="450" font-size="15" fill="#1E293B">{{INSIGHT}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

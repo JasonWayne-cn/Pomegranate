@@ -1,0 +1,87 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="aviation-master" data-pptx-master-name="Aviation Training Master" data-pptx-layout="cover" data-pptx-layout-name="Cover">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false" />
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="6" fill="#0071BC" data-pptx-layer="master" data-pptx-editable="false" />
+  <rect id="cover-blue-band" x="0" y="78" width="1280" height="564" fill="#0071BC" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-0" cx="40" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-1" cx="66" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-2" cx="92" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-3" cx="118" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-4" cx="144" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-5" cx="170" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-6" cx="196" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-7" cx="222" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-8" cx="248" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-9" cx="274" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-10" cx="300" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-11" cx="326" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-12" cx="352" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-0-13" cx="378" cy="110" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-0" cx="40" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-1" cx="66" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-2" cx="92" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-3" cx="118" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-4" cx="144" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-5" cx="170" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-6" cx="196" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-7" cx="222" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-8" cx="248" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-9" cx="274" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-10" cx="300" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-11" cx="326" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-12" cx="352" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-1-13" cx="378" cy="136" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-0" cx="40" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-1" cx="66" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-2" cx="92" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-3" cx="118" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-4" cx="144" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-5" cx="170" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-6" cx="196" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-7" cx="222" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-8" cx="248" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-9" cx="274" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-10" cx="300" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-11" cx="326" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-12" cx="352" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-2-13" cx="378" cy="162" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-0" cx="40" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-1" cx="66" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-2" cx="92" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-3" cx="118" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-4" cx="144" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-5" cx="170" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-6" cx="196" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-7" cx="222" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-8" cx="248" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-9" cx="274" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-10" cx="300" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-11" cx="326" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-12" cx="352" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-3-13" cx="378" cy="188" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-0-0" cx="1080" cy="500" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-0-1" cx="1106" cy="500" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-0-2" cx="1132" cy="500" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-0-3" cx="1158" cy="500" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-0-4" cx="1184" cy="500" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-0-5" cx="1210" cy="500" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-1-0" cx="1080" cy="526" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-1-1" cx="1106" cy="526" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-1-2" cx="1132" cy="526" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-1-3" cx="1158" cy="526" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-1-4" cx="1184" cy="526" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-1-5" cx="1210" cy="526" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-2-0" cx="1080" cy="552" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-2-1" cx="1106" cy="552" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-2-2" cx="1132" cy="552" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-2-3" cx="1158" cy="552" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-2-4" cx="1184" cy="552" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="cover-dot-r-2-5" cx="1210" cy="552" r="2" fill="#2F86C9" data-pptx-layer="layout" data-pptx-editable="false" />
+  <image id="cover-logo" x="1078" y="0" width="145" height="134" href="../images/AVIC-ICON.png" preserveAspectRatio="xMidYMid meet" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="cover-yellow-line" x="80" y="540" width="120" height="6" fill="#FFC000" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="cover-meta-label" x="80" y="590" font-size="22" fill="#DCEEFD" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">TECHNICAL TRAINING · SYSTEM MAINTENANCE</text>
+  <g id="cover-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 230 1120 130"><text id="cover-title-slot-carrier" data-pptx-carrier="true" x="80" y="330" font-size="62" fill="#FFFFFF" font-weight="bold">{{TITLE}}</text></g>
+  <g id="cover-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 380 1120 70"><text id="cover-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="424" font-size="34" fill="#FFC000" font-weight="bold">{{SUBTITLE}}</text></g>
+  <g id="cover-author-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="80 600 300 32"><text id="cover-author-slot-carrier" data-pptx-carrier="true" x="80" y="622" font-size="22" fill="#FFFFFF">{{AUTHOR}}</text></g>
+  <g id="cover-date-slot" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="420 600 300 32"><text id="cover-date-slot-carrier" data-pptx-carrier="true" x="420" y="622" font-size="22" fill="#DCEEFD">{{DATE}}</text></g>
+</svg>

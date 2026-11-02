@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="SimSun, Songti SC, serif" data-pptx-master="oriental-master" data-pptx-master-name="Oriental Classic Research Master" data-pptx-layout="research-architecture" data-pptx-layout-name="Research Architecture">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F5F3EF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="3" fill="#D4A84B" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="title-rule" x1="80" y1="128" x2="520" y2="128" stroke="#D4A84B" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="architecture-kicker" x="80" y="166" font-size="10" fill="#8B9A9A" font-weight="bold" letter-spacing="2" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">RESEARCH ARCHITECTURE</text>
+  <text id="arch-num-1" x="80" y="224" font-size="16" fill="#D4A84B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <line id="arch-line-1" x1="132" y1="218" x2="1180" y2="218" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="arch-dot-1" cx="132" cy="218" r="5" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="arch-num-2" x="80" y="286" font-size="16" fill="#D4A84B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <line id="arch-line-2" x1="132" y1="280" x2="1180" y2="280" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="arch-dot-2" cx="132" cy="280" r="5" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="arch-num-3" x="80" y="348" font-size="16" fill="#D4A84B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <line id="arch-line-3" x1="132" y1="342" x2="1180" y2="342" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="arch-dot-3" cx="132" cy="342" r="5" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="arch-num-4" x="80" y="410" font-size="16" fill="#D4A84B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <line id="arch-line-4" x1="132" y1="404" x2="1180" y2="404" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="arch-dot-4" cx="132" cy="404" r="5" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="arch-num-5" x="80" y="472" font-size="16" fill="#D4A84B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">05</text>
+  <line id="arch-line-5" x1="132" y1="466" x2="1180" y2="466" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="arch-dot-5" cx="132" cy="466" r="5" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="arch-num-6" x="80" y="534" font-size="16" fill="#D4A84B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">06</text>
+  <line id="arch-line-6" x1="132" y1="528" x2="1180" y2="528" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="arch-dot-6" cx="132" cy="528" r="5" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="arch-num-7" x="80" y="596" font-size="16" fill="#D4A84B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">07</text>
+  <line id="arch-line-7" x1="132" y1="590" x2="1180" y2="590" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="arch-dot-7" cx="132" cy="590" r="5" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="page-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 56 800 60"><text id="page-title-slot-carrier" data-pptx-carrier="true" x="80" y="106" font-size="30" fill="#2C3E50" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="arch-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="160 200 640 28"><text id="arch-title-slot-1-carrier" data-pptx-carrier="true" x="160" y="222" font-size="15" fill="#2C3E50" font-weight="bold">{{SECTION_1_TITLE}}</text></g>
+  <g id="arch-desc-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="820 200 360 28"><text id="arch-desc-slot-1-carrier" data-pptx-carrier="true" x="820" y="222" font-size="11" fill="#8B9A9A" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">{{SECTION_1_DESC}}</text></g>
+  <g id="arch-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="160 262 640 28"><text id="arch-title-slot-2-carrier" data-pptx-carrier="true" x="160" y="284" font-size="15" fill="#2C3E50" font-weight="bold">{{SECTION_2_TITLE}}</text></g>
+  <g id="arch-desc-slot-2" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="820 262 360 28"><text id="arch-desc-slot-2-carrier" data-pptx-carrier="true" x="820" y="284" font-size="11" fill="#8B9A9A" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">{{SECTION_2_DESC}}</text></g>
+  <g id="arch-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="160 324 640 28"><text id="arch-title-slot-3-carrier" data-pptx-carrier="true" x="160" y="346" font-size="15" fill="#2C3E50" font-weight="bold">{{SECTION_3_TITLE}}</text></g>
+  <g id="arch-desc-slot-3" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="820 324 360 28"><text id="arch-desc-slot-3-carrier" data-pptx-carrier="true" x="820" y="346" font-size="11" fill="#8B9A9A" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">{{SECTION_3_DESC}}</text></g>
+  <g id="arch-title-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="160 386 640 28"><text id="arch-title-slot-4-carrier" data-pptx-carrier="true" x="160" y="408" font-size="15" fill="#2C3E50" font-weight="bold">{{SECTION_4_TITLE}}</text></g>
+  <g id="arch-desc-slot-4" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="820 386 360 28"><text id="arch-desc-slot-4-carrier" data-pptx-carrier="true" x="820" y="408" font-size="11" fill="#8B9A9A" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">{{SECTION_4_DESC}}</text></g>
+  <g id="arch-title-slot-5" data-pptx-placeholder="body" data-pptx-idx="10" data-pptx-bounds="160 448 640 28"><text id="arch-title-slot-5-carrier" data-pptx-carrier="true" x="160" y="470" font-size="15" fill="#2C3E50" font-weight="bold">{{SECTION_5_TITLE}}</text></g>
+  <g id="arch-desc-slot-5" data-pptx-placeholder="object" data-pptx-idx="11" data-pptx-bounds="820 448 360 28"><text id="arch-desc-slot-5-carrier" data-pptx-carrier="true" x="820" y="470" font-size="11" fill="#8B9A9A" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">{{SECTION_5_DESC}}</text></g>
+  <g id="arch-title-slot-6" data-pptx-placeholder="body" data-pptx-idx="12" data-pptx-bounds="160 510 640 28"><text id="arch-title-slot-6-carrier" data-pptx-carrier="true" x="160" y="532" font-size="15" fill="#2C3E50" font-weight="bold">{{SECTION_6_TITLE}}</text></g>
+  <g id="arch-desc-slot-6" data-pptx-placeholder="object" data-pptx-idx="13" data-pptx-bounds="820 510 360 28"><text id="arch-desc-slot-6-carrier" data-pptx-carrier="true" x="820" y="532" font-size="11" fill="#8B9A9A" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">{{SECTION_6_DESC}}</text></g>
+  <g id="arch-title-slot-7" data-pptx-placeholder="body" data-pptx-idx="14" data-pptx-bounds="160 572 640 28"><text id="arch-title-slot-7-carrier" data-pptx-carrier="true" x="160" y="594" font-size="15" fill="#2C3E50" font-weight="bold">{{SECTION_7_TITLE}}</text></g>
+  <g id="arch-desc-slot-7" data-pptx-placeholder="object" data-pptx-idx="15" data-pptx-bounds="820 572 360 28"><text id="arch-desc-slot-7-carrier" data-pptx-carrier="true" x="820" y="594" font-size="11" fill="#8B9A9A" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif">{{SECTION_7_DESC}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#8B9A9A">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#8B9A9A" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

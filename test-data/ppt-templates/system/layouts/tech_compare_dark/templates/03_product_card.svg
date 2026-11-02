@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="tech-compare-master" data-pptx-master-name="Tech Compare Dark Master" data-pptx-layout="product-card" data-pptx-layout-name="Product Card">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#0F172A" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#8B5CF6" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="content-rule" x1="80" y1="158" x2="1200" y2="158" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="pc-left-panel" x="80" y="184" width="600" height="452" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="pc-left-bar" x="80" y="184" width="6" height="452" fill="#8B5CF6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pc-left-label" x="112" y="224" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">TOOL PROFILE</text>
+  <line id="pc-divider" x1="112" y1="380" x2="648" y2="380" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pc-origin-label" x="112" y="416" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">ORIGIN</text>
+  <text id="pc-install-label" x="112" y="496" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">INSTALL</text>
+  <rect id="pc-code-panel" x="112" y="510" width="540" height="48" rx="6" fill="#0F172A" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="pc-right-panel" x="704" y="184" width="496" height="452" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pc-right-label" x="728" y="224" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">WHY IT FITS</text>
+  <text id="pc-info-label-1" x="728" y="260" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">BEST STAGE</text>
+  <line id="pc-info-rule-1" x1="728" y1="338" x2="1176" y2="338" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pc-info-label-2" x="728" y="352" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">TYPICAL USER</text>
+  <line id="pc-info-rule-2" x1="728" y1="430" x2="1176" y2="430" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pc-info-label-3" x="728" y="444" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">STRENGTH</text>
+  <line id="pc-info-rule-3" x1="728" y1="522" x2="1176" y2="522" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pc-info-label-4" x="728" y="536" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">LIMITATION</text>
+  <line id="pc-info-rule-4" x1="728" y1="614" x2="1176" y2="614" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 50 1000 60"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="100" font-size="26" fill="#F8FAFC" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 112 1100 30"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="136" font-size="13" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 668 700 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="688" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 668 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="688" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="pc-name-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="112 238 540 84"><text id="pc-name-slot-carrier" data-pptx-carrier="true" x="112" y="300" font-size="38" fill="#F8FAFC" font-weight="bold">{{TOOL_NAME}}</text></g>
+  <g id="pc-tagline-slot" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="112 318 540 40"><text id="pc-tagline-slot-carrier" data-pptx-carrier="true" x="112" y="350" font-size="17" fill="#94A3B8">{{TAGLINE}}</text></g>
+  <g id="pc-origin-slot" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="112 430 540 30"><text id="pc-origin-slot-carrier" data-pptx-carrier="true" x="112" y="452" font-size="13" fill="#F8FAFC">{{ORIGIN}}</text></g>
+  <g id="pc-install-slot" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="128 520 508 28"><text id="pc-install-slot-carrier" data-pptx-carrier="true" x="128" y="542" font-size="14" fill="#10B981" font-family="Consolas, Courier New, monospace">{{INSTALL_COMMAND}}</text></g>
+  <g id="pc-info-slot-1" data-pptx-placeholder="object" data-pptx-idx="6" data-pptx-bounds="728 272 448 60"><text id="pc-info-slot-1-carrier" data-pptx-carrier="true" x="728" y="296" font-size="13" fill="#F8FAFC">{{INFO_1}}</text></g>
+  <g id="pc-info-slot-2" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="728 364 448 60"><text id="pc-info-slot-2-carrier" data-pptx-carrier="true" x="728" y="388" font-size="13" fill="#F8FAFC">{{INFO_2}}</text></g>
+  <g id="pc-info-slot-3" data-pptx-placeholder="object" data-pptx-idx="8" data-pptx-bounds="728 456 448 60"><text id="pc-info-slot-3-carrier" data-pptx-carrier="true" x="728" y="480" font-size="13" fill="#F8FAFC">{{INFO_3}}</text></g>
+  <g id="pc-info-slot-4" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="728 548 448 60"><text id="pc-info-slot-4-carrier" data-pptx-carrier="true" x="728" y="572" font-size="13" fill="#F8FAFC">{{INFO_4}}</text></g>
+</svg>

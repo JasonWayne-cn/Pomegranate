@@ -1,0 +1,35 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="aviation-master" data-pptx-master-name="Aviation Training Master" data-pptx-layout="content-table" data-pptx-layout-name="Content Table">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false" />
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="6" fill="#0071BC" data-pptx-layer="master" data-pptx-editable="false" />
+  <rect id="hdr-blue-square" x="40" y="24" width="56" height="56" fill="#0071BC" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="hdr-red-dot" cx="30" cy="76" r="10" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <line id="hdr-red-rule" x1="112" y1="84" x2="268" y2="84" stroke="#C1232D" stroke-width="7" data-pptx-layer="layout" data-pptx-editable="false" />
+  <line id="hdr-dash-rule" x1="112" y1="94" x2="1180" y2="94" stroke="#C1232D" stroke-width="1" stroke-dasharray="3,3" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="hdr-dash-dot" cx="1180" cy="94" r="5" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="tbl-bg" x="80" y="150" width="1120" height="460" rx="4" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="tbl-head" x="80" y="150" width="1120" height="48" fill="#0071BC" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="tbl-head-1" x="104" y="181" font-size="22" fill="#FFFFFF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">ITEM</text>
+  <text id="tbl-head-2" x="464" y="181" font-size="22" fill="#FFFFFF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">PARAMETER</text>
+  <text id="tbl-head-3" x="824" y="181" font-size="22" fill="#FFFFFF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">NOTE</text>
+  <line id="tbl-row-1" x1="80" y1="198" x2="1200" y2="198" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="tbl-row-index-1" x="104" y="248" font-size="22" fill="#0071BC" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <line id="tbl-row-2" x1="80" y1="280" x2="1200" y2="280" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="tbl-row-index-2" x="104" y="330" font-size="22" fill="#0071BC" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <line id="tbl-row-3" x1="80" y1="362" x2="1200" y2="362" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="tbl-row-index-3" x="104" y="412" font-size="22" fill="#0071BC" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <line id="tbl-row-4" x1="80" y1="444" x2="1200" y2="444" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="tbl-row-index-4" x="104" y="494" font-size="22" fill="#0071BC" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <line id="tbl-row-5" x1="80" y1="526" x2="1200" y2="526" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="tbl-row-index-5" x="104" y="576" font-size="22" fill="#0071BC" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">05</text>
+  <line id="chrome-footer-rule" x1="80" y1="650" x2="1200" y2="650" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <g id="hdr-section-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="112 12 320 52"><text id="hdr-section-slot-carrier" data-pptx-carrier="true" x="112" y="46" font-size="30" fill="#0071BC" font-weight="bold">{{SECTION_NAME}}</text></g>
+  <g id="hdr-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="280 56 900 44"><text id="hdr-title-slot-carrier" data-pptx-carrier="true" x="280" y="88" font-size="28" fill="#595959" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="tbl-row-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="156 208 1000 62"><text id="tbl-row-slot-1-carrier" data-pptx-carrier="true" x="156" y="248" font-size="22" fill="#1F2937">{{ROW_1_DATA}}</text></g>
+  <g id="tbl-row-slot-2" data-pptx-placeholder="object" data-pptx-idx="4" data-pptx-bounds="156 290 1000 62"><text id="tbl-row-slot-2-carrier" data-pptx-carrier="true" x="156" y="330" font-size="22" fill="#1F2937">{{ROW_2_DATA}}</text></g>
+  <g id="tbl-row-slot-3" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="156 372 1000 62"><text id="tbl-row-slot-3-carrier" data-pptx-carrier="true" x="156" y="412" font-size="22" fill="#1F2937">{{ROW_3_DATA}}</text></g>
+  <g id="tbl-row-slot-4" data-pptx-placeholder="object" data-pptx-idx="6" data-pptx-bounds="156 454 1000 62"><text id="tbl-row-slot-4-carrier" data-pptx-carrier="true" x="156" y="494" font-size="22" fill="#1F2937">{{ROW_4_DATA}}</text></g>
+  <g id="tbl-row-slot-5" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="156 536 1000 62"><text id="tbl-row-slot-5-carrier" data-pptx-carrier="true" x="156" y="576" font-size="22" fill="#1F2937">{{ROW_5_DATA}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 660 700 32"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="680.7" font-size="22" fill="#595959">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1038.8 660 161.2 32"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="680.7" font-size="22" fill="#595959" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

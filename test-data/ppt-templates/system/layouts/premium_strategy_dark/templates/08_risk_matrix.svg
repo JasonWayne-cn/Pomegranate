@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="premium-master" data-pptx-master-name="Premium Strategy Master" data-pptx-layout="risk-matrix" data-pptx-layout-name="Risk Matrix">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F0F5F7" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#C9A227" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="content-top-band" x="0" y="4" width="1280" height="84" fill="#0D2B3E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="content-kicker" x="64" y="30" font-size="9" fill="#7ED4E6" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">STRATEGIC ASSESSMENT</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rm-panel" x="64" y="160" width="760" height="444" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rm-cell-1" x="96" y="192" width="220" height="128" fill="#FDF3E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rm-cell-2" x="316" y="192" width="220" height="128" fill="#FBE9E7" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rm-cell-3" x="536" y="192" width="220" height="128" fill="#FBE9E7" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rm-cell-4" x="96" y="320" width="220" height="128" fill="#F4F7F8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rm-cell-5" x="316" y="320" width="220" height="128" fill="#FDF3E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rm-cell-6" x="536" y="320" width="220" height="128" fill="#FBE9E7" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rm-cell-7" x="96" y="448" width="220" height="128" fill="#F4F7F8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rm-cell-8" x="316" y="448" width="220" height="128" fill="#F4F7F8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rm-cell-9" x="536" y="448" width="220" height="128" fill="#FDF3E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rm-axis-x" x="426" y="620" font-size="10" fill="#718096" font-weight="bold" text-anchor="middle" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">LIKELIHOOD →</text>
+  <text id="rm-axis-y" x="78" y="386" font-size="10" fill="#718096" font-weight="bold" text-anchor="middle" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">IMPACT</text>
+  <circle id="rm-risk-1" cx="380" cy="258" r="12" fill="#C0392B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rm-risk-label-1" x="398" y="263" font-size="10" fill="#0D2B3E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">R1</text>
+  <circle id="rm-risk-2" cx="700" cy="258" r="12" fill="#C0392B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rm-risk-label-2" x="718" y="263" font-size="10" fill="#0D2B3E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">R2</text>
+  <circle id="rm-risk-3" cx="460" cy="384" r="12" fill="#C9A227" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rm-risk-label-3" x="478" y="389" font-size="10" fill="#0D2B3E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">R3</text>
+  <circle id="rm-risk-4" cx="760" cy="384" r="12" fill="#C9A227" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rm-risk-label-4" x="778" y="389" font-size="10" fill="#0D2B3E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">R4</text>
+  <circle id="rm-risk-5" cx="320" cy="500" r="12" fill="#7ED4E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rm-risk-label-5" x="338" y="505" font-size="10" fill="#0D2B3E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">R5</text>
+  <circle id="rm-risk-6" cx="620" cy="512" r="12" fill="#C9A227" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rm-risk-label-6" x="638" y="517" font-size="10" fill="#0D2B3E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">R6</text>
+  <rect id="rm-right-panel" x="856" y="160" width="360" height="444" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rm-right-label" x="886" y="200" font-size="9" fill="#718096" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">RISK REGISTER</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="64 38 1120 42"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="64" y="72" font-size="22" fill="#FFFFFF" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="64 106 1120 30"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="64" y="128" font-size="13" fill="#718096">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#718096">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#718096" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="rm-right-body-slot" data-pptx-placeholder="object" data-pptx-idx="2" data-pptx-bounds="886 220 300 340"><text id="rm-right-body-slot-carrier" data-pptx-carrier="true" x="886" y="250" font-size="13" fill="#0D2B3E">{{RISK_REGISTER}}</text></g>
+</svg>

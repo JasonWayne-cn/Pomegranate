@@ -290,7 +290,13 @@ node scripts/build-ppt-extension.mjs \
   --signing-key "D:/keys/extension-private.pem"
 ```
 
-输出：`dist/extensions/ppt-master-extension-<version>-win7-x64.zip`
+输出：`src-tauri/target/release/bundle/nsis/ppt-master-extension-<version>-win7-x64.zip`
+
+可选参数：
+
+- `--layouts-dir <dir>`：只打包指定目录下的版式（例如 `test-data/ppt-templates/system/layouts`）。
+- `--version <ver>`：覆盖 `extension.json` 中的版本号，便于构建测试包。
+- `--out <dir>`：覆盖输出目录。
 
 签名包安装前，主程序需要配置 `PPT_EXTENSION_PUBLIC_KEY`（base64 32 字节公钥）；\
 未配置时会拒绝安装带签名的包。未签名包不受影响。

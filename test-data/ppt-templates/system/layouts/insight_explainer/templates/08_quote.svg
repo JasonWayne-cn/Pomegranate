@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="insight-master" data-pptx-master-name="Insight Explainer Master" data-pptx-layout="quote" data-pptx-layout-name="Quote">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#0F766E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="quote-panel" x="100" y="150" width="1080" height="400" rx="12" fill="#F8FAFC" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="quote-bar" x="100" y="150" width="8" height="400" fill="#0F766E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="quote-mark" x="148" y="250" font-size="96" fill="#CBD5E1" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">“</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="quote-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="220 210 880 70"><text id="quote-title-slot-carrier" data-pptx-carrier="true" x="220" y="270" font-size="22" fill="#94A3B8" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="quote-body-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="220 300 880 140"><text id="quote-body-slot-carrier" data-pptx-carrier="true" x="220" y="350" font-size="26" fill="#1E293B" font-weight="bold">{{QUOTE}}</text></g>
+  <g id="quote-attribution-slot" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="220 470 880 32"><text id="quote-attribution-slot-carrier" data-pptx-carrier="true" x="220" y="496" font-size="13" fill="#475569">{{ATTRIBUTION}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

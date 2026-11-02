@@ -1,0 +1,40 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="aviation-master" data-pptx-master-name="Aviation Training Master" data-pptx-layout="position-map" data-pptx-layout-name="Position Map">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false" />
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="6" fill="#0071BC" data-pptx-layer="master" data-pptx-editable="false" />
+  <rect id="hdr-blue-square" x="40" y="24" width="56" height="56" fill="#0071BC" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="hdr-red-dot" cx="30" cy="76" r="10" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <line id="hdr-red-rule" x1="112" y1="84" x2="268" y2="84" stroke="#C1232D" stroke-width="7" data-pptx-layer="layout" data-pptx-editable="false" />
+  <line id="hdr-dash-rule" x1="112" y1="94" x2="1180" y2="94" stroke="#C1232D" stroke-width="1" stroke-dasharray="3,3" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="hdr-dash-dot" cx="1180" cy="94" r="5" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="map-panel" x="80" y="150" width="620" height="460" rx="4" fill="#DCEEFD" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="map-panel-label" x="104" y="186" font-size="22" fill="#0071BC" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">ON-AIRCRAFT LOCATION</text>
+  <rect id="map-fuselage" x="280" y="330" width="240" height="70" rx="35" fill="#FFFFFF" stroke="#0071BC" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false" />
+  <polygon id="map-wing-left" points="280,345 170,300 170,330 280,380" fill="#FFFFFF" data-pptx-layer="layout" data-pptx-editable="false" />
+  <polygon id="map-wing-right" points="520,345 630,300 630,330 520,380" fill="#FFFFFF" data-pptx-layer="layout" data-pptx-editable="false" />
+  <polygon id="map-tail" points="280,330 240,250 270,250 300,320" fill="#FFFFFF" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="map-nose" cx="540" cy="365" r="14" fill="#0071BC" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="map-marker-1" cx="340" cy="320" r="10" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="map-marker-2" cx="430" cy="300" r="10" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="map-marker-3" cx="500" cy="420" r="10" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="map-marker-4" cx="250" cy="430" r="10" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="map-right-panel" x="720" y="150" width="480" height="460" rx="4" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="map-right-label" x="744" y="186" font-size="22" fill="#0071BC" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">ZONE NOTES</text>
+  <circle id="map-note-dot-1" cx="756" cy="216" r="6" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="map-note-dot-2" cx="756" cy="316" r="6" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="map-note-dot-3" cx="756" cy="416" r="6" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="map-note-dot-4" cx="756" cy="516" r="6" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <line id="chrome-footer-rule" x1="80" y1="650" x2="1200" y2="650" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <g id="hdr-section-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="112 12 320 52"><text id="hdr-section-slot-carrier" data-pptx-carrier="true" x="112" y="46" font-size="30" fill="#0071BC" font-weight="bold">{{SECTION_NAME}}</text></g>
+  <g id="hdr-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="280 56 900 44"><text id="hdr-title-slot-carrier" data-pptx-carrier="true" x="280" y="88" font-size="28" fill="#595959" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="map-label-slot-1" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="776 200 400 32"><text id="map-label-slot-1-carrier" data-pptx-carrier="true" x="776" y="220.7" font-size="22" fill="#1F2937" font-weight="bold">{{ZONE_1_LABEL}}</text></g>
+  <g id="map-label-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="776 300 400 32"><text id="map-label-slot-2-carrier" data-pptx-carrier="true" x="776" y="320.7" font-size="22" fill="#1F2937" font-weight="bold">{{ZONE_2_LABEL}}</text></g>
+  <g id="map-label-slot-3" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="776 400 400 32"><text id="map-label-slot-3-carrier" data-pptx-carrier="true" x="776" y="420.7" font-size="22" fill="#1F2937" font-weight="bold">{{ZONE_3_LABEL}}</text></g>
+  <g id="map-label-slot-4" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="776 500 400 32"><text id="map-label-slot-4-carrier" data-pptx-carrier="true" x="776" y="520.7" font-size="22" fill="#1F2937" font-weight="bold">{{ZONE_4_LABEL}}</text></g>
+  <g id="map-note-slot-1" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="776 236 400 56"><text id="map-note-slot-1-carrier" data-pptx-carrier="true" x="776" y="256" font-size="22" fill="#595959">{{ZONE_1_NOTE}}</text></g>
+  <g id="map-note-slot-2" data-pptx-placeholder="object" data-pptx-idx="8" data-pptx-bounds="776 336 400 56"><text id="map-note-slot-2-carrier" data-pptx-carrier="true" x="776" y="356" font-size="22" fill="#595959">{{ZONE_2_NOTE}}</text></g>
+  <g id="map-note-slot-3" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="776 436 400 56"><text id="map-note-slot-3-carrier" data-pptx-carrier="true" x="776" y="456" font-size="22" fill="#595959">{{ZONE_3_NOTE}}</text></g>
+  <g id="map-note-slot-4" data-pptx-placeholder="object" data-pptx-idx="10" data-pptx-bounds="776 536 400 56"><text id="map-note-slot-4-carrier" data-pptx-carrier="true" x="776" y="556" font-size="22" fill="#595959">{{ZONE_4_NOTE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 660 700 32"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="680.7" font-size="22" fill="#595959">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1038.8 660 161.2 32"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="680.7" font-size="22" fill="#595959" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="premium-master" data-pptx-master-name="Premium Strategy Master" data-pptx-layout="executive-summary" data-pptx-layout-name="Executive Summary">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F0F5F7" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#C9A227" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="content-top-band" x="0" y="4" width="1280" height="84" fill="#0D2B3E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="content-kicker" x="64" y="30" font-size="9" fill="#7ED4E6" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">STRATEGIC ASSESSMENT</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-kpi-1" x="64" y="160" width="240" height="116" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-kpi-bar-1" x="64" y="160" width="240" height="4" fill="#7ED4E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-kpi-label-1" x="84" y="194" font-size="9" fill="#718096" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">KPI 01</text>
+  <rect id="es-kpi-2" x="368" y="160" width="240" height="116" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-kpi-bar-2" x="368" y="160" width="240" height="4" fill="#C9A227" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-kpi-label-2" x="388" y="194" font-size="9" fill="#718096" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">KPI 02</text>
+  <rect id="es-kpi-3" x="672" y="160" width="240" height="116" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-kpi-bar-3" x="672" y="160" width="240" height="4" fill="#7ED4E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-kpi-label-3" x="692" y="194" font-size="9" fill="#718096" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">KPI 03</text>
+  <rect id="es-kpi-4" x="976" y="160" width="240" height="116" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-kpi-bar-4" x="976" y="160" width="240" height="4" fill="#C9A227" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-kpi-label-4" x="996" y="194" font-size="9" fill="#718096" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">KPI 04</text>
+  <rect id="es-card-1" x="64" y="304" width="352" height="300" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-card-top-1" x="64" y="304" width="352" height="5" fill="#C9A227" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-card-num-1" x="86" y="344" font-size="18" fill="#C9A227" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <rect id="es-card-2" x="464" y="304" width="352" height="300" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-card-top-2" x="464" y="304" width="352" height="5" fill="#7ED4E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-card-num-2" x="486" y="344" font-size="18" fill="#C9A227" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <rect id="es-card-3" x="864" y="304" width="352" height="300" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-card-top-3" x="864" y="304" width="352" height="5" fill="#7ED4E6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-card-num-3" x="886" y="344" font-size="18" fill="#C9A227" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="64 38 1120 42"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="64" y="72" font-size="22" fill="#FFFFFF" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="64 106 1120 30"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="64" y="128" font-size="13" fill="#718096">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#718096">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#718096" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="es-kpi-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="84 204 200 46"><text id="es-kpi-slot-1-carrier" data-pptx-carrier="true" x="84" y="238" font-size="28" fill="#0D2B3E" font-weight="bold">{{KPI_1_VALUE}}</text></g>
+  <g id="es-kpi-slot-2" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="388 204 200 46"><text id="es-kpi-slot-2-carrier" data-pptx-carrier="true" x="388" y="238" font-size="28" fill="#0D2B3E" font-weight="bold">{{KPI_2_VALUE}}</text></g>
+  <g id="es-kpi-slot-3" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="692 204 200 46"><text id="es-kpi-slot-3-carrier" data-pptx-carrier="true" x="692" y="238" font-size="28" fill="#0D2B3E" font-weight="bold">{{KPI_3_VALUE}}</text></g>
+  <g id="es-kpi-slot-4" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="996 204 200 46"><text id="es-kpi-slot-4-carrier" data-pptx-carrier="true" x="996" y="238" font-size="28" fill="#0D2B3E" font-weight="bold">{{KPI_4_VALUE}}</text></g>
+  <g id="es-card-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="86 356 308 34"><text id="es-card-title-slot-1-carrier" data-pptx-carrier="true" x="86" y="380" font-size="15" fill="#0D2B3E" font-weight="bold">{{CONCLUSION_1_TITLE}}</text></g>
+  <g id="es-card-body-slot-1" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="86 394 308 190"><text id="es-card-body-slot-1-carrier" data-pptx-carrier="true" x="86" y="422" font-size="12" fill="#718096">{{CONCLUSION_1_DETAIL}}</text></g>
+  <g id="es-card-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="486 356 308 34"><text id="es-card-title-slot-2-carrier" data-pptx-carrier="true" x="486" y="380" font-size="15" fill="#0D2B3E" font-weight="bold">{{CONCLUSION_2_TITLE}}</text></g>
+  <g id="es-card-body-slot-2" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="486 394 308 190"><text id="es-card-body-slot-2-carrier" data-pptx-carrier="true" x="486" y="422" font-size="12" fill="#718096">{{CONCLUSION_2_DETAIL}}</text></g>
+  <g id="es-card-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="10" data-pptx-bounds="886 356 308 34"><text id="es-card-title-slot-3-carrier" data-pptx-carrier="true" x="886" y="380" font-size="15" fill="#0D2B3E" font-weight="bold">{{CONCLUSION_3_TITLE}}</text></g>
+  <g id="es-card-body-slot-3" data-pptx-placeholder="object" data-pptx-idx="11" data-pptx-bounds="886 394 308 190"><text id="es-card-body-slot-3-carrier" data-pptx-carrier="true" x="886" y="422" font-size="12" fill="#718096">{{CONCLUSION_3_DETAIL}}</text></g>
+</svg>

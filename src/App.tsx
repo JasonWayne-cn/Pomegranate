@@ -16,6 +16,7 @@ import { UpdaterProvider } from "@/components/updater/UpdaterProvider";
 import { AppLockGate } from "@/components/applock/AppLockGate";
 import { pluginManager } from "@/services/pluginManager";
 import { EditorRegistryProvider, initEditorRegistry } from "@/components/editor";
+import { pptTemplateApi } from "@/lib/api/pptTemplate";
 
 // 紧急提醒窗口 / 迁移 splash 等子窗口共用同一个 React bundle，
 // 但只有 main 窗口才需要挂全局提醒监听器，否则子窗口也会响应 task:reminder
@@ -164,6 +165,23 @@ function App() {
       cancelled = true;
       unlisten?.();
     };
+  }, []);
+
+  // 启动时重扫用户模板目录：手动拷贝进 ppt-templates/ 的模板无需重启即可注册。
+  useEffect(() => {
+    if (!IS_MAIN_WINDOW) return;
+    void pptTemplateApi
+      .reconcile()
+      .then((report) => {
+        if (
+          report.added.length ||
+          report.updated.length ||
+          report.removed.length
+        ) {
+          window.dispatchEvent(new Event("app:ppt-templates-changed"));
+        }
+      })
+      .catch(() => undefined);
   }, []);
 
   // 插件运行时初始化（仅主窗口，非阻塞）

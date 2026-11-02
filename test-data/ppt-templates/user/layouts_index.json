@@ -1,0 +1,20 @@
+{
+  "aviation_training_blue": {
+    "summary": "航空装备与系统培训课件的结构模板，覆盖章节导航、参数表、模块卡、图文说明、安全提示、流程与位置图。",
+    "canvas_format": "ppt169",
+    "page_count": 11,
+    "page_types": [
+      "cover",
+      "toc",
+      "chapter",
+      "content",
+      "content_table",
+      "content_cards",
+      "content_text_image",
+      "safety_notice",
+      "process_steps",
+      "position_map",
+      "ending"
+    ]
+  }
+}

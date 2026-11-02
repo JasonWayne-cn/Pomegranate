@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="kpi-master" data-pptx-master-name="KPI Report Master" data-pptx-layout="kpi-overview" data-pptx-layout-name="KPI Overview">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#3B6EA5" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ko-tile-1" x="80" y="168" width="260" height="150" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ko-tile-bar-1" x="80" y="168" width="260" height="4" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ko-tile-label-1" x="100" y="204" font-size="9" fill="#9CA3AF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">INDICATOR 01</text>
+  <rect id="ko-tile-2" x="360" y="168" width="260" height="150" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ko-tile-bar-2" x="360" y="168" width="260" height="4" fill="#7C8FA6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ko-tile-label-2" x="380" y="204" font-size="9" fill="#9CA3AF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">INDICATOR 02</text>
+  <rect id="ko-tile-3" x="640" y="168" width="260" height="150" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ko-tile-bar-3" x="640" y="168" width="260" height="4" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ko-tile-label-3" x="660" y="204" font-size="9" fill="#9CA3AF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">INDICATOR 03</text>
+  <rect id="ko-tile-4" x="920" y="168" width="260" height="150" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ko-tile-bar-4" x="920" y="168" width="260" height="4" fill="#7C8FA6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ko-tile-label-4" x="940" y="204" font-size="9" fill="#9CA3AF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">INDICATOR 04</text>
+  <rect id="ko-baseline-panel" x="80" y="344" width="1120" height="264" rx="8" fill="#F5F7FA" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ko-baseline-label" x="104" y="382" font-size="10" fill="#9CA3AF" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">BASELINE COMPARISON</text>
+  <text id="ko-baseline-row-1" x="104" y="424" font-size="12" fill="#4B5563" data-pptx-layer="layout" data-pptx-editable="false">Current</text>
+  <rect id="ko-baseline-track-1" x="320" y="402" width="720" height="22" rx="11" fill="#E5E7EB" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ko-baseline-fill-1" x="320" y="402" width="561.6" height="22" rx="11" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ko-baseline-value-1" x="1064" y="420" font-size="13" fill="#1F2937" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">78%</text>
+  <text id="ko-baseline-row-2" x="104" y="482" font-size="12" fill="#4B5563" data-pptx-layer="layout" data-pptx-editable="false">Provincial average</text>
+  <rect id="ko-baseline-track-2" x="320" y="460" width="720" height="22" rx="11" fill="#E5E7EB" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ko-baseline-fill-2" x="320" y="460" width="374.4" height="22" rx="11" fill="#7C8FA6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ko-baseline-value-2" x="1064" y="478" font-size="13" fill="#1F2937" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">52%</text>
+  <text id="ko-baseline-row-3" x="104" y="540" font-size="12" fill="#4B5563" data-pptx-layer="layout" data-pptx-editable="false">Target</text>
+  <rect id="ko-baseline-track-3" x="320" y="518" width="720" height="22" rx="11" fill="#E5E7EB" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ko-baseline-fill-3" x="320" y="518" width="633.6" height="22" rx="11" fill="#B45309" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ko-baseline-value-3" x="1064" y="536" font-size="13" fill="#1F2937" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">88%</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1F2937" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#9CA3AF">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#9CA3AF">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#9CA3AF" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="ko-tile-value-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="100 216 220 50"><text id="ko-tile-value-slot-1-carrier" data-pptx-carrier="true" x="100" y="256" font-size="30" fill="#1F2937" font-weight="bold">{{KPI_1_VALUE}}</text></g>
+  <g id="ko-tile-delta-slot-1" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="100 274 220 26"><text id="ko-tile-delta-slot-1-carrier" data-pptx-carrier="true" x="100" y="292" font-size="11" fill="#047857">{{KPI_1_DELTA}}</text></g>
+  <g id="ko-tile-value-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="380 216 220 50"><text id="ko-tile-value-slot-2-carrier" data-pptx-carrier="true" x="380" y="256" font-size="30" fill="#1F2937" font-weight="bold">{{KPI_2_VALUE}}</text></g>
+  <g id="ko-tile-delta-slot-2" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="380 274 220 26"><text id="ko-tile-delta-slot-2-carrier" data-pptx-carrier="true" x="380" y="292" font-size="11" fill="#047857">{{KPI_2_DELTA}}</text></g>
+  <g id="ko-tile-value-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="660 216 220 50"><text id="ko-tile-value-slot-3-carrier" data-pptx-carrier="true" x="660" y="256" font-size="30" fill="#1F2937" font-weight="bold">{{KPI_3_VALUE}}</text></g>
+  <g id="ko-tile-delta-slot-3" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="660 274 220 26"><text id="ko-tile-delta-slot-3-carrier" data-pptx-carrier="true" x="660" y="292" font-size="11" fill="#047857">{{KPI_3_DELTA}}</text></g>
+  <g id="ko-tile-value-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="940 216 220 50"><text id="ko-tile-value-slot-4-carrier" data-pptx-carrier="true" x="940" y="256" font-size="30" fill="#1F2937" font-weight="bold">{{KPI_4_VALUE}}</text></g>
+  <g id="ko-tile-delta-slot-4" data-pptx-placeholder="body" data-pptx-idx="9" data-pptx-bounds="940 274 220 26"><text id="ko-tile-delta-slot-4-carrier" data-pptx-carrier="true" x="940" y="292" font-size="11" fill="#047857">{{KPI_4_DELTA}}</text></g>
+</svg>

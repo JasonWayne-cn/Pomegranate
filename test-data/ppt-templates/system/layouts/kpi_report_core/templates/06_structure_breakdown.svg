@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="kpi-master" data-pptx-master-name="KPI Report Master" data-pptx-layout="structure-breakdown" data-pptx-layout-name="Structure Breakdown">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#3B6EA5" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="sb-left-panel" x="80" y="168" width="520" height="440" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="sb-left-label" x="104" y="206" font-size="10" fill="#9CA3AF" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">COMPOSITION</text>
+  <path id="sb-arc-1" d="M 340.00 272.00 A 118 118 0 0 1 354.79 507.07" fill="none" stroke="#3B6EA5" stroke-width="24" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="sb-arc-2" d="M 354.79 507.07 A 118 118 0 0 1 222.23 397.41" fill="none" stroke="#7C8FA6" stroke-width="24" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="sb-arc-3" d="M 222.23 397.41 A 118 118 0 0 1 270.64 294.54" fill="none" stroke="#B45309" stroke-width="24" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="sb-arc-4" d="M 270.64 294.54 A 118 118 0 0 1 340.00 272.00" fill="none" stroke="#B91C1C" stroke-width="24" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="sb-donut-center" x="340" y="396" font-size="26" fill="#1F2937" font-weight="bold" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">100%</text>
+  <rect id="sb-right-panel" x="624" y="168" width="576" height="440" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="sb-right-label" x="648" y="206" font-size="10" fill="#9CA3AF" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">BREAKDOWN &amp; NOTES</text>
+  <rect id="sb-legend-dot-1" x="648" y="246" width="14" height="14" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="sb-legend-rule-1" x1="648" y1="284" x2="1176" y2="284" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="sb-legend-dot-2" x="648" y="324" width="14" height="14" fill="#7C8FA6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="sb-legend-rule-2" x1="648" y1="362" x2="1176" y2="362" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="sb-legend-dot-3" x="648" y="402" width="14" height="14" fill="#B45309" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="sb-legend-rule-3" x1="648" y1="440" x2="1176" y2="440" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="sb-legend-dot-4" x="648" y="480" width="14" height="14" fill="#B91C1C" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="sb-legend-rule-4" x1="648" y1="518" x2="1176" y2="518" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1F2937" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#9CA3AF">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#9CA3AF">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#9CA3AF" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="sb-legend-label-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="676 242 240 24"><text id="sb-legend-label-slot-1-carrier" data-pptx-carrier="true" x="676" y="260" font-size="12" fill="#1F2937" font-weight="bold">{{SEGMENT_1_LABEL}}</text></g>
+  <g id="sb-legend-value-slot-1" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="1040 242 120 24"><text id="sb-legend-value-slot-1-carrier" data-pptx-carrier="true" x="1160" y="260" font-size="13" fill="#4B5563" font-weight="bold" text-anchor="end">{{SEGMENT_1_VALUE}}</text></g>
+  <g id="sb-legend-label-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="676 320 240 24"><text id="sb-legend-label-slot-2-carrier" data-pptx-carrier="true" x="676" y="338" font-size="12" fill="#1F2937" font-weight="bold">{{SEGMENT_2_LABEL}}</text></g>
+  <g id="sb-legend-value-slot-2" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="1040 320 120 24"><text id="sb-legend-value-slot-2-carrier" data-pptx-carrier="true" x="1160" y="338" font-size="13" fill="#4B5563" font-weight="bold" text-anchor="end">{{SEGMENT_2_VALUE}}</text></g>
+  <g id="sb-legend-label-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="676 398 240 24"><text id="sb-legend-label-slot-3-carrier" data-pptx-carrier="true" x="676" y="416" font-size="12" fill="#1F2937" font-weight="bold">{{SEGMENT_3_LABEL}}</text></g>
+  <g id="sb-legend-value-slot-3" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="1040 398 120 24"><text id="sb-legend-value-slot-3-carrier" data-pptx-carrier="true" x="1160" y="416" font-size="13" fill="#4B5563" font-weight="bold" text-anchor="end">{{SEGMENT_3_VALUE}}</text></g>
+  <g id="sb-legend-label-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="676 476 240 24"><text id="sb-legend-label-slot-4-carrier" data-pptx-carrier="true" x="676" y="494" font-size="12" fill="#1F2937" font-weight="bold">{{SEGMENT_4_LABEL}}</text></g>
+  <g id="sb-legend-value-slot-4" data-pptx-placeholder="body" data-pptx-idx="9" data-pptx-bounds="1040 476 120 24"><text id="sb-legend-value-slot-4-carrier" data-pptx-carrier="true" x="1160" y="494" font-size="13" fill="#4B5563" font-weight="bold" text-anchor="end">{{SEGMENT_4_VALUE}}</text></g>
+</svg>

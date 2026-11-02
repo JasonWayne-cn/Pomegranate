@@ -8,7 +8,6 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use base64::Engine as _;
@@ -22,6 +21,7 @@ use crate::error::AppError;
 use crate::models::extension::{
     ExtensionInspection, ExtensionInfo, ExtensionManifest,
 };
+use crate::services::safe_archive;
 
 const MAX_UNCOMPRESSED_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_FILE_COUNT: usize = 20_000;
@@ -308,7 +308,12 @@ impl ExtensionService {
             .join(format!(".tmp-{}", Uuid::new_v4()));
         fs::create_dir_all(&temp_root)?;
 
-        let extract_result = extract_zip_safely(&path, &temp_root);
+        let extract_result = safe_archive::extract_zip_safely(
+            &path,
+            &temp_root,
+            MAX_FILE_COUNT,
+            MAX_UNCOMPRESSED_BYTES,
+        );
         if let Err(err) = extract_result {
             let _ = fs::remove_dir_all(&temp_root);
             return Err(err);
@@ -432,59 +437,6 @@ fn read_json_optional(path: &Path) -> Result<Value, AppError> {
     }
     let text = fs::read_to_string(path)?;
     Ok(serde_json::from_str(&text)?)
-}
-
-fn extract_zip_safely(zip_path: &Path, dest: &Path) -> Result<(), AppError> {
-    let file = fs::File::open(zip_path)?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    let mut total: u64 = 0;
-    let mut count = 0usize;
-
-    for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)?;
-        let enclosed = entry
-            .enclosed_name()
-            .map(|p| p.to_path_buf())
-            .ok_or_else(|| AppError::InvalidInput(format!("zip 条目路径非法: {}", entry.name())))?;
-
-        if enclosed.components().any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_))) {
-            return Err(AppError::InvalidInput(format!(
-                "zip 条目包含非法路径: {}",
-                enclosed.display()
-            )));
-        }
-
-        if let Some(mode) = entry.unix_mode() {
-            // 0o120000 = symlink
-            if mode & 0o170000 == 0o120000 {
-                return Err(AppError::InvalidInput(format!(
-                    "不允许符号链接: {}",
-                    enclosed.display()
-                )));
-            }
-        }
-
-        count += 1;
-        if count > MAX_FILE_COUNT {
-            return Err(AppError::InvalidInput("zip 条目过多".into()));
-        }
-        total = total.saturating_add(entry.size());
-        if total > MAX_UNCOMPRESSED_BYTES {
-            return Err(AppError::InvalidInput("zip 解压体积过大".into()));
-        }
-
-        let out_path = dest.join(&enclosed);
-        if entry.is_dir() {
-            fs::create_dir_all(&out_path)?;
-            continue;
-        }
-        if let Some(parent) = out_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut out = fs::File::create(&out_path)?;
-        io::copy(&mut entry, &mut out)?;
-    }
-    Ok(())
 }
 
 fn find_manifest_root(temp_root: &Path) -> Result<(PathBuf, ExtensionManifest), AppError> {

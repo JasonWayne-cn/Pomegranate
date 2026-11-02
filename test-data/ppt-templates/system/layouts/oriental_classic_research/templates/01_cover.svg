@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="SimSun, Songti SC, serif" data-pptx-master="oriental-master" data-pptx-master-name="Oriental Classic Research Master" data-pptx-layout="cover" data-pptx-layout-name="Cover">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F5F3EF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="cover-bg" x="0" y="0" width="1280" height="720" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="3" fill="#D4A84B" data-pptx-layer="master" data-pptx-editable="false"/>
+  <circle id="cover-ring-1" cx="300" cy="360" r="210" fill="none" stroke="#3D5368" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="cover-ring-2" cx="300" cy="360" r="160" fill="none" stroke="#3D5368" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="cover-ring-3" cx="300" cy="360" r="110" fill="none" stroke="#3D5368" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-1-a" x="225" y="408" width="63" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-1-b" x="312" y="408" width="63" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-2-a" x="225" y="380" width="63" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-2-b" x="312" y="380" width="63" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-3" x="225" y="352" width="150" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-4-a" x="225" y="324" width="63" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-4-b" x="312" y="324" width="63" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-5-a" x="225" y="296" width="63" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-5-b" x="312" y="296" width="63" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-6-a" x="225" y="268" width="63" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-6-b" x="312" y="268" width="63" height="8" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cover-bagua" x="300" y="560" font-size="34" fill="#D4A84B" text-anchor="middle" letter-spacing="8" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">☷ ☶</text>
+  <text id="cover-eyebrow" x="620" y="196" font-size="13" fill="#D4A84B" letter-spacing="2" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">周易第十五卦 · 上坤下艮 · 六爻皆吉</text>
+  <line id="cover-gold-rule" x1="620" y1="224" x2="900" y2="224" stroke="#D4A84B" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cover-meta" x="620" y="620" font-size="12" fill="#8B9A9A" letter-spacing="1" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">基于《周易》原典及历代易学核心注疏</text>
+  <g id="cover-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="620 250 580 120"><text id="cover-title-slot-carrier" data-pptx-carrier="true" x="620" y="330" font-size="42" fill="#FFFFFF" font-weight="bold">{{TITLE}}</text></g>
+  <g id="cover-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="620 360 580 60"><text id="cover-subtitle-slot-carrier" data-pptx-carrier="true" x="620" y="398" font-size="18" fill="#D4A84B">{{SUBTITLE}}</text></g>
+  <g id="cover-tagline-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="620 460 580 40"><text id="cover-tagline-slot-carrier" data-pptx-carrier="true" x="620" y="484" font-size="13" fill="#C8D2D2">{{TAGLINE}}</text></g>
+</svg>

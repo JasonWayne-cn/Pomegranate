@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="SimSun, Songti SC, serif" data-pptx-master="oriental-master" data-pptx-master-name="Oriental Classic Research Master" data-pptx-layout="chapter" data-pptx-layout-name="Chapter">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F5F3EF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="3" fill="#D4A84B" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="chapter-left" x="0" y="0" width="360" height="720" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="chapter-kicker" x="56" y="160" font-size="10" fill="#D4A84B" font-weight="bold" letter-spacing="3" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">CHAPTER</text>
+  <line id="chapter-gold-rule" x1="56" y1="330" x2="280" y2="330" stroke="#D4A84B" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="chapter-side-note" x="56" y="620" font-size="11" fill="#C8D2D2" letter-spacing="1" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">地山谦 · 象数理占</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="chapter-number-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="56 180 260 180"><text id="chapter-number-slot-carrier" data-pptx-carrier="true" x="56" y="300" font-size="96" fill="#D4A84B" font-weight="bold">{{CHAPTER_NUM}}</text></g>
+  <g id="chapter-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="440 200 720 130"><text id="chapter-title-slot-carrier" data-pptx-carrier="true" x="440" y="300" font-size="40" fill="#2C3E50" font-weight="bold">{{CHAPTER_TITLE}}</text></g>
+  <g id="chapter-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="440 330 720 50"><text id="chapter-subtitle-slot-carrier" data-pptx-carrier="true" x="440" y="372" font-size="17" fill="#B8860B">{{CHAPTER_SUBTITLE}}</text></g>
+  <g id="chapter-desc-slot" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="440 410 720 100"><text id="chapter-desc-slot-carrier" data-pptx-carrier="true" x="440" y="440" font-size="14" fill="#4A5568">{{CHAPTER_DESC}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#8B9A9A">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#8B9A9A" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

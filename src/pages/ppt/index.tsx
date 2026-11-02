@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { aiModelApi, folderApi, noteApi } from "@/lib/api";
 import { extensionApi, pptExtensionApi } from "@/lib/api/extension";
+import { pptTemplateApi } from "@/lib/api/pptTemplate";
 import {
   addPlanSlide,
   movePlanSlide,
@@ -54,7 +55,6 @@ import { canReuseDraft, canReuseExport } from "@/lib/pptFlow";
 import { loadLastExportDir, saveLastExportDir } from "@/lib/pptPrefs";
 import type { Folder, Note } from "@/types";
 import type {
-  PptCatalog,
   PptChartMeta,
   PptDraftPage,
   PptExtensionStatus,
@@ -71,6 +71,7 @@ import type {
   PptPlanProgressEvent,
   PptSlide,
 } from "@/types/extension";
+import type { PptTemplateCatalog } from "@/types/pptTemplate";
 
 const { Text, Paragraph } = Typography;
 const PAGE_SIZE = 5;
@@ -141,7 +142,7 @@ function svgDataUrl(svg: string): string {
 }
 
 function chartMapOf(
-  raw: PptCatalog["charts"] | undefined,
+  raw: PptTemplateCatalog["charts"] | undefined,
 ): Record<string, PptChartMeta> {
   if (!raw) return {};
   const nested = (raw as { charts?: Record<string, PptChartMeta> }).charts;
@@ -159,7 +160,7 @@ function newPlanningId(): string {
 export default function PptPage() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<PptExtensionStatus | null>(null);
-  const [catalog, setCatalog] = useState<PptCatalog | null>(null);
+  const [catalog, setCatalog] = useState<PptTemplateCatalog | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
 
   // 文档默认分页展示，每页 5 篇；搜索时按关键词过滤
@@ -237,7 +238,7 @@ export default function PptPage() {
       const next = await pptExtensionApi.status();
       setStatus(next);
       if (next.installed && next.enabled && next.supportsPpt) {
-        setCatalog(await extensionApi.pptCatalog("ppt-master"));
+        setCatalog(await pptTemplateApi.catalog());
       }
     } catch (e) {
       message.error(`读取扩展状态失败：${String(e)}`);
@@ -254,6 +255,18 @@ export default function PptPage() {
         if (list.length > 0) setModelId((current) => current ?? list[0].id);
       })
       .catch(() => undefined);
+  }, [loadStatus]);
+
+  useEffect(() => {
+    const handler = () => {
+      previewLoaded.current.clear();
+      setLayoutPreviews({});
+      setPreviewFailed({});
+      void loadStatus();
+    };
+    window.addEventListener("app:ppt-templates-changed", handler);
+    return () =>
+      window.removeEventListener("app:ppt-templates-changed", handler);
   }, [loadStatus]);
 
   useEffect(() => {
@@ -277,8 +290,15 @@ export default function PptPage() {
     for (const id of layoutKey.split("|")) {
       if (!id || previewLoaded.current.has(id)) continue;
       previewLoaded.current.add(id);
-      extensionApi
-        .pptLayoutPreview("ppt-master", id)
+      const meta = catalog?.layouts[id];
+      const request =
+        meta?.source === "user"
+          ? pptTemplateApi.preview(id)
+          : extensionApi.pptLayoutPreview(
+              catalog?.extensionId ?? "ppt-master",
+              id,
+            );
+      request
         .then((svg) => {
           if (!disposed) {
             setLayoutPreviews((prev) => ({ ...prev, [id]: svg }));
@@ -294,7 +314,7 @@ export default function PptPage() {
     return () => {
       disposed = true;
     };
-  }, [layoutKey, status?.installed, status?.enabled]);
+  }, [catalog, layoutKey, status?.installed, status?.enabled]);
 
   const loadDraft = useCallback(async (jobId: string) => {
     setDraftLoading(true);
@@ -1187,6 +1207,13 @@ export default function PptPage() {
         value: id,
         label: `${layoutDisplayName(id, meta)}${meta.page_count ? ` · ${meta.page_count} 页` : ""}`,
         description: layoutDescription(meta),
+        source: meta.source,
+        support: {
+          supportsStructured: meta.supportsStructured,
+          structured: meta.structured,
+          supportsLegacy: meta.supportsLegacy,
+          legacy: meta.legacy,
+        },
       })),
     [catalog],
   );
@@ -1743,7 +1770,7 @@ export default function PptPage() {
                 {layoutOptions.map((option) => {
                   const selected = layoutId === option.value;
                   const preview = layoutPreviews[option.value];
-                  const support = catalog?.layoutSupport?.[option.value];
+                  const support = option.support;
                   return (
                     <button
                       key={option.value}
@@ -1777,6 +1804,9 @@ export default function PptPage() {
                           <Text strong ellipsis={{ tooltip: option.label }}>
                             {option.label}
                           </Text>
+                          {option.source === "user" && (
+                            <Tag color="green">用户</Tag>
+                          )}
                           {selected && <Tag color="blue">已选</Tag>}
                         </div>
                         {option.description && (

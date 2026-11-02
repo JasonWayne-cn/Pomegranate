@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="tech-compare-master" data-pptx-master-name="Tech Compare Dark Master" data-pptx-layout="positioning" data-pptx-layout-name="Positioning">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#0F172A" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#8B5CF6" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="content-rule" x1="80" y1="158" x2="1200" y2="158" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="pos-card-1" x="80" y="184" width="352" height="408" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="pos-card-bar-1" x="80" y="184" width="352" height="5" fill="#8B5CF6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pos-card-label-1" x="104" y="224" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">TOOL 01</text>
+  <rect id="pos-stage-box-1" x="104" y="462" width="160" height="34" rx="4" fill="#334155" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pos-stage-label-1" x="120" y="484" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">BEST STAGE</text>
+  <rect id="pos-card-2" x="464" y="184" width="352" height="408" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="pos-card-bar-2" x="464" y="184" width="352" height="5" fill="#2563EB" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pos-card-label-2" x="488" y="224" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">TOOL 02</text>
+  <rect id="pos-stage-box-2" x="488" y="462" width="160" height="34" rx="4" fill="#334155" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pos-stage-label-2" x="504" y="484" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">BEST STAGE</text>
+  <rect id="pos-card-3" x="848" y="184" width="352" height="408" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="pos-card-bar-3" x="848" y="184" width="352" height="5" fill="#10B981" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pos-card-label-3" x="872" y="224" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">TOOL 03</text>
+  <rect id="pos-stage-box-3" x="872" y="462" width="160" height="34" rx="4" fill="#334155" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="pos-stage-label-3" x="888" y="484" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">BEST STAGE</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 50 1000 60"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="100" font-size="26" fill="#F8FAFC" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 112 1100 30"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="136" font-size="13" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 668 700 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="688" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 668 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="688" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="pos-name-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="104 234 304 62"><text id="pos-name-slot-1-carrier" data-pptx-carrier="true" x="104" y="280" font-size="26" fill="#F8FAFC" font-weight="bold">{{TOOL_1_NAME}}</text></g>
+  <g id="pos-line-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="104 300 304 120"><text id="pos-line-slot-1-carrier" data-pptx-carrier="true" x="104" y="330" font-size="14" fill="#94A3B8">{{TOOL_1_POSITIONING}}</text></g>
+  <g id="pos-stage-slot-1" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="272 462 136 34"><text id="pos-stage-slot-1-carrier" data-pptx-carrier="true" x="272" y="484" font-size="12" fill="#8B5CF6" font-weight="bold">{{TOOL_1_STAGE}}</text></g>
+  <g id="pos-note-slot-1" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="104 514 304 54"><text id="pos-note-slot-1-carrier" data-pptx-carrier="true" x="104" y="540" font-size="11" fill="#94A3B8">{{TOOL_1_NOTE}}</text></g>
+  <g id="pos-name-slot-2" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="488 234 304 62"><text id="pos-name-slot-2-carrier" data-pptx-carrier="true" x="488" y="280" font-size="26" fill="#F8FAFC" font-weight="bold">{{TOOL_2_NAME}}</text></g>
+  <g id="pos-line-slot-2" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="488 300 304 120"><text id="pos-line-slot-2-carrier" data-pptx-carrier="true" x="488" y="330" font-size="14" fill="#94A3B8">{{TOOL_2_POSITIONING}}</text></g>
+  <g id="pos-stage-slot-2" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="656 462 136 34"><text id="pos-stage-slot-2-carrier" data-pptx-carrier="true" x="656" y="484" font-size="12" fill="#2563EB" font-weight="bold">{{TOOL_2_STAGE}}</text></g>
+  <g id="pos-note-slot-2" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="488 514 304 54"><text id="pos-note-slot-2-carrier" data-pptx-carrier="true" x="488" y="540" font-size="11" fill="#94A3B8">{{TOOL_2_NOTE}}</text></g>
+  <g id="pos-name-slot-3" data-pptx-placeholder="body" data-pptx-idx="10" data-pptx-bounds="872 234 304 62"><text id="pos-name-slot-3-carrier" data-pptx-carrier="true" x="872" y="280" font-size="26" fill="#F8FAFC" font-weight="bold">{{TOOL_3_NAME}}</text></g>
+  <g id="pos-line-slot-3" data-pptx-placeholder="object" data-pptx-idx="11" data-pptx-bounds="872 300 304 120"><text id="pos-line-slot-3-carrier" data-pptx-carrier="true" x="872" y="330" font-size="14" fill="#94A3B8">{{TOOL_3_POSITIONING}}</text></g>
+  <g id="pos-stage-slot-3" data-pptx-placeholder="body" data-pptx-idx="12" data-pptx-bounds="1040 462 136 34"><text id="pos-stage-slot-3-carrier" data-pptx-carrier="true" x="1040" y="484" font-size="12" fill="#10B981" font-weight="bold">{{TOOL_3_STAGE}}</text></g>
+  <g id="pos-note-slot-3" data-pptx-placeholder="object" data-pptx-idx="13" data-pptx-bounds="872 514 304 54"><text id="pos-note-slot-3-carrier" data-pptx-carrier="true" x="872" y="540" font-size="11" fill="#94A3B8">{{TOOL_3_NOTE}}</text></g>
+</svg>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="insight-master" data-pptx-master-name="Insight Explainer Master" data-pptx-layout="contents" data-pptx-layout-name="Contents">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#0F766E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <text id="contents-kicker" x="80" y="92" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">CONTENTS</text>
+  <line id="contents-rule" x1="80" y1="160" x2="1200" y2="160" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="contents-num-1" x="80" y="240" font-size="22" fill="#0F766E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <line id="contents-line-1" x1="80" y1="312" x2="600" y2="312" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="contents-num-2" x="80" y="380" font-size="22" fill="#0F766E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <line id="contents-line-2" x1="80" y1="452" x2="600" y2="452" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="contents-num-3" x="80" y="520" font-size="22" fill="#0F766E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <line id="contents-line-3" x1="80" y1="592" x2="600" y2="592" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="contents-num-4" x="660" y="240" font-size="22" fill="#0F766E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <line id="contents-line-4" x1="660" y1="312" x2="1180" y2="312" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="contents-num-5" x="660" y="380" font-size="22" fill="#0F766E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">05</text>
+  <line id="contents-line-5" x1="660" y1="452" x2="1180" y2="452" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="contents-num-6" x="660" y="520" font-size="22" fill="#0F766E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">06</text>
+  <line id="contents-line-6" x1="660" y1="592" x2="1180" y2="592" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="contents-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 102 900 52"><text id="contents-title-slot-carrier" data-pptx-carrier="true" x="80" y="142" font-size="28" fill="#1E293B" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="contents-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="138 204 480 34"><text id="contents-title-slot-1-carrier" data-pptx-carrier="true" x="138" y="230" font-size="17" fill="#1E293B" font-weight="bold">{{SECTION_1_TITLE}}</text></g>
+  <g id="contents-desc-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="138 244 480 54"><text id="contents-desc-slot-1-carrier" data-pptx-carrier="true" x="138" y="266" font-size="12" fill="#475569">{{SECTION_1_DESC}}</text></g>
+  <g id="contents-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="138 344 480 34"><text id="contents-title-slot-2-carrier" data-pptx-carrier="true" x="138" y="370" font-size="17" fill="#1E293B" font-weight="bold">{{SECTION_2_TITLE}}</text></g>
+  <g id="contents-desc-slot-2" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="138 384 480 54"><text id="contents-desc-slot-2-carrier" data-pptx-carrier="true" x="138" y="406" font-size="12" fill="#475569">{{SECTION_2_DESC}}</text></g>
+  <g id="contents-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="138 484 480 34"><text id="contents-title-slot-3-carrier" data-pptx-carrier="true" x="138" y="510" font-size="17" fill="#1E293B" font-weight="bold">{{SECTION_3_TITLE}}</text></g>
+  <g id="contents-desc-slot-3" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="138 524 480 54"><text id="contents-desc-slot-3-carrier" data-pptx-carrier="true" x="138" y="546" font-size="12" fill="#475569">{{SECTION_3_DESC}}</text></g>
+  <g id="contents-title-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="718 204 480 34"><text id="contents-title-slot-4-carrier" data-pptx-carrier="true" x="718" y="230" font-size="17" fill="#1E293B" font-weight="bold">{{SECTION_4_TITLE}}</text></g>
+  <g id="contents-desc-slot-4" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="718 244 480 54"><text id="contents-desc-slot-4-carrier" data-pptx-carrier="true" x="718" y="266" font-size="12" fill="#475569">{{SECTION_4_DESC}}</text></g>
+  <g id="contents-title-slot-5" data-pptx-placeholder="body" data-pptx-idx="10" data-pptx-bounds="718 344 480 34"><text id="contents-title-slot-5-carrier" data-pptx-carrier="true" x="718" y="370" font-size="17" fill="#1E293B" font-weight="bold">{{SECTION_5_TITLE}}</text></g>
+  <g id="contents-desc-slot-5" data-pptx-placeholder="object" data-pptx-idx="11" data-pptx-bounds="718 384 480 54"><text id="contents-desc-slot-5-carrier" data-pptx-carrier="true" x="718" y="406" font-size="12" fill="#475569">{{SECTION_5_DESC}}</text></g>
+  <g id="contents-title-slot-6" data-pptx-placeholder="body" data-pptx-idx="12" data-pptx-bounds="718 484 480 34"><text id="contents-title-slot-6-carrier" data-pptx-carrier="true" x="718" y="510" font-size="17" fill="#1E293B" font-weight="bold">{{SECTION_6_TITLE}}</text></g>
+  <g id="contents-desc-slot-6" data-pptx-placeholder="object" data-pptx-idx="13" data-pptx-bounds="718 524 480 54"><text id="contents-desc-slot-6-carrier" data-pptx-carrier="true" x="718" y="546" font-size="12" fill="#475569">{{SECTION_6_DESC}}</text></g>
+</svg>

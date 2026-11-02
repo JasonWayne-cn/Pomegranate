@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="kpi-master" data-pptx-master-name="KPI Report Master" data-pptx-layout="trend-chart" data-pptx-layout-name="Trend Chart">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#3B6EA5" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="tc-panel" x="80" y="168" width="760" height="440" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tc-panel-label" x="104" y="204" font-size="10" fill="#9CA3AF" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">SIX-PERIOD TREND</text>
+  <line id="tc-axis-x" x1="120" y1="540" x2="800" y2="540" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="tc-axis-y" x1="120" y1="240" x2="120" y2="540" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="tc-bar-1" x="148" y="420" width="58" height="120" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tc-bar-label-1" x="177" y="564" font-size="10" fill="#9CA3AF" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">P1</text>
+  <rect id="tc-bar-2" x="252" y="372" width="58" height="168" fill="#AFC3D6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tc-bar-label-2" x="281" y="564" font-size="10" fill="#9CA3AF" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">P2</text>
+  <rect id="tc-bar-3" x="356" y="398" width="58" height="142" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tc-bar-label-3" x="385" y="564" font-size="10" fill="#9CA3AF" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">P3</text>
+  <rect id="tc-bar-4" x="460" y="330" width="58" height="210" fill="#AFC3D6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tc-bar-label-4" x="489" y="564" font-size="10" fill="#9CA3AF" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">P4</text>
+  <rect id="tc-bar-5" x="564" y="352" width="58" height="188" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tc-bar-label-5" x="593" y="564" font-size="10" fill="#9CA3AF" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">P5</text>
+  <rect id="tc-bar-6" x="668" y="304" width="58" height="236" fill="#AFC3D6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tc-bar-label-6" x="697" y="564" font-size="10" fill="#9CA3AF" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">P6</text>
+  <path id="tc-trend-line" d="M 177 420 L 281 372 L 385 398 L 489 330 L 593 352 L 697 304" fill="none" stroke="#B45309" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="tc-insight-panel" x="864" y="168" width="336" height="440" rx="8" fill="#F5F7FA" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="tc-insight-bar" x="864" y="168" width="336" height="5" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tc-insight-label" x="888" y="206" font-size="10" fill="#9CA3AF" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">READING THE TREND</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1F2937" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#9CA3AF">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#9CA3AF">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#9CA3AF" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="tc-insight-slot" data-pptx-placeholder="object" data-pptx-idx="2" data-pptx-bounds="888 226 288 300"><text id="tc-insight-slot-carrier" data-pptx-carrier="true" x="888" y="256" font-size="13" fill="#1F2937">{{INSIGHT}}</text></g>
+</svg>

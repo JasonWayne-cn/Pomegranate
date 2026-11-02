@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="insight-master" data-pptx-master-name="Insight Explainer Master" data-pptx-layout="recommended-reading" data-pptx-layout-name="Recommended Reading">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#0F766E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rr-card-1" x="80" y="168" width="540" height="194" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rr-card-bar-1" x="80" y="168" width="6" height="194" fill="#0F766E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rr-card-num-1" x="108" y="210" font-size="18" fill="#0F766E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <rect id="rr-card-2" x="660" y="168" width="540" height="194" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rr-card-bar-2" x="660" y="168" width="6" height="194" fill="#0E7490" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rr-card-num-2" x="688" y="210" font-size="18" fill="#0F766E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <rect id="rr-card-3" x="80" y="390" width="540" height="194" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rr-card-bar-3" x="80" y="390" width="6" height="194" fill="#0F766E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rr-card-num-3" x="108" y="432" font-size="18" fill="#0F766E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <rect id="rr-card-4" x="660" y="390" width="540" height="194" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rr-card-bar-4" x="660" y="390" width="6" height="194" fill="#0E7490" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rr-card-num-4" x="688" y="432" font-size="18" fill="#0F766E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1E293B" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="rr-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="108 224 480 38"><text id="rr-title-slot-1-carrier" data-pptx-carrier="true" x="108" y="250" font-size="15" fill="#1E293B" font-weight="bold">{{READING_1_TITLE}}</text></g>
+  <g id="rr-meta-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="108 268 480 70"><text id="rr-meta-slot-1-carrier" data-pptx-carrier="true" x="108" y="294" font-size="11" fill="#475569">{{READING_1_META}}</text></g>
+  <g id="rr-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="688 224 480 38"><text id="rr-title-slot-2-carrier" data-pptx-carrier="true" x="688" y="250" font-size="15" fill="#1E293B" font-weight="bold">{{READING_2_TITLE}}</text></g>
+  <g id="rr-meta-slot-2" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="688 268 480 70"><text id="rr-meta-slot-2-carrier" data-pptx-carrier="true" x="688" y="294" font-size="11" fill="#475569">{{READING_2_META}}</text></g>
+  <g id="rr-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="108 446 480 38"><text id="rr-title-slot-3-carrier" data-pptx-carrier="true" x="108" y="472" font-size="15" fill="#1E293B" font-weight="bold">{{READING_3_TITLE}}</text></g>
+  <g id="rr-meta-slot-3" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="108 490 480 70"><text id="rr-meta-slot-3-carrier" data-pptx-carrier="true" x="108" y="516" font-size="11" fill="#475569">{{READING_3_META}}</text></g>
+  <g id="rr-title-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="688 446 480 38"><text id="rr-title-slot-4-carrier" data-pptx-carrier="true" x="688" y="472" font-size="15" fill="#1E293B" font-weight="bold">{{READING_4_TITLE}}</text></g>
+  <g id="rr-meta-slot-4" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="688 490 480 70"><text id="rr-meta-slot-4-carrier" data-pptx-carrier="true" x="688" y="516" font-size="11" fill="#475569">{{READING_4_META}}</text></g>
+</svg>

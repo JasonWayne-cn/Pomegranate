@@ -19,8 +19,8 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::models::AiModel;
 use crate::models::extension::{
-    PptDraftPage, PptJob, PptJobInput, PptLocalFileSource, PptMetaSource, PptMetaSuggestion,
-    PptPlan, PptSlide, PptSourceMeta,
+    ExtensionInfo, PptDraftPage, PptJob, PptJobInput, PptLocalFileSource, PptMetaSource,
+    PptMetaSuggestion, PptPlan, PptSlide, PptSourceMeta,
 };
 use crate::services::ai::AiService;
 use crate::services::doc_extract::DocExtractService;
@@ -32,6 +32,7 @@ use crate::services::note::NoteService;
 use crate::services::pdf::PdfService;
 use crate::services::ppt_programmatic_renderer;
 use crate::services::ppt_plan;
+use crate::services::ppt_template::PptTemplateService;
 use crate::services::safe_filename;
 
 const MAX_SOURCE_CHARS: usize = 200_000;
@@ -3134,6 +3135,10 @@ fn copy_to_export(source: &Path, export_dir: &str, title: &str) -> Result<String
 const AI_PAGE_MIN_SCORE: i32 = 55;
 const AI_PAGE_TIMEOUT_SECS: u64 = 180;
 const AI_PROMPT_UNDERSTANDING_CHARS: usize = 8_000;
+/// 单页模板参考最多注入的字符数，避免 prompt 过长。
+const AI_TEMPLATE_PAGE_CHARS: usize = 8_000;
+/// design_spec 中设计元素与页面清单最多注入的字符数。
+const AI_TEMPLATE_ROSTER_CHARS: usize = 3_000;
 
 #[derive(Debug, Clone)]
 struct PageCandidateScore {
@@ -3193,6 +3198,32 @@ fn svg_visible_text(svg: &str) -> String {
         out.push(' ');
     }
     out
+}
+
+/// 解析作业版式目录：优先用户模板，其次扩展包；同时快照到作业目录。
+fn resolve_job_template_dir(
+    db: &Database,
+    extension: &ExtensionInfo,
+    job_dir: &Path,
+    layout_id: &str,
+) -> Option<PathBuf> {
+    if layout_id.trim().is_empty() {
+        return None;
+    }
+    let resolved = PptTemplateService::resolve_layout(db, extension, layout_id)?;
+    log::debug!(
+        "版式 {} 来源={} 目录={}",
+        layout_id,
+        resolved.source,
+        resolved.roster_dir.display()
+    );
+    match PptTemplateService::ensure_job_template_snapshot(job_dir, &resolved, layout_id) {
+        Ok(dir) => Some(dir),
+        Err(err) => {
+            log::warn!("版式快照失败，回退直接读取: {}", err);
+            Some(resolved.roster_dir)
+        }
+    }
 }
 
 fn template_colors(template_dir: Option<&Path>) -> std::collections::HashSet<String> {
@@ -3260,6 +3291,530 @@ fn build_spec_lock(template_dir: Option<&Path>, plan: &PptPlan) -> String {
     )
 }
 
+/// 模板中的单个页面引用，page_type 由文件名去掉编号前缀得到。
+#[derive(Clone, Debug)]
+struct TemplatePageRef {
+    page_type: String,
+    path: PathBuf,
+}
+
+/// 当前作业可用的模板参考：页面清单 + design_spec 摘要。
+#[derive(Clone, Debug, Default)]
+struct TemplateReference {
+    layout_id: String,
+    pages: Vec<TemplatePageRef>,
+    roster: String,
+}
+
+impl TemplateReference {
+    fn is_empty(&self) -> bool {
+        self.pages.is_empty()
+    }
+
+    /// 为当前页选择最贴近的模板页，并生成注入 prompt 的参考文本。
+    fn hint_for(&self, slide: &PptSlide, index: usize, total: usize) -> String {
+        let Some(page) = choose_template_page(&self.pages, slide, index, total) else {
+            return String::new();
+        };
+        let Ok(svg) = fs::read_to_string(&page.path) else {
+            return String::new();
+        };
+        let tokens = placeholder_tokens(&svg);
+        let mut page_svg: String = svg.chars().take(AI_TEMPLATE_PAGE_CHARS).collect();
+        if page_svg.chars().count() < svg.chars().count() {
+            page_svg.push_str("\n<!-- 模板页已截断 -->");
+        }
+        let file_name = page
+            .path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        let slot_text = if tokens.is_empty() {
+            "无显式占位符，请按模板页的栅格与层级自行组织".to_string()
+        } else {
+            tokens.join("、")
+        };
+        format!(
+            "当前页建议模板版式：{}/{}（{}）\n\
+             模板槽位：{}\n\
+             注意：以下 SVG 仅作版式、栅格、装饰与视觉层级参考；必须替换为当前页内容，\
+             不能保留任何 {{{{TOKEN}}}} 占位符，也不能照抄模板中的示例文案。\n\n{}",
+            self.layout_id, page.page_type, file_name, slot_text, page_svg
+        )
+    }
+}
+
+/// 从文件名推导页型：去掉 `01_` / `01a_` 前缀并转小写。
+fn derive_template_page_type(stem: &str) -> String {
+    let bytes = stem.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() && bytes[index].is_ascii_digit() {
+        index += 1;
+    }
+    if index > 0 {
+        if index < bytes.len() && bytes[index].is_ascii_lowercase() {
+            index += 1;
+        }
+        if index < bytes.len() && bytes[index] == b'_' {
+            index += 1;
+        }
+    }
+    stem.get(index..).unwrap_or("").to_ascii_lowercase()
+}
+
+fn template_page_refs(template_dir: Option<&Path>) -> Vec<TemplatePageRef> {
+    let Some(dir) = template_dir else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut pages: Vec<TemplatePageRef> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path.extension().and_then(|value| value.to_str()) == Some("svg")
+        })
+        .filter_map(|path| {
+            let stem = path.file_stem()?.to_str()?;
+            let page_type = derive_template_page_type(stem);
+            (!page_type.is_empty()).then_some(TemplatePageRef { page_type, path })
+        })
+        .collect();
+    pages.sort_by(|left, right| left.path.cmp(&right.path));
+    pages
+}
+
+/// 提取 design_spec 中的设计元素与页面清单，限制长度避免 prompt 膨胀。
+fn template_roster(template_dir: Option<&Path>) -> String {
+    let Some(dir) = template_dir else {
+        return String::new();
+    };
+    let Ok(text) = fs::read_to_string(dir.join("design_spec.md")) else {
+        return String::new();
+    };
+    let mut sections = Vec::new();
+    for marker in ["## IV. Signature Design Elements", "## V. Page Roster"] {
+        if let Some(start) = text.find(marker) {
+            let rest = &text[start..];
+            let end = rest[marker.len()..]
+                .find("\n## ")
+                .map(|offset| marker.len() + offset)
+                .unwrap_or(rest.len());
+            sections.push(rest[..end].trim().to_string());
+        }
+    }
+    let joined = sections.join("\n\n");
+    joined.chars().take(AI_TEMPLATE_ROSTER_CHARS).collect()
+}
+
+fn build_template_reference(
+    template_dir: Option<&Path>,
+    layout_id: &str,
+) -> TemplateReference {
+    TemplateReference {
+        layout_id: layout_id.to_string(),
+        pages: template_page_refs(template_dir),
+        roster: template_roster(template_dir),
+    }
+}
+
+fn placeholder_tokens(svg: &str) -> Vec<String> {
+    let Ok(re) = regex::Regex::new(r"\{\{([A-Z0-9_]+)\}\}") else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut tokens = Vec::new();
+    for capture in re.captures_iter(svg) {
+        if let Some(value) = capture.get(1) {
+            let token = value.as_str().to_string();
+            if seen.insert(token.clone()) {
+                tokens.push(token);
+            }
+        }
+    }
+    tokens
+}
+
+fn pick_page_type(available: &[&str], candidates: &[&str]) -> Option<String> {
+    candidates.iter().find_map(|candidate| {
+        available
+            .iter()
+            .find(|page_type| page_type.eq_ignore_ascii_case(candidate))
+            .map(|page_type| (*page_type).to_string())
+    })
+}
+
+fn is_toc_title(title: &str) -> bool {
+    let lower = title.to_ascii_lowercase();
+    title.contains("目录")
+        || lower.contains("agenda")
+        || lower.contains("contents")
+        || lower.contains("table of contents")
+}
+
+fn is_chapter_title(title: &str) -> bool {
+    let trimmed = title.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("part ") || lower.starts_with("section ") {
+        return true;
+    }
+    if let Some(rest) = trimmed.strip_prefix('第') {
+        return !rest.is_empty()
+            && rest
+                .chars()
+                .any(|ch| matches!(ch, '章' | '节' | '部' | '分'));
+    }
+    false
+}
+
+fn title_page_candidates(title: &str) -> Vec<&'static str> {
+    let lower = title.to_ascii_lowercase();
+    let rules: &[(&[&str], &[&str])] = &[
+        (
+            &["表格", "清单"],
+            &["content_table", "performance_table", "summary_table"],
+        ),
+        (
+            &["kpi", "指标", "完成情况", "达成", "绩效", "dashboard"],
+            &[
+                "kpi_overview",
+                "metrics_dashboard",
+                "performance_table",
+                "importance_performance",
+            ],
+        ),
+        (
+            &[
+                "核心发现",
+                "关键发现",
+                "主要发现",
+                "发现",
+                "洞察",
+                "insight",
+                "finding",
+            ],
+            &[
+                "key_findings",
+                "core_insight",
+                "conclusions",
+                "executive_summary",
+            ],
+        ),
+        (
+            &["执行摘要", "摘要", "executive summary"],
+            &["executive_summary", "summary"],
+        ),
+        (
+            &["趋势", "走势", "增长", "变化"],
+            &["trend_chart", "data_comparison", "distribution"],
+        ),
+        (
+            &["结构", "构成", "占比", "分布"],
+            &["structure_breakdown", "distribution"],
+        ),
+        (
+            &["风险", "预警", "隐患", "危机"],
+            &["risk_gauge", "risk_matrix", "macro_crisis"],
+        ),
+        (
+            &["对比", "比较", "差异", "vs"],
+            &[
+                "comparison",
+                "comparison_table",
+                "data_comparison",
+                "core_difference",
+            ],
+        ),
+        (
+            &["年度", "回顾", "季度", "项目进展"],
+            &["annual_review", "initiative_priority"],
+        ),
+        (
+            &["汇总", "总结", "小结", "结论"],
+            &["summary_table", "summary", "conclusions", "conclusion"],
+        ),
+        (
+            &["流程", "步骤", "路线", "实施", "路径", "落地"],
+            &["process_steps", "workflow", "roadmap", "decision_tree"],
+        ),
+        (
+            &["原因", "根因", "为什么", "机理"],
+            &["root_cause", "content"],
+        ),
+        (
+            &["模型", "框架", "架构", "体系"],
+            &[
+                "model_diagram",
+                "framework",
+                "strategy_pillars",
+                "research_architecture",
+            ],
+        ),
+        (&["案例", "实践"], &["case_study", "modern_application"]),
+        (
+            &["概念", "定义", "含义", "溯源", "词源"],
+            &["concept_definition", "etymology"],
+        ),
+        (
+            &["参数", "规格", "技术"],
+            &["technical_params", "product_card"],
+        ),
+        (
+            &["商业模式", "融资", "资金"],
+            &["business_model", "financing_structure"],
+        ),
+        (&["组合", "搭配"], &["combination"]),
+        (
+            &["参考", "阅读"],
+            &["recommended_reading", "quick_reference", "appendix"],
+        ),
+        (&["展望", "规划"], &["outlook", "roadmap"]),
+        (&["定位"], &["positioning", "project_positioning"]),
+        (
+            &["引用", "名言", "金句", "quote"],
+            &["quote", "core_insight"],
+        ),
+        (
+            &["决策", "decision"],
+            &["decision_tree", "combination"],
+        ),
+        (&["附录", "appendix"], &["appendix", "quick_reference"]),
+        (
+            &["位置图", "位置"],
+            &["position_map", "content_text_image"],
+        ),
+        (
+            &["图文", "配图"],
+            &["content_text_image", "content"],
+        ),
+        (&["卡片"], &["content_cards", "product_card"]),
+        (&["法则", "规律"], &["four_laws", "core_insight"]),
+        (&["六爻"], &["six_yao_overview", "yao_detail"]),
+        (
+            &["关系网络", "关系图谱"],
+            &["relationship_network"],
+        ),
+        (
+            &["现代应用", "当代应用"],
+            &["modern_application"],
+        ),
+        (
+            &["举措", "优先级"],
+            &["initiative_priority", "importance_performance"],
+        ),
+        (
+            &["看板", "仪表盘"],
+            &["metrics_dashboard", "kpi_overview"],
+        ),
+        (&["速查"], &["quick_reference"]),
+        (&["产品卡", "产品介绍"], &["product_card"]),
+        (&["安全", "注意"], &["safety_notice"]),
+    ];
+    for (keywords, page_types) in rules {
+        if keywords.iter().any(|keyword| lower.contains(keyword)) {
+            return page_types.to_vec();
+        }
+    }
+    Vec::new()
+}
+
+fn choose_template_page_type(
+    slide: &PptSlide,
+    index: usize,
+    total: usize,
+    available: &[&str],
+) -> Option<String> {
+    if available.is_empty() {
+        return None;
+    }
+    if index == 0 {
+        if let Some(cover) = pick_page_type(available, &["cover"]) {
+            return Some(cover);
+        }
+    }
+    if index + 1 == total && total > 2 && slide.bullets.len() < 3 {
+        if let Some(ending) = pick_page_type(available, &["ending"]) {
+            return Some(ending);
+        }
+    }
+    if is_toc_title(&slide.title) {
+        if let Some(toc) = pick_page_type(available, &["toc", "contents", "agenda"]) {
+            return Some(toc);
+        }
+    }
+    if is_chapter_title(&slide.title) {
+        if let Some(chapter) = pick_page_type(available, &["chapter", "section"]) {
+            return Some(chapter);
+        }
+    }
+
+    let title_candidates = title_page_candidates(&slide.title);
+    if let Some(found) = pick_page_type(available, &title_candidates) {
+        return Some(found);
+    }
+
+    let chart_type = slide.chart_type.trim().to_ascii_lowercase();
+    let chart_candidates: &[&str] = match chart_type.as_str() {
+        "timeline" | "process" => &[
+            "process_steps",
+            "workflow",
+            "roadmap",
+            "annual_review",
+        ],
+        "compare" => &[
+            "comparison",
+            "comparison_table",
+            "data_comparison",
+            "content_table",
+        ],
+        "matrix" => &[
+            "performance_table",
+            "comparison_table",
+            "content_table",
+            "risk_matrix",
+            "importance_performance",
+        ],
+        "cards" => &[
+            "key_findings",
+            "content_cards",
+            "core_insight",
+            "executive_summary",
+            "strategy_pillars",
+        ],
+        "highlight" => &[
+            "key_findings",
+            "core_insight",
+            "executive_summary",
+            "risk_gauge",
+            "safety_notice",
+        ],
+        "summary" => &[
+            "summary_table",
+            "summary",
+            "conclusions",
+            "conclusion",
+            "executive_summary",
+        ],
+        "table" => &[
+            "performance_table",
+            "content_table",
+            "comparison_table",
+            "summary_table",
+        ],
+        _ => &[],
+    };
+    if let Some(found) = pick_page_type(available, chart_candidates) {
+        return Some(found);
+    }
+
+    let relation = slide.relation.trim().to_ascii_lowercase();
+    let relation_candidates: &[&str] = match relation.as_str() {
+        "timeline" | "process" => &[
+            "process_steps",
+            "workflow",
+            "roadmap",
+            "annual_review",
+        ],
+        "compare" => &[
+            "comparison",
+            "comparison_table",
+            "data_comparison",
+            "content_table",
+        ],
+        "cause" => &["root_cause", "content"],
+        "category" => &[
+            "content_cards",
+            "key_findings",
+            "structure_breakdown",
+            "executive_summary",
+        ],
+        "hierarchy" => &[
+            "framework",
+            "strategy_pillars",
+            "model_diagram",
+        ],
+        _ => &[],
+    };
+    if let Some(found) = pick_page_type(available, relation_candidates) {
+        return Some(found);
+    }
+
+    if slide.chart.is_some() {
+        if let Some(found) = pick_page_type(
+            available,
+            &[
+                "trend_chart",
+                "data_comparison",
+                "distribution",
+                "metrics_dashboard",
+            ],
+        ) {
+            return Some(found);
+        }
+    }
+
+    let density = slide.density.trim().to_ascii_lowercase();
+    let density_candidates: &[&str] = match density.as_str() {
+        "dense" => &[
+            "content_table",
+            "performance_table",
+            "summary_table",
+            "content",
+        ],
+        "anchor" => &[
+            "content",
+            "content_text_image",
+            "case_study",
+            "core_insight",
+        ],
+        "breathing" => &["content", "content_text_image", "core_insight"],
+        _ => &[],
+    };
+    if let Some(found) = pick_page_type(available, density_candidates) {
+        return Some(found);
+    }
+
+    if let Some(found) = pick_page_type(
+        available,
+        &[
+            "content",
+            "executive_summary",
+            "key_findings",
+            "core_insight",
+            "summary",
+            "conclusions",
+            "conclusion",
+        ],
+    ) {
+        return Some(found);
+    }
+
+    available
+        .iter()
+        .find(|page_type| {
+            !matches!(
+                **page_type,
+                "cover" | "toc" | "contents" | "agenda" | "chapter" | "ending"
+            )
+        })
+        .map(|page_type| (*page_type).to_string())
+}
+
+fn choose_template_page<'a>(
+    pages: &'a [TemplatePageRef],
+    slide: &PptSlide,
+    index: usize,
+    total: usize,
+) -> Option<&'a TemplatePageRef> {
+    let available: Vec<&str> = pages.iter().map(|page| page.page_type.as_str()).collect();
+    let page_type = choose_template_page_type(slide, index, total, &available)?;
+    pages
+        .iter()
+        .find(|page| page.page_type.eq_ignore_ascii_case(&page_type))
+}
+
 fn layout_hint(slide: &PptSlide) -> &'static str {
     match slide.chart_type.as_str() {
         "timeline" => "横向时间线：至少 4 个节点，节点含年份/阶段与一句说明",
@@ -3288,13 +3843,24 @@ fn page_generation_prompt(
     previous_title: &str,
     next_title: &str,
     direction: &str,
-    template_hint: &str,
+    template_page: &str,
+    template_roster: &str,
 ) -> String {
     let slide_json = serde_json::to_string_pretty(slide).unwrap_or_default();
     let understanding: String = understanding
         .chars()
         .take(AI_PROMPT_UNDERSTANDING_CHARS)
         .collect();
+    let template_page = if template_page.trim().is_empty() {
+        "无匹配模板页，请严格遵循 spec_lock 的通用规范。"
+    } else {
+        template_page
+    };
+    let template_roster = if template_roster.trim().is_empty() {
+        "无"
+    } else {
+        template_roster
+    };
     format!(
         "你是 ppt-master Executor。请为当前页手写一份完整 SVG，而不是生成占位框或简单文本框。\n\
          只输出完整 SVG，不要 markdown，不要解释。\n\n\
@@ -3306,9 +3872,12 @@ fn page_generation_prompt(
          5. 可见文本必须来自当前页内容块、证据或素材理解，不得编造数字、年份、排名、奖项。\n\
          6. 不得出现内部术语或产品名。\n\
          7. 重复图形必须展开为真实元素，不能使用 <use>。\n\
-         8. 本次采用方向：{}。\n\n\
+         8. 本次采用方向：{}。\n\
+         9. 必须优先复用【模板版式参考】中的栅格、装饰、字号层级与信息节奏；\
+            模板中的示例文案与槽位只用于理解结构，最终内容必须来自当前页。\n\n\
          【spec_lock】\n{}\n\n\
-         【模板结构参考】\n{}\n\n\
+         【模板版式参考】\n{}\n\n\
+         【模板页面清单】\n{}\n\n\
          【全局信息】\n标题：{}\n总页数：{}\n上一页：{}\n下一页：{}\n\n\
          【素材理解】\n{}\n\n\
          【当前页】\n{}\n\n\
@@ -3316,7 +3885,8 @@ fn page_generation_prompt(
         layout_hint(slide),
         direction,
         spec_lock,
-        template_hint,
+        template_page,
+        template_roster,
         plan.title,
         plan.slides.len(),
         if previous_title.is_empty() { "无" } else { previous_title },
@@ -3344,6 +3914,10 @@ fn score_svg_candidate(
     if !svg.contains("<svg") || !svg.contains("</svg>") {
         hard_fail = true;
         issues.push("缺少完整 SVG".to_string());
+    }
+    if svg.contains("{{") && svg.contains("}}") {
+        hard_fail = true;
+        issues.push("保留了模板占位符".to_string());
     }
     if !svg.contains("0 0 1280 720") {
         score -= 25;
@@ -3532,7 +4106,7 @@ async fn generate_ai_page_candidates(
     index: usize,
     spec_lock: &str,
     understanding: &str,
-    template_hint: &str,
+    template_reference: &TemplateReference,
     allowed_colors: &std::collections::HashSet<String>,
     model_id: Option<i64>,
     effective_candidates: usize,
@@ -3571,6 +4145,22 @@ async fn generate_ai_page_candidates(
         "视觉优先：大数字、色块、图表或强对比图形，减少文字块",
         "叙事优先：用一条主线组织内容，强调因果/流程/对比关系",
     ];
+    let template_hint = template_reference.hint_for(slide, index, plan.slides.len());
+    let template_roster = template_reference.roster.as_str();
+    if let Some(first) = template_hint
+        .lines()
+        .find(|line| !line.trim().is_empty())
+    {
+        emit_system_log(
+            Some(app),
+            &format!("P{:02} 模板参考：{}", slide.page, first.trim()),
+        );
+    } else {
+        emit_system_log(
+            Some(app),
+            &format!("P{:02} 无匹配模板页，使用 spec_lock 通用规范", slide.page),
+        );
+    }
     let prompt_for = |candidate_index: usize| {
         page_generation_prompt(
             plan,
@@ -3580,7 +4170,8 @@ async fn generate_ai_page_candidates(
             previous_title,
             next_title,
             directions[candidate_index % directions.len()],
-            template_hint,
+            &template_hint,
+            template_roster,
         )
     };
     let mut candidates: Vec<PageCandidateScore> = Vec::new();
@@ -3684,7 +4275,8 @@ async fn generate_ai_page_candidates(
                     previous_title,
                     next_title,
                     directions[0],
-                    template_hint,
+                    &template_hint,
+                    template_roster,
                 ),
                 current.issues.join("；"),
             );
@@ -3946,16 +4538,7 @@ impl PptExtensionService {
 
         let extension = ExtensionService::get(&db, &job.extension_id)?;
         let layout_id = job.template_id.clone().unwrap_or_default();
-        let template_base = PathBuf::from(&extension.path)
-            .join("templates")
-            .join("layouts")
-            .join(&layout_id);
-        let template_dir = if template_base.join("templates").is_dir() {
-            template_base.join("templates")
-        } else {
-            template_base.clone()
-        };
-        let template_dir = template_dir.is_dir().then_some(template_dir);
+        let template_dir = resolve_job_template_dir(&db, &extension, &job_dir, &layout_id);
         let spec_lock = build_spec_lock(template_dir.as_deref(), &plan);
         fs::write(project.join("spec_lock.md"), &spec_lock)?;
         let colors = template_colors(template_dir.as_deref());
@@ -4151,23 +4734,13 @@ impl PptExtensionService {
             .unwrap_or_default();
         let extension = ExtensionService::get(&db, &job.extension_id)?;
         let layout_id = job.template_id.clone().unwrap_or_default();
-        let template_base = PathBuf::from(&extension.path)
-            .join("templates")
-            .join("layouts")
-            .join(&layout_id);
-        let template_dir = if template_base.join("templates").is_dir() {
-            template_base.join("templates")
-        } else {
-            template_base.clone()
-        };
-        let template_dir = template_dir.is_dir().then_some(template_dir);
-        if let Some(dir) = template_dir.as_ref() {
-            if let Ok(template) = fs::read_to_string(
-                dir.join("06_content_cards.svg"),
-            ) {
-                let hint: String = template.chars().take(2_500).collect();
-                fs::write(project.join("template_hint.svg"), hint)?;
-            }
+        let template_dir = resolve_job_template_dir(&db, &extension, &job_dir, &layout_id);
+        let template_reference = build_template_reference(template_dir.as_deref(), &layout_id);
+        if template_reference.is_empty() {
+            emit_system_log(
+                Some(&app),
+                "未找到可用模板页，AI 草稿将仅依据 spec_lock 生成",
+            );
         }
         let spec_lock = build_spec_lock(template_dir.as_deref(), &plan);
         fs::write(project.join("spec_lock.md"), &spec_lock)?;
@@ -4232,8 +4805,6 @@ impl PptExtensionService {
             }
         }
 
-        let template_hint =
-            fs::read_to_string(project.join("template_hint.svg")).unwrap_or_default();
         // 页级并发 2：视觉签名以集合形式传递，避免并发页互相覆盖去重状态。
         let mut chunk_start = 0usize;
         while chunk_start < plan.slides.len() {
@@ -4297,7 +4868,7 @@ impl PptExtensionService {
                         index,
                         &spec_lock,
                         &understanding,
-                        &template_hint,
+                        &template_reference,
                         &allowed_colors,
                         model_id,
                         effective_candidates,
@@ -4316,7 +4887,7 @@ impl PptExtensionService {
                             pending[0].0,
                             &spec_lock,
                             &understanding,
-                            &template_hint,
+                            &template_reference,
                             &allowed_colors,
                             model_id,
                             effective_candidates,
@@ -4332,7 +4903,7 @@ impl PptExtensionService {
                             pending[1].0,
                             &spec_lock,
                             &understanding,
-                            &template_hint,
+                            &template_reference,
                             &allowed_colors,
                             model_id,
                             effective_candidates,
@@ -4533,21 +5104,12 @@ impl PptExtensionService {
             .unwrap_or_default();
         let extension = ExtensionService::get(&db, &job.extension_id)?;
         let layout_id = job.template_id.clone().unwrap_or_default();
-        let template_base = PathBuf::from(&extension.path)
-            .join("templates")
-            .join("layouts")
-            .join(&layout_id);
-        let template_dir = if template_base.join("templates").is_dir() {
-            template_base.join("templates")
-        } else {
-            template_base.clone()
-        };
-        let template_dir = template_dir.is_dir().then_some(template_dir);
+        let template_dir = resolve_job_template_dir(&db, &extension, &job_dir, &layout_id);
         let spec_lock = fs::read_to_string(project.join("spec_lock.md"))
             .unwrap_or_else(|_| build_spec_lock(template_dir.as_deref(), &plan));
         let allowed_colors = template_colors(template_dir.as_deref());
-        let template_hint = fs::read_to_string(project.join("template_hint.svg"))
-            .unwrap_or_default();
+        let template_reference = build_template_reference(template_dir.as_deref(), &layout_id);
+        let template_hint = template_reference.hint_for(&slide, index, plan.slides.len());
         let cancel = Arc::new(AtomicBool::new(false));
         if let Ok(mut map) = cancels.lock() {
             map.insert(format!("{job_id}:page:{page}"), cancel.clone());
@@ -4579,6 +5141,7 @@ impl PptExtensionService {
                 next_title,
                 direction,
                 &template_hint,
+                template_reference.roster.as_str(),
             );
             let future = AiService::complete_once(&db, &prompt, model_id);
             match await_cancellable(future, &cancel, Duration::from_secs(AI_PAGE_TIMEOUT_SECS)).await {
@@ -5218,6 +5781,245 @@ mod tests {
         update_ai_selection(&project, 2, &candidates[0].svg, &candidates[..1]).unwrap();
         assert!(!project.join("candidates/P02_2.svg").exists());
         assert!(!project.join("candidates/P02_3.svg").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn slide_with_title(title: &str) -> PptSlide {
+        PptSlide {
+            title: title.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn derives_template_page_types_from_file_names() {
+        assert_eq!(derive_template_page_type("01_cover"), "cover");
+        assert_eq!(derive_template_page_type("01a_cover"), "cover");
+        assert_eq!(derive_template_page_type("06_structure_breakdown"), "structure_breakdown");
+        assert_eq!(derive_template_page_type("content"), "content");
+    }
+
+    #[test]
+    fn selects_template_page_by_title_semantics() {
+        let kpi = [
+            "cover",
+            "toc",
+            "key_findings",
+            "kpi_overview",
+            "trend_chart",
+            "structure_breakdown",
+            "performance_table",
+            "risk_gauge",
+            "comparison",
+            "annual_review",
+            "summary_table",
+            "ending",
+        ];
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("核心指标总览"), 2, 8, &kpi).as_deref(),
+            Some("kpi_overview")
+        );
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("核心发现"), 2, 8, &kpi).as_deref(),
+            Some("key_findings")
+        );
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("趋势分析"), 2, 8, &kpi).as_deref(),
+            Some("trend_chart")
+        );
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("风险提示"), 2, 8, &kpi).as_deref(),
+            Some("risk_gauge")
+        );
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("方案对比"), 2, 8, &kpi).as_deref(),
+            Some("comparison")
+        );
+    }
+
+    #[test]
+    fn selects_scenario_pages_across_templates() {
+        let insight = [
+            "cover",
+            "key_findings",
+            "concept_definition",
+            "model_diagram",
+            "comparison_table",
+            "quote",
+            "framework",
+            "workflow",
+            "case_study",
+            "quick_reference",
+            "recommended_reading",
+            "ending",
+        ];
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("概念定义"), 2, 8, &insight).as_deref(),
+            Some("concept_definition")
+        );
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("专家引用"), 2, 8, &insight).as_deref(),
+            Some("quote")
+        );
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("案例复盘"), 2, 8, &insight).as_deref(),
+            Some("case_study")
+        );
+
+        let mbb = [
+            "cover",
+            "executive_summary",
+            "metrics_dashboard",
+            "distribution",
+            "importance_performance",
+            "root_cause",
+            "strategy_pillars",
+            "initiative_priority",
+            "roadmap",
+        ];
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("根因分析"), 2, 8, &mbb).as_deref(),
+            Some("root_cause")
+        );
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("举措优先级"), 2, 8, &mbb).as_deref(),
+            Some("initiative_priority")
+        );
+
+        let tech = [
+            "cover",
+            "positioning",
+            "product_card",
+            "core_difference",
+            "data_comparison",
+            "combination",
+            "decision_tree",
+            "comparison_table",
+            "summary",
+        ];
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("决策树"), 2, 8, &tech).as_deref(),
+            Some("decision_tree")
+        );
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("产品定位"), 2, 8, &tech).as_deref(),
+            Some("positioning")
+        );
+    }
+
+    #[test]
+    fn selects_position_and_fallback_template_pages() {
+        let kpi = [
+            "cover",
+            "toc",
+            "key_findings",
+            "kpi_overview",
+            "comparison",
+            "ending",
+        ];
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("任意标题"), 0, 8, &kpi).as_deref(),
+            Some("cover")
+        );
+        assert_eq!(
+            choose_template_page_type(&slide_with_title("谢谢"), 7, 8, &kpi).as_deref(),
+            Some("ending")
+        );
+
+        let aviation = [
+            "cover",
+            "toc",
+            "chapter",
+            "content",
+            "content_cards",
+            "process_steps",
+            "ending",
+        ];
+        let mut slide = slide_with_title("推进路径");
+        slide.chart_type = "process".into();
+        assert_eq!(
+            choose_template_page_type(&slide, 2, 8, &aviation).as_deref(),
+            Some("process_steps")
+        );
+
+        let fallback =
+            choose_template_page_type(&slide_with_title("杂项说明"), 2, 8, &kpi).unwrap();
+        assert_ne!(fallback, "cover");
+        assert_ne!(fallback, "toc");
+    }
+
+    #[test]
+    fn extracts_deduplicated_template_slots() {
+        let svg = "<text>{{TITLE}}</text><text>{{TITLE}}</text><text>{{KPI_1_VALUE}}</text>";
+        assert_eq!(
+            placeholder_tokens(svg),
+            vec!["TITLE".to_string(), "KPI_1_VALUE".to_string()]
+        );
+    }
+
+    #[test]
+    fn rejects_svg_with_template_placeholders() {
+        let slide = slide_with_title("标题");
+        let svg = "<svg viewBox=\"0 0 1280 720\"><text>{{TITLE}}</text></svg>";
+        let score = score_svg_candidate(svg, &slide, &std::collections::HashSet::new(), &[]);
+        assert!(score.hard_fail);
+        assert!(score.issues.iter().any(|issue| issue.contains("占位符")));
+    }
+
+    #[test]
+    fn prompt_includes_selected_template_page_and_roster() {
+        let slide = slide_with_title("核心指标总览");
+        let plan = PptPlan {
+            title: "测试".into(),
+            slides: vec![slide.clone()],
+        };
+        let prompt = page_generation_prompt(
+            &plan,
+            &slide,
+            "spec",
+            "understanding",
+            "",
+            "",
+            "方向",
+            "模板页参考-XYZ",
+            "模板页面清单-ABC",
+        );
+        assert!(prompt.contains("【模板版式参考】"));
+        assert!(prompt.contains("模板页参考-XYZ"));
+        assert!(prompt.contains("【模板页面清单】"));
+        assert!(prompt.contains("模板页面清单-ABC"));
+    }
+
+    #[test]
+    fn builds_template_reference_from_design_spec_and_pages() {
+        let root =
+            std::env::temp_dir().join(format!("ppt-template-ref-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("01_cover.svg"),
+            "<svg viewBox=\"0 0 1280 720\"><text>{{TITLE}}</text></svg>",
+        )
+        .unwrap();
+        fs::write(
+            root.join("04_kpi_overview.svg"),
+            "<svg viewBox=\"0 0 1280 720\"><text>{{KPI_1_VALUE}}</text></svg>",
+        )
+        .unwrap();
+        fs::write(
+            root.join("design_spec.md"),
+            "## IV. Signature Design Elements\n- 顶部识别线\n\n## V. Page Roster\n| 04_kpi_overview | KPI Overview |",
+        )
+        .unwrap();
+
+        let reference = build_template_reference(Some(&root), "kpi_report_core");
+        assert!(!reference.is_empty());
+        assert!(reference.roster.contains("Page Roster"));
+        let hint = reference.hint_for(&slide_with_title("核心指标总览"), 2, 8);
+        assert!(hint.contains("kpi_report_core/kpi_overview"));
+        assert!(hint.contains("04_kpi_overview.svg"));
+        assert!(hint.contains("KPI_1_VALUE"));
+        assert!(!hint.contains("06_content_cards"));
+
         let _ = fs::remove_dir_all(root);
     }
 }

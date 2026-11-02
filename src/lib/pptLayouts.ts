@@ -1,5 +1,10 @@
 /** PPT 版式中文名称与说明。 */
-import type { PptLayoutMeta } from "@/types/extension";
+
+type LayoutMetaLike = {
+  nameZh?: string | null;
+  descriptionZh?: string | null;
+  summary?: string | null;
+};
 
 export const PPT_LAYOUT_NAMES: Record<string, string> = {
   // 当前内置模板
@@ -22,7 +27,7 @@ export const PPT_LAYOUT_NAMES: Record<string, string> = {
 
 export function layoutDisplayName(
   id: string,
-  meta?: PptLayoutMeta | null,
+  meta?: LayoutMetaLike | null,
 ): string {
   const fromMeta = meta?.nameZh?.trim();
   if (fromMeta) return fromMeta;
@@ -30,7 +35,7 @@ export function layoutDisplayName(
 }
 
 export function layoutDescription(
-  meta?: PptLayoutMeta | null,
+  meta?: LayoutMetaLike | null,
 ): string {
   return meta?.descriptionZh?.trim() || meta?.summary?.trim() || "";
 }

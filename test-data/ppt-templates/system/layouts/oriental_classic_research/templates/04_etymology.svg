@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="SimSun, Songti SC, serif" data-pptx-master="oriental-master" data-pptx-master-name="Oriental Classic Research Master" data-pptx-layout="etymology" data-pptx-layout-name="Etymology">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F5F3EF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="3" fill="#D4A84B" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="title-rule" x1="80" y1="128" x2="620" y2="128" stroke="#D4A84B" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ety-left-panel" x="80" y="168" width="420" height="440" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ety-char" x="290" y="420" font-size="180" fill="#2C3E50" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">谦</text>
+  <rect id="ety-right-panel" x="540" y="168" width="660" height="440" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ety-right-kicker" x="568" y="208" font-size="10" fill="#8B9A9A" font-weight="bold" letter-spacing="2" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">SEMANTIC DECOMPOSITION</text>
+  <text id="ety-part-1" x="568" y="286" font-size="44" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false">言</text>
+  <text id="ety-part-1-label" x="640" y="280" font-size="12" fill="#4A5568" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">言语 · 表达</text>
+  <text id="ety-part-2" x="568" y="366" font-size="44" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false">兼</text>
+  <text id="ety-part-2-label" x="640" y="360" font-size="12" fill="#4A5568" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">兼顾 · 合宜</text>
+  <line id="ety-divider" x1="568" y1="400" x2="1170" y2="400" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="page-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 56 900 60"><text id="page-title-slot-carrier" data-pptx-carrier="true" x="80" y="106" font-size="30" fill="#2C3E50" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="ety-insight-slot" data-pptx-placeholder="object" data-pptx-idx="2" data-pptx-bounds="568 420 580 160"><text id="ety-insight-slot-carrier" data-pptx-carrier="true" x="568" y="450" font-size="14" fill="#2C3E50">{{ETYMOLOGY_INSIGHT}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#8B9A9A">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#8B9A9A" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

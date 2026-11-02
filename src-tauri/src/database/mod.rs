@@ -16,6 +16,7 @@ pub mod mounts;
 pub mod note_attachments;
 pub mod notes;
 pub mod plugins;
+pub mod ppt_templates;
 pub mod projects;
 pub mod prompt;
 pub mod push;

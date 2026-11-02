@@ -40,7 +40,7 @@
 ## 3. 已实现能力
 
 | 能力 | 状态 | 说明 |
-|---|---|---|
+| --- | --- | --- |
 | 本地 zip 安装/启停/卸载 | 已完成 | 预检清单、权限、兼容性、完整性哈希 |
 | 扩展 API/协议版本 | 已完成 | `apiVersion` / `protocolVersion`，当前均为 1 |
 | 离线签名 | 已完成 | 可选 Ed25519 签名，验签失败拒绝安装 |
@@ -88,7 +88,7 @@
 ### 字段说明
 
 | 字段 | 必填 | 用途 |
-|---|---|---|
+| --- | --- | --- |
 | PPT 标题 | 是 | AI 主题、任务名、导出文件名、设计说明标题 |
 | 汇报对象 | 否 | 影响 AI 内容深度、语气、案例与页面组织 |
 | 版式模板 | 否 | 选择页面骨架并填充占位符 |
@@ -104,7 +104,7 @@
 ```
 
 | 步骤 | 交互 | 状态 |
-|---|---|---|
+| --- | --- | --- |
 | 素材与设置 | 选择文档/本地文件，AI 建议标题与汇报对象 | 已完成 |
 | 风格确认 | 版式卡片展示封面预览、中文名称与说明，确认版式/图表/原生图表 | 已完成 |
 | 大纲确认 | 调整页序、标题、核心信息、要点 | 已完成 |
@@ -279,7 +279,7 @@ node scripts/build-ppt-extension.mjs \
   --signing-key "D:/keys/extension-private.pem"
 ```
 
-构建日志会输出 base64 公钥；主程序通过环境变量
+构建日志会输出 base64 公钥；主程序通过环境变量\
 `PPT_EXTENSION_PUBLIC_KEY` 配置后才会接受带签名的包。
 
 ## 8. 验证结果
@@ -342,7 +342,7 @@ node scripts/build-ppt-extension.mjs \
 ## 11. 版本记录
 
 | 版本 | 内容 |
-|---|---|
+| --- | --- |
 | 1.0.0 | 扩展包框架、PPT 页、确定性 SVG 渲染、python-pptx/svg_to_pptx 导出 |
 | 1.0.1 | aviation_training_blue 版式索引注入、本地文件素材、分页搜索 |
 | 1.0.2 | layout 页型选择与占位填充、图表片段嵌入 |
@@ -357,7 +357,7 @@ node scripts/build-ppt-extension.mjs \
 ## 12. 关键文件
 
 | 路径 | 作用 |
-|---|---|
+| --- | --- |
 | `src-tauri/src/services/extension.rs` | 扩展包安装/校验/启停 |
 | `src-tauri/src/services/extension_runner.rs` | 子进程、环境白名单、JSONL 事件与日志 |
 | `src-tauri/src/services/ppt_extension.rs` | 素材收集/AI 规划/作业/重试/诊断 |

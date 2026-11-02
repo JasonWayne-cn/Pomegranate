@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="insight-master" data-pptx-master-name="Insight Explainer Master" data-pptx-layout="case-study" data-pptx-layout-name="Case Study">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#0F766E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cs-left-panel" x="80" y="168" width="520" height="440" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cs-left-head" x="80" y="168" width="520" height="56" fill="#F8FAFC" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cs-left-label" x="104" y="202" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">CONTEXT</text>
+  <rect id="cs-right-panel" x="624" y="168" width="576" height="440" rx="10" fill="#F8FAFC" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cs-right-bar" x="624" y="168" width="8" height="440" fill="#0F766E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cs-right-label" x="656" y="202" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">APPLICATION</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1E293B" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="cs-context-title-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="104 244 472 34"><text id="cs-context-title-slot-carrier" data-pptx-carrier="true" x="104" y="270" font-size="16" fill="#1E293B" font-weight="bold">{{CONTEXT_TITLE}}</text></g>
+  <g id="cs-context-body-slot" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="104 286 472 290"><text id="cs-context-body-slot-carrier" data-pptx-carrier="true" x="104" y="314" font-size="13" fill="#475569">{{CONTEXT_DETAIL}}</text></g>
+  <g id="cs-application-title-slot" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="656 244 512 34"><text id="cs-application-title-slot-carrier" data-pptx-carrier="true" x="656" y="270" font-size="16" fill="#1E293B" font-weight="bold">{{APPLICATION_TITLE}}</text></g>
+  <g id="cs-application-body-slot" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="656 286 512 290"><text id="cs-application-body-slot-carrier" data-pptx-carrier="true" x="656" y="314" font-size="13" fill="#475569">{{APPLICATION_DETAIL}}</text></g>
+</svg>

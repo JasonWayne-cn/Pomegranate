@@ -1,0 +1,112 @@
+{
+  "insight_explainer": {
+    "summary": "浅色学术与技术讲解结构，覆盖概念定义、模型、对比、框架、流程与案例。",
+    "canvas_format": "ppt169",
+    "page_count": 14,
+    "page_types": [
+      "cover",
+      "contents",
+      "chapter",
+      "key_findings",
+      "concept_definition",
+      "model_diagram",
+      "comparison_table",
+      "quote",
+      "framework",
+      "workflow",
+      "case_study",
+      "quick_reference",
+      "recommended_reading",
+      "ending"
+    ]
+  },
+  "kpi_report_core": {
+    "summary": "中性 KPI 报告结构，覆盖年度回顾、区域经济财政与指标型汇报。",
+    "canvas_format": "ppt169",
+    "page_count": 12,
+    "page_types": [
+      "cover",
+      "toc",
+      "key_findings",
+      "kpi_overview",
+      "trend_chart",
+      "structure_breakdown",
+      "performance_table",
+      "risk_gauge",
+      "comparison",
+      "annual_review",
+      "summary_table",
+      "ending"
+    ]
+  },
+  "mbb_dense_report": {
+    "summary": "高密度咨询报告结构，覆盖行动标题、关键信息带、指标看板、重要性-绩效矩阵、根因、战略支柱、举措排序与路线图。",
+    "canvas_format": "ppt169",
+    "page_count": 9,
+    "page_types": [
+      "cover",
+      "executive_summary",
+      "metrics_dashboard",
+      "distribution",
+      "importance_performance",
+      "root_cause",
+      "strategy_pillars",
+      "initiative_priority",
+      "roadmap"
+    ]
+  },
+  "oriental_classic_research": {
+    "summary": "东方古典研究结构，覆盖研究架构、章节页、语源解构、核心引文、四法则、六爻总览、爻位详解、关系网、现代应用与结论。",
+    "canvas_format": "ppt169",
+    "page_count": 12,
+    "page_types": [
+      "cover",
+      "research_architecture",
+      "chapter",
+      "etymology",
+      "core_insight",
+      "four_laws",
+      "six_yao_overview",
+      "yao_detail",
+      "relationship_network",
+      "modern_application",
+      "conclusion",
+      "ending"
+    ]
+  },
+  "premium_strategy_dark": {
+    "summary": "高端战略评估结构，覆盖封面、目录、执行摘要、项目定位、技术参数、商业模式、融资结构、风险矩阵、宏观危机、结论、展望与附录。",
+    "canvas_format": "ppt169",
+    "page_count": 12,
+    "page_types": [
+      "cover",
+      "toc",
+      "executive_summary",
+      "project_positioning",
+      "technical_params",
+      "business_model",
+      "financing_structure",
+      "risk_matrix",
+      "macro_crisis",
+      "conclusions",
+      "outlook",
+      "appendix"
+    ]
+  },
+  "tech_compare_dark": {
+    "summary": "科技工具对比结构，覆盖工具定位、工具档案、核心区别、数据对比、组合方案、决策树、对照表与总结。",
+    "canvas_format": "ppt169",
+    "page_count": 9,
+    "page_types": [
+      "cover",
+      "positioning",
+      "product_card",
+      "core_difference",
+      "data_comparison",
+      "combination",
+      "decision_tree",
+      "comparison_table",
+      "summary"
+    ]
+  }
+}

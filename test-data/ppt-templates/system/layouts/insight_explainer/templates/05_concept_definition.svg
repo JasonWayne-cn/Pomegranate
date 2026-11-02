@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="insight-master" data-pptx-master-name="Insight Explainer Master" data-pptx-layout="concept-definition" data-pptx-layout-name="Concept Definition">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#0F766E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cd-left-panel" x="80" y="168" width="420" height="440" rx="10" fill="#F8FAFC" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cd-left-label" x="104" y="208" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">CORE TERM</text>
+  <rect id="cd-right-panel" x="540" y="168" width="660" height="440" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cd-right-label" x="568" y="208" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">WORKING DEFINITION</text>
+  <rect id="cd-facet-dot-1" x="568" y="396" width="10" height="10" fill="#0F766E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cd-facet-dot-2" x="568" y="462" width="10" height="10" fill="#0F766E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cd-facet-dot-3" x="568" y="528" width="10" height="10" fill="#0F766E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1E293B" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="cd-term-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="104 226 372 100"><text id="cd-term-slot-carrier" data-pptx-carrier="true" x="104" y="310" font-size="40" fill="#1E293B" font-weight="bold">{{CORE_TERM}}</text></g>
+  <g id="cd-term-en-slot" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="104 330 372 34"><text id="cd-term-en-slot-carrier" data-pptx-carrier="true" x="104" y="356" font-size="14" fill="#0F766E">{{CORE_TERM_EN}}</text></g>
+  <g id="cd-definition-slot" data-pptx-placeholder="object" data-pptx-idx="4" data-pptx-bounds="568 226 604 140"><text id="cd-definition-slot-carrier" data-pptx-carrier="true" x="568" y="256" font-size="15" fill="#1E293B">{{DEFINITION}}</text></g>
+  <g id="cd-facet-slot-1" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="590 390 580 34"><text id="cd-facet-slot-1-carrier" data-pptx-carrier="true" x="590" y="414" font-size="13" fill="#475569">{{FACET_1}}</text></g>
+  <g id="cd-facet-slot-2" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="590 456 580 34"><text id="cd-facet-slot-2-carrier" data-pptx-carrier="true" x="590" y="480" font-size="13" fill="#475569">{{FACET_2}}</text></g>
+  <g id="cd-facet-slot-3" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="590 522 580 34"><text id="cd-facet-slot-3-carrier" data-pptx-carrier="true" x="590" y="546" font-size="13" fill="#475569">{{FACET_3}}</text></g>
+</svg>

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="premium-master" data-pptx-master-name="Premium Strategy Master" data-pptx-layout="technical-params" data-pptx-layout-name="Technical Parameters">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F0F5F7" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#C9A227" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="content-top-band" x="0" y="4" width="1280" height="84" fill="#0D2B3E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="content-kicker" x="64" y="30" font-size="9" fill="#7ED4E6" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">STRATEGIC ASSESSMENT</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="tp-table" x="64" y="160" width="1152" height="444" rx="4" fill="#FFFFFF" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="tp-head" x="64" y="160" width="1152" height="52" fill="#0D2B3E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tp-head-1" x="88" y="192" font-size="10" fill="#7ED4E6" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">PARAMETER</text>
+  <text id="tp-head-2" x="376" y="192" font-size="10" fill="#7ED4E6" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">UNIT</text>
+  <text id="tp-head-3" x="664" y="192" font-size="10" fill="#7ED4E6" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">VALUE</text>
+  <text id="tp-head-4" x="952" y="192" font-size="10" fill="#7ED4E6" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">NOTE</text>
+  <line id="tp-row-1" x1="64" y1="212" x2="1216" y2="212" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tp-row-label-1" x="88" y="250" font-size="12" fill="#718096" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">Parameter 01</text>
+  <line id="tp-row-2" x1="64" y1="276" x2="1216" y2="276" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tp-row-label-2" x="88" y="314" font-size="12" fill="#718096" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">Parameter 02</text>
+  <line id="tp-row-3" x1="64" y1="340" x2="1216" y2="340" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tp-row-label-3" x="88" y="378" font-size="12" fill="#718096" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">Parameter 03</text>
+  <line id="tp-row-4" x1="64" y1="404" x2="1216" y2="404" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tp-row-label-4" x="88" y="442" font-size="12" fill="#718096" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">Parameter 04</text>
+  <line id="tp-row-5" x1="64" y1="468" x2="1216" y2="468" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tp-row-label-5" x="88" y="506" font-size="12" fill="#718096" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">Parameter 05</text>
+  <line id="tp-row-6" x1="64" y1="532" x2="1216" y2="532" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="tp-row-label-6" x="88" y="570" font-size="12" fill="#718096" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">Parameter 06</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="64 38 1120 42"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="64" y="72" font-size="22" fill="#FFFFFF" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="64 106 1120 30"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="64" y="128" font-size="13" fill="#718096">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#718096">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#718096" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="tp-row-value-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="664 224 220 38"><text id="tp-row-value-slot-1-carrier" data-pptx-carrier="true" x="664" y="252" font-size="20" fill="#0D2B3E" font-weight="bold">{{PARAM_1_VALUE}}</text></g>
+  <g id="tp-row-value-slot-2" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="664 288 220 38"><text id="tp-row-value-slot-2-carrier" data-pptx-carrier="true" x="664" y="316" font-size="20" fill="#0D2B3E" font-weight="bold">{{PARAM_2_VALUE}}</text></g>
+  <g id="tp-row-value-slot-3" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="664 352 220 38"><text id="tp-row-value-slot-3-carrier" data-pptx-carrier="true" x="664" y="380" font-size="20" fill="#0D2B3E" font-weight="bold">{{PARAM_3_VALUE}}</text></g>
+  <g id="tp-row-value-slot-4" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="664 416 220 38"><text id="tp-row-value-slot-4-carrier" data-pptx-carrier="true" x="664" y="444" font-size="20" fill="#0D2B3E" font-weight="bold">{{PARAM_4_VALUE}}</text></g>
+  <g id="tp-row-value-slot-5" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="664 480 220 38"><text id="tp-row-value-slot-5-carrier" data-pptx-carrier="true" x="664" y="508" font-size="20" fill="#0D2B3E" font-weight="bold">{{PARAM_5_VALUE}}</text></g>
+  <g id="tp-row-value-slot-6" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="664 544 220 38"><text id="tp-row-value-slot-6-carrier" data-pptx-carrier="true" x="664" y="572" font-size="20" fill="#0D2B3E" font-weight="bold">{{PARAM_6_VALUE}}</text></g>
+  <g id="tp-note-slot" data-pptx-placeholder="object" data-pptx-idx="8" data-pptx-bounds="88 606 1096 28"><text id="tp-note-slot-carrier" data-pptx-carrier="true" x="88" y="626" font-size="10" fill="#718096">{{TABLE_NOTE}}</text></g>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="kpi-master" data-pptx-master-name="KPI Report Master" data-pptx-layout="ending" data-pptx-layout-name="Ending">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#3B6EA5" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="end-center-band" x="0" y="260" width="1280" height="200" fill="#F5F7FA" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="end-accent" x="560" y="300" width="160" height="4" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="end-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="240 320 800 70"><text id="end-title-slot-carrier" data-pptx-carrier="true" x="640" y="374" font-size="38" fill="#1F2937" font-weight="bold" text-anchor="middle">{{THANK_YOU}}</text></g>
+  <g id="end-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="240 400 800 40"><text id="end-subtitle-slot-carrier" data-pptx-carrier="true" x="640" y="430" font-size="15" fill="#4B5563" text-anchor="middle">{{ENDING_SUBTITLE}}</text></g>
+  <g id="end-contact-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="340 500 600 30"><text id="end-contact-slot-carrier" data-pptx-carrier="true" x="640" y="522" font-size="12" fill="#9CA3AF" text-anchor="middle">{{CONTACT_INFO}}</text></g>
+</svg>

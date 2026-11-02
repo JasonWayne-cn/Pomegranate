@@ -9,6 +9,7 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Typography,
   message,
@@ -18,6 +19,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, PackagePlus, RefreshCw, Trash2 } from "lucide-react";
 import { extensionApi } from "@/lib/api/extension";
 import type { ExtensionInfo, ExtensionInspection } from "@/types/extension";
+import TemplateLibrary from "./TemplateLibrary";
 
 const { Text, Paragraph } = Typography;
 
@@ -292,55 +294,79 @@ export default function ExtensionsPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-6">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <Typography.Title level={3} className="!mb-1">
-            功能扩展包
-          </Typography.Title>
-          <Text type="secondary">
-            扩展包按需安装，未安装时主程序不加载任何引擎；目前支持本地 zip 导入。
-          </Text>
-        </div>
-        <Space>
-          <Button icon={<RefreshCw size={16} />} onClick={() => void load()}>
-            刷新
-          </Button>
-          <Button
-            type="primary"
-            icon={<PackagePlus size={16} />}
-            loading={installing}
-            onClick={() => void handleInstall()}
-          >
-            安装扩展包
-          </Button>
-        </Space>
+      <div className="mb-4">
+        <Typography.Title level={3} className="!mb-1">
+          扩展与模板
+        </Typography.Title>
+        <Text type="secondary">
+          引擎扩展按需安装；用户模板可随时导入，不需要重装扩展包。
+        </Text>
       </div>
 
-      <Alert
-        className="mb-4"
-        type="warning"
-        showIcon
-        message="安全提示"
-        description="扩展包会运行本地 Python 引擎。请只安装可信来源的 zip；安装前会展示权限声明与兼容性。"
-      />
+      <Tabs
+        items={[
+          {
+            key: "engine",
+            label: "引擎扩展",
+            children: (
+              <div>
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <Text type="secondary">
+                    扩展包按需安装，未安装时主程序不加载任何引擎；目前支持本地 zip 导入。
+                  </Text>
+                  <Space>
+                    <Button
+                      icon={<RefreshCw size={16} />}
+                      onClick={() => void load()}
+                    >
+                      刷新
+                    </Button>
+                    <Button
+                      type="primary"
+                      icon={<PackagePlus size={16} />}
+                      loading={installing}
+                      onClick={() => void handleInstall()}
+                    >
+                      安装扩展包
+                    </Button>
+                  </Space>
+                </div>
 
-      <Card>
-        <Table
-          rowKey="id"
-          columns={columns}
-          dataSource={items}
-          loading={loading}
-          pagination={false}
-          locale={{
-            emptyText: (
-              <Empty
-                description="尚未安装扩展包"
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              />
+                <Alert
+                  className="mb-4"
+                  type="warning"
+                  showIcon
+                  message="安全提示"
+                  description="扩展包会运行本地 Python 引擎。请只安装可信来源的 zip；安装前会展示权限声明与兼容性。"
+                />
+
+                <Card>
+                  <Table
+                    rowKey="id"
+                    columns={columns}
+                    dataSource={items}
+                    loading={loading}
+                    pagination={false}
+                    locale={{
+                      emptyText: (
+                        <Empty
+                          description="尚未安装扩展包"
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        />
+                      ),
+                    }}
+                  />
+                </Card>
+              </div>
             ),
-          }}
-        />
-      </Card>
+          },
+          {
+            key: "templates",
+            label: "模板库",
+            children: <TemplateLibrary />,
+          },
+        ]}
+      />
     </div>
   );
 }

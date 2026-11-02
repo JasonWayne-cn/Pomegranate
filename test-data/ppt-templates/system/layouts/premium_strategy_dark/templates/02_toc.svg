@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="premium-master" data-pptx-master-name="Premium Strategy Master" data-pptx-layout="toc" data-pptx-layout-name="Table of Contents">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F0F5F7" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#C9A227" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="toc-rail" x="0" y="0" width="360" height="720" fill="#0D2B3E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-rail-kicker" x="56" y="74" font-size="10" fill="#7ED4E6" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">REPORT CONTENTS</text>
+  <text id="toc-rail-title" x="56" y="132" font-size="30" fill="#FFFFFF" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">报告目录</text>
+  <line id="toc-rail-rule" x1="56" y1="162" x2="304" y2="162" stroke="#C9A227" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-rail-note" x="56" y="620" font-size="12" fill="#B8C7CE" data-pptx-layer="layout" data-pptx-editable="false">六大章节 · 从工程事实到战略判断</text>
+  <text id="toc-num-1" x="424" y="124" font-size="22" fill="#C9A227" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <line id="toc-line-1" x1="476" y1="134" x2="1180" y2="134" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-num-2" x="424" y="216" font-size="22" fill="#C9A227" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <line id="toc-line-2" x1="476" y1="226" x2="1180" y2="226" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-num-3" x="424" y="308" font-size="22" fill="#C9A227" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <line id="toc-line-3" x1="476" y1="318" x2="1180" y2="318" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-num-4" x="424" y="400" font-size="22" fill="#C9A227" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <line id="toc-line-4" x1="476" y1="410" x2="1180" y2="410" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-num-5" x="424" y="492" font-size="22" fill="#C9A227" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">05</text>
+  <line id="toc-line-5" x1="476" y1="502" x2="1180" y2="502" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-num-6" x="424" y="584" font-size="22" fill="#C9A227" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">06</text>
+  <line id="toc-line-6" x1="476" y1="594" x2="1180" y2="594" stroke="#D8E2E7" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="toc-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="476 96 704 34"><text id="toc-title-slot-1-carrier" data-pptx-carrier="true" x="476" y="124" font-size="18" fill="#0D2B3E" font-weight="bold">{{SECTION_1_TITLE}}</text></g>
+  <g id="toc-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="476 188 704 34"><text id="toc-title-slot-2-carrier" data-pptx-carrier="true" x="476" y="216" font-size="18" fill="#0D2B3E" font-weight="bold">{{SECTION_2_TITLE}}</text></g>
+  <g id="toc-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="476 280 704 34"><text id="toc-title-slot-3-carrier" data-pptx-carrier="true" x="476" y="308" font-size="18" fill="#0D2B3E" font-weight="bold">{{SECTION_3_TITLE}}</text></g>
+  <g id="toc-title-slot-4" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="476 372 704 34"><text id="toc-title-slot-4-carrier" data-pptx-carrier="true" x="476" y="400" font-size="18" fill="#0D2B3E" font-weight="bold">{{SECTION_4_TITLE}}</text></g>
+  <g id="toc-title-slot-5" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="476 464 704 34"><text id="toc-title-slot-5-carrier" data-pptx-carrier="true" x="476" y="492" font-size="18" fill="#0D2B3E" font-weight="bold">{{SECTION_5_TITLE}}</text></g>
+  <g id="toc-title-slot-6" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="476 556 704 34"><text id="toc-title-slot-6-carrier" data-pptx-carrier="true" x="476" y="584" font-size="18" fill="#0D2B3E" font-weight="bold">{{SECTION_6_TITLE}}</text></g>
+</svg>

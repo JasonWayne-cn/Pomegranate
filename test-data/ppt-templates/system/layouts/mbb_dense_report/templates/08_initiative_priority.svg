@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="mbb-master" data-pptx-master-name="MBB Report Master" data-pptx-layout="initiative-priority" data-pptx-layout-name="Initiative Priority">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="6" fill="#18345E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="ip-chart-panel" x="80" y="168" width="720" height="440" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ip-chart-label" x="104" y="204" font-size="11" fill="#18345E" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">IMPACT VS COST</text>
+  <line id="ip-axis-x" x1="120" y1="540" x2="760" y2="540" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="ip-axis-y" x1="120" y1="240" x2="120" y2="540" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ip-label-1" x="132" y="275" font-size="12" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">Free after-sales</text>
+  <rect id="ip-track-1" x="300" y="260" width="300" height="16" rx="8" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ip-bar-1" x="300" y="260" width="276" height="16" rx="8" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="ip-cost-dot-1" cx="728" cy="268" r="8" fill="#F59E0B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ip-label-2" x="132" y="329" font-size="12" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">Loyalty discount</text>
+  <rect id="ip-track-2" x="300" y="314" width="300" height="16" rx="8" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ip-bar-2" x="300" y="314" width="252" height="16" rx="8" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="ip-cost-dot-2" cx="742" cy="322" r="8" fill="#F59E0B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ip-label-3" x="132" y="383" font-size="12" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">CRM automation</text>
+  <rect id="ip-track-3" x="300" y="368" width="300" height="16" rx="8" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ip-bar-3" x="300" y="368" width="198" height="16" rx="8" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="ip-cost-dot-3" cx="718" cy="376" r="8" fill="#F59E0B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ip-label-4" x="132" y="437" font-size="12" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">Service training</text>
+  <rect id="ip-track-4" x="300" y="422" width="300" height="16" rx="8" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ip-bar-4" x="300" y="422" width="174" height="16" rx="8" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="ip-cost-dot-4" cx="710" cy="430" r="8" fill="#F59E0B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ip-label-5" x="132" y="491" font-size="12" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">Referral programme</text>
+  <rect id="ip-track-5" x="300" y="476" width="300" height="16" rx="8" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ip-bar-5" x="300" y="476" width="138" height="16" rx="8" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="ip-cost-dot-5" cx="702" cy="484" r="8" fill="#F59E0B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ip-axis-x-label" x="440" y="570" font-size="10" fill="#94A3B8" font-weight="bold" text-anchor="middle" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">IMPACT →</text>
+  <text id="ip-cost-legend" x="680" y="204" font-size="10" fill="#F59E0B" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">AMBER = COST</text>
+  <rect id="ip-list-panel" x="840" y="168" width="360" height="440" rx="8" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ip-list-title" x="864" y="204" font-size="11" fill="#18345E" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">PRIORITY RANKING</text>
+  <text id="ip-rank-1" x="864" y="254" font-size="16" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <text id="ip-rank-2" x="864" y="322" font-size="16" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <text id="ip-rank-3" x="864" y="390" font-size="16" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <text id="ip-rank-4" x="864" y="458" font-size="16" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <text id="ip-rank-5" x="864" y="526" font-size="16" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">05</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="page-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="page-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1E293B" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="page-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="page-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="ip-rank-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="900 232 276 30"><text id="ip-rank-title-slot-1-carrier" data-pptx-carrier="true" x="900" y="254" font-size="13" fill="#1E293B" font-weight="bold">{{INITIATIVE_1}}</text></g>
+  <g id="ip-rank-value-slot-1" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="900 262 276 24"><text id="ip-rank-value-slot-1-carrier" data-pptx-carrier="true" x="900" y="282" font-size="11" fill="#475569">{{INITIATIVE_1_VALUE}}</text></g>
+  <g id="ip-rank-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="900 300 276 30"><text id="ip-rank-title-slot-2-carrier" data-pptx-carrier="true" x="900" y="322" font-size="13" fill="#1E293B" font-weight="bold">{{INITIATIVE_2}}</text></g>
+  <g id="ip-rank-value-slot-2" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="900 330 276 24"><text id="ip-rank-value-slot-2-carrier" data-pptx-carrier="true" x="900" y="350" font-size="11" fill="#475569">{{INITIATIVE_2_VALUE}}</text></g>
+  <g id="ip-rank-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="900 368 276 30"><text id="ip-rank-title-slot-3-carrier" data-pptx-carrier="true" x="900" y="390" font-size="13" fill="#1E293B" font-weight="bold">{{INITIATIVE_3}}</text></g>
+  <g id="ip-rank-value-slot-3" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="900 398 276 24"><text id="ip-rank-value-slot-3-carrier" data-pptx-carrier="true" x="900" y="418" font-size="11" fill="#475569">{{INITIATIVE_3_VALUE}}</text></g>
+  <g id="ip-rank-title-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="900 436 276 30"><text id="ip-rank-title-slot-4-carrier" data-pptx-carrier="true" x="900" y="458" font-size="13" fill="#1E293B" font-weight="bold">{{INITIATIVE_4}}</text></g>
+  <g id="ip-rank-value-slot-4" data-pptx-placeholder="body" data-pptx-idx="9" data-pptx-bounds="900 466 276 24"><text id="ip-rank-value-slot-4-carrier" data-pptx-carrier="true" x="900" y="486" font-size="11" fill="#475569">{{INITIATIVE_4_VALUE}}</text></g>
+  <g id="ip-rank-title-slot-5" data-pptx-placeholder="body" data-pptx-idx="10" data-pptx-bounds="900 504 276 30"><text id="ip-rank-title-slot-5-carrier" data-pptx-carrier="true" x="900" y="526" font-size="13" fill="#1E293B" font-weight="bold">{{INITIATIVE_5}}</text></g>
+  <g id="ip-rank-value-slot-5" data-pptx-placeholder="body" data-pptx-idx="11" data-pptx-bounds="900 534 276 24"><text id="ip-rank-value-slot-5-carrier" data-pptx-carrier="true" x="900" y="554" font-size="11" fill="#475569">{{INITIATIVE_5_VALUE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

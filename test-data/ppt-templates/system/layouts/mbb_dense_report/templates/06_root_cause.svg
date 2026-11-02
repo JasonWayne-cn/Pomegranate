@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="mbb-master" data-pptx-master-name="MBB Report Master" data-pptx-layout="root-cause" data-pptx-layout-name="Root Cause">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="6" fill="#18345E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="rc-col-1" x="80" y="168" width="260" height="330" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rc-col-top-1" x="80" y="168" width="260" height="6" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rc-col-num-1" x="104" y="214" font-size="22" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <rect id="rc-col-2" x="360" y="168" width="260" height="330" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rc-col-top-2" x="360" y="168" width="260" height="6" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rc-col-num-2" x="384" y="214" font-size="22" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <rect id="rc-col-3" x="640" y="168" width="260" height="330" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rc-col-top-3" x="640" y="168" width="260" height="6" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rc-col-num-3" x="664" y="214" font-size="22" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <rect id="rc-col-4" x="920" y="168" width="260" height="330" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rc-col-top-4" x="920" y="168" width="260" height="6" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rc-col-num-4" x="944" y="214" font-size="22" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <rect id="rc-root-band" x="80" y="524" width="1120" height="84" rx="8" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rc-root-label" x="104" y="556" font-size="10" fill="#38BDF8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">ROOT CAUSE</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="page-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="page-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1E293B" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="page-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="page-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="rc-col-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="104 230 212 34"><text id="rc-col-title-slot-1-carrier" data-pptx-carrier="true" x="104" y="254" font-size="15" fill="#1E293B" font-weight="bold">{{CAUSE_1_TITLE}}</text></g>
+  <g id="rc-col-body-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="104 266 212 200"><text id="rc-col-body-slot-1-carrier" data-pptx-carrier="true" x="104" y="292" font-size="13" fill="#475569">{{CAUSE_1_DETAIL}}</text></g>
+  <g id="rc-col-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="384 230 212 34"><text id="rc-col-title-slot-2-carrier" data-pptx-carrier="true" x="384" y="254" font-size="15" fill="#1E293B" font-weight="bold">{{CAUSE_2_TITLE}}</text></g>
+  <g id="rc-col-body-slot-2" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="384 266 212 200"><text id="rc-col-body-slot-2-carrier" data-pptx-carrier="true" x="384" y="292" font-size="13" fill="#475569">{{CAUSE_2_DETAIL}}</text></g>
+  <g id="rc-col-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="664 230 212 34"><text id="rc-col-title-slot-3-carrier" data-pptx-carrier="true" x="664" y="254" font-size="15" fill="#1E293B" font-weight="bold">{{CAUSE_3_TITLE}}</text></g>
+  <g id="rc-col-body-slot-3" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="664 266 212 200"><text id="rc-col-body-slot-3-carrier" data-pptx-carrier="true" x="664" y="292" font-size="13" fill="#475569">{{CAUSE_3_DETAIL}}</text></g>
+  <g id="rc-col-title-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="944 230 212 34"><text id="rc-col-title-slot-4-carrier" data-pptx-carrier="true" x="944" y="254" font-size="15" fill="#1E293B" font-weight="bold">{{CAUSE_4_TITLE}}</text></g>
+  <g id="rc-col-body-slot-4" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="944 266 212 200"><text id="rc-col-body-slot-4-carrier" data-pptx-carrier="true" x="944" y="292" font-size="13" fill="#475569">{{CAUSE_4_DETAIL}}</text></g>
+  <g id="rc-root-slot" data-pptx-placeholder="body" data-pptx-idx="10" data-pptx-bounds="220 536 950 58"><text id="rc-root-slot-carrier" data-pptx-carrier="true" x="220" y="566" font-size="17" fill="#FFFFFF">{{ROOT_CAUSE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

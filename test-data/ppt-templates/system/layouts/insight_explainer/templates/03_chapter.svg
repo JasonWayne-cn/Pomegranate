@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="insight-master" data-pptx-master-name="Insight Explainer Master" data-pptx-layout="chapter" data-pptx-layout-name="Chapter">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#0F766E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="chapter-band" x="0" y="0" width="420" height="720" fill="#F8FAFC" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="chapter-band-accent" x="420" y="0" width="8" height="720" fill="#0F766E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="chapter-number-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="80 210 300 190"><text id="chapter-number-slot-carrier" data-pptx-carrier="true" x="80" y="340" font-size="120" fill="#CBD5E1" font-weight="bold">{{CHAPTER_NUM}}</text></g>
+  <g id="chapter-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="500 260 700 100"><text id="chapter-title-slot-carrier" data-pptx-carrier="true" x="500" y="330" font-size="42" fill="#1E293B" font-weight="bold">{{CHAPTER_TITLE}}</text></g>
+  <g id="chapter-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="500 360 700 50"><text id="chapter-subtitle-slot-carrier" data-pptx-carrier="true" x="500" y="398" font-size="18" fill="#0F766E">{{CHAPTER_SUBTITLE}}</text></g>
+  <g id="chapter-desc-slot" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="500 440 700 80"><text id="chapter-desc-slot-carrier" data-pptx-carrier="true" x="500" y="470" font-size="14" fill="#475569">{{CHAPTER_DESC}}</text></g>
+</svg>

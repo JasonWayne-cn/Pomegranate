@@ -1,0 +1,45 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="aviation-master" data-pptx-master-name="Aviation Training Master" data-pptx-layout="content-cards" data-pptx-layout-name="Content Cards">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false" />
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="6" fill="#0071BC" data-pptx-layer="master" data-pptx-editable="false" />
+  <rect id="hdr-blue-square" x="40" y="24" width="56" height="56" fill="#0071BC" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="hdr-red-dot" cx="30" cy="76" r="10" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <line id="hdr-red-rule" x1="112" y1="84" x2="268" y2="84" stroke="#C1232D" stroke-width="7" data-pptx-layer="layout" data-pptx-editable="false" />
+  <line id="hdr-dash-rule" x1="112" y1="94" x2="1180" y2="94" stroke="#C1232D" stroke-width="1" stroke-dasharray="3,3" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="hdr-dash-dot" cx="1180" cy="94" r="5" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-1" x="80" y="156" width="344" height="214" rx="6" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-bar-1" x="80" y="156" width="344" height="5" fill="#0071BC" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="card-dot-1" cx="114" cy="198" r="12" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-2" x="456" y="156" width="344" height="214" rx="6" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-bar-2" x="456" y="156" width="344" height="5" fill="#50AAF4" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="card-dot-2" cx="490" cy="198" r="12" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-3" x="832" y="156" width="344" height="214" rx="6" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-bar-3" x="832" y="156" width="344" height="5" fill="#0071BC" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="card-dot-3" cx="866" cy="198" r="12" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-4" x="80" y="394" width="344" height="214" rx="6" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-bar-4" x="80" y="394" width="344" height="5" fill="#50AAF4" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="card-dot-4" cx="114" cy="436" r="12" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-5" x="456" y="394" width="344" height="214" rx="6" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-bar-5" x="456" y="394" width="344" height="5" fill="#0071BC" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="card-dot-5" cx="490" cy="436" r="12" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-6" x="832" y="394" width="344" height="214" rx="6" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="card-bar-6" x="832" y="394" width="344" height="5" fill="#50AAF4" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="card-dot-6" cx="866" cy="436" r="12" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <line id="chrome-footer-rule" x1="80" y1="650" x2="1200" y2="650" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <g id="hdr-section-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="112 12 320 52"><text id="hdr-section-slot-carrier" data-pptx-carrier="true" x="112" y="46" font-size="30" fill="#0071BC" font-weight="bold">{{SECTION_NAME}}</text></g>
+  <g id="hdr-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="280 56 900 44"><text id="hdr-title-slot-carrier" data-pptx-carrier="true" x="280" y="88" font-size="28" fill="#595959" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="card-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="104 214 296 34"><text id="card-title-slot-1-carrier" data-pptx-carrier="true" x="104" y="238.3" font-size="22" fill="#1F2937" font-weight="bold">{{CARD_1_TITLE}}</text></g>
+  <g id="card-body-slot-1" data-pptx-placeholder="object" data-pptx-idx="4" data-pptx-bounds="104 256 296 90"><text id="card-body-slot-1-carrier" data-pptx-carrier="true" x="104" y="284" font-size="22" fill="#595959">{{CARD_1_DETAIL}}</text></g>
+  <g id="card-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="480 214 296 34"><text id="card-title-slot-2-carrier" data-pptx-carrier="true" x="480" y="238.3" font-size="22" fill="#1F2937" font-weight="bold">{{CARD_2_TITLE}}</text></g>
+  <g id="card-body-slot-2" data-pptx-placeholder="object" data-pptx-idx="6" data-pptx-bounds="480 256 296 90"><text id="card-body-slot-2-carrier" data-pptx-carrier="true" x="480" y="284" font-size="22" fill="#595959">{{CARD_2_DETAIL}}</text></g>
+  <g id="card-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="856 214 296 34"><text id="card-title-slot-3-carrier" data-pptx-carrier="true" x="856" y="238.3" font-size="22" fill="#1F2937" font-weight="bold">{{CARD_3_TITLE}}</text></g>
+  <g id="card-body-slot-3" data-pptx-placeholder="object" data-pptx-idx="8" data-pptx-bounds="856 256 296 90"><text id="card-body-slot-3-carrier" data-pptx-carrier="true" x="856" y="284" font-size="22" fill="#595959">{{CARD_3_DETAIL}}</text></g>
+  <g id="card-title-slot-4" data-pptx-placeholder="body" data-pptx-idx="9" data-pptx-bounds="104 452 296 34"><text id="card-title-slot-4-carrier" data-pptx-carrier="true" x="104" y="476.3" font-size="22" fill="#1F2937" font-weight="bold">{{CARD_4_TITLE}}</text></g>
+  <g id="card-body-slot-4" data-pptx-placeholder="object" data-pptx-idx="10" data-pptx-bounds="104 494 296 90"><text id="card-body-slot-4-carrier" data-pptx-carrier="true" x="104" y="522" font-size="22" fill="#595959">{{CARD_4_DETAIL}}</text></g>
+  <g id="card-title-slot-5" data-pptx-placeholder="body" data-pptx-idx="11" data-pptx-bounds="480 452 296 34"><text id="card-title-slot-5-carrier" data-pptx-carrier="true" x="480" y="476.3" font-size="22" fill="#1F2937" font-weight="bold">{{CARD_5_TITLE}}</text></g>
+  <g id="card-body-slot-5" data-pptx-placeholder="object" data-pptx-idx="12" data-pptx-bounds="480 494 296 90"><text id="card-body-slot-5-carrier" data-pptx-carrier="true" x="480" y="522" font-size="22" fill="#595959">{{CARD_5_DETAIL}}</text></g>
+  <g id="card-title-slot-6" data-pptx-placeholder="body" data-pptx-idx="13" data-pptx-bounds="856 452 296 34"><text id="card-title-slot-6-carrier" data-pptx-carrier="true" x="856" y="476.3" font-size="22" fill="#1F2937" font-weight="bold">{{CARD_6_TITLE}}</text></g>
+  <g id="card-body-slot-6" data-pptx-placeholder="object" data-pptx-idx="14" data-pptx-bounds="856 494 296 90"><text id="card-body-slot-6-carrier" data-pptx-carrier="true" x="856" y="522" font-size="22" fill="#595959">{{CARD_6_DETAIL}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 660 700 32"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="680.7" font-size="22" fill="#595959">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1038.8 660 161.2 32"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="680.7" font-size="22" fill="#595959" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

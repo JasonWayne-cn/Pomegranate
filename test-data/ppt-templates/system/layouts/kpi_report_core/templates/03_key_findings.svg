@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="kpi-master" data-pptx-master-name="KPI Report Master" data-pptx-layout="key-findings" data-pptx-layout-name="Key Findings">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#3B6EA5" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="kf-card-1" x="80" y="168" width="352" height="320" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="kf-card-top-1" x="80" y="168" width="352" height="5" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="kf-card-num-1" x="104" y="214" font-size="22" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <rect id="kf-card-2" x="464" y="168" width="352" height="320" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="kf-card-top-2" x="464" y="168" width="352" height="5" fill="#7C8FA6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="kf-card-num-2" x="488" y="214" font-size="22" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <rect id="kf-card-3" x="848" y="168" width="352" height="320" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="kf-card-top-3" x="848" y="168" width="352" height="5" fill="#B45309" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="kf-card-num-3" x="872" y="214" font-size="22" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <rect id="kf-bottom-band" x="80" y="520" width="1120" height="88" rx="8" fill="#F5F7FA" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="kf-bottom-bar" x="80" y="520" width="6" height="88" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1F2937" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#9CA3AF">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#9CA3AF">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#9CA3AF" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="kf-card-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="104 228 304 40"><text id="kf-card-title-slot-1-carrier" data-pptx-carrier="true" x="104" y="254" font-size="16" fill="#1F2937" font-weight="bold">{{FINDING_1_TITLE}}</text></g>
+  <g id="kf-card-body-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="104 276 304 140"><text id="kf-card-body-slot-1-carrier" data-pptx-carrier="true" x="104" y="304" font-size="12" fill="#4B5563">{{FINDING_1_DETAIL}}</text></g>
+  <g id="kf-card-metric-slot-1" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="104 424 304 34"><text id="kf-card-metric-slot-1-carrier" data-pptx-carrier="true" x="104" y="450" font-size="18" fill="#3B6EA5" font-weight="bold">{{FINDING_1_METRIC}}</text></g>
+  <g id="kf-card-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="488 228 304 40"><text id="kf-card-title-slot-2-carrier" data-pptx-carrier="true" x="488" y="254" font-size="16" fill="#1F2937" font-weight="bold">{{FINDING_2_TITLE}}</text></g>
+  <g id="kf-card-body-slot-2" data-pptx-placeholder="object" data-pptx-idx="6" data-pptx-bounds="488 276 304 140"><text id="kf-card-body-slot-2-carrier" data-pptx-carrier="true" x="488" y="304" font-size="12" fill="#4B5563">{{FINDING_2_DETAIL}}</text></g>
+  <g id="kf-card-metric-slot-2" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="488 424 304 34"><text id="kf-card-metric-slot-2-carrier" data-pptx-carrier="true" x="488" y="450" font-size="18" fill="#3B6EA5" font-weight="bold">{{FINDING_2_METRIC}}</text></g>
+  <g id="kf-card-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="872 228 304 40"><text id="kf-card-title-slot-3-carrier" data-pptx-carrier="true" x="872" y="254" font-size="16" fill="#1F2937" font-weight="bold">{{FINDING_3_TITLE}}</text></g>
+  <g id="kf-card-body-slot-3" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="872 276 304 140"><text id="kf-card-body-slot-3-carrier" data-pptx-carrier="true" x="872" y="304" font-size="12" fill="#4B5563">{{FINDING_3_DETAIL}}</text></g>
+  <g id="kf-card-metric-slot-3" data-pptx-placeholder="body" data-pptx-idx="10" data-pptx-bounds="872 424 304 34"><text id="kf-card-metric-slot-3-carrier" data-pptx-carrier="true" x="872" y="450" font-size="18" fill="#3B6EA5" font-weight="bold">{{FINDING_3_METRIC}}</text></g>
+  <g id="kf-bottom-slot" data-pptx-placeholder="body" data-pptx-idx="11" data-pptx-bounds="108 536 1068 56"><text id="kf-bottom-slot-carrier" data-pptx-carrier="true" x="108" y="568" font-size="16" fill="#1F2937">{{KEY_IMPLICATION}}</text></g>
+</svg>

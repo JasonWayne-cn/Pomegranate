@@ -33,6 +33,7 @@ pub mod plugin_proxy;
 pub mod plugin_runtime;
 pub mod plugins;
 pub mod ppt_extension;
+pub mod ppt_template;
 pub mod projects;
 pub mod prompt;
 pub mod push;

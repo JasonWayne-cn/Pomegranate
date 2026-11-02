@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="kpi-master" data-pptx-master-name="KPI Report Master" data-pptx-layout="summary-table" data-pptx-layout-name="Summary Table">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#3B6EA5" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="st-table" x="80" y="168" width="1120" height="430" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="st-head" x="80" y="168" width="1120" height="50" fill="#F5F7FA" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="st-head-1" x="104" y="199" font-size="9" fill="#9CA3AF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">CATEGORY</text>
+  <text id="st-head-2" x="384" y="199" font-size="9" fill="#9CA3AF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">INDICATOR</text>
+  <text id="st-head-3" x="664" y="199" font-size="9" fill="#9CA3AF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">VALUE</text>
+  <text id="st-head-4" x="944" y="199" font-size="9" fill="#9CA3AF" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">REMARK</text>
+  <line id="st-row-1" x1="80" y1="218" x2="1200" y2="218" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="st-row-index-1" x="104" y="254" font-size="12" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <line id="st-row-2" x1="80" y1="280" x2="1200" y2="280" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="st-row-index-2" x="104" y="316" font-size="12" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <line id="st-row-3" x1="80" y1="342" x2="1200" y2="342" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="st-row-index-3" x="104" y="378" font-size="12" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <line id="st-row-4" x1="80" y1="404" x2="1200" y2="404" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="st-row-index-4" x="104" y="440" font-size="12" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <line id="st-row-5" x1="80" y1="466" x2="1200" y2="466" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="st-row-index-5" x="104" y="502" font-size="12" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">05</text>
+  <line id="st-row-6" x1="80" y1="528" x2="1200" y2="528" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="st-row-index-6" x="104" y="564" font-size="12" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">06</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1F2937" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#9CA3AF">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#9CA3AF">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#9CA3AF" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="st-row-slot-1" data-pptx-placeholder="object" data-pptx-idx="2" data-pptx-bounds="150 226 1000 40"><text id="st-row-slot-1-carrier" data-pptx-carrier="true" x="150" y="254" font-size="12" fill="#1F2937">{{SUMMARY_ROW_1}}</text></g>
+  <g id="st-row-slot-2" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="150 288 1000 40"><text id="st-row-slot-2-carrier" data-pptx-carrier="true" x="150" y="316" font-size="12" fill="#1F2937">{{SUMMARY_ROW_2}}</text></g>
+  <g id="st-row-slot-3" data-pptx-placeholder="object" data-pptx-idx="4" data-pptx-bounds="150 350 1000 40"><text id="st-row-slot-3-carrier" data-pptx-carrier="true" x="150" y="378" font-size="12" fill="#1F2937">{{SUMMARY_ROW_3}}</text></g>
+  <g id="st-row-slot-4" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="150 412 1000 40"><text id="st-row-slot-4-carrier" data-pptx-carrier="true" x="150" y="440" font-size="12" fill="#1F2937">{{SUMMARY_ROW_4}}</text></g>
+  <g id="st-row-slot-5" data-pptx-placeholder="object" data-pptx-idx="6" data-pptx-bounds="150 474 1000 40"><text id="st-row-slot-5-carrier" data-pptx-carrier="true" x="150" y="502" font-size="12" fill="#1F2937">{{SUMMARY_ROW_5}}</text></g>
+  <g id="st-row-slot-6" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="150 536 1000 40"><text id="st-row-slot-6-carrier" data-pptx-carrier="true" x="150" y="564" font-size="12" fill="#1F2937">{{SUMMARY_ROW_6}}</text></g>
+  <g id="st-note-slot" data-pptx-placeholder="footer" data-pptx-idx="92" data-pptx-bounds="80 612 900 24"><text id="st-note-slot-carrier" data-pptx-carrier="true" x="80" y="630" font-size="10" fill="#9CA3AF">{{SUMMARY_NOTE}}</text></g>
+</svg>

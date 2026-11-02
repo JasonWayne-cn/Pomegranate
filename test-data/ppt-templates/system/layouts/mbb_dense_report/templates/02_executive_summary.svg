@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="mbb-master" data-pptx-master-name="MBB Report Master" data-pptx-layout="executive-summary" data-pptx-layout-name="Executive Summary">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="6" fill="#18345E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="es-key-band" x="80" y="168" width="1120" height="64" rx="8" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-key-label" x="104" y="208" font-size="11" fill="#38BDF8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">KEY MESSAGE</text>
+  <rect id="es-metric-1" x="80" y="260" width="360" height="110" rx="8" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-metric-bar-1" x="80" y="260" width="6" height="110" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-metric-label-1" x="104" y="296" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">METRIC 01</text>
+  <rect id="es-metric-2" x="460" y="260" width="360" height="110" rx="8" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-metric-bar-2" x="460" y="260" width="6" height="110" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-metric-label-2" x="484" y="296" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">METRIC 02</text>
+  <rect id="es-metric-3" x="840" y="260" width="360" height="110" rx="8" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-metric-bar-3" x="840" y="260" width="6" height="110" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-metric-label-3" x="864" y="296" font-size="10" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">METRIC 03</text>
+  <rect id="es-col-1" x="80" y="406" width="360" height="194" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-col-bar-1" x="80" y="406" width="360" height="4" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-col-num-1" x="104" y="452" font-size="20" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <rect id="es-col-2" x="460" y="406" width="360" height="194" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-col-bar-2" x="460" y="406" width="360" height="4" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-col-num-2" x="484" y="452" font-size="20" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <rect id="es-col-3" x="840" y="406" width="360" height="194" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="es-col-bar-3" x="840" y="406" width="360" height="4" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="es-col-num-3" x="864" y="452" font-size="20" fill="#38BDF8" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="page-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="page-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1E293B" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="page-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="page-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="es-metric-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="104 314 276 52"><text id="es-metric-slot-1-carrier" data-pptx-carrier="true" x="104" y="350" font-size="32" fill="#18345E" font-weight="bold">{{METRIC_1_VALUE}}</text></g>
+  <g id="es-metric-slot-2" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="484 314 276 52"><text id="es-metric-slot-2-carrier" data-pptx-carrier="true" x="484" y="350" font-size="32" fill="#18345E" font-weight="bold">{{METRIC_2_VALUE}}</text></g>
+  <g id="es-metric-slot-3" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="864 314 276 52"><text id="es-metric-slot-3-carrier" data-pptx-carrier="true" x="864" y="350" font-size="32" fill="#18345E" font-weight="bold">{{METRIC_3_VALUE}}</text></g>
+  <g id="es-col-slot-1" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="104 466 312 120"><text id="es-col-slot-1-carrier" data-pptx-carrier="true" x="104" y="494" font-size="14" fill="#1E293B">{{COLUMN_1_TEXT}}</text></g>
+  <g id="es-col-slot-2" data-pptx-placeholder="object" data-pptx-idx="6" data-pptx-bounds="484 466 312 120"><text id="es-col-slot-2-carrier" data-pptx-carrier="true" x="484" y="494" font-size="14" fill="#1E293B">{{COLUMN_2_TEXT}}</text></g>
+  <g id="es-col-slot-3" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="864 466 312 120"><text id="es-col-slot-3-carrier" data-pptx-carrier="true" x="864" y="494" font-size="14" fill="#1E293B">{{COLUMN_3_TEXT}}</text></g>
+  <g id="es-message-slot" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="196 180 980 40"><text id="es-message-slot-carrier" data-pptx-carrier="true" x="196" y="208" font-size="17" fill="#FFFFFF">{{KEY_MESSAGE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

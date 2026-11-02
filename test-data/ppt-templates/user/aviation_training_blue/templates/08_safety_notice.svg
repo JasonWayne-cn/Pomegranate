@@ -1,0 +1,33 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="aviation-master" data-pptx-master-name="Aviation Training Master" data-pptx-layout="safety-notice" data-pptx-layout-name="Safety Notice">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false" />
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="6" fill="#0071BC" data-pptx-layer="master" data-pptx-editable="false" />
+  <rect id="hdr-blue-square" x="40" y="24" width="56" height="56" fill="#0071BC" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="hdr-red-dot" cx="30" cy="76" r="10" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <line id="hdr-red-rule" x1="112" y1="84" x2="268" y2="84" stroke="#C1232D" stroke-width="7" data-pptx-layer="layout" data-pptx-editable="false" />
+  <line id="hdr-dash-rule" x1="112" y1="94" x2="1180" y2="94" stroke="#C1232D" stroke-width="1" stroke-dasharray="3,3" data-pptx-layer="layout" data-pptx-editable="false" />
+  <circle id="hdr-dash-dot" cx="1180" cy="94" r="5" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="safety-row-1" x="80" y="160" width="1120" height="126" rx="4" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="safety-label-1" x="80" y="160" width="150" height="126" fill="#FFC000" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="safety-label-cn-1" x="155" y="224" font-size="28" fill="#123A5A" font-weight="bold" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">注意</text>
+  <text id="safety-label-en-1" x="155" y="250" font-size="22" fill="#123A5A" font-weight="bold" text-anchor="middle" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">CAUTION</text>
+  <rect id="safety-row-2" x="80" y="310" width="1120" height="126" rx="4" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="safety-label-2" x="80" y="310" width="150" height="126" fill="#F2A900" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="safety-label-cn-2" x="155" y="374" font-size="28" fill="#123A5A" font-weight="bold" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">警告</text>
+  <text id="safety-label-en-2" x="155" y="400" font-size="22" fill="#123A5A" font-weight="bold" text-anchor="middle" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">WARNING</text>
+  <rect id="safety-row-3" x="80" y="460" width="1120" height="126" rx="4" fill="#FFFFFF" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <rect id="safety-label-3" x="80" y="460" width="150" height="126" fill="#C1232D" data-pptx-layer="layout" data-pptx-editable="false" />
+  <text id="safety-label-cn-3" x="155" y="524" font-size="28" fill="#FFFFFF" font-weight="bold" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">禁止</text>
+  <text id="safety-label-en-3" x="155" y="550" font-size="22" fill="#FFFFFF" font-weight="bold" text-anchor="middle" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">PROHIBITED</text>
+  <line id="chrome-footer-rule" x1="80" y1="650" x2="1200" y2="650" stroke="#D9E2EC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false" />
+  <g id="hdr-section-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="112 12 320 52"><text id="hdr-section-slot-carrier" data-pptx-carrier="true" x="112" y="46" font-size="30" fill="#0071BC" font-weight="bold">{{SECTION_NAME}}</text></g>
+  <g id="hdr-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="280 56 900 44"><text id="hdr-title-slot-carrier" data-pptx-carrier="true" x="280" y="88" font-size="28" fill="#595959" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="safety-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="258 178 910 34"><text id="safety-title-slot-1-carrier" data-pptx-carrier="true" x="258" y="202.3" font-size="22" fill="#1F2937" font-weight="bold">{{NOTICE_1_TITLE}}</text></g>
+  <g id="safety-body-slot-1" data-pptx-placeholder="object" data-pptx-idx="4" data-pptx-bounds="258 214 910 56"><text id="safety-body-slot-1-carrier" data-pptx-carrier="true" x="258" y="244" font-size="22" fill="#595959">{{NOTICE_1_DETAIL}}</text></g>
+  <g id="safety-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="258 328 910 34"><text id="safety-title-slot-2-carrier" data-pptx-carrier="true" x="258" y="352.3" font-size="22" fill="#1F2937" font-weight="bold">{{NOTICE_2_TITLE}}</text></g>
+  <g id="safety-body-slot-2" data-pptx-placeholder="object" data-pptx-idx="6" data-pptx-bounds="258 364 910 56"><text id="safety-body-slot-2-carrier" data-pptx-carrier="true" x="258" y="394" font-size="22" fill="#595959">{{NOTICE_2_DETAIL}}</text></g>
+  <g id="safety-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="258 478 910 34"><text id="safety-title-slot-3-carrier" data-pptx-carrier="true" x="258" y="502.3" font-size="22" fill="#1F2937" font-weight="bold">{{NOTICE_3_TITLE}}</text></g>
+  <g id="safety-body-slot-3" data-pptx-placeholder="object" data-pptx-idx="8" data-pptx-bounds="258 514 910 56"><text id="safety-body-slot-3-carrier" data-pptx-carrier="true" x="258" y="544" font-size="22" fill="#595959">{{NOTICE_3_DETAIL}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 660 700 32"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="680.7" font-size="22" fill="#595959">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1038.8 660 161.2 32"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="680.7" font-size="22" fill="#595959" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

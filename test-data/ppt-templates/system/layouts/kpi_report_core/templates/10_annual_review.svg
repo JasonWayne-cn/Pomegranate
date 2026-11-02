@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="kpi-master" data-pptx-master-name="KPI Report Master" data-pptx-layout="annual-review" data-pptx-layout-name="Annual Review">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#3B6EA5" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ar-card-1" x="80" y="168" width="352" height="250" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ar-card-bar-1" x="80" y="168" width="352" height="5" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ar-card-num-1" x="104" y="210" font-size="20" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <rect id="ar-card-2" x="464" y="168" width="352" height="250" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ar-card-bar-2" x="464" y="168" width="352" height="5" fill="#7C8FA6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ar-card-num-2" x="488" y="210" font-size="20" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <rect id="ar-card-3" x="848" y="168" width="352" height="250" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ar-card-bar-3" x="848" y="168" width="352" height="5" fill="#B45309" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ar-card-num-3" x="872" y="210" font-size="20" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <rect id="ar-timeline" x="80" y="446" width="1120" height="162" rx="8" fill="#F5F7FA" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ar-timeline-label" x="104" y="482" font-size="10" fill="#9CA3AF" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">YEAR IN REVIEW</text>
+  <circle id="ar-time-dot-1" cx="160" cy="528" r="7" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ar-time-label-1" x="160" y="556" font-size="11" fill="#1F2937" font-weight="bold" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">Q1</text>
+  <circle id="ar-time-dot-2" cx="430" cy="528" r="7" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ar-time-label-2" x="430" y="556" font-size="11" fill="#1F2937" font-weight="bold" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">Q2</text>
+  <circle id="ar-time-dot-3" cx="700" cy="528" r="7" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ar-time-label-3" x="700" y="556" font-size="11" fill="#1F2937" font-weight="bold" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">Q3</text>
+  <circle id="ar-time-dot-4" cx="970" cy="528" r="7" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ar-time-label-4" x="970" y="556" font-size="11" fill="#1F2937" font-weight="bold" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">Q4</text>
+  <line id="ar-timeline-line" x1="160" y1="528" x2="970" y2="528" stroke="#D1D5DB" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1F2937" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#9CA3AF">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#9CA3AF">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#9CA3AF" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="ar-card-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="104 224 304 36"><text id="ar-card-title-slot-1-carrier" data-pptx-carrier="true" x="104" y="250" font-size="15" fill="#1F2937" font-weight="bold">{{PROJECT_1_TITLE}}</text></g>
+  <g id="ar-card-body-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="104 264 304 120"><text id="ar-card-body-slot-1-carrier" data-pptx-carrier="true" x="104" y="292" font-size="12" fill="#4B5563">{{PROJECT_1_DETAIL}}</text></g>
+  <g id="ar-card-impact-slot-1" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="104 384 304 36"><text id="ar-card-impact-slot-1-carrier" data-pptx-carrier="true" x="104" y="406" font-size="12" fill="#3B6EA5" font-weight="bold">{{PROJECT_1_IMPACT}}</text></g>
+  <g id="ar-card-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="488 224 304 36"><text id="ar-card-title-slot-2-carrier" data-pptx-carrier="true" x="488" y="250" font-size="15" fill="#1F2937" font-weight="bold">{{PROJECT_2_TITLE}}</text></g>
+  <g id="ar-card-body-slot-2" data-pptx-placeholder="object" data-pptx-idx="6" data-pptx-bounds="488 264 304 120"><text id="ar-card-body-slot-2-carrier" data-pptx-carrier="true" x="488" y="292" font-size="12" fill="#4B5563">{{PROJECT_2_DETAIL}}</text></g>
+  <g id="ar-card-impact-slot-2" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="488 384 304 36"><text id="ar-card-impact-slot-2-carrier" data-pptx-carrier="true" x="488" y="406" font-size="12" fill="#3B6EA5" font-weight="bold">{{PROJECT_2_IMPACT}}</text></g>
+  <g id="ar-card-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="872 224 304 36"><text id="ar-card-title-slot-3-carrier" data-pptx-carrier="true" x="872" y="250" font-size="15" fill="#1F2937" font-weight="bold">{{PROJECT_3_TITLE}}</text></g>
+  <g id="ar-card-body-slot-3" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="872 264 304 120"><text id="ar-card-body-slot-3-carrier" data-pptx-carrier="true" x="872" y="292" font-size="12" fill="#4B5563">{{PROJECT_3_DETAIL}}</text></g>
+  <g id="ar-card-impact-slot-3" data-pptx-placeholder="body" data-pptx-idx="10" data-pptx-bounds="872 384 304 36"><text id="ar-card-impact-slot-3-carrier" data-pptx-carrier="true" x="872" y="406" font-size="12" fill="#3B6EA5" font-weight="bold">{{PROJECT_3_IMPACT}}</text></g>
+  <g id="ar-time-slot-1" data-pptx-placeholder="body" data-pptx-idx="11" data-pptx-bounds="60 566 200 26"><text id="ar-time-slot-1-carrier" data-pptx-carrier="true" x="160" y="586" font-size="10" fill="#4B5563" text-anchor="middle">{{QUARTER_1_HIGHLIGHT}}</text></g>
+  <g id="ar-time-slot-2" data-pptx-placeholder="body" data-pptx-idx="12" data-pptx-bounds="330 566 200 26"><text id="ar-time-slot-2-carrier" data-pptx-carrier="true" x="430" y="586" font-size="10" fill="#4B5563" text-anchor="middle">{{QUARTER_2_HIGHLIGHT}}</text></g>
+  <g id="ar-time-slot-3" data-pptx-placeholder="body" data-pptx-idx="13" data-pptx-bounds="600 566 200 26"><text id="ar-time-slot-3-carrier" data-pptx-carrier="true" x="700" y="586" font-size="10" fill="#4B5563" text-anchor="middle">{{QUARTER_3_HIGHLIGHT}}</text></g>
+  <g id="ar-time-slot-4" data-pptx-placeholder="body" data-pptx-idx="14" data-pptx-bounds="870 566 200 26"><text id="ar-time-slot-4-carrier" data-pptx-carrier="true" x="970" y="586" font-size="10" fill="#4B5563" text-anchor="middle">{{QUARTER_4_HIGHLIGHT}}</text></g>
+</svg>

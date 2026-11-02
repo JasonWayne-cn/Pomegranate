@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="kpi-master" data-pptx-master-name="KPI Report Master" data-pptx-layout="cover" data-pptx-layout-name="Cover">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#3B6EA5" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="cover-left-block" x="0" y="0" width="28" height="720" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cover-accent" x="80" y="178" width="92" height="6" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cover-kicker" x="80" y="214" font-size="11" fill="#9CA3AF" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">ANNUAL REVIEW · ECONOMIC &amp; FISCAL REPORT</text>
+  <rect id="cover-panel" x="860" y="120" width="340" height="440" rx="8" fill="#F5F7FA" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="cover-panel-label" x="892" y="166" font-size="10" fill="#9CA3AF" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">AT A GLANCE</text>
+  <rect id="cover-bar-1" x="892" y="204" width="276" height="20" rx="10" fill="#E5E7EB" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cover-bar-fill-1" x="892" y="204" width="220" height="20" rx="10" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cover-bar-2" x="892" y="278" width="276" height="20" rx="10" fill="#E5E7EB" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cover-bar-fill-2" x="892" y="278" width="176" height="20" rx="10" fill="#7C8FA6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cover-bar-3" x="892" y="352" width="276" height="20" rx="10" fill="#E5E7EB" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cover-bar-fill-3" x="892" y="352" width="132" height="20" rx="10" fill="#3B6EA5" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cover-bar-4" x="892" y="426" width="276" height="20" rx="10" fill="#E5E7EB" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="cover-bar-fill-4" x="892" y="426" width="248" height="20" rx="10" fill="#7C8FA6" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="cover-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 260 720 150"><text id="cover-title-slot-carrier" data-pptx-carrier="true" x="80" y="340" font-size="46" fill="#1F2937" font-weight="bold">{{TITLE}}</text></g>
+  <g id="cover-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 430 720 70"><text id="cover-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="468" font-size="21" fill="#4B5563">{{SUBTITLE}}</text></g>
+  <g id="cover-org-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="80 540 420 32"><text id="cover-org-slot-carrier" data-pptx-carrier="true" x="80" y="562" font-size="14" fill="#4B5563" font-weight="bold">{{ORGANISATION}}</text></g>
+  <g id="cover-date-slot" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="80 576 420 32"><text id="cover-date-slot-carrier" data-pptx-carrier="true" x="80" y="598" font-size="13" fill="#9CA3AF">{{DATE}}</text></g>
+</svg>

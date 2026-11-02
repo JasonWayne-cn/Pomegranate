@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="insight-master" data-pptx-master-name="Insight Explainer Master" data-pptx-layout="quick-reference" data-pptx-layout-name="Quick Reference">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#0F766E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="qr-table" x="80" y="168" width="1120" height="440" rx="10" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="qr-head" x="80" y="168" width="1120" height="50" fill="#F8FAFC" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="qr-head-1" x="104" y="199" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">CONCEPT</text>
+  <text id="qr-head-2" x="564" y="199" font-size="9" fill="#94A3B8" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">WORKING DEFINITION</text>
+  <line id="qr-row-1" x1="80" y1="218" x2="1200" y2="218" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="qr-row-2" x1="80" y1="281" x2="1200" y2="281" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="qr-row-3" x1="80" y1="344" x2="1200" y2="344" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="qr-row-4" x1="80" y1="407" x2="1200" y2="407" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="qr-row-5" x1="80" y1="470" x2="1200" y2="470" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <line id="qr-row-6" x1="80" y1="533" x2="1200" y2="533" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1E293B" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="qr-term-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="104 228 420 40"><text id="qr-term-slot-1-carrier" data-pptx-carrier="true" x="104" y="256" font-size="13" fill="#1E293B" font-weight="bold">{{TERM_1}}</text></g>
+  <g id="qr-def-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="564 228 620 40"><text id="qr-def-slot-1-carrier" data-pptx-carrier="true" x="564" y="256" font-size="12" fill="#475569">{{TERM_1_DEFINITION}}</text></g>
+  <g id="qr-term-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="104 291 420 40"><text id="qr-term-slot-2-carrier" data-pptx-carrier="true" x="104" y="319" font-size="13" fill="#1E293B" font-weight="bold">{{TERM_2}}</text></g>
+  <g id="qr-def-slot-2" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="564 291 620 40"><text id="qr-def-slot-2-carrier" data-pptx-carrier="true" x="564" y="319" font-size="12" fill="#475569">{{TERM_2_DEFINITION}}</text></g>
+  <g id="qr-term-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="104 354 420 40"><text id="qr-term-slot-3-carrier" data-pptx-carrier="true" x="104" y="382" font-size="13" fill="#1E293B" font-weight="bold">{{TERM_3}}</text></g>
+  <g id="qr-def-slot-3" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="564 354 620 40"><text id="qr-def-slot-3-carrier" data-pptx-carrier="true" x="564" y="382" font-size="12" fill="#475569">{{TERM_3_DEFINITION}}</text></g>
+  <g id="qr-term-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="104 417 420 40"><text id="qr-term-slot-4-carrier" data-pptx-carrier="true" x="104" y="445" font-size="13" fill="#1E293B" font-weight="bold">{{TERM_4}}</text></g>
+  <g id="qr-def-slot-4" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="564 417 620 40"><text id="qr-def-slot-4-carrier" data-pptx-carrier="true" x="564" y="445" font-size="12" fill="#475569">{{TERM_4_DEFINITION}}</text></g>
+  <g id="qr-term-slot-5" data-pptx-placeholder="body" data-pptx-idx="10" data-pptx-bounds="104 480 420 40"><text id="qr-term-slot-5-carrier" data-pptx-carrier="true" x="104" y="508" font-size="13" fill="#1E293B" font-weight="bold">{{TERM_5}}</text></g>
+  <g id="qr-def-slot-5" data-pptx-placeholder="object" data-pptx-idx="11" data-pptx-bounds="564 480 620 40"><text id="qr-def-slot-5-carrier" data-pptx-carrier="true" x="564" y="508" font-size="12" fill="#475569">{{TERM_5_DEFINITION}}</text></g>
+  <g id="qr-term-slot-6" data-pptx-placeholder="body" data-pptx-idx="12" data-pptx-bounds="104 543 420 40"><text id="qr-term-slot-6-carrier" data-pptx-carrier="true" x="104" y="571" font-size="13" fill="#1E293B" font-weight="bold">{{TERM_6}}</text></g>
+  <g id="qr-def-slot-6" data-pptx-placeholder="object" data-pptx-idx="13" data-pptx-bounds="564 543 620 40"><text id="qr-def-slot-6-carrier" data-pptx-carrier="true" x="564" y="571" font-size="12" fill="#475569">{{TERM_6_DEFINITION}}</text></g>
+</svg>

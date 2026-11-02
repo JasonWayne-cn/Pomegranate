@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="kpi-master" data-pptx-master-name="KPI Report Master" data-pptx-layout="risk-gauge" data-pptx-layout-name="Risk Gauge">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#3B6EA5" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="rg-left-panel" x="80" y="168" width="600" height="440" rx="8" fill="#FFFFFF" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rg-left-label" x="104" y="206" font-size="10" fill="#9CA3AF" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">RISK POSITION</text>
+  <path id="rg-gauge-green" d="M 210.00 470.00 A 170 170 0 0 1 295.00 322.78" fill="none" stroke="#047857" stroke-width="28" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="rg-gauge-amber" d="M 295.00 322.78 A 170 170 0 0 1 465.00 322.78" fill="none" stroke="#B45309" stroke-width="28" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <path id="rg-gauge-red" d="M 465.00 322.78 A 170 170 0 0 1 550.00 470.00" fill="none" stroke="#B91C1C" stroke-width="28" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <polygon id="rg-needle" points="380,470 300,300 388,304" fill="#1F2937" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <circle id="rg-needle-hub" cx="380" cy="470" r="14" fill="#1F2937" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rg-gauge-min" x="208" y="500" font-size="10" fill="#9CA3AF" font-weight="bold" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">LOW</text>
+  <text id="rg-gauge-max" x="552" y="500" font-size="10" fill="#9CA3AF" font-weight="bold" text-anchor="middle" data-pptx-layer="layout" data-pptx-editable="false">HIGH</text>
+  <rect id="rg-right-panel" x="704" y="168" width="496" height="440" rx="8" fill="#F5F7FA" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="rg-right-label" x="728" y="206" font-size="10" fill="#9CA3AF" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">RISK REGISTER</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1F2937" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#9CA3AF">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#9CA3AF">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#9CA3AF" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="rg-gauge-value-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="300 540 160 36"><text id="rg-gauge-value-slot-carrier" data-pptx-carrier="true" x="380" y="566" font-size="20" fill="#1F2937" font-weight="bold" text-anchor="middle">{{RISK_SCORE}}</text></g>
+  <g id="rg-right-slot" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="728 226 448 340"><text id="rg-right-slot-carrier" data-pptx-carrier="true" x="728" y="256" font-size="13" fill="#1F2937">{{RISK_REGISTER}}</text></g>
+</svg>

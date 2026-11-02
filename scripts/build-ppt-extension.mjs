@@ -9,7 +9,7 @@
  *   node scripts/build-ppt-extension.mjs --signing-key "D:/keys/extension-private.pem"
  *
  * 输出：
- *   dist/extensions/ppt-master-extension-<version>-win7-x64.zip
+ *   src-tauri/target/release/bundle/nsis/ppt-master-extension-<version>-win7-x64.zip
  *
  * 签名可选。签名后需把构建日志中的 base64 公钥配置到主程序环境变量
  * PPT_EXTENSION_PUBLIC_KEY，否则主程序会拒绝安装带签名的包。
@@ -38,9 +38,21 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2));
 const sourceDir = path.join(projectRoot, "extensions", "ppt-master");
-const outDir = path.resolve(args.out ?? path.join(projectRoot, "dist", "extensions"));
+const outDir = path.resolve(
+  args.out ??
+    path.join(
+      projectRoot,
+      "src-tauri",
+      "target",
+      "release",
+      "bundle",
+      "nsis",
+    ),
+);
 const buildDir = path.resolve(projectRoot, "build", "ppt-extension");
 const pptMasterRoot = args["ppt-master-root"] ?? process.env.PPT_MASTER_ROOT ?? "";
+const layoutsDirArg = args["layouts-dir"] ?? process.env.PPT_LAYOUTS_DIR ?? "";
+const layoutsDir = layoutsDirArg ? path.resolve(layoutsDirArg) : "";
 const pythonRuntime = args["python-runtime"] ?? process.env.PYTHON_RUNTIME ?? "";
 const signingKey = args["signing-key"] ?? process.env.PPT_EXTENSION_SIGNING_KEY ?? "";
 
@@ -49,6 +61,11 @@ if (!fs.existsSync(path.join(sourceDir, "extension.json"))) {
 }
 
 const manifest = JSON.parse(fs.readFileSync(path.join(sourceDir, "extension.json"), "utf8"));
+const versionOverride = args.version ?? process.env.PPT_EXTENSION_VERSION ?? "";
+if (versionOverride) {
+  manifest.version = versionOverride;
+  console.log(`[build] 版本覆盖为 ${versionOverride}`);
+}
 const packName = `ppt-master-extension-${manifest.version}-win7-x64`;
 const stageDir = path.join(buildDir, packName);
 
@@ -80,10 +97,11 @@ if (pptMasterRoot) {
     console.warn(`[build] 未找到 scripts：${scripts}`);
   }
 
-  copyIfExists(
-    path.join(skillRoot, "templates", "layouts"),
-    path.join(stageDir, "templates", "layouts"),
-  );
+  const layoutsSource = layoutsDir || path.join(skillRoot, "templates", "layouts");
+  if (layoutsDir) {
+    console.log(`[build] 使用外部 layouts 目录: ${layoutsSource}`);
+  }
+  copyIfExists(layoutsSource, path.join(stageDir, "templates", "layouts"));
   // 部分上游版本把图表模板放在 templates-old/charts，兼容回退。
   const chartsSource = path.join(skillRoot, "templates", "charts");
   const chartsFallback = path.join(skillRoot, "templates-old", "charts");

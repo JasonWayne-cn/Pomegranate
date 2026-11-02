@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="SimSun, Songti SC, serif" data-pptx-master="oriental-master" data-pptx-master-name="Oriental Classic Research Master" data-pptx-layout="core-insight" data-pptx-layout-name="Core Insight">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F5F3EF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="3" fill="#D4A84B" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="title-rule" x1="80" y1="128" x2="700" y2="128" stroke="#D4A84B" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="insight-quote-panel" x="80" y="168" width="1120" height="150" rx="4" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="insight-quote-mark" x="112" y="232" font-size="56" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false">“</text>
+  <rect id="insight-col-1" x="80" y="350" width="352" height="258" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="insight-col-bar-1" x="80" y="350" width="352" height="4" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="insight-col-num-1" x="104" y="390" font-size="18" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <rect id="insight-col-2" x="464" y="350" width="352" height="258" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="insight-col-bar-2" x="464" y="350" width="352" height="4" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="insight-col-num-2" x="488" y="390" font-size="18" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <rect id="insight-col-3" x="848" y="350" width="352" height="258" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="insight-col-bar-3" x="848" y="350" width="352" height="4" fill="#D4A84B" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="insight-col-num-3" x="872" y="390" font-size="18" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="page-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 56 1000 60"><text id="page-title-slot-carrier" data-pptx-carrier="true" x="80" y="106" font-size="30" fill="#2C3E50" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="insight-quote-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="180 190 980 100"><text id="insight-quote-slot-carrier" data-pptx-carrier="true" x="180" y="238" font-size="22" fill="#FFFFFF" font-weight="bold">{{CORE_QUOTE}}</text></g>
+  <g id="insight-col-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="3" data-pptx-bounds="104 404 304 32"><text id="insight-col-title-slot-1-carrier" data-pptx-carrier="true" x="104" y="428" font-size="15" fill="#2C3E50" font-weight="bold">{{INSIGHT_1_TITLE}}</text></g>
+  <g id="insight-col-body-slot-1" data-pptx-placeholder="object" data-pptx-idx="4" data-pptx-bounds="104 440 304 140"><text id="insight-col-body-slot-1-carrier" data-pptx-carrier="true" x="104" y="468" font-size="12" fill="#4A5568">{{INSIGHT_1_DETAIL}}</text></g>
+  <g id="insight-col-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="5" data-pptx-bounds="488 404 304 32"><text id="insight-col-title-slot-2-carrier" data-pptx-carrier="true" x="488" y="428" font-size="15" fill="#2C3E50" font-weight="bold">{{INSIGHT_2_TITLE}}</text></g>
+  <g id="insight-col-body-slot-2" data-pptx-placeholder="object" data-pptx-idx="6" data-pptx-bounds="488 440 304 140"><text id="insight-col-body-slot-2-carrier" data-pptx-carrier="true" x="488" y="468" font-size="12" fill="#4A5568">{{INSIGHT_2_DETAIL}}</text></g>
+  <g id="insight-col-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="7" data-pptx-bounds="872 404 304 32"><text id="insight-col-title-slot-3-carrier" data-pptx-carrier="true" x="872" y="428" font-size="15" fill="#2C3E50" font-weight="bold">{{INSIGHT_3_TITLE}}</text></g>
+  <g id="insight-col-body-slot-3" data-pptx-placeholder="object" data-pptx-idx="8" data-pptx-bounds="872 440 304 140"><text id="insight-col-body-slot-3-carrier" data-pptx-carrier="true" x="872" y="468" font-size="12" fill="#4A5568">{{INSIGHT_3_DETAIL}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#8B9A9A">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#8B9A9A" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

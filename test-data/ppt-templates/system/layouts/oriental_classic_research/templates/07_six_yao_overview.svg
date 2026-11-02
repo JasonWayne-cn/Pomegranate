@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="SimSun, Songti SC, serif" data-pptx-master="oriental-master" data-pptx-master-name="Oriental Classic Research Master" data-pptx-layout="six-yao-overview" data-pptx-layout-name="Six Yao Overview">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#F5F3EF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="3" fill="#D4A84B" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="title-rule" x1="80" y1="128" x2="620" y2="128" stroke="#D4A84B" stroke-width="2" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-panel" x="80" y="168" width="420" height="440" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-1-a" x="200" y="470" width="75.6" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-1-b" x="304.4" y="470" width="75.6" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-2-a" x="200" y="418" width="75.6" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-2-b" x="304.4" y="418" width="75.6" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-3" x="200" y="366" width="180" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-4-a" x="200" y="314" width="75.6" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-4-b" x="304.4" y="314" width="75.6" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-5-a" x="200" y="262" width="75.6" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-5-b" x="304.4" y="262" width="75.6" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-6-a" x="200" y="210" width="75.6" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-line-6-b" x="304.4" y="210" width="75.6" height="8" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="yao-panel-note" x="290" y="570" font-size="12" fill="#B8860B" text-anchor="middle" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">九三为全卦唯一阳爻</text>
+  <rect id="yao-table" x="540" y="168" width="660" height="440" rx="4" fill="#FFFFFF" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="yao-table-head" x="540" y="168" width="660" height="46" fill="#2C3E50" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="yao-head-1" x="564" y="197" font-size="10" fill="#D4A84B" font-weight="bold" letter-spacing="1" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">爻位</text>
+  <text id="yao-head-2" x="774" y="197" font-size="10" fill="#D4A84B" font-weight="bold" letter-spacing="1" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">爻辞</text>
+  <text id="yao-head-3" x="984" y="197" font-size="10" fill="#D4A84B" font-weight="bold" letter-spacing="1" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-layer="layout" data-pptx-editable="false">主题</text>
+  <line id="yao-row-1" x1="540" y1="214" x2="1200" y2="214" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="yao-row-name-1" x="564" y="252" font-size="13" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">上六</text>
+  <line id="yao-row-2" x1="540" y1="276" x2="1200" y2="276" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="yao-row-name-2" x="564" y="314" font-size="13" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">六五</text>
+  <line id="yao-row-3" x1="540" y1="338" x2="1200" y2="338" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="yao-row-name-3" x="564" y="376" font-size="13" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">六四</text>
+  <line id="yao-row-4" x1="540" y1="400" x2="1200" y2="400" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="yao-row-name-4" x="564" y="438" font-size="13" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">九三</text>
+  <line id="yao-row-5" x1="540" y1="462" x2="1200" y2="462" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="yao-row-name-5" x="564" y="500" font-size="13" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">六二</text>
+  <line id="yao-row-6" x1="540" y1="524" x2="1200" y2="524" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="yao-row-name-6" x="564" y="562" font-size="13" fill="#B8860B" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">初六</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E8E4DC" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="page-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 56 900 60"><text id="page-title-slot-carrier" data-pptx-carrier="true" x="80" y="106" font-size="30" fill="#2C3E50" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="yao-row-text-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="720 222 210 40"><text id="yao-row-text-slot-1-carrier" data-pptx-carrier="true" x="720" y="252" font-size="11" fill="#2C3E50">{{YAO_6_TEXT}}</text></g>
+  <g id="yao-row-theme-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="950 222 220 40"><text id="yao-row-theme-slot-1-carrier" data-pptx-carrier="true" x="950" y="252" font-size="11" fill="#4A5568">{{YAO_6_THEME}}</text></g>
+  <g id="yao-row-text-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="720 284 210 40"><text id="yao-row-text-slot-2-carrier" data-pptx-carrier="true" x="720" y="314" font-size="11" fill="#2C3E50">{{YAO_5_TEXT}}</text></g>
+  <g id="yao-row-theme-slot-2" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="950 284 220 40"><text id="yao-row-theme-slot-2-carrier" data-pptx-carrier="true" x="950" y="314" font-size="11" fill="#4A5568">{{YAO_5_THEME}}</text></g>
+  <g id="yao-row-text-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="720 346 210 40"><text id="yao-row-text-slot-3-carrier" data-pptx-carrier="true" x="720" y="376" font-size="11" fill="#2C3E50">{{YAO_4_TEXT}}</text></g>
+  <g id="yao-row-theme-slot-3" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="950 346 220 40"><text id="yao-row-theme-slot-3-carrier" data-pptx-carrier="true" x="950" y="376" font-size="11" fill="#4A5568">{{YAO_4_THEME}}</text></g>
+  <g id="yao-row-text-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="720 408 210 40"><text id="yao-row-text-slot-4-carrier" data-pptx-carrier="true" x="720" y="438" font-size="11" fill="#2C3E50">{{YAO_3_TEXT}}</text></g>
+  <g id="yao-row-theme-slot-4" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="950 408 220 40"><text id="yao-row-theme-slot-4-carrier" data-pptx-carrier="true" x="950" y="438" font-size="11" fill="#4A5568">{{YAO_3_THEME}}</text></g>
+  <g id="yao-row-text-slot-5" data-pptx-placeholder="body" data-pptx-idx="10" data-pptx-bounds="720 470 210 40"><text id="yao-row-text-slot-5-carrier" data-pptx-carrier="true" x="720" y="500" font-size="11" fill="#2C3E50">{{YAO_2_TEXT}}</text></g>
+  <g id="yao-row-theme-slot-5" data-pptx-placeholder="object" data-pptx-idx="11" data-pptx-bounds="950 470 220 40"><text id="yao-row-theme-slot-5-carrier" data-pptx-carrier="true" x="950" y="500" font-size="11" fill="#4A5568">{{YAO_2_THEME}}</text></g>
+  <g id="yao-row-text-slot-6" data-pptx-placeholder="body" data-pptx-idx="12" data-pptx-bounds="720 532 210 40"><text id="yao-row-text-slot-6-carrier" data-pptx-carrier="true" x="720" y="562" font-size="11" fill="#2C3E50">{{YAO_1_TEXT}}</text></g>
+  <g id="yao-row-theme-slot-6" data-pptx-placeholder="object" data-pptx-idx="13" data-pptx-bounds="950 532 220 40"><text id="yao-row-theme-slot-6-carrier" data-pptx-carrier="true" x="950" y="562" font-size="11" fill="#4A5568">{{YAO_1_THEME}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#8B9A9A">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#8B9A9A" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

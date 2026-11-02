@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 83;
+pub const SCHEMA_VERSION: i32 = 84;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -116,6 +116,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             80 => migrate_v80_to_v81(conn)?,
             81 => migrate_v81_to_v82(conn)?,
             82 => migrate_v82_to_v83(conn)?,
+            83 => migrate_v83_to_v84(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -3041,6 +3042,43 @@ fn migrate_v82_to_v83(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 83)?;
+    Ok(())
+}
+
+/// v83 -> v84: 用户 PPT 模板导入
+fn migrate_v83_to_v84(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v83 -> v84 (用户 PPT 模板)");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS ppt_user_templates (
+            id                  TEXT PRIMARY KEY NOT NULL,
+            display_name        TEXT NOT NULL,
+            description         TEXT,
+            dir_path            TEXT NOT NULL,
+            source_kind         TEXT NOT NULL DEFAULT 'layout',
+            source_pack         TEXT,
+            canvas_format       TEXT NOT NULL DEFAULT 'ppt169',
+            canvas_width        INTEGER NOT NULL DEFAULT 1280,
+            canvas_height       INTEGER NOT NULL DEFAULT 720,
+            page_count          INTEGER NOT NULL DEFAULT 0,
+            page_types_json     TEXT NOT NULL DEFAULT '[]',
+            supports_structured INTEGER NOT NULL DEFAULT 0,
+            supports_legacy     INTEGER NOT NULL DEFAULT 0,
+            cover_file          TEXT,
+            content_hash        TEXT,
+            enabled             INTEGER NOT NULL DEFAULT 1,
+            status              TEXT NOT NULL DEFAULT 'ok',
+            created_at          TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at          TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ppt_user_templates_status
+            ON ppt_user_templates(status, updated_at DESC);
+        ",
+    )?;
+
+    set_version(conn, 84)?;
     Ok(())
 }
 

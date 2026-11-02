@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="mbb-master" data-pptx-master-name="MBB Report Master" data-pptx-layout="distribution" data-pptx-layout-name="Distribution">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="6" fill="#18345E" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="dist-age-panel" x="80" y="168" width="540" height="350" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-age-title" x="104" y="204" font-size="11" fill="#18345E" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">AGE DISTRIBUTION</text>
+  <text id="dist-age-label-1" x="104" y="256" font-size="13" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">18–29</text>
+  <rect id="dist-age-track-1" x="210" y="238" width="330" height="18" rx="9" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="dist-age-bar-1" x="210" y="238" width="316.8" height="18" rx="9" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-age-pct-1" x="558" y="253" font-size="14" fill="#18345E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">48%</text>
+  <text id="dist-age-label-2" x="104" y="318" font-size="13" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">30–39</text>
+  <rect id="dist-age-track-2" x="210" y="300" width="330" height="18" rx="9" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="dist-age-bar-2" x="210" y="300" width="211.2" height="18" rx="9" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-age-pct-2" x="558" y="315" font-size="14" fill="#18345E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">32%</text>
+  <text id="dist-age-label-3" x="104" y="380" font-size="13" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">40–49</text>
+  <rect id="dist-age-track-3" x="210" y="362" width="330" height="18" rx="9" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="dist-age-bar-3" x="210" y="362" width="92.4" height="18" rx="9" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-age-pct-3" x="558" y="377" font-size="14" fill="#18345E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">14%</text>
+  <text id="dist-age-label-4" x="104" y="442" font-size="13" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">50+</text>
+  <rect id="dist-age-track-4" x="210" y="424" width="330" height="18" rx="9" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="dist-age-bar-4" x="210" y="424" width="39.6" height="18" rx="9" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-age-pct-4" x="558" y="439" font-size="14" fill="#18345E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">6%</text>
+  <rect id="dist-income-panel" x="660" y="168" width="540" height="350" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-income-title" x="684" y="204" font-size="11" fill="#18345E" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">INCOME DISTRIBUTION</text>
+  <text id="dist-income-label-1" x="684" y="256" font-size="13" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">High</text>
+  <rect id="dist-income-track-1" x="790" y="238" width="330" height="18" rx="9" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="dist-income-bar-1" x="790" y="238" width="118.8" height="18" rx="9" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-income-pct-1" x="1138" y="253" font-size="14" fill="#18345E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">18%</text>
+  <text id="dist-income-label-2" x="684" y="318" font-size="13" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">Upper-mid</text>
+  <rect id="dist-income-track-2" x="790" y="300" width="330" height="18" rx="9" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="dist-income-bar-2" x="790" y="300" width="224.4" height="18" rx="9" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-income-pct-2" x="1138" y="315" font-size="14" fill="#18345E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">34%</text>
+  <text id="dist-income-label-3" x="684" y="380" font-size="13" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">Lower-mid</text>
+  <rect id="dist-income-track-3" x="790" y="362" width="330" height="18" rx="9" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="dist-income-bar-3" x="790" y="362" width="198" height="18" rx="9" fill="#38BDF8" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-income-pct-3" x="1138" y="377" font-size="14" fill="#18345E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">30%</text>
+  <text id="dist-income-label-4" x="684" y="442" font-size="13" fill="#475569" data-pptx-layer="layout" data-pptx-editable="false">Low</text>
+  <rect id="dist-income-track-4" x="790" y="424" width="330" height="18" rx="9" fill="#F1F5F9" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="dist-income-bar-4" x="790" y="424" width="118.8" height="18" rx="9" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-income-pct-4" x="1138" y="439" font-size="14" fill="#18345E" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">18%</text>
+  <rect id="dist-insight-band" x="80" y="546" width="1120" height="66" rx="8" fill="#18345E" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="dist-insight-label" x="104" y="576" font-size="10" fill="#38BDF8" font-weight="bold" letter-spacing="2" data-pptx-layer="layout" data-pptx-editable="false">IMPLICATION</text>
+  <line id="chrome-footer-rule" x1="80" y1="652" x2="1200" y2="652" stroke="#E2E8F0" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="page-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 52 1120 84"><text id="page-title-slot-carrier" data-pptx-carrier="true" x="80" y="104" font-size="26" fill="#1E293B" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="page-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 124 1120 34"><text id="page-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="150" font-size="14" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="dist-insight-slot" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="220 558 950 42"><text id="dist-insight-slot-carrier" data-pptx-carrier="true" x="220" y="586" font-size="16" fill="#FFFFFF">{{INSIGHT}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 662 760 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="682" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 662 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="682" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+</svg>

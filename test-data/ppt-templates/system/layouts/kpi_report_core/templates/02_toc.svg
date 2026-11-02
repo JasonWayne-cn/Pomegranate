@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="kpi-master" data-pptx-master-name="KPI Report Master" data-pptx-layout="toc" data-pptx-layout-name="Table of Contents">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#FFFFFF" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#3B6EA5" data-pptx-layer="master" data-pptx-editable="false"/>
+  <text id="toc-title" x="80" y="106" font-size="28" fill="#1F2937" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">{{PAGE_TITLE}}</text>
+  <text id="toc-subtitle" x="80" y="140" font-size="13" fill="#9CA3AF" data-pptx-layer="layout" data-pptx-editable="false">{{SUBTITLE}}</text>
+  <line id="toc-rule" x1="80" y1="168" x2="1200" y2="168" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-num-1" x="80" y="244" font-size="24" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <line id="toc-item-rule-1" x1="148" y1="290" x2="1200" y2="290" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-num-2" x="80" y="352" font-size="24" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <line id="toc-item-rule-2" x1="148" y1="398" x2="1200" y2="398" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-num-3" x="80" y="460" font-size="24" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <line id="toc-item-rule-3" x1="148" y1="506" x2="1200" y2="506" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="toc-num-4" x="80" y="568" font-size="24" fill="#3B6EA5" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <line id="toc-item-rule-4" x1="148" y1="614" x2="1200" y2="614" stroke="#D1D5DB" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <g id="toc-title-slot-1" data-pptx-placeholder="body" data-pptx-idx="2" data-pptx-bounds="148 204 560 34"><text id="toc-title-slot-1-carrier" data-pptx-carrier="true" x="148" y="230" font-size="18" fill="#1F2937" font-weight="bold">{{SECTION_1_TITLE}}</text></g>
+  <g id="toc-desc-slot-1" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="148 244 760 32"><text id="toc-desc-slot-1-carrier" data-pptx-carrier="true" x="148" y="266" font-size="12" fill="#9CA3AF">{{SECTION_1_DESC}}</text></g>
+  <g id="toc-title-slot-2" data-pptx-placeholder="body" data-pptx-idx="4" data-pptx-bounds="148 312 560 34"><text id="toc-title-slot-2-carrier" data-pptx-carrier="true" x="148" y="338" font-size="18" fill="#1F2937" font-weight="bold">{{SECTION_2_TITLE}}</text></g>
+  <g id="toc-desc-slot-2" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="148 352 760 32"><text id="toc-desc-slot-2-carrier" data-pptx-carrier="true" x="148" y="374" font-size="12" fill="#9CA3AF">{{SECTION_2_DESC}}</text></g>
+  <g id="toc-title-slot-3" data-pptx-placeholder="body" data-pptx-idx="6" data-pptx-bounds="148 420 560 34"><text id="toc-title-slot-3-carrier" data-pptx-carrier="true" x="148" y="446" font-size="18" fill="#1F2937" font-weight="bold">{{SECTION_3_TITLE}}</text></g>
+  <g id="toc-desc-slot-3" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="148 460 760 32"><text id="toc-desc-slot-3-carrier" data-pptx-carrier="true" x="148" y="482" font-size="12" fill="#9CA3AF">{{SECTION_3_DESC}}</text></g>
+  <g id="toc-title-slot-4" data-pptx-placeholder="body" data-pptx-idx="8" data-pptx-bounds="148 528 560 34"><text id="toc-title-slot-4-carrier" data-pptx-carrier="true" x="148" y="554" font-size="18" fill="#1F2937" font-weight="bold">{{SECTION_4_TITLE}}</text></g>
+  <g id="toc-desc-slot-4" data-pptx-placeholder="object" data-pptx-idx="9" data-pptx-bounds="148 568 760 32"><text id="toc-desc-slot-4-carrier" data-pptx-carrier="true" x="148" y="590" font-size="12" fill="#9CA3AF">{{SECTION_4_DESC}}</text></g>
+</svg>

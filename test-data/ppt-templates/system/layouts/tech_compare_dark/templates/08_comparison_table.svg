@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" font-family="Microsoft YaHei, PingFang SC, Arial, sans-serif" data-pptx-master="tech-compare-master" data-pptx-master-name="Tech Compare Dark Master" data-pptx-layout="comparison-table" data-pptx-layout-name="Comparison Table">
+  <rect id="master-bg" x="0" y="0" width="1280" height="720" fill="#0F172A" data-pptx-layer="master" data-pptx-editable="false"/>
+  <rect id="master-top-rule" x="0" y="0" width="1280" height="4" fill="#8B5CF6" data-pptx-layer="master" data-pptx-editable="false"/>
+  <line id="content-rule" x1="80" y1="158" x2="1200" y2="158" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ct-table" x="80" y="184" width="1120" height="430" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <rect id="ct-head" x="80" y="184" width="1120" height="50" fill="#334155" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ct-head-1" x="112" y="215" font-size="10" fill="#F8FAFC" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">DIMENSION</text>
+  <text id="ct-head-2" x="392" y="215" font-size="10" fill="#F8FAFC" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">SPEC KIT</text>
+  <text id="ct-head-3" x="672" y="215" font-size="10" fill="#F8FAFC" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">OPENSPEC</text>
+  <text id="ct-head-4" x="952" y="215" font-size="10" fill="#F8FAFC" font-weight="bold" letter-spacing="1" data-pptx-layer="layout" data-pptx-editable="false">ZCF</text>
+  <line id="ct-row-1" x1="80" y1="234" x2="1200" y2="234" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ct-row-index-1" x="112" y="268" font-size="11" fill="#8B5CF6" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">01</text>
+  <line id="ct-row-2" x1="80" y1="288" x2="1200" y2="288" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ct-row-index-2" x="112" y="322" font-size="11" fill="#8B5CF6" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">02</text>
+  <line id="ct-row-3" x1="80" y1="342" x2="1200" y2="342" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ct-row-index-3" x="112" y="376" font-size="11" fill="#8B5CF6" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">03</text>
+  <line id="ct-row-4" x1="80" y1="396" x2="1200" y2="396" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ct-row-index-4" x="112" y="430" font-size="11" fill="#8B5CF6" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">04</text>
+  <line id="ct-row-5" x1="80" y1="450" x2="1200" y2="450" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ct-row-index-5" x="112" y="484" font-size="11" fill="#8B5CF6" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">05</text>
+  <line id="ct-row-6" x1="80" y1="504" x2="1200" y2="504" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ct-row-index-6" x="112" y="538" font-size="11" fill="#8B5CF6" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">06</text>
+  <line id="ct-row-7" x1="80" y1="558" x2="1200" y2="558" stroke="#334155" stroke-width="1" data-pptx-layer="layout" data-pptx-editable="false"/>
+  <text id="ct-row-index-7" x="112" y="592" font-size="11" fill="#8B5CF6" font-weight="bold" data-pptx-layer="layout" data-pptx-editable="false">07</text>
+  <g id="content-title-slot" data-pptx-placeholder="title" data-pptx-idx="0" data-pptx-bounds="80 50 1000 60"><text id="content-title-slot-carrier" data-pptx-carrier="true" x="80" y="100" font-size="26" fill="#F8FAFC" font-weight="bold">{{PAGE_TITLE}}</text></g>
+  <g id="content-subtitle-slot" data-pptx-placeholder="subtitle" data-pptx-idx="1" data-pptx-bounds="80 112 1100 30"><text id="content-subtitle-slot-carrier" data-pptx-carrier="true" x="80" y="136" font-size="13" fill="#94A3B8">{{SUBTITLE}}</text></g>
+  <g id="page-source-slot" data-pptx-placeholder="footer" data-pptx-idx="90" data-pptx-bounds="80 668 700 24"><text id="page-source-slot-carrier" data-pptx-carrier="true" x="80" y="688" font-size="10" fill="#94A3B8">{{SOURCE}}</text></g>
+  <g id="page-number-slot" data-pptx-placeholder="slide-number" data-pptx-idx="91" data-pptx-bounds="1120 668 80 24"><text id="page-number-slot-carrier" data-pptx-carrier="true" x="1200" y="688" font-size="10" fill="#94A3B8" text-anchor="end">{{PAGE_NUM}}</text></g>
+  <g id="ct-row-slot-1" data-pptx-placeholder="object" data-pptx-idx="2" data-pptx-bounds="160 240 1020 42"><text id="ct-row-slot-1-carrier" data-pptx-carrier="true" x="160" y="268" font-size="11" fill="#F8FAFC">{{MATRIX_ROW_1}}</text></g>
+  <g id="ct-row-slot-2" data-pptx-placeholder="object" data-pptx-idx="3" data-pptx-bounds="160 294 1020 42"><text id="ct-row-slot-2-carrier" data-pptx-carrier="true" x="160" y="322" font-size="11" fill="#F8FAFC">{{MATRIX_ROW_2}}</text></g>
+  <g id="ct-row-slot-3" data-pptx-placeholder="object" data-pptx-idx="4" data-pptx-bounds="160 348 1020 42"><text id="ct-row-slot-3-carrier" data-pptx-carrier="true" x="160" y="376" font-size="11" fill="#F8FAFC">{{MATRIX_ROW_3}}</text></g>
+  <g id="ct-row-slot-4" data-pptx-placeholder="object" data-pptx-idx="5" data-pptx-bounds="160 402 1020 42"><text id="ct-row-slot-4-carrier" data-pptx-carrier="true" x="160" y="430" font-size="11" fill="#F8FAFC">{{MATRIX_ROW_4}}</text></g>
+  <g id="ct-row-slot-5" data-pptx-placeholder="object" data-pptx-idx="6" data-pptx-bounds="160 456 1020 42"><text id="ct-row-slot-5-carrier" data-pptx-carrier="true" x="160" y="484" font-size="11" fill="#F8FAFC">{{MATRIX_ROW_5}}</text></g>
+  <g id="ct-row-slot-6" data-pptx-placeholder="object" data-pptx-idx="7" data-pptx-bounds="160 510 1020 42"><text id="ct-row-slot-6-carrier" data-pptx-carrier="true" x="160" y="538" font-size="11" fill="#F8FAFC">{{MATRIX_ROW_6}}</text></g>
+  <g id="ct-row-slot-7" data-pptx-placeholder="object" data-pptx-idx="8" data-pptx-bounds="160 564 1020 42"><text id="ct-row-slot-7-carrier" data-pptx-carrier="true" x="160" y="592" font-size="11" fill="#F8FAFC">{{MATRIX_ROW_7}}</text></g>
+</svg>
