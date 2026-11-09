@@ -674,6 +674,12 @@ export interface PdfImportResult {
   noteId: number | null;
   title: string | null;
   error: string | null;
+  /** 成功保留的图片数量 */
+  imageCount: number;
+  /** 非致命警告（图片跳过、上限截断等） */
+  warnings: string[];
+  /** structured = PDFium 结构化抽取；text = 回退纯文本 */
+  extraction: "structured" | "text";
 }
 
 /** Excel / ODS / CSV 导入单个文件的结果（与 Rust `ExcelImportResult` 对齐） */

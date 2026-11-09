@@ -99,8 +99,18 @@ export function ImportSection({ compact }: Props) {
       const results = await pdfApi.importPdfs(paths, importFolderId ?? null);
       const ok = results.filter((r) => r.noteId !== null);
       const fail = results.filter((r) => r.noteId === null);
+      const totalImages = ok.reduce((sum, r) => sum + r.imageCount, 0);
+      const warnings = ok.flatMap((r) =>
+        r.warnings.map(
+          (w) => `${r.sourcePath.split(/[\\/]/).pop()}: ${w}`,
+        ),
+      );
       hide();
-      if (ok.length > 0) message.success(`成功导入 ${ok.length} 个 PDF`);
+      if (ok.length > 0) {
+        message.success(
+          `成功导入 ${ok.length} 个 PDF${totalImages > 0 ? `，保留 ${totalImages} 张图片` : ""}`,
+        );
+      }
       if (fail.length > 0) {
         Modal.warning({
           title: `${fail.length} 个 PDF 导入失败`,
@@ -113,6 +123,22 @@ export function ImportSection({ compact }: Props) {
                   <Text type="danger" style={{ fontSize: 12 }}>
                     {r.sourcePath.split(/[\\/]/).pop()}: {r.error}
                   </Text>
+                </List.Item>
+              )}
+            />
+          ),
+        });
+      }
+      if (warnings.length > 0) {
+        Modal.info({
+          title: "PDF 导入提示",
+          content: (
+            <List
+              size="small"
+              dataSource={warnings}
+              renderItem={(w) => (
+                <List.Item>
+                  <Text style={{ fontSize: 12 }}>{w}</Text>
                 </List.Item>
               )}
             />

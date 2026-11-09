@@ -1,3 +1,5 @@
+#[cfg(desktop)]
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 #[cfg(desktop)]
 use std::sync::{Mutex, OnceLock};
@@ -9,6 +11,10 @@ use serde::Serialize;
 use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{Note, NoteInput};
+#[cfg(desktop)]
+use crate::services::pdf_layout::PdfLayoutService;
+#[cfg(desktop)]
+use crate::services::{asset_path, image::ImageService};
 
 /// PDFium 全局实例（嵌入 pdfium.dll），用作 pdf-extract 的 fallback。
 ///
@@ -27,6 +33,21 @@ unsafe impl Sync for PdfiumGuard {}
 
 #[cfg(desktop)]
 static PDFIUM: OnceLock<Mutex<PdfiumGuard>> = OnceLock::new();
+
+/// 在持有 PDFium 全局锁的前提下执行闭包。
+///
+/// 供 `pdf_layout` 等模块复用同一份 PDFium 实例，避免重复加载 dll，
+/// 也保证底层 C API 的串行访问。
+#[cfg(desktop)]
+pub(crate) fn with_pdfium<T>(f: impl FnOnce(&Pdfium) -> Result<T, String>) -> Result<T, String> {
+    let mutex = PDFIUM
+        .get()
+        .ok_or_else(|| "PDFium 未初始化（dll 加载失败）".to_string())?;
+    let guard = mutex
+        .lock()
+        .map_err(|e| format!("PDFium 锁被毒化: {}", e))?;
+    f(&guard.0)
+}
 
 /// 应用启动时调用：初始化 PDFium 全局实例（仅桌面端）。
 ///
@@ -83,6 +104,20 @@ pub struct PdfImportResult {
     pub title: Option<String>,
     /// 失败时的错误消息
     pub error: Option<String>,
+    /// 成功保留的图片数量
+    pub image_count: usize,
+    /// 非致命警告（图片跳过、上限截断等）
+    pub warnings: Vec<String>,
+    /// `structured` = 走 PDFium 结构化抽取；`text` = 回退纯文本
+    pub extraction: String,
+}
+
+/// 单个 PDF 导入的内部结果（比 [`PdfImportResult`] 多带 Note 本体）。
+pub struct PdfImportOutcome {
+    pub note: Note,
+    pub image_count: usize,
+    pub warnings: Vec<String>,
+    pub extraction: String,
 }
 
 pub struct PdfService;
@@ -113,13 +148,15 @@ impl PdfService {
         Ok(dir)
     }
 
-    /// 把一个 PDF 文件导入为笔记：抽取文本 → 创建笔记 → 拷贝原文件 → 更新 pdf_path
+    /// 把一个 PDF 文件导入为笔记：抽取文本 → 创建笔记 → 保存图片/交错 HTML → 拷贝原文件。
     pub fn import_one(
         app_data_dir: &Path,
         db: &Database,
         source_path: &str,
         folder_id: Option<i64>,
-    ) -> Result<Note, AppError> {
+        keep_images: bool,
+        max_images: usize,
+    ) -> Result<PdfImportOutcome, AppError> {
         let source = Path::new(source_path);
         if !source.exists() {
             return Err(AppError::NotFound(format!(
@@ -128,14 +165,74 @@ impl PdfService {
             )));
         }
 
-        // 1. 抽取文本（扫描件 / 加密 PDF / xref 损坏会失败）
-        //    对 xref 损坏类错误（如 CNKI 知网下载件）自动尝试修复后重试一次
-        let raw_text = extract_text_with_repair(source)?;
-        let text = normalize_text(&raw_text);
+        #[cfg(desktop)]
+        {
+            Self::import_one_desktop(app_data_dir, db, source, folder_id, keep_images, max_images)
+        }
+        #[cfg(not(desktop))]
+        {
+            let _ = (keep_images, max_images);
+            Self::import_one_mobile(app_data_dir, db, source, folder_id)
+        }
+    }
 
-        // T-B06: 抽出文字过少 → 多半是扫描件 / 图片型 PDF（无文字层）
-        // 默认成功路径里 normalize 后再判断，避免 PDF 只有页码 / 页眉时被误判
-        // 阈值 50 是经验值（空白/几页页码合计也常超 50；扫描件极少超过 50）
+    #[cfg(desktop)]
+    fn import_one_desktop(
+        app_data_dir: &Path,
+        db: &Database,
+        source: &Path,
+        folder_id: Option<i64>,
+        keep_images: bool,
+        max_images: usize,
+    ) -> Result<PdfImportOutcome, AppError> {
+        // 1. 保留图片时先只抽文本，确认不是扫描件后再解码图片；
+        //    不保留图片时走原有纯文本链，避免改变既有 PDF 文本兼容行为。
+        let mut warnings = Vec::new();
+        let text_layout = if keep_images {
+            match PdfLayoutService::extract(source, 0) {
+                Ok(layout) => {
+                    if layout.page_count == 0 {
+                        warnings.push("PDF 未解析出页面，已按纯文本继续".to_string());
+                    }
+                    Some(layout)
+                }
+                Err(e) => {
+                    log::warn!("PDF 结构化抽取失败，回退纯文本: {e}");
+                    warnings.push(format!("结构化抽取失败，已回退纯文本: {e}"));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let (text, extraction) = match &text_layout {
+            Some(layout) if layout.text_chars > 0 => (
+                normalize_text(&layout.plain_text()),
+                "structured".to_string(),
+            ),
+            // 结构化抽取成功但没拿到文字：可能是扫描件，也可能是 PDFium 对该字体不支持。
+            // 先再试一次纯文本链；失败则保留空文本，交给下面的扫描件判定给出友好提示。
+            Some(_) => match extract_text_with_repair(source) {
+                Ok(raw) => {
+                    let text = normalize_text(&raw);
+                    if text.trim().is_empty() {
+                        (String::new(), "structured".to_string())
+                    } else {
+                        (text, "text".to_string())
+                    }
+                }
+                Err(e) => {
+                    log::warn!("PDF 结构化抽取无文字且纯文本回退失败: {e}");
+                    (String::new(), "structured".to_string())
+                }
+            },
+            None => (
+                normalize_text(&extract_text_with_repair(source)?),
+                "text".to_string(),
+            ),
+        };
+
         if is_likely_scanned_pdf(&text) {
             return Err(AppError::Custom(format!(
                 "PDF 抽出文字过少（仅 {} 字），多半是扫描件 / 图片型 PDF（无文字层）。当前版本不内置 OCR;建议先用 Adobe Acrobat、ABBYY、mineru 等工具把 PDF 转成可搜索文本后再导入。",
@@ -143,45 +240,180 @@ impl PdfService {
             )));
         }
 
-        // 2. 标题取源文件名（去后缀）
-        let title = source
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "未命名 PDF".to_string());
-
-        // 3. 创建笔记（content 先存抽出的纯文本，包在 <p> 里满足 Tiptap HTML 期望）
+        // 2. 创建笔记（先写纯文本 HTML，拿到 note_id 后保存图片并更新为交错 HTML）
+        let title = Self::note_title(source);
         let note = db.create_note(&NoteInput {
-            title: title.clone(),
+            title,
             content: text_to_simple_html(&text),
             folder_id,
         })?;
 
-        // 4. 拷贝原 PDF 到 pdfs/<id>/<原文件名>.pdf
-        //    用 note.id 作为子目录隔离避免重名；保留原文件名让用户在文件系统里也能识别
-        let safe_name = sanitize_pdf_filename(source);
-        let rel_path = format!("{}/{}/{}", pdfs_dir_name(), note.id, safe_name);
-        let dst = app_data_dir.join(&rel_path);
-        if let Some(parent) = dst.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                log::warn!("PDF 子目录创建失败（笔记已建）: {}", e);
-                return Ok(note);
+        let mut image_paths = HashMap::new();
+        let mut image_count = 0usize;
+
+        let structured_text_available = text_layout
+            .as_ref()
+            .map(|layout| layout.text_chars > 0)
+            .unwrap_or(false);
+
+        if keep_images && structured_text_available {
+            // 文本已确认可用，再跑一次带图片的结构化抽取。
+            match PdfLayoutService::extract(source, max_images) {
+                Ok(layout) if layout.text_chars == 0 => {
+                    warnings.push("图片抽取结果缺少文本，已保留纯文本正文".to_string());
+                }
+                Ok(layout) => {
+                    warnings.extend(layout.warnings.iter().cloned());
+                    image_count = Self::persist_layout_images(
+                        app_data_dir,
+                        db,
+                        note.id,
+                        &layout,
+                        max_images,
+                        &mut warnings,
+                        &mut image_paths,
+                    );
+
+                    if !image_paths.is_empty() {
+                        let html = PdfLayoutService::render_html(&layout, &image_paths);
+                        if !html.is_empty() {
+                            if let Err(e) = db.update_note_content(note.id, &html) {
+                                warnings.push(format!("图片已保存，但笔记正文更新失败: {e}"));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("PDF 图片抽取失败，仅保留文本: {e}");
+                    warnings.push(format!("图片抽取失败，已仅保留文本: {e}"));
+                }
             }
-        }
-        if let Err(e) = std::fs::copy(source, &dst) {
-            // 拷贝失败：笔记已经建好了也算导入成功，只是不关联 PDF
-            log::warn!("PDF 原文件拷贝失败（笔记已建）: {}", e);
-            return Ok(note);
+        } else if keep_images && !structured_text_available {
+            log::info!("PDF 结构化文本不可用，跳过图片保留");
         }
 
-        // 5. 更新 source_file_path 和 source_file_type
-        db.set_note_source_file(note.id, Some(&rel_path), Some("pdf"))?;
+        // 3. 拷贝原 PDF 并关联到笔记
+        Self::attach_pdf(app_data_dir, db, source, note.id)?;
 
-        // 6. 重新取完整 note 带 source_file_path 返回
         let note = db
             .get_note(note.id)?
             .ok_or_else(|| AppError::NotFound("刚创建的笔记查询失败".into()))?;
-        Ok(note)
+
+        Ok(PdfImportOutcome {
+            note,
+            image_count,
+            warnings,
+            extraction,
+        })
+    }
+
+    #[cfg(not(desktop))]
+    fn import_one_mobile(
+        app_data_dir: &Path,
+        db: &Database,
+        source: &Path,
+        folder_id: Option<i64>,
+    ) -> Result<PdfImportOutcome, AppError> {
+        let raw_text = extract_text_with_repair(source)?;
+        let text = normalize_text(&raw_text);
+
+        if is_likely_scanned_pdf(&text) {
+            return Err(AppError::Custom(format!(
+                "PDF 抽出文字过少（仅 {} 字），多半是扫描件 / 图片型 PDF（无文字层）。移动端暂不支持保留图片。",
+                text.chars().count()
+            )));
+        }
+
+        let note = db.create_note(&NoteInput {
+            title: Self::note_title(source),
+            content: text_to_simple_html(&text),
+            folder_id,
+        })?;
+
+        Self::attach_pdf(app_data_dir, db, source, note.id)?;
+        let note = db
+            .get_note(note.id)?
+            .ok_or_else(|| AppError::NotFound("刚创建的笔记查询失败".into()))?;
+
+        Ok(PdfImportOutcome {
+            note,
+            image_count: 0,
+            warnings: Vec::new(),
+            extraction: "text".to_string(),
+        })
+    }
+
+    fn note_title(source: &Path) -> String {
+        source
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "未命名 PDF".to_string())
+    }
+
+    /// 保存结构化抽取得到的图片，返回成功落盘数量。
+    #[cfg(desktop)]
+    fn persist_layout_images(
+        app_data_dir: &Path,
+        db: &Database,
+        note_id: i64,
+        layout: &crate::services::pdf_layout::PdfLayout,
+        max_images: usize,
+        warnings: &mut Vec<String>,
+        paths: &mut HashMap<usize, String>,
+    ) -> usize {
+        let limit = max_images.min(layout.images.len());
+        for (index, image) in layout.images.iter().take(limit).enumerate() {
+            let file_name = format!("pdf-p{:04}-{:03}.png", image.page, index);
+            log::debug!(
+                "[pdf-import] 保存 {} ({}x{}, bbox {:?})",
+                file_name,
+                image.width,
+                image.height,
+                image.bbox
+            );
+            match ImageService::save_bytes(app_data_dir, note_id, &file_name, &image.png_bytes) {
+                Ok(abs_path) => match asset_path::abs_to_rel(Path::new(&abs_path), app_data_dir) {
+                    Some(rel) => {
+                        paths.insert(index, rel);
+                    }
+                    None => warnings.push(format!(
+                        "第 {} 页图片路径无法转换到数据目录，已跳过",
+                        image.page
+                    )),
+                },
+                Err(e) => warnings.push(format!("第 {} 页图片保存失败: {e}", image.page)),
+            }
+        }
+        paths.len()
+    }
+
+    /// 拷贝原 PDF 到 `pdfs/<note_id>/<原文件名>.pdf` 并写回 source_file_path。
+    ///
+    /// 拷贝失败不算导入失败：笔记已经创建，只是不关联原文件。
+    fn attach_pdf(
+        app_data_dir: &Path,
+        db: &Database,
+        source: &Path,
+        note_id: i64,
+    ) -> Result<(), AppError> {
+        let safe_name = sanitize_pdf_filename(source);
+        let rel_path = format!("{}/{}/{}", pdfs_dir_name(), note_id, safe_name);
+        let dst = app_data_dir.join(&rel_path);
+
+        if let Some(parent) = dst.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                log::warn!("PDF 子目录创建失败（笔记已建）: {}", e);
+                return Ok(());
+            }
+        }
+        if let Err(e) = std::fs::copy(source, &dst) {
+            log::warn!("PDF 原文件拷贝失败（笔记已建）: {}", e);
+            return Ok(());
+        }
+
+        db.set_note_source_file(note_id, Some(&rel_path), Some("pdf"))?;
+        Ok(())
     }
 
     /// 批量导入，收集每条结果（不中断整体流程）
@@ -190,22 +422,32 @@ impl PdfService {
         db: &Database,
         source_paths: &[String],
         folder_id: Option<i64>,
+        keep_images: bool,
+        max_images: usize,
     ) -> Vec<PdfImportResult> {
         source_paths
             .iter()
-            .map(|p| match Self::import_one(app_data_dir, db, p, folder_id) {
-                Ok(note) => PdfImportResult {
-                    source_path: p.clone(),
-                    note_id: Some(note.id),
-                    title: Some(note.title),
-                    error: None,
-                },
-                Err(e) => PdfImportResult {
-                    source_path: p.clone(),
-                    note_id: None,
-                    title: None,
-                    error: Some(e.to_string()),
-                },
+            .map(|p| {
+                match Self::import_one(app_data_dir, db, p, folder_id, keep_images, max_images) {
+                    Ok(outcome) => PdfImportResult {
+                        source_path: p.clone(),
+                        note_id: Some(outcome.note.id),
+                        title: Some(outcome.note.title),
+                        error: None,
+                        image_count: outcome.image_count,
+                        warnings: outcome.warnings,
+                        extraction: outcome.extraction,
+                    },
+                    Err(e) => PdfImportResult {
+                        source_path: p.clone(),
+                        note_id: None,
+                        title: None,
+                        error: Some(e.to_string()),
+                        image_count: 0,
+                        warnings: Vec::new(),
+                        extraction: "text".to_string(),
+                    },
+                }
             })
             .collect()
     }
@@ -332,7 +574,8 @@ fn extract_text_with_repair(source: &Path) -> Result<String, AppError> {
     {
         log::warn!(
             "PDF 抽取失败（移动端无 PDFium fallback）: pdf-extract={}, repair={}",
-            first_err, second_err
+            first_err,
+            second_err
         );
         Err(AppError::Custom(friendly_extract_error(&second_err)))
     }
@@ -548,7 +791,7 @@ fn text_to_simple_html(text: &str) -> String {
 /// 1. 换行规范化（CRLF → LF）
 /// 2. 逐行清洗：去零宽字符、行首 PUA/豆腐字符还原为 "• "、行内 PUA/替换字符删除
 /// 3. 多余空行压成最多 2 个
-fn normalize_text(raw: &str) -> String {
+pub(crate) fn normalize_text(raw: &str) -> String {
     let lf = raw.replace("\r\n", "\n").replace('\r', "\n");
     let cleaned: String = lf
         .split('\n')
@@ -860,7 +1103,7 @@ mod tests {
     }
 }
 
-fn html_escape(s: &str) -> String {
+pub(crate) fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

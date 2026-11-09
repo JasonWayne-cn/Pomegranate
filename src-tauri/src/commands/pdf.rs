@@ -7,18 +7,24 @@ use crate::state::AppState;
 /// 批量导入 PDF 为笔记
 ///
 /// - 每个文件独立抽取文本、创建笔记、拷贝原文件
+/// - `keep_images` 默认 true：桌面端把 PDF 图片按页内位置写入笔记
+/// - `max_images` 默认 200，范围 1..=500
 /// - 单个失败不影响其他，错误信息回填到 `error` 字段
 #[tauri::command]
 pub fn import_pdfs(
     state: State<'_, AppState>,
     paths: Vec<String>,
     folder_id: Option<i64>,
+    keep_images: Option<bool>,
+    max_images: Option<usize>,
 ) -> Result<Vec<PdfImportResult>, String> {
     Ok(PdfService::import_many(
         &state.data_dir,
         &state.db,
         &paths,
         folder_id,
+        keep_images.unwrap_or(true),
+        max_images.unwrap_or(200).clamp(1, 500),
     ))
 }
 

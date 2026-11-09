@@ -238,13 +238,18 @@ export const autostartApi = {
 
 /** PDF 导入与预览 API */
 export const pdfApi = {
-  /** 批量导入 PDF 为笔记，返回每条结果（含错误） */
+  /** 批量导入 PDF 为笔记，返回每条结果（含错误、图片数量与警告） */
   importPdfs: (
     paths: string[],
     folderId?: number | null,
-    enableOcr = false,
+    options?: { keepImages?: boolean; maxImages?: number },
   ) =>
-    invoke<PdfImportResult[]>("import_pdfs", { paths, folderId, enableOcr }),
+    invoke<PdfImportResult[]>("import_pdfs", {
+      paths,
+      folderId,
+      keepImages: options?.keepImages ?? true,
+      maxImages: options?.maxImages ?? 200,
+    }),
   /** 获取笔记关联 PDF 的绝对路径（无则返回 null） */
   getAbsolutePath: (noteId: number) =>
     invoke<string | null>("get_pdf_absolute_path", { noteId }),

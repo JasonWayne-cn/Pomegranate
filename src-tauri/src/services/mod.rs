@@ -65,6 +65,9 @@ pub mod note;
 pub mod note_excerpt;
 pub mod orphan_scan;
 pub mod pdf;
+// PDF 结构化抽取（文本段 + 图片坐标）仅桌面端：依赖 PDFium
+#[cfg(desktop)]
+pub mod pdf_layout;
 pub mod plugin;
 pub mod plugin_http;
 pub mod plugin_token;

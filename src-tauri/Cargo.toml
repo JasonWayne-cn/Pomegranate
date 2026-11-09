@@ -131,6 +131,8 @@ font-enumeration = "0.9"
 # PDFium fallback（pdf-extract 对中文 CMap 不支持，运行时动态加载 pdfium.dll 兜底）
 # 移动端 NDK 加载动态库受沙盒限制，暂不支持，待 T-M012 决策
 pdfium-render = "0.8"
+# PDF 图片抽取：DynamicImage 解码后统一转 PNG（版本与 pdfium-render 传递依赖一致）
+image = { version = "0.25", default-features = false, features = ["png"] }
 # rmcp 桌面端额外能力：spawn 外部 MCP server 子进程（移动端 fork/spawn 受限）
 rmcp = { version = "1.5", features = [
     "transport-child-process",
