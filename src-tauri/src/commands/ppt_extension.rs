@@ -322,6 +322,7 @@ pub async fn ppt_extension_regenerate_ai_page(
     page: u32,
     candidate_count: Option<usize>,
     model_id: Option<i64>,
+    instruction: Option<String>,
 ) -> Result<(), String> {
     PptExtensionService::regenerate_ai_page(
         app,
@@ -331,6 +332,7 @@ pub async fn ppt_extension_regenerate_ai_page(
         page,
         candidate_count.unwrap_or(3).clamp(1, 3),
         model_id,
+        instruction,
     )
     .await
     .map_err(Into::into)

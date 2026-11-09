@@ -82,12 +82,14 @@ export const pptExtensionApi = {
     page: number,
     candidateCount = 3,
     modelId: number | null = null,
+    instruction: string | null = null,
   ) =>
     invoke<void>("ppt_extension_regenerate_ai_page", {
       jobId,
       page,
       candidateCount,
       modelId,
+      instruction,
     }),
   getJobOptions: (jobId: string) =>
     invoke<Record<string, unknown>>("ppt_extension_job_options", { jobId }),

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -9,6 +16,7 @@ import {
   Input,
   InputNumber,
   List,
+  Modal,
   Pagination,
   Popconfirm,
   Progress,
@@ -66,6 +74,7 @@ import type {
   PptDraftPageEvent,
   PptMetaSource,
   PptPageCandidatesResponse,
+  PptPageRegenEvent,
   PptPageSelection,
   PptPlan,
   PptPlanProgressEvent,
@@ -219,6 +228,9 @@ export default function PptPage() {
     useState<PptPageCandidatesResponse | null>(null);
   const [candidateLoading, setCandidateLoading] = useState(false);
   const [regenPage, setRegenPage] = useState<number | null>(null);
+  const [regenPromptPage, setRegenPromptPage] = useState<number | null>(null);
+  const [regenInstruction, setRegenInstruction] = useState("");
+  const [regenProgress, setRegenProgress] = useState<PptPageRegenEvent | null>(null);
   const [selectedDraftFile, setSelectedDraftFile] = useState<string | null>(null);
   const [planProgress, setPlanProgress] = useState<PptPlanProgressEvent | null>(null);
   const [draftProgress, setDraftProgress] = useState<PptDraftPageEvent | null>(null);
@@ -568,6 +580,14 @@ export default function PptPage() {
             })();
           }
         }),
+      );
+      register(
+        await listen<PptPageRegenEvent>(
+          "ppt-extension://page-regenerate",
+          (event) => {
+            setRegenProgress(event.payload);
+          },
+        ),
       );
       register(await listen<PptJobEvent>("ppt-extension://job", onJobEvent));
       register(await listen<PptJobEvent>("ppt-extension://done", onJobEvent));
@@ -930,11 +950,66 @@ export default function PptPage() {
     }
   }
 
-  async function handleRegeneratePage(page: number) {
-    if (!job) return;
+  function getRegenModal() {
+    return document.querySelector<HTMLElement>(".ppt-regen-modal");
+  }
+
+  function resetRegenModalPosition() {
+    const modal = getRegenModal();
+    if (modal) modal.style.transform = "";
+  }
+
+  function beginRegenModalDrag(event: ReactMouseEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    const modal = getRegenModal();
+    if (!modal) return;
+    event.preventDefault();
+    const match = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(
+      modal.style.transform,
+    );
+    const originX = match ? Number(match[1]) : 0;
+    const originY = match ? Number(match[2]) : 0;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const onMove = (moveEvent: MouseEvent) => {
+      modal.style.transform = `translate(${originX + moveEvent.clientX - startX}px, ${originY + moveEvent.clientY - startY}px)`;
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  function openRegenPrompt(page: number) {
+    setRegenInstruction("");
+    setRegenProgress(null);
+    setRegenPromptPage(page);
+    requestAnimationFrame(resetRegenModalPosition);
+  }
+
+  async function handleConfirmRegenPrompt() {
+    if (regenPromptPage == null) return;
+    const page = regenPromptPage;
+    const ok = await handleRegeneratePage(page, regenInstruction);
+    if (ok) {
+      setRegenPromptPage(null);
+      setRegenProgress(null);
+    }
+  }
+
+  async function handleRegeneratePage(page: number, instruction?: string) {
+    if (!job) return false;
     setRegenPage(page);
     try {
-      await pptExtensionApi.regenerateAiPage(job.id, page, 3);
+      await pptExtensionApi.regenerateAiPage(
+        job.id,
+        page,
+        3,
+        null,
+        instruction?.trim() || null,
+      );
       const file = `P${String(page).padStart(2, "0")}.svg`;
       const svg = await pptExtensionApi.readDraftPage(job.id, file);
       setDraftSvgs((prev) => ({ ...prev, [file]: svg }));
@@ -945,8 +1020,10 @@ export default function PptPage() {
       }
       setSelectedDraftFile(file);
       message.success(`P${page} 已重新生成`);
+      return true;
     } catch (e) {
       message.error(`重新生成第 ${page} 页失败：${String(e)}`);
+      return false;
     } finally {
       setRegenPage(null);
     }
@@ -1088,18 +1165,30 @@ export default function PptPage() {
   }
 
   function addSlide() {
-    setPlan((prev) => (prev ? addPlanSlide(prev) : prev));
+    if (!plan) return;
+    setPlan(addPlanSlide(plan));
     setPlanDirty(true);
+    message.info(
+      `已添加第 ${plan.slides.length + 1} 页；左侧草稿仍是旧版本，点击「重新生成草稿」后同步`,
+    );
   }
 
   function removeSlide(index: number) {
-    setPlan((prev) => (prev ? removePlanSlide(prev, index) : prev));
+    if (!plan) return;
+    setPlan(removePlanSlide(plan, index));
     setPlanDirty(true);
+    message.info("已删除该页；点击「重新生成草稿」后左侧预览同步");
   }
 
   function moveSlide(index: number, delta: number) {
-    setPlan((prev) => (prev ? movePlanSlide(prev, index, delta) : prev));
+    if (!plan) return;
+    const target = index + delta;
+    if (target < 0 || target >= plan.slides.length) return;
+    setPlan(movePlanSlide(plan, index, delta));
     setPlanDirty(true);
+    message.info(
+      `已将第 ${index + 1} 页${delta < 0 ? "上移" : "下移"}到第 ${target + 1} 页；左侧草稿是旧顺序，点击「重新生成草稿」后同步`,
+    );
   }
 
   function changeLayout(next?: string) {
@@ -2049,6 +2138,7 @@ export default function PptPage() {
                 </Button>
                 <Button
                   size="small"
+                  type={planDirty || styleDirty ? "primary" : "default"}
                   icon={<RotateCcw size={14} />}
                   onClick={() => void handleRerenderDraft()}
                 >
@@ -2138,8 +2228,18 @@ export default function PptPage() {
                   <Alert
                     type="warning"
                     showIcon
-                    message="内容或风格已修改"
-                    description="当前预览仍是旧草稿，请点击「重新生成草稿」后再导出。"
+                    message="内容、页序或风格已修改"
+                    description="左侧仍是旧草稿，页序调整不会自动刷新预览。重新生成后才会按新顺序渲染并允许导出。"
+                    action={
+                      <Button
+                        size="small"
+                        type="primary"
+                        disabled={running}
+                        onClick={() => void handleRerenderDraft()}
+                      >
+                        立即重新生成
+                      </Button>
+                    }
                   />
                 )}
                 {draftLoading ? (
@@ -2154,6 +2254,11 @@ export default function PptPage() {
                 ) : (
                   <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
                     <div className="max-h-[640px] overflow-y-auto rounded border border-slate-200">
+                      {planDirty && (
+                        <div className="sticky top-0 z-[1] border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
+                          页序待同步：左侧仍是旧草稿顺序，重新生成后更新
+                        </div>
+                      )}
                       <List
                         size="small"
                         dataSource={draftPages}
@@ -2196,7 +2301,7 @@ export default function PptPage() {
                                   </Tag>
                                 );
                               })()}
-                              <Tooltip title="重新生成此页">
+                              <Tooltip title="按提示词重新生成此页">
                                 <Button
                                   size="small"
                                   type="text"
@@ -2204,7 +2309,7 @@ export default function PptPage() {
                                   icon={<RotateCcw size={13} />}
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    void handleRegeneratePage(page.page);
+                                    openRegenPrompt(page.page);
                                   }}
                                 />
                               </Tooltip>
@@ -2274,6 +2379,15 @@ export default function PptPage() {
                           extra={
                             <Space size={4}>
                               <Button icon={<Plus size={14} />} size="small" type="text" onClick={addSlide} />
+                              <Tooltip title="按提示词重新生成此页">
+                                <Button
+                                  size="small"
+                                  type="text"
+                                  icon={<Sparkles size={14} />}
+                                  loading={regenPage === selectedDraftSlide.page}
+                                  onClick={() => openRegenPrompt(selectedDraftSlide.page)}
+                                />
+                              </Tooltip>
                               <Tooltip title="上移">
                                 <Button
                                   size="small"
@@ -2603,6 +2717,79 @@ export default function PptPage() {
           ]}
         />
       </Drawer>
+
+      <Modal
+        open={regenPromptPage !== null}
+        className="ppt-regen-modal"
+        title={
+          <div
+            onMouseDown={beginRegenModalDrag}
+            style={{ cursor: "move", userSelect: "none" }}
+            title="按住标题可拖动窗口"
+          >
+            {regenPromptPage !== null
+              ? `重新生成 P${regenPromptPage}`
+              : "重新生成此页"}
+          </div>
+        }
+        okText="重新生成"
+        cancelText="取消"
+        confirmLoading={regenPage !== null && regenPage === regenPromptPage}
+        maskClosable={false}
+        onOk={() => void handleConfirmRegenPrompt()}
+        onCancel={() => {
+          if (regenPage === regenPromptPage) return;
+          setRegenPromptPage(null);
+          resetRegenModalPosition();
+        }}
+        afterOpenChange={(open) => {
+          if (!open) {
+            resetRegenModalPosition();
+            setRegenProgress(null);
+          }
+        }}
+      >
+        <Space direction="vertical" size="small" className="w-full">
+          <Text type="secondary">
+            可描述希望 AI 如何修改本页，例如“改成左右对比布局，突出转化率数据”或“减少文字，用三段流程箭头表达”。留空则按当前内容重新生成。
+          </Text>
+          <Input.TextArea
+            rows={4}
+            maxLength={500}
+            showCount
+            autoFocus
+            value={regenInstruction}
+            onChange={(event) => setRegenInstruction(event.target.value)}
+            placeholder="例如：改成左右对比布局，左侧列问题，右侧列解决方案"
+            disabled={regenPage !== null && regenPage === regenPromptPage}
+          />
+          {regenPromptPage !== null &&
+            ((regenPage !== null && regenPage === regenPromptPage) ||
+              regenProgress !== null) && (
+              <div className="rounded border border-slate-200 bg-slate-50 p-3">
+              <Progress
+                size="small"
+                status={
+                  regenProgress?.status === "failed" ? "exception" : "active"
+                }
+                percent={
+                  regenProgress && regenProgress.total > 0
+                    ? Math.min(
+                        100,
+                        Math.round(
+                          (regenProgress.current / regenProgress.total) * 100,
+                        ),
+                      )
+                    : 0
+                }
+              />
+              <Text type="secondary" className="mt-1 block text-xs">
+                {regenProgress?.message ?? "正在准备重新生成…"}
+              </Text>
+            </div>
+          )}
+        </Space>
+      </Modal>
     </div>
   );
 }

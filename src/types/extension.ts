@@ -235,6 +235,16 @@ export interface PptDraftPageEvent {
   issues: string[];
 }
 
+/** 单页按提示词重新生成时的候选进度。 */
+export interface PptPageRegenEvent {
+  jobId: string;
+  page: number;
+  current: number;
+  total: number;
+  status: "preparing" | "generating" | "scored" | "selected" | "failed";
+  message: string;
+}
+
 export interface PptJob {
   id: string;
   extensionId: string;

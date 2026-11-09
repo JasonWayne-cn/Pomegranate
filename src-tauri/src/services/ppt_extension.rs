@@ -292,6 +292,30 @@ fn emit_draft_page(
     );
 }
 
+/// 单页重新生成的候选进度，供草稿页提示词弹窗展示。
+#[allow(clippy::too_many_arguments)]
+fn emit_page_regen_progress(
+    app: &AppHandle,
+    job_id: &str,
+    page: u32,
+    current: usize,
+    total: usize,
+    status: &str,
+    message: &str,
+) {
+    let _ = app.emit(
+        "ppt-extension://page-regenerate",
+        json!({
+            "jobId": job_id,
+            "page": page,
+            "current": current,
+            "total": total,
+            "status": status,
+            "message": message,
+        }),
+    );
+}
+
 impl PptExtensionService {
     pub fn workspace_root(data_dir: &Path) -> PathBuf {
         data_dir.join("ppt-workspace")
@@ -3845,8 +3869,19 @@ fn page_generation_prompt(
     direction: &str,
     template_page: &str,
     template_roster: &str,
+    extra_instruction: &str,
 ) -> String {
     let slide_json = serde_json::to_string_pretty(slide).unwrap_or_default();
+    let extra_instruction: String = extra_instruction.trim().chars().take(1000).collect();
+    let instruction_block = if extra_instruction.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "【本次修改要求】\n{}\n\n说明：以上为用户的单页修改意见，优先满足视觉与信息组织要求；\
+             但仍须遵守事实、颜色、字体与禁用项约束，不得编造数据。\n\n",
+            extra_instruction
+        )
+    };
     let understanding: String = understanding
         .chars()
         .take(AI_PROMPT_UNDERSTANDING_CHARS)
@@ -3881,6 +3916,7 @@ fn page_generation_prompt(
          【全局信息】\n标题：{}\n总页数：{}\n上一页：{}\n下一页：{}\n\n\
          【素材理解】\n{}\n\n\
          【当前页】\n{}\n\n\
+         {}\
          请输出完整 SVG：",
         layout_hint(slide),
         direction,
@@ -3893,6 +3929,7 @@ fn page_generation_prompt(
         if next_title.is_empty() { "无" } else { next_title },
         if understanding.trim().is_empty() { "无" } else { understanding.as_str() },
         slide_json,
+        instruction_block,
     )
 }
 
@@ -4172,6 +4209,7 @@ async fn generate_ai_page_candidates(
             directions[candidate_index % directions.len()],
             &template_hint,
             template_roster,
+            "",
         )
     };
     let mut candidates: Vec<PageCandidateScore> = Vec::new();
@@ -4277,6 +4315,7 @@ async fn generate_ai_page_candidates(
                     directions[0],
                     &template_hint,
                     template_roster,
+                    "",
                 ),
                 current.issues.join("；"),
             );
@@ -5077,6 +5116,7 @@ impl PptExtensionService {
         page: u32,
         candidate_count: usize,
         model_id_override: Option<i64>,
+        instruction: Option<String>,
     ) -> Result<(), AppError> {
         let job = db
             .get_ppt_job(&job_id)?
@@ -5130,8 +5170,34 @@ impl PptExtensionService {
             "结构优先：清晰标题层级、编号/分组与稳定网格",
             "视觉优先：大数字、色块、图表或强对比图形，减少文字块",
         ];
+        let effective_candidates = directions.len().min(candidate_count.max(1));
+        emit_page_regen_progress(
+            &app,
+            &job_id,
+            page,
+            0,
+            effective_candidates,
+            "preparing",
+            "正在准备候选提示词…",
+        );
         let mut candidates = Vec::new();
-        for (candidate_index, direction) in directions.iter().enumerate().take(candidate_count.max(1)) {
+        for (candidate_index, direction) in
+            directions.iter().take(effective_candidates).enumerate()
+        {
+            emit_page_regen_progress(
+                &app,
+                &job_id,
+                page,
+                candidate_index,
+                effective_candidates,
+                "generating",
+                &format!(
+                    "正在生成候选 {} / {}（{}）",
+                    candidate_index + 1,
+                    effective_candidates,
+                    direction
+                ),
+            );
             let prompt = page_generation_prompt(
                 &plan,
                 &slide,
@@ -5142,24 +5208,71 @@ impl PptExtensionService {
                 direction,
                 &template_hint,
                 template_reference.roster.as_str(),
+                instruction.as_deref().unwrap_or(""),
             );
             let future = AiService::complete_once(&db, &prompt, model_id);
             match await_cancellable(future, &cancel, Duration::from_secs(AI_PAGE_TIMEOUT_SECS)).await {
                 Ok(text) => {
                     if let Some(svg) = extract_svg_block(&text) {
-                        candidates.push(score_svg_candidate(
+                        let scored = score_svg_candidate(
                             &svg,
                             &slide,
                             &allowed_colors,
                             &existing_signatures,
-                        ));
+                        );
+                        emit_page_regen_progress(
+                            &app,
+                            &job_id,
+                            page,
+                            candidate_index + 1,
+                            effective_candidates,
+                            "scored",
+                            &format!(
+                                "候选 {} 已生成，评分 {}",
+                                candidate_index + 1,
+                                scored.score
+                            ),
+                        );
+                        candidates.push(scored);
+                    } else {
+                        emit_page_regen_progress(
+                            &app,
+                            &job_id,
+                            page,
+                            candidate_index + 1,
+                            effective_candidates,
+                            "scored",
+                            &format!("候选 {} 未返回完整 SVG", candidate_index + 1),
+                        );
                     }
                 }
-                Err(PlanRunError::Cancelled) => break,
-                Err(error) => emit_system_log(
-                    Some(&app),
-                    &format!("第 {page} 页候选 {} 失败：{:?}", candidate_index + 1, error),
-                ),
+                Err(PlanRunError::Cancelled) => {
+                    emit_page_regen_progress(
+                        &app,
+                        &job_id,
+                        page,
+                        candidate_index,
+                        effective_candidates,
+                        "failed",
+                        "已取消生成",
+                    );
+                    break;
+                }
+                Err(error) => {
+                    emit_system_log(
+                        Some(&app),
+                        &format!("第 {page} 页候选 {} 失败：{:?}", candidate_index + 1, error),
+                    );
+                    emit_page_regen_progress(
+                        &app,
+                        &job_id,
+                        page,
+                        candidate_index + 1,
+                        effective_candidates,
+                        "scored",
+                        &format!("候选 {} 失败：{:?}", candidate_index + 1, error),
+                    );
+                }
             }
         }
         if let Ok(mut map) = cancels.lock() {
@@ -5167,14 +5280,33 @@ impl PptExtensionService {
         }
         candidates.sort_by(|left, right| right.score.cmp(&left.score));
         let Some(best) = candidates.first().cloned() else {
+            emit_page_regen_progress(
+                &app,
+                &job_id,
+                page,
+                0,
+                effective_candidates,
+                "failed",
+                "未获得可用 SVG",
+            );
             return Err(AppError::Custom("未获得可用 SVG".into()));
         };
         if best.hard_fail || best.score < AI_PAGE_MIN_SCORE {
-            return Err(AppError::Custom(format!(
+            let message = format!(
                 "候选未达门槛：score={} {}",
                 best.score,
                 best.issues.join("；")
-            )));
+            );
+            emit_page_regen_progress(
+                &app,
+                &job_id,
+                page,
+                effective_candidates,
+                effective_candidates,
+                "failed",
+                &message,
+            );
+            return Err(AppError::Custom(message));
         }
         fs::write(
             page_svg_path(&project, page),
@@ -5184,6 +5316,15 @@ impl PptExtensionService {
         emit_system_log(
             Some(&app),
             &format!("第 {page} 页已重新生成：score={}", best.score),
+        );
+        emit_page_regen_progress(
+            &app,
+            &job_id,
+            page,
+            effective_candidates,
+            effective_candidates,
+            "selected",
+            &format!("已应用最优候选，评分 {}", best.score),
         );
         Ok(())
     }
@@ -5983,6 +6124,7 @@ mod tests {
             "方向",
             "模板页参考-XYZ",
             "模板页面清单-ABC",
+            "",
         );
         assert!(prompt.contains("【模板版式参考】"));
         assert!(prompt.contains("模板页参考-XYZ"));
