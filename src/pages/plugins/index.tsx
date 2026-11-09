@@ -267,9 +267,11 @@ export default function PluginsPage() {
       });
       if (!picked || Array.isArray(picked)) return;
       setInstalling(true);
-      await pluginApi.installFromDir(picked);
+      const installed = await pluginApi.installFromDir(picked);
       message.success("插件已安装");
-      await scanPlugins();
+      const data = await scanPlugins();
+      // 安装后立即打开详情，引导用户完成权限授权，避免启用后因未授权而无法使用
+      setSelected(data.find((p) => p.id === installed.id) ?? installed);
     } catch (e) {
       message.error(`安装失败：${e}`);
     } finally {
@@ -465,6 +467,12 @@ export default function PluginsPage() {
     [selected],
   );
 
+  const pendingPermissions = selected
+    ? selected.permissions.filter(
+        (p) => !selected.grantedPermissions.includes(p),
+      )
+    : [];
+
   return (
     <div className="max-w-6xl mx-auto">
       <Card
@@ -550,6 +558,15 @@ export default function PluginsPage() {
       >
         {selected && (
           <Space orientation="vertical" style={{ width: "100%" }} size="middle">
+            {pendingPermissions.length > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                title={`还有 ${pendingPermissions.length} 项权限未授权`}
+                description="未授权的功能在插件启用后会被拒绝调用。确认信任该插件后，点击下方「授权全部权限」完成授权。"
+              />
+            )}
+
             <Descriptions column={1} bordered size="small">
               <Descriptions.Item label="ID">{selected.id}</Descriptions.Item>
               <Descriptions.Item label="版本">{selected.version}</Descriptions.Item>
