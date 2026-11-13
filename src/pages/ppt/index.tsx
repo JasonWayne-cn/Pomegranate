@@ -22,6 +22,7 @@ import {
   Progress,
   Segmented,
   Select,
+  Skeleton,
   Space,
   Steps,
   Switch,
@@ -31,6 +32,7 @@ import {
   Typography,
   message,
 } from "antd";
+import { isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -146,6 +148,52 @@ function stepForStage(stage?: string): number {
   }
 }
 
+const PPT_STEP_TITLES = [
+  "素材与设置",
+  "风格确认",
+  "大纲确认",
+  "草稿修改",
+  "最终导出",
+] as const;
+
+function StepPreviewPlaceholder({
+  step,
+  description,
+  hints,
+}: {
+  step: number;
+  description: string;
+  hints: string[];
+}) {
+  return (
+    <Card
+      className="mt-4"
+      title={`${PPT_STEP_TITLES[step]} · 预览`}
+      extra={<Tag color="blue">尚未开始</Tag>}
+    >
+      <Space direction="vertical" size="middle" className="w-full">
+        <Alert
+          type="info"
+          showIcon
+          message={`第 ${step + 1} 步尚未开始，以下是该步骤的页面结构预览`}
+          description={description}
+        />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {hints.map((hint) => (
+            <div
+              key={hint}
+              className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-600"
+            >
+              {hint}
+            </div>
+          ))}
+        </div>
+        <Skeleton active title={false} paragraph={{ rows: 5 }} />
+      </Space>
+    </Card>
+  );
+}
+
 function svgDataUrl(svg: string): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
@@ -168,6 +216,7 @@ function newPlanningId(): string {
 
 export default function PptPage() {
   const navigate = useNavigate();
+  const inTauri = isTauri();
   const [status, setStatus] = useState<PptExtensionStatus | null>(null);
   const [catalog, setCatalog] = useState<PptTemplateCatalog | null>(null);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -211,6 +260,8 @@ export default function PptPage() {
   const [job, setJob] = useState<PptJob | null>(null);
   const [engineProgress, setEngineProgress] = useState(0);
   const [step, setStep] = useState(0);
+  // 导航条展示的步骤。与真实流程步骤 step 分离：点击导航只切换视图，不推进流程。
+  const [viewStep, setViewStep] = useState(0);
   const [plan, setPlan] = useState<PptPlan | null>(null);
   const [planningId, setPlanningId] = useState<string | null>(null);
   const [nativeCharts, setNativeCharts] = useState(false);
@@ -246,6 +297,8 @@ export default function PptPage() {
   }, [folders]);
 
   const loadStatus = useCallback(async () => {
+    // 浏览器里没有 Tauri IPC，直接跳过，避免弹出 "window.__TAURI_INTERNALS__ is undefined"
+    if (!isTauri()) return;
     try {
       const next = await pptExtensionApi.status();
       setStatus(next);
@@ -279,6 +332,18 @@ export default function PptPage() {
     window.addEventListener("app:ppt-templates-changed", handler);
     return () =>
       window.removeEventListener("app:ppt-templates-changed", handler);
+  }, [loadStatus]);
+
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    void listen("extension:auto-installed", () => {
+      void loadStatus();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
   }, [loadStatus]);
 
   useEffect(() => {
@@ -1159,6 +1224,15 @@ export default function PptPage() {
     setStep(0);
   }
 
+  function handleStepChange(next: number) {
+    if (next === viewStep) return;
+    if (busy) {
+      message.info("正在生成中，暂不能切换步骤");
+      return;
+    }
+    setViewStep(next);
+  }
+
   function updateSlide(index: number, patch: Partial<PptSlide>) {
     setPlan((prev) => (prev ? updatePlanSlide(prev, index, patch) : prev));
     setPlanDirty(true);
@@ -1344,6 +1418,16 @@ export default function PptPage() {
   }, [job?.id, selectedDraftSlide?.page, draftSvgs]);
   const reuseDraft = canReuseDraft(job, planDirty, styleDirty);
   const reuseExport = canReuseExport(job, planDirty, styleDirty);
+  const busy = running || creating || regenerating;
+  const previewing = viewStep !== step;
+  const previewingFuture = viewStep > step;
+  // 预览后续步骤时，隐藏会触发生成/导出的操作，避免误触
+  const previewLock = previewingFuture ? { disabled: true } : {};
+
+  // 真实流程推进时，视图自动跟随到该步骤
+  useEffect(() => {
+    setViewStep(step);
+  }, [step]);
 
   const chartOptions = useMemo(() => {
     // charts_index.json 的结构是 { meta, aliases, charts: { area_chart: {...}, ... } }
@@ -1387,6 +1471,39 @@ export default function PptPage() {
     );
   }
 
+  const stepItems = [
+    {
+      title: PPT_STEP_TITLES[0],
+      description:
+        selectedCount > 0 ? `已选 ${selectedCount} 项素材` : "选择文档 / 填写标题",
+    },
+    {
+      title: PPT_STEP_TITLES[1],
+      description: selectedLayoutLabel || "版式、图表与生成选项",
+    },
+    {
+      title: PPT_STEP_TITLES[2],
+      description: plan ? `${plan.slides.length} 页大纲` : "逐页编辑标题与要点",
+    },
+    {
+      title: PPT_STEP_TITLES[3],
+      description:
+        draftPages.length > 0
+          ? `${draftPages.length} 页草稿`
+          : "缩略图预览与单页重生成",
+    },
+    {
+      title: PPT_STEP_TITLES[4],
+      description:
+        job?.status === "succeeded" && job.stage === "done"
+          ? "已导出"
+          : "导出可编辑 PPTX",
+    },
+  ].map((item, index) => ({
+    ...item,
+    disabled: busy && index !== step,
+  }));
+
   return (
     <div className="mx-auto max-w-6xl p-6">
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -1427,17 +1544,48 @@ export default function PptPage() {
         />
       )}
 
+      {!inTauri && (
+        <Alert
+          className="mb-4"
+          type="info"
+          showIcon
+          message="浏览器预览模式"
+          description="当前页面运行在浏览器中，PPT 扩展与本地数据接口不可用，界面仅用于查看布局与导航。"
+        />
+      )}
+
       <Steps
-        className="mb-4"
-        current={step}
-        items={[
-          { title: "素材与设置" },
-          { title: "风格确认" },
-          { title: "大纲确认" },
-          { title: "草稿修改" },
-          { title: "最终导出" },
-        ]}
+        className="mb-1"
+        current={viewStep}
+        onChange={handleStepChange}
+        items={stepItems}
       />
+      <Text type="secondary" className="mb-4 block text-xs">
+        点击步骤可回看或预览页面；尚未开始的步骤以只读预览展示，不会推进当前生成流程。
+      </Text>
+
+      {previewing && (
+        <Alert
+          className="mb-4"
+          type={previewingFuture ? "info" : "success"}
+          showIcon
+          message={
+            previewingFuture
+              ? `预览第 ${viewStep + 1} 步 · ${PPT_STEP_TITLES[viewStep]}`
+              : `回看第 ${viewStep + 1} 步 · ${PPT_STEP_TITLES[viewStep]}`
+          }
+          description={
+            previewingFuture
+              ? `当前流程仍停留在第 ${step + 1} 步「${PPT_STEP_TITLES[step]}」。预览页面不显示生成/导出按钮，不会自动推进流程。`
+              : `正在查看已完成的步骤，当前流程仍在第 ${step + 1} 步「${PPT_STEP_TITLES[step]}」。`
+          }
+          action={
+            <Button size="small" onClick={() => setViewStep(step)}>
+              返回当前步骤
+            </Button>
+          }
+        />
+      )}
 
       {running && step <= 2 && planProgress && (
         <Alert
@@ -1453,7 +1601,7 @@ export default function PptPage() {
         />
       )}
 
-      {step === 0 && (
+      {viewStep === 0 && (
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card
           title={`素材来源（已选 ${selectedCount} 项）`}
@@ -1802,7 +1950,7 @@ export default function PptPage() {
       </div>
       )}
 
-      {step === 1 && (
+      {viewStep === 1 && (
         <Card
           title={
             selectedLayoutLabel
@@ -1810,26 +1958,30 @@ export default function PptPage() {
               : "风格确认（未选择版式）"
           }
           extra={
-            <Space wrap>
-              <Button onClick={backToSettings}>返回设置</Button>
-              <Button
-                type="primary"
-                icon={<Sparkles size={16} />}
-                loading={creating}
-                onClick={() => void goToOutline()}
-              >
-                {job && plan ? "继续到大纲确认" : "生成大纲"}
-              </Button>
-              {creating && (
+            previewingFuture ? (
+              <Tag color="blue">只读预览</Tag>
+            ) : (
+              <Space wrap>
+                <Button onClick={backToSettings}>返回设置</Button>
                 <Button
-                  danger
-                  icon={<Square size={14} />}
-                  onClick={() => void handleCancelPlanning()}
+                  type="primary"
+                  icon={<Sparkles size={16} />}
+                  loading={creating}
+                  onClick={() => void goToOutline()}
                 >
-                  取消规划
+                  {job && plan ? "继续到大纲确认" : "生成大纲"}
                 </Button>
-              )}
-            </Space>
+                {creating && (
+                  <Button
+                    danger
+                    icon={<Square size={14} />}
+                    onClick={() => void handleCancelPlanning()}
+                  >
+                    取消规划
+                  </Button>
+                )}
+              </Space>
+            )
           }
         >
           <Space direction="vertical" size="middle" className="w-full">
@@ -1864,10 +2016,11 @@ export default function PptPage() {
                     <button
                       key={option.value}
                       type="button"
+                      disabled={previewingFuture}
                       onClick={() =>
                         changeLayout(selected ? undefined : option.value)
                       }
-                      className={`overflow-hidden rounded-lg border text-left transition ${
+                      className={`overflow-hidden rounded-lg border text-left transition disabled:cursor-not-allowed disabled:opacity-70 ${
                         selected
                           ? "border-blue-500 ring-2 ring-blue-100"
                           : "border-slate-200 hover:border-blue-300"
@@ -1931,6 +2084,7 @@ export default function PptPage() {
                 options={chartOptions}
                 value={chartIds}
                 onChange={changeChartIds}
+                {...previewLock}
                 optionFilterProp="label"
                 optionRender={(option) => {
                   const data = option.data as {
@@ -1957,32 +2111,40 @@ export default function PptPage() {
                   开启后优先用 python-pptx 生成可编辑图表；图表页可能不沿用版式模板
                 </Text>
               </div>
-              <Switch checked={nativeCharts} onChange={changeNativeCharts} />
+              <Switch
+                checked={nativeCharts}
+                onChange={changeNativeCharts}
+                {...previewLock}
+              />
             </div>
           </Space>
         </Card>
       )}
 
-      {step === 2 && plan && (
+      {viewStep === 2 && plan && (
         <Card
           title={`大纲确认（${plan.slides.length} 页）`}
           extra={
-            <Space wrap>
-              <Button onClick={() => setStep(1)} disabled={running}>
-                返回风格
-              </Button>
-              <Button icon={<Plus size={14} />} onClick={addSlide}>
-                添加页
-              </Button>
-              <Button
-                type="primary"
-                icon={<Sparkles size={16} />}
-                loading={running}
-                onClick={goToDraft}
-              >
-                {reuseDraft ? "继续到草稿修改" : "确认大纲，生成草稿"}
-              </Button>
-            </Space>
+            previewingFuture ? (
+              <Tag color="blue">只读预览</Tag>
+            ) : (
+              <Space wrap>
+                <Button onClick={() => setStep(1)} disabled={running}>
+                  返回风格
+                </Button>
+                <Button icon={<Plus size={14} />} onClick={addSlide}>
+                  添加页
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<Sparkles size={16} />}
+                  loading={running}
+                  onClick={goToDraft}
+                >
+                  {reuseDraft ? "继续到草稿修改" : "确认大纲，生成草稿"}
+                </Button>
+              </Space>
+            )
           }
         >
           <div className="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-slate-200 px-3 py-2">
@@ -1993,6 +2155,7 @@ export default function PptPage() {
               value={slideCount}
               placeholder="自动"
               disabled={running || regenerating}
+              {...previewLock}
               onChange={(value) =>
                 setSlideCount(typeof value === "number" ? value : undefined)
               }
@@ -2003,7 +2166,7 @@ export default function PptPage() {
             <Button
               icon={<RotateCcw size={14} />}
               loading={regenerating}
-              disabled={running}
+              disabled={running || previewingFuture}
               onClick={() => void handleRegenerateOutline()}
             >
               重新生成大纲
@@ -2043,7 +2206,7 @@ export default function PptPage() {
                         size="small"
                         type="text"
                         icon={<ArrowUp size={14} />}
-                        disabled={index === 0}
+                        disabled={index === 0 || previewingFuture}
                         onClick={() => moveSlide(index, -1)}
                       />
                     </Tooltip>
@@ -2052,7 +2215,9 @@ export default function PptPage() {
                         size="small"
                         type="text"
                         icon={<ArrowDown size={14} />}
-                        disabled={index === plan.slides.length - 1}
+                        disabled={
+                          index === plan.slides.length - 1 || previewingFuture
+                        }
                         onClick={() => moveSlide(index, 1)}
                       />
                     </Tooltip>
@@ -2066,7 +2231,7 @@ export default function PptPage() {
                         type="text"
                         danger
                         icon={<Trash2 size={14} />}
-                        disabled={plan.slides.length <= 1}
+                        disabled={plan.slides.length <= 1 || previewingFuture}
                       />
                     </Popconfirm>
                   </Space>
@@ -2075,6 +2240,7 @@ export default function PptPage() {
                 <Space direction="vertical" size="small" className="w-full">
                   <Input
                     value={slide.title}
+                    {...previewLock}
                     onChange={(event) =>
                       updateSlide(index, { title: event.target.value })
                     }
@@ -2083,6 +2249,7 @@ export default function PptPage() {
                   <Input.TextArea
                     rows={2}
                     value={slide.coreMessage}
+                    {...previewLock}
                     onChange={(event) =>
                       updateSlide(index, { coreMessage: event.target.value })
                     }
@@ -2091,6 +2258,7 @@ export default function PptPage() {
                   <Input.TextArea
                     rows={4}
                     value={slide.bullets.join("\n")}
+                    {...previewLock}
                     onChange={(event) =>
                       updateSlide(index, {
                         bullets: event.target.value
@@ -2113,7 +2281,19 @@ export default function PptPage() {
         </Card>
       )}
 
-      {step === 3 && (running || job) && (
+      {viewStep === 2 && !plan && (
+        <StepPreviewPlaceholder
+          step={2}
+          description="确认风格后，AI 会根据素材生成大纲。这里可以逐页调整标题、核心信息、要点与图表，再生成草稿。"
+          hints={[
+            "目标页数与重新生成大纲",
+            "逐页编辑标题 / 核心信息 / 要点",
+            "图表页标注图表类型与分类数",
+          ]}
+        />
+      )}
+
+      {viewStep === 3 && (running || job) && (
         <Card
           className="mt-4"
           title={
@@ -2131,6 +2311,8 @@ export default function PptPage() {
               >
                 取消生成
               </Button>
+            ) : previewingFuture ? (
+              <Tag color="blue">只读预览</Tag>
             ) : (
               <Space wrap>
                 <Button size="small" onClick={() => setStep(2)}>
@@ -2162,7 +2344,7 @@ export default function PptPage() {
               <Text strong>生成方式</Text>
               <Segmented
                 value={draftMode}
-                disabled={running}
+                disabled={running || previewingFuture}
                 onChange={(value) =>
                   setDraftMode(value as PptDraftGenerationMode)
                 }
@@ -2234,7 +2416,7 @@ export default function PptPage() {
                       <Button
                         size="small"
                         type="primary"
-                        disabled={running}
+                        disabled={running || previewingFuture}
                         onClick={() => void handleRerenderDraft()}
                       >
                         立即重新生成
@@ -2306,6 +2488,7 @@ export default function PptPage() {
                                   size="small"
                                   type="text"
                                   loading={regenPage === page.page}
+                                  disabled={previewingFuture}
                                   icon={<RotateCcw size={13} />}
                                   onClick={(event) => {
                                     event.stopPropagation();
@@ -2343,10 +2526,11 @@ export default function PptPage() {
                                 <button
                                   key={candidate.index}
                                   type="button"
+                                  disabled={previewingFuture}
                                   onClick={() =>
                                     void handleSelectCandidate(candidate.index)
                                   }
-                                  className={`rounded border p-1 text-left ${
+                                  className={`rounded border p-1 text-left disabled:cursor-not-allowed disabled:opacity-70 ${
                                     candidate.index === pageCandidates.selected
                                       ? "border-blue-500 ring-2 ring-blue-200"
                                       : "border-slate-200"
@@ -2377,6 +2561,9 @@ export default function PptPage() {
                           size="small"
                           title={`编辑 P${selectedDraftSlide.page}`}
                           extra={
+                            previewingFuture ? (
+                              <Tag color="blue">只读预览</Tag>
+                            ) : (
                             <Space size={4}>
                               <Button icon={<Plus size={14} />} size="small" type="text" onClick={addSlide} />
                               <Tooltip title="按提示词重新生成此页">
@@ -2425,11 +2612,13 @@ export default function PptPage() {
                                 />
                               </Popconfirm>
                             </Space>
+                            )
                           }
                         >
                           <Space direction="vertical" size="small" className="w-full">
                             <Input
                               value={selectedDraftSlide.title}
+                              {...previewLock}
                               onChange={(event) =>
                                 updateSlide(selectedDraftIndex, {
                                   title: event.target.value,
@@ -2440,6 +2629,7 @@ export default function PptPage() {
                             <Input.TextArea
                               rows={2}
                               value={selectedDraftSlide.coreMessage}
+                              {...previewLock}
                               onChange={(event) =>
                                 updateSlide(selectedDraftIndex, {
                                   coreMessage: event.target.value,
@@ -2450,6 +2640,7 @@ export default function PptPage() {
                             <Input.TextArea
                               rows={4}
                               value={selectedDraftSlide.bullets.join("\n")}
+                              {...previewLock}
                               onChange={(event) =>
                                 updateSlide(selectedDraftIndex, {
                                   bullets: event.target.value
@@ -2481,7 +2672,19 @@ export default function PptPage() {
         </Card>
       )}
 
-      {step === 4 && (running || job) && (
+      {viewStep === 3 && !(running || job) && (
+        <StepPreviewPlaceholder
+          step={3}
+          description="大纲确认后会按页渲染草稿。这里可以查看每页缩略图、切换结构候选，并按提示词单独重生成某一页。"
+          hints={[
+            "页面缩略图列表与 SVG 预览",
+            "候选评分与结构切换",
+            "单页按提示词重新生成",
+          ]}
+        />
+      )}
+
+      {viewStep === 4 && (running || job) && (
         <Card
           className="mt-4"
           title={running ? "正在导出 PPTX" : "最终导出"}
@@ -2495,6 +2698,8 @@ export default function PptPage() {
               >
                 取消导出
               </Button>
+            ) : previewingFuture ? (
+              <Tag color="blue">只读预览</Tag>
             ) : (
               <Space wrap>
                 <Button size="small" onClick={() => setStep(3)}>
@@ -2539,7 +2744,7 @@ export default function PptPage() {
                 />
                 <Button
                   icon={<FolderOpen size={14} />}
-                  disabled={running}
+                  disabled={running || previewingFuture}
                   onClick={() => void pickExportDir()}
                 >
                   选择
@@ -2608,6 +2813,14 @@ export default function PptPage() {
             </div>
           </Space>
         </Card>
+      )}
+
+      {viewStep === 4 && !(running || job) && (
+        <StepPreviewPlaceholder
+          step={4}
+          description="草稿确认后可导出为可编辑 PPTX。这里显示导出进度、输出路径，以及打开 PPT / 工程目录的操作。"
+          hints={["导出目录选择", "导出进度与日志", "打开 PPT / 工程目录"]}
+        />
       )}
 
       <Drawer
