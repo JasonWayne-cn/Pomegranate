@@ -223,22 +223,7 @@ impl PdfLayoutService {
                 }
             }
 
-            blocks.sort_by(|a, b| {
-                a.page
-                    .cmp(&b.page)
-                    .then_with(|| {
-                        a.bbox
-                            .1
-                            .partial_cmp(&b.bbox.1)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
-                    .then_with(|| {
-                        a.bbox
-                            .0
-                            .partial_cmp(&b.bbox.0)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    })
-            });
+            let blocks = order_blocks_for_reading(blocks);
             let blocks = merge_text_blocks(blocks);
             let text_chars = blocks
                 .iter()
@@ -326,7 +311,83 @@ fn should_keep_image(width_px: i32, height_px: i32, area_ratio: f32) -> bool {
     true
 }
 
-/// 合并同一页内垂直间距很小的相邻文本段，避免每个 PDF 文本段都变成一个 `<p>`。
+/// 按阅读顺序排列：先按页面/行中心排序，再把同一视觉行内的文本段按 x 排序。
+///
+/// PDFium 的字符级文本段 y 坐标常有零点几磅的抖动，直接 `y -> x` 排序会把
+/// 同一行字符打乱（例如 "行/南/指/机场运"）。这里先聚成行带，再在行内按 x 排列。
+fn order_blocks_for_reading(mut blocks: Vec<PdfBlock>) -> Vec<PdfBlock> {
+    blocks.sort_by(|a, b| {
+        a.page
+            .cmp(&b.page)
+            .then_with(|| {
+                block_center_y(a)
+                    .partial_cmp(&block_center_y(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| {
+                a.bbox
+                    .0
+                    .partial_cmp(&b.bbox.0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+
+    let mut ordered = Vec::with_capacity(blocks.len());
+    let mut index = 0;
+
+    while index < blocks.len() {
+        let page = blocks[index].page;
+        if blocks[index].kind != PdfBlockKind::Text {
+            ordered.push(blocks[index].clone());
+            index += 1;
+            continue;
+        }
+
+        let mut end = index + 1;
+        let mut band_center = block_center_y(&blocks[index]);
+        let mut band_height = block_height(&blocks[index]);
+
+        while end < blocks.len()
+            && blocks[end].page == page
+            && blocks[end].kind == PdfBlockKind::Text
+        {
+            let center = block_center_y(&blocks[end]);
+            let height = block_height(&blocks[end]);
+            if (center - band_center).abs() <= 0.5 * band_height.max(height) {
+                let count = (end - index) as f32;
+                band_center = (band_center * count + center) / (count + 1.0);
+                band_height = band_height.max(height);
+                end += 1;
+            } else {
+                break;
+            }
+        }
+
+        let mut band = blocks[index..end].to_vec();
+        band.sort_by(|a, b| {
+            a.bbox
+                .0
+                .partial_cmp(&b.bbox.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        ordered.extend(band);
+        index = end;
+    }
+
+    ordered
+}
+
+fn block_height(block: &PdfBlock) -> f32 {
+    (block.bbox.3 - block.bbox.1).abs().max(1.0)
+}
+
+fn block_center_y(block: &PdfBlock) -> f32 {
+    (block.bbox.1 + block.bbox.3) * 0.5
+}
+
+/// 合并文本段：
+/// 1. 先合并同一视觉行内水平相邻的字符/单词段；
+/// 2. 再把同一栏内垂直间距很小的相邻行合并成段落。
 fn merge_text_blocks(blocks: Vec<PdfBlock>) -> Vec<PdfBlock> {
     let mut merged: Vec<PdfBlock> = Vec::with_capacity(blocks.len());
 
@@ -342,23 +403,51 @@ fn merge_text_blocks(blocks: Vec<PdfBlock>) -> Vec<PdfBlock> {
         }
 
         let prev = merged.last_mut().expect("checked above");
-        let prev_height = (prev.bbox.3 - prev.bbox.1).abs();
-        let next_height = (block.bbox.3 - block.bbox.1).abs();
-        let gap = block.bbox.1 - prev.bbox.3;
-        let overlap = (prev.bbox.2.min(block.bbox.2) - prev.bbox.0.max(block.bbox.0)).max(0.0);
+        let prev_height = (prev.bbox.3 - prev.bbox.1).abs().max(1.0);
+        let next_height = (block.bbox.3 - block.bbox.1).abs().max(1.0);
+        let line_height = prev_height.max(next_height);
+        let min_height = prev_height.min(next_height);
+
+        let vertical_overlap =
+            (prev.bbox.3.min(block.bbox.3) - prev.bbox.1.max(block.bbox.1)).max(0.0);
+        let horizontal_gap = block.bbox.0 - prev.bbox.2;
+
+        // 同一行：垂直投影重叠足够，且水平间距不超过半个行高。
+        let same_line = vertical_overlap / min_height >= 0.5
+            && horizontal_gap <= 0.8 * line_height
+            && horizontal_gap >= -line_height;
+
+        if same_line {
+            let joined = join_inline_text(
+                prev.text.as_deref().unwrap_or(""),
+                block.text.as_deref().unwrap_or(""),
+                horizontal_gap,
+                line_height,
+            );
+            prev.text = Some(joined);
+            prev.bbox.0 = prev.bbox.0.min(block.bbox.0);
+            prev.bbox.1 = prev.bbox.1.min(block.bbox.1);
+            prev.bbox.2 = prev.bbox.2.max(block.bbox.2);
+            prev.bbox.3 = prev.bbox.3.max(block.bbox.3);
+            continue;
+        }
+
+        // 下一行：垂直间距小且水平方向有足够重叠，视为同一段落。
+        let vertical_gap = block.bbox.1 - prev.bbox.3;
+        let horizontal_overlap =
+            (prev.bbox.2.min(block.bbox.2) - prev.bbox.0.max(block.bbox.0)).max(0.0);
         let min_width = (prev.bbox.2 - prev.bbox.0)
             .min(block.bbox.2 - block.bbox.0)
             .max(1.0);
 
-        let close_enough = gap <= 0.6 * prev_height.max(next_height);
-        let horizontally_aligned = overlap / min_width >= 0.3;
-
-        if close_enough && horizontally_aligned {
+        if vertical_gap <= 0.6 * line_height && horizontal_overlap / min_width >= 0.3 {
             let joined = join_wrapped_text(
                 prev.text.as_deref().unwrap_or(""),
                 block.text.as_deref().unwrap_or(""),
             );
             prev.text = Some(joined);
+            prev.bbox.0 = prev.bbox.0.min(block.bbox.0);
+            prev.bbox.1 = prev.bbox.1.min(block.bbox.1);
             prev.bbox.2 = prev.bbox.2.max(block.bbox.2);
             prev.bbox.3 = prev.bbox.3.max(block.bbox.3);
         } else {
@@ -369,6 +458,47 @@ fn merge_text_blocks(blocks: Vec<PdfBlock>) -> Vec<PdfBlock> {
     merged
 }
 
+/// 拼接同一行内的相邻文本段。英文单词之间按间距补空格，中文直接相连。
+fn join_inline_text(head: &str, tail: &str, horizontal_gap: f32, line_height: f32) -> String {
+    if head.is_empty() {
+        return tail.to_string();
+    }
+    if tail.is_empty() {
+        return head.to_string();
+    }
+    if head.ends_with(char::is_whitespace) || tail.starts_with(char::is_whitespace) {
+        return format!("{head}{tail}");
+    }
+
+    let head_last = head.chars().last().unwrap_or(' ');
+    let tail_first = tail.chars().next().unwrap_or(' ');
+
+    if is_cjk(head_last) || is_cjk(tail_first) {
+        return format!("{head}{tail}");
+    }
+
+    // PDFium 常把 "C919" / "2025" 拆成多个段。数字之间的间距往往只是窄字形
+    // 的侧边距，直接相连；数字与字母相邻且间距较小时也视作字距。
+    let digit_boundary = head_last.is_ascii_digit() && tail_first.is_ascii_digit();
+    let mixed_alnum_boundary = head_last.is_alphanumeric()
+        && tail_first.is_alphanumeric()
+        && (head_last.is_ascii_digit() || tail_first.is_ascii_digit());
+    // 章节号 "1 . 1"：数字与标点交替时不要插空格。
+    let numeric_punctuation = (head_last.is_ascii_digit() && tail_first.is_ascii_punctuation())
+        || (head_last.is_ascii_punctuation() && tail_first.is_ascii_digit());
+
+    if digit_boundary
+        || (mixed_alnum_boundary && horizontal_gap <= 0.35 * line_height)
+        || (numeric_punctuation && horizontal_gap <= 0.35 * line_height)
+    {
+        format!("{head}{tail}")
+    } else if horizontal_gap > 0.12 * line_height {
+        format!("{head} {tail}")
+    } else {
+        format!("{head}{tail}")
+    }
+}
+
 /// 拼接被 PDF 换行拆开的文本：中日韩字符之间不加空格。
 fn join_wrapped_text(head: &str, tail: &str) -> String {
     if head.is_empty() {
@@ -377,9 +507,14 @@ fn join_wrapped_text(head: &str, tail: &str) -> String {
     if tail.is_empty() {
         return head.to_string();
     }
+    if head.ends_with(char::is_whitespace) || tail.starts_with(char::is_whitespace) {
+        return format!("{head}{tail}");
+    }
+
     let head_last = head.chars().last().unwrap_or(' ');
     let tail_first = tail.chars().next().unwrap_or(' ');
-    if is_cjk(head_last) && is_cjk(tail_first) {
+
+    if head.ends_with('-') || is_cjk(head_last) || is_cjk(tail_first) {
         format!("{head}{tail}")
     } else {
         format!("{head} {tail}")
@@ -446,6 +581,67 @@ mod tests {
         assert_eq!(merged.len(), 2);
         assert_eq!(merged[0].text.as_deref(), Some("第一行第二行"));
         assert_eq!(merged[1].text.as_deref(), Some("远处段落"));
+    }
+
+    #[test]
+    fn merges_horizontally_adjacent_character_segments() {
+        let blocks = vec![
+            text_block(1, (10.0, 10.0, 20.0, 22.0), "C"),
+            text_block(1, (20.0, 10.0, 30.0, 22.0), "9"),
+            text_block(1, (30.0, 10.0, 40.0, 22.0), "1"),
+            text_block(1, (40.0, 10.0, 50.0, 22.0), "9"),
+        ];
+        let merged = merge_text_blocks(blocks);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].text.as_deref(), Some("C919"));
+    }
+
+    #[test]
+    fn keeps_alphanumeric_kerning_together() {
+        let blocks = vec![
+            text_block(1, (10.0, 10.0, 30.0, 28.0), "C9"),
+            text_block(1, (33.8, 10.0, 39.0, 28.0), "1"),
+            text_block(1, (42.8, 10.0, 54.0, 28.0), "9"),
+        ];
+        let merged = merge_text_blocks(blocks);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].text.as_deref(), Some("C919"));
+    }
+
+    #[test]
+    fn joins_numeric_section_punctuation_without_space() {
+        let blocks = vec![
+            text_block(1, (10.0, 10.0, 16.0, 28.0), "1"),
+            text_block(1, (19.0, 10.0, 22.0, 28.0), "."),
+            text_block(1, (25.0, 10.0, 31.0, 28.0), "1"),
+        ];
+        let merged = merge_text_blocks(blocks);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].text.as_deref(), Some("1.1"));
+    }
+
+    #[test]
+    fn orders_jittered_same_line_blocks_by_x_before_merging() {
+        let blocks = vec![
+            text_block(1, (306.9, 350.8, 329.1, 373.4), "行"),
+            text_block(1, (355.5, 350.9, 376.5, 373.2), "南"),
+            text_block(1, (330.8, 351.4, 352.6, 373.2), "指"),
+            text_block(1, (234.7, 351.5, 304.6, 373.2), "机场运"),
+        ];
+        let merged = merge_text_blocks(order_blocks_for_reading(blocks));
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].text.as_deref(), Some("机场运行指南"));
+    }
+
+    #[test]
+    fn joins_english_word_segments_with_space() {
+        let blocks = vec![
+            text_block(1, (10.0, 10.0, 50.0, 22.0), "Hello"),
+            text_block(1, (53.0, 10.0, 93.0, 22.0), "world"),
+        ];
+        let merged = merge_text_blocks(blocks);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].text.as_deref(), Some("Hello world"));
     }
 
     #[test]
@@ -714,5 +910,110 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 手工探针：用环境变量指定的真实 PDF 跑完整导入并打印指标。
+    /// 用法：
+    ///   KB_TEST_PDFS="a.pdf;b.pdf" cargo test manual_import_real_pdfs --lib -- --ignored --nocapture
+    #[test]
+    #[ignore = "manual real-file probe"]
+    fn manual_import_real_pdfs() {
+        use crate::database::Database;
+        use crate::services::image::ImageService;
+        use crate::services::pdf::PdfService;
+        use std::time::Instant;
+
+        match crate::services::pdf::init_pdfium() {
+            Ok(()) => println!("init_pdfium: ok"),
+            Err(e) => println!("init_pdfium: {e}"),
+        }
+        let raw = std::env::var("KB_TEST_PDFS").expect("set KB_TEST_PDFS (separate by ;)");
+
+        let root = std::env::temp_dir().join(format!("kb_pdf_real_probe_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let db = Database::init(root.join("probe.db").to_str().unwrap()).expect("init probe db");
+
+        for path_str in raw.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+            let path = Path::new(path_str);
+            println!("\n=== FILE: {path_str} ===");
+            println!(
+                "file_size={} bytes",
+                std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+            );
+
+            if let Ok(layout) = PdfLayoutService::extract(path, 0) {
+                println!(
+                    "layout pages={} text_chars={} blocks={}",
+                    layout.page_count,
+                    layout.text_chars,
+                    layout.blocks.len()
+                );
+                for block in layout.blocks.iter().take(24) {
+                    println!(
+                        "  page={} bbox={:?} text={:?}",
+                        block.page,
+                        block.bbox,
+                        block.text.as_deref().unwrap_or("")
+                    );
+                }
+            }
+
+            let started = Instant::now();
+            match PdfService::import_one(&root, &db, path_str, None, true, 200) {
+                Ok(outcome) => {
+                    let html = &outcome.note.content;
+                    let image_dir =
+                        ImageService::images_dir(&root).join(outcome.note.id.to_string());
+                    let asset_files = std::fs::read_dir(&image_dir)
+                        .map(|d| d.count())
+                        .unwrap_or(0);
+                    let pdf_dir = PdfService::pdfs_dir(&root).join(outcome.note.id.to_string());
+                    let original_pdf_files =
+                        std::fs::read_dir(&pdf_dir).map(|d| d.count()).unwrap_or(0);
+
+                    println!("note_id={} title={}", outcome.note.id, outcome.note.title);
+                    println!(
+                        "extraction={} image_count={} img_tags={} p_tags={} asset_files={} original_pdf_files={}",
+                        outcome.extraction,
+                        outcome.image_count,
+                        html.matches("<img").count(),
+                        html.matches("<p>").count(),
+                        asset_files,
+                        original_pdf_files
+                    );
+                    println!(
+                        "content_chars={} elapsed_ms={}",
+                        html.chars().count(),
+                        started.elapsed().as_millis()
+                    );
+                    println!("warnings={:?}", outcome.warnings);
+                    println!(
+                        "has_img={} has_kb_asset={} source_file={:?}",
+                        html.contains("<img"),
+                        html.contains("kb-asset://"),
+                        outcome.note.source_file_path
+                    );
+
+                    let first_img = html.find("<img").unwrap_or(0);
+                    let start = html[..first_img]
+                        .char_indices()
+                        .rev()
+                        .nth(120)
+                        .map(|(i, _)| i)
+                        .unwrap_or(0);
+                    let end = html[first_img..]
+                        .char_indices()
+                        .nth(200)
+                        .map(|(i, _)| first_img + i)
+                        .unwrap_or(html.len());
+                    println!("around_first_img={:?}", &html[start..end]);
+                    println!("preview={:?}", html.chars().take(300).collect::<String>());
+                }
+                Err(e) => println!("ERROR: {e}"),
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

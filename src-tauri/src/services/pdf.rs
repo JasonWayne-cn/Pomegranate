@@ -58,7 +58,10 @@ pub fn init_pdfium() -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         const EMBEDDED_DLL: &[u8] = include_bytes!("../../pdfium/embedded/pdfium.dll");
-        let dll_path = std::env::temp_dir().join("inb_pdfium_embedded.dll");
+        // 每个进程使用独立文件名：已加载的 DLL 在 Windows 上会被锁定，
+        // 固定文件名会让第二个实例 / 测试进程无法覆盖写入（os error 32）。
+        let dll_path =
+            std::env::temp_dir().join(format!("inb_pdfium_embedded_{}.dll", std::process::id()));
         // 每次启动覆盖写入（临时目录在重启后由 OS 清理）
         std::fs::write(&dll_path, EMBEDDED_DLL)
             .map_err(|e| format!("PDFium 写入临时目录失败: {}", e))?;
