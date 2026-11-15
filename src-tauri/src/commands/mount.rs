@@ -2,7 +2,7 @@
 //!
 //! 文件读写、索引、标签/双链重建全部在 `services::mount::MountService`。
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::models::{
     ExternalEntry, ExternalMount, ExternalMountInput, ExternalMountUpdate, MountNoteStatus,
@@ -66,7 +66,14 @@ pub fn mount_scan(
         .find(|m| m.id == mount_id)
         .ok_or_else(|| format!("挂载点 {} 不存在", mount_id))?;
 
-    MountService::scan_mount(&state.db, &mount, &app, true).map_err(|e| e.to_string())
+    let result =
+        MountService::scan_mount(&state.db, &mount, &app, true).map_err(|e| e.to_string())?;
+
+    // 手动扫描同样广播：文档目录树/列表依赖 db:external-changed 刷新，
+    // 否则外部归档后要等下一轮后台扫描页面才会应用新目录结构。
+    let _ = app.emit("external:changed", mount_id);
+    let _ = app.emit("db:external-changed", ());
+    Ok(result)
 }
 
 /// 列出挂载内的文件条目（前端构建树）

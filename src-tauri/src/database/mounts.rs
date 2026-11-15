@@ -52,6 +52,17 @@ pub struct ExternalNoteMeta {
     pub error: Option<String>,
 }
 
+/// 扫描前的影子笔记路径快照（用于识别外部移动/归档）
+#[derive(Debug, Clone)]
+pub struct ExternalPathRow {
+    pub id: i64,
+    pub rel_path: String,
+    pub folder_id: Option<i64>,
+    pub mtime: Option<i64>,
+    pub size: Option<i64>,
+    pub source_type: Option<String>,
+}
+
 /// 影子笔记的索引状态快照
 #[derive(Debug, Clone)]
 pub struct ExternalNoteRow {
@@ -383,6 +394,91 @@ impl Database {
         }
 
         Ok(current_parent)
+    }
+
+    /// 扫描前读取该挂载点的影子笔记路径快照。
+    ///
+    /// Service 层用它识别"外部把文件移动/归档到别的目录"：
+    /// 同一份文件在新路径出现时，应沿用原 note id，而不是新建后把旧笔记标记缺失。
+    pub fn list_external_path_index(
+        &self,
+        mount_id: i64,
+    ) -> Result<Vec<ExternalPathRow>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, ext_rel_path, folder_id, ext_mtime, ext_size, source_file_type
+             FROM notes
+             WHERE mount_id = ?1 AND is_deleted = 0 AND ext_rel_path IS NOT NULL",
+        )?;
+        let rows = stmt.query_map(params![mount_id], |row| {
+            Ok(ExternalPathRow {
+                id: row.get(0)?,
+                rel_path: row.get(1)?,
+                folder_id: row.get(2)?,
+                mtime: row.get(3)?,
+                size: row.get(4)?,
+                source_type: row.get(5)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)
+    }
+
+    /// 外部文件移动/改名后，把影子笔记挂到新路径与新镜像文件夹。
+    ///
+    /// 只改定位信息，不动正文，因此标签、双链、历史版本都跟着原 note id 保留。
+    pub fn relocate_external_note(
+        &self,
+        note_id: i64,
+        rel_path: &str,
+        folder_id: Option<i64>,
+    ) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE notes
+             SET ext_rel_path = ?1, folder_id = ?2, ext_missing = 0,
+                 updated_at = datetime('now', 'localtime')
+             WHERE id = ?3",
+            params![rel_path, folder_id, note_id],
+        )?;
+        Ok(())
+    }
+
+    /// 清理挂载点下已经没有笔记、也没有子文件夹的镜像文件夹（自底向上）。
+    ///
+    /// 外部归档/改名后，旧目录会变成空壳；不清掉的话文档目录树会一直保留
+    /// 磁盘上已经不存在的层级。挂载根文件夹（`ext_rel_path = ''`）始终保留。
+    /// 返回删除的文件夹数量。
+    pub fn prune_empty_external_folders(&self, mount_id: i64) -> Result<usize, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut deleted = 0usize;
+        loop {
+            let affected = conn.execute(
+                "DELETE FROM folders
+                 WHERE id IN (
+                     SELECT f.id FROM folders f
+                     WHERE f.mount_id = ?1
+                       AND COALESCE(f.ext_rel_path, '') <> ''
+                       AND NOT EXISTS (SELECT 1 FROM folders c WHERE c.parent_id = f.id)
+                       AND NOT EXISTS (SELECT 1 FROM notes n WHERE n.folder_id = f.id)
+                 )",
+                params![mount_id],
+            )?;
+            if affected == 0 {
+                break;
+            }
+            deleted += affected;
+        }
+        Ok(deleted)
     }
 
     // ─── 影子笔记 ───────────────────────────────
@@ -1029,5 +1125,54 @@ mod tests {
         let note = db.get_note(note_id).unwrap().unwrap();
         assert_eq!(note.title, "A");
         assert!(db.get_external_note_meta(note_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn relocate_note_and_prune_old_mirror_folders() {
+        let db = Database::init(":memory:").unwrap();
+        let mount = db.create_external_mount(&test_input()).unwrap();
+        let old_folder = db
+            .ensure_external_folder(mount.id, mount.root_folder_id, "merge")
+            .unwrap();
+        let (note_id, _) = db
+            .upsert_external_note(
+                mount.id,
+                "merge/inventory.md",
+                old_folder,
+                "Inventory",
+                "body",
+                "hash",
+                "hash",
+                "hash",
+                100,
+                10,
+                Some("C:\\tmp\\kb-mount-test\\merge\\inventory.md"),
+                Some("md"),
+                Some("ok"),
+                None,
+            )
+            .unwrap();
+
+        // 外部归档：merge/ → archive/merge/
+        let new_folder = db
+            .ensure_external_folder(mount.id, mount.root_folder_id, "archive/merge")
+            .unwrap();
+        db.relocate_external_note(note_id, "archive/merge/inventory.md", new_folder)
+            .unwrap();
+
+        let meta = db.get_external_note_meta(note_id).unwrap().unwrap();
+        assert_eq!(meta.rel_path, "archive/merge/inventory.md");
+        assert!(!meta.missing);
+        let note = db.get_note(note_id).unwrap().unwrap();
+        assert_eq!(note.folder_id, new_folder);
+
+        // 旧目录空壳被清掉；新目录保留
+        let pruned = db.prune_empty_external_folders(mount.id).unwrap();
+        assert_eq!(pruned, 1);
+        let root_id = mount.root_folder_id.unwrap();
+        let tree = db.list_folders_tree().unwrap();
+        let root = tree.into_iter().find(|f| f.id == root_id).unwrap();
+        assert!(root.children.iter().all(|c| c.name != "merge"));
+        assert!(root.children.iter().any(|c| c.name == "archive"));
     }
 }

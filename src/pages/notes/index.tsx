@@ -118,6 +118,18 @@ function SortableTableRow(
   );
 }
 
+/** 在文件夹树中按 id 查找节点 */
+function findFolderNode(list: Folder[], id: number): Folder | null {
+  for (const f of list) {
+    if (f.id === id) return f;
+    if (f.children.length) {
+      const found = findFolderNode(f.children, id);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 /** 将笔记按日期分组 */
 function groupByDate(notes: Note[]): Map<string, Note[]> {
   const map = new Map<string, Note[]>();
@@ -571,6 +583,19 @@ function DesktopNoteListPage() {
   // 原始文件夹树，供"目录"列的 Popover 选择器用
   const [folders, setFolders] = useState<Folder[]>([]);
 
+  /**
+   * 当前目录的子文件夹。
+   *
+   * 点击文档目录树后，主区只列该目录的直属文档；子文件夹以入口按钮展示，
+   * 不把子孙文件夹里的文档平铺进来。
+   */
+  const childFolders = useMemo(() => {
+    if (!folderId || folderId === "uncategorized") return [];
+    const id = Number(folderId);
+    if (!Number.isFinite(id)) return [];
+    return findFolderNode(folders, id)?.children ?? [];
+  }, [folders, folderId]);
+
   // 依赖全局 foldersRefreshTick：Sidebar 新建/改名/删文件夹后自动重建 id→name 映射
   const foldersRefreshTick = useAppStore((s) => s.foldersRefreshTick);
   useEffect(() => {
@@ -663,6 +688,10 @@ function DesktopNoteListPage() {
               ? Number(folderId)
               : undefined,
           uncategorized: isUncategorized || undefined,
+          // 点击某个目录时只列直属文档；子文件夹以入口按钮单独展示，
+          // 不把子孙文件夹里的文档平铺进列表。
+          include_descendants:
+            !isUncategorized && folderId ? false : undefined,
           // 只 list 视图才让用户切换 sort_by；卡片/时间线沿用默认
           sort_by: viewMode === "list" ? sortBy : undefined,
         });
@@ -1329,6 +1358,33 @@ function DesktopNoteListPage() {
           搜索
         </Button>
       </div>
+
+      {/* 当前目录的子文件夹入口：主区文档列表只展示直属文档 */}
+      {childFolders.length > 0 && (
+        <div
+          className="mb-2 flex flex-wrap items-center gap-1.5 flex-shrink-0"
+          data-tour="notes-child-folders"
+        >
+          <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+            子文件夹
+          </span>
+          {childFolders.map((f) => (
+            <Button
+              key={f.id}
+              size="small"
+              icon={<FolderIcon size={13} />}
+              onClick={() => navigate(`/notes?folder=${f.id}`)}
+            >
+              {f.name}
+              {f.note_count > 0 && (
+                <span style={{ marginLeft: 6, opacity: 0.55 }}>
+                  {f.note_count}
+                </span>
+              )}
+            </Button>
+          ))}
+        </div>
+      )}
 
       {/* 批量工具条：仅列表视图 + 有选中时显示 */}
       {viewMode === "list" && selectedIds.length > 0 && (

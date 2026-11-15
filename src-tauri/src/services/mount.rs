@@ -6,6 +6,7 @@
 //!
 //! 监听策略沿用项目既有范式：轮询 + (size, mtime) 指纹，不引入 notify crate。
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -351,6 +352,36 @@ impl MountService {
         let total = files.len();
         let mut seen_ids: Vec<i64> = Vec::with_capacity(total);
 
+        // 本轮磁盘上仍然存在的相对路径（含被类型开关暂停的文件）。
+        // 用于判断某条影子笔记的旧路径是否已经消失，从而参与"移动匹配"。
+        let disk_rels: HashSet<String> = files
+            .iter()
+            .filter_map(|f| {
+                let rel = rel_path_of(f, &root);
+                if rel.is_empty() {
+                    None
+                } else {
+                    Some(rel)
+                }
+            })
+            .collect();
+
+        // 外部移动/归档识别：按 (mtime, size) 给"磁盘上已不存在的旧路径笔记"建索引。
+        // 同指纹只对应一条笔记时才认定为移动，避免把同大小同时间的多份文件配错。
+        let path_index = db.list_external_path_index(mount.id).unwrap_or_default();
+        let mut movable_by_fingerprint: HashMap<(i64, i64), Vec<_>> = HashMap::new();
+        for row in path_index {
+            if let (Some(mtime), Some(size)) = (row.mtime, row.size) {
+                if !disk_rels.contains(&row.rel_path) {
+                    movable_by_fingerprint
+                        .entry((mtime, size))
+                        .or_default()
+                        .push(row);
+                }
+            }
+        }
+        let mut relocated_ids: HashSet<i64> = HashSet::new();
+
         for (idx, file) in files.iter().enumerate() {
             let ext = ext_lower(file);
             let kind = match classify_ext(&ext) {
@@ -404,6 +435,53 @@ impl MountService {
                     continue;
                 }
             };
+
+            // 外部归档/改名：新路径查不到影子笔记时，用 (size, mtime) 匹配
+            // 磁盘上已不存在的旧路径笔记。命中即沿用原 note id，并把镜像文件夹
+            // 挪到新位置；内容没变，不需要重新抽取。
+            if existing.is_none() {
+                if let Some(candidate) = movable_by_fingerprint
+                    .get(&(mtime, size))
+                    .and_then(|list| {
+                        let mut iter = list
+                            .iter()
+                            .filter(|r| !relocated_ids.contains(&r.id))
+                            .filter(|r| {
+                                // 文件类型变了（如 pdf → docx）不算移动
+                                r.source_type
+                                    .as_deref()
+                                    .and_then(|t| classify_ext(&t.to_ascii_lowercase()))
+                                    .map(|k| k == kind)
+                                    .unwrap_or(true)
+                            });
+                        let first = iter.next()?;
+                        // 多份同指纹文件同时移动时无法判断对应关系 → 放弃匹配
+                        if iter.next().is_some() {
+                            None
+                        } else {
+                            Some(first.clone())
+                        }
+                    })
+                {
+                    let folder_id = db
+                        .ensure_external_folder(
+                            mount.id,
+                            mount.root_folder_id,
+                            &parent_rel(&rel),
+                        )
+                        .unwrap_or(mount.root_folder_id);
+                    if db
+                        .relocate_external_note(candidate.id, &rel, folder_id)
+                        .is_ok()
+                    {
+                        relocated_ids.insert(candidate.id);
+                        seen_ids.push(candidate.id);
+                        result.updated += 1;
+                        result.scanned += 1;
+                        continue;
+                    }
+                }
+            }
 
             // 源文件 size/mtime 未变 → 跳过抽取
             if let Some(row) = &existing {
@@ -578,6 +656,17 @@ impl MountService {
             Ok(n) => result.missing = n,
             Err(e) => result.errors.push(format!("标记缺失文件失败: {}", e)),
         }
+
+        // 文件被移动/归档后，旧目录会变成空壳；清掉它们让文档目录树与磁盘一致。
+        // 仍挂着缺失笔记或暂停笔记的文件夹不会被删除，内容可恢复。
+        match db.prune_empty_external_folders(mount.id) {
+            Ok(n) if n > 0 => {
+                log::info!("[mount] {}: 清理空镜像文件夹 {} 个", mount.name, n);
+            }
+            Ok(_) => {}
+            Err(e) => result.errors.push(format!("清理空镜像文件夹失败: {}", e)),
+        }
+
         let _ = db.touch_external_mount_scan(mount.id);
 
         Ok(result)
