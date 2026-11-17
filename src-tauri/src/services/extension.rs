@@ -27,6 +27,14 @@ const MAX_UNCOMPRESSED_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_FILE_COUNT: usize = 20_000;
 const MANIFEST_NAME: &str = "extension.json";
 
+/// 随安装包分发的 PPT 扩展包 ID 与资源文件名。
+const BUNDLED_EXTENSION_ID: &str = "ppt-master";
+const BUNDLED_ZIP_NAME: &str = "ppt-master-extension.zip";
+/// 用户主动卸载内置扩展后写入，避免下次启动又被装回。
+pub const BUNDLED_DISMISSED_KEY: &str = "ppt_extension_bundled_dismissed";
+/// 上次自动处理过的内置版本；用于避免重复预检，并尊重用户回滚。
+pub const BUNDLED_VERSION_KEY: &str = "ppt_extension_bundled_version";
+
 pub struct ExtensionService;
 
 impl ExtensionService {
@@ -103,11 +111,76 @@ impl ExtensionService {
                 supports_ppt,
             )?;
             db.add_extension_version(&id, &version, &dest.to_string_lossy(), &inspection.content_hash)?;
+            // 用户重新手动安装了内置扩展，清除“不要自动安装”标记。
+            if id == BUNDLED_EXTENSION_ID {
+                db.delete_config(BUNDLED_DISMISSED_KEY)?;
+            }
             Ok(info)
         })();
 
         let _ = fs::remove_dir_all(&outer);
         result
+    }
+
+    /// 内置扩展 zip 在资源目录中的固定位置。
+    pub fn bundled_zip_path(resource_dir: &Path) -> PathBuf {
+        resource_dir
+            .join("resources")
+            .join("ppt-extension")
+            .join(BUNDLED_ZIP_NAME)
+    }
+
+    /// 首次启动时安装随安装包分发的 PPT 扩展包。
+    ///
+    /// 规则：
+    /// - 用户主动卸载过（dismissed）则永不自动安装；
+    /// - 已处理过同一个内置版本则跳过（尊重用户回滚到旧版本）；
+    /// - 内置版本高于已安装版本时升级，否则跳过。
+    pub fn install_bundled(
+        db: &Database,
+        data_dir: &Path,
+        zip_path: &Path,
+    ) -> Result<Option<ExtensionInfo>, AppError> {
+        if !zip_path.is_file() {
+            return Ok(None);
+        }
+        if db.get_config(BUNDLED_DISMISSED_KEY)?.as_deref() == Some("1") {
+            return Ok(None);
+        }
+
+        // 先读构建期写入的小版本文件；命中则无需解压 30MB+ 的 zip。
+        let known_version = fs::read_to_string(zip_path.with_extension("version"))
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if let Some(version) = &known_version {
+            if db.get_config(BUNDLED_VERSION_KEY)?.as_deref() == Some(version.as_str()) {
+                return Ok(None);
+            }
+        }
+
+        let inspection = Self::inspect_zip(data_dir, &zip_path.to_string_lossy())?;
+        if inspection.manifest.id != BUNDLED_EXTENSION_ID {
+            return Err(AppError::InvalidInput(format!(
+                "内置扩展 ID 不匹配: {}",
+                inspection.manifest.id
+            )));
+        }
+        let bundled_version = inspection.manifest.version.clone();
+        if db.get_config(BUNDLED_VERSION_KEY)?.as_deref() == Some(bundled_version.as_str()) {
+            return Ok(None);
+        }
+
+        if let Some(info) = db.get_extension(BUNDLED_EXTENSION_ID)? {
+            if compare_versions(&bundled_version, &info.version) <= 0 {
+                db.set_config(BUNDLED_VERSION_KEY, &bundled_version)?;
+                return Ok(None);
+            }
+        }
+
+        let info = Self::install_zip(db, data_dir, &zip_path.to_string_lossy())?;
+        db.set_config(BUNDLED_VERSION_KEY, &bundled_version)?;
+        Ok(Some(info))
     }
 
     pub fn set_enabled(db: &Database, id: &str, enabled: bool) -> Result<(), AppError> {
@@ -162,6 +235,10 @@ impl ExtensionService {
         let dir = Self::ensure_extensions_dir(data_dir)?.join(id);
         if dir.exists() {
             fs::remove_dir_all(&dir)?;
+        }
+        // 内置扩展被用户主动卸载后，下次启动不再自动装回。
+        if id == BUNDLED_EXTENSION_ID {
+            db.set_config(BUNDLED_DISMISSED_KEY, "1")?;
         }
         db.delete_extension(id)
     }
@@ -674,6 +751,22 @@ fn version_gte(current: &str, required: &str) -> bool {
     true
 }
 
+fn compare_versions(left: &str, right: &str) -> i32 {
+    let a = parse_version(left);
+    let b = parse_version(right);
+    for i in 0..3 {
+        let l = a.get(i).copied().unwrap_or(0);
+        let r = b.get(i).copied().unwrap_or(0);
+        if l > r {
+            return 1;
+        }
+        if l < r {
+            return -1;
+        }
+    }
+    0
+}
+
 fn parse_version(value: &str) -> Vec<u64> {
     value
         .split(['.', '-', '+'])
@@ -863,6 +956,78 @@ mod tests {
         assert_eq!(support["demo"]["legacy"], 1);
         assert_eq!(support["demo"]["supportsStructured"], true);
         assert_eq!(support["demo"]["pageCount"], 2);
+    }
+
+    #[test]
+    fn compare_versions_orders_numeric_segments() {
+        assert_eq!(compare_versions("1.2.6", "1.2.6"), 0);
+        assert_eq!(compare_versions("1.2.7", "1.2.6"), 1);
+        assert_eq!(compare_versions("1.2.6", "1.3.0"), -1);
+        assert_eq!(compare_versions("2.0", "2.0.0"), 0);
+    }
+
+    #[test]
+    fn bundled_install_respects_dismissed_flag() {
+        let temp = std::env::temp_dir().join(format!("ppt-ext-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temp).unwrap();
+        let zip_path = write_test_zip(&temp, &test_manifest());
+        let db = Database::init(":memory:").unwrap();
+        db.set_config(BUNDLED_DISMISSED_KEY, "1").unwrap();
+
+        let result =
+            ExtensionService::install_bundled(&db, &temp, &zip_path).expect("bundled install");
+        assert!(result.is_none());
+        assert!(db.get_extension(BUNDLED_EXTENSION_ID).unwrap().is_none());
+
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn bundled_install_installs_once_then_skips() {
+        let temp = std::env::temp_dir().join(format!("ppt-ext-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temp).unwrap();
+        let zip_path = write_test_zip(&temp, &test_manifest());
+        let db = Database::init(":memory:").unwrap();
+
+        let first =
+            ExtensionService::install_bundled(&db, &temp, &zip_path).expect("first bundled install");
+        assert_eq!(first.map(|info| info.version).as_deref(), Some("1.0.0"));
+        assert_eq!(
+            db.get_config(BUNDLED_VERSION_KEY).unwrap().as_deref(),
+            Some("1.0.0")
+        );
+
+        let second =
+            ExtensionService::install_bundled(&db, &temp, &zip_path).expect("second bundled install");
+        assert!(second.is_none());
+
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn bundled_install_upgrades_older_version() {
+        let temp = std::env::temp_dir().join(format!("ppt-ext-{}", Uuid::new_v4()));
+        fs::create_dir_all(&temp).unwrap();
+        let db = Database::init(":memory:").unwrap();
+
+        let v1 = test_manifest().replace("\"1.0.0\"", "\"1.1.0\"");
+        let zip_v1 = write_test_zip(&temp, &v1);
+        ExtensionService::install_zip(&db, &temp, zip_v1.to_str().unwrap()).unwrap();
+
+        let v2 = test_manifest().replace("\"1.0.0\"", "\"1.2.0\"");
+        let zip_v2 = write_test_zip(&temp, &v2);
+        let upgraded = ExtensionService::install_bundled(&db, &temp, &zip_v2)
+            .expect("bundled upgrade");
+        assert_eq!(upgraded.map(|info| info.version).as_deref(), Some("1.2.0"));
+        assert_eq!(
+            db.get_extension(BUNDLED_EXTENSION_ID)
+                .unwrap()
+                .map(|info| info.version)
+                .as_deref(),
+            Some("1.2.0")
+        );
+
+        let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]

@@ -12,6 +12,22 @@
 
 use std::collections::BTreeSet;
 
+use crate::services::font_metrics::{self, FontMetrics};
+
+/// 批量读取字体度量（DOCX 分页估算用）。未命中的字体返回回退值。
+#[tauri::command]
+pub fn office_font_metrics(families: Vec<String>) -> Result<Vec<FontMetrics>, String> {
+    if families.len() > 64 {
+        return Err("一次最多查询 64 个字体族".into());
+    }
+    let cleaned: Vec<String> = families
+        .into_iter()
+        .map(|family| family.trim().to_string())
+        .filter(|family| !family.is_empty())
+        .collect();
+    Ok(font_metrics::measure_families(&cleaned))
+}
+
 /// 列出本机已安装的所有字体族名（去重 + 按名排序）。
 ///
 /// 返回：字体族名列表（如 `["Arial", "Microsoft YaHei", "宋体", ...]`），前端把它塞进

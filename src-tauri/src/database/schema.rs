@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 84;
+pub const SCHEMA_VERSION: i32 = 85;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -117,6 +117,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             81 => migrate_v81_to_v82(conn)?,
             82 => migrate_v82_to_v83(conn)?,
             83 => migrate_v83_to_v84(conn)?,
+            84 => migrate_v84_to_v85(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -3079,6 +3080,29 @@ fn migrate_v83_to_v84(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 84)?;
+    Ok(())
+}
+
+fn migrate_v84_to_v85(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v84 -> v85 (Office 编辑操作日志)");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS edit_ops (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain      TEXT NOT NULL,
+            target      TEXT NOT NULL,
+            source      TEXT NOT NULL DEFAULT 'user',
+            op_json     TEXT NOT NULL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_edit_ops_target
+            ON edit_ops(target, id DESC);
+        ",
+    )?;
+
+    set_version(conn, 85)?;
     Ok(())
 }
 

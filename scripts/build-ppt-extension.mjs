@@ -9,8 +9,9 @@
  *   node scripts/build-ppt-extension.mjs --signing-key "D:/keys/extension-private.pem"
  *
  * 输出：
- *   src-tauri/target/release/bundle/nsis/ppt-master-extension-<version>-win7-x64.zip
+ *   src-tauri/resources/ppt-extension/ppt-master-extension.zip
  *
+ * 该 zip 会随应用安装包分发，主程序首次启动时自动安装。
  * 签名可选。签名后需把构建日志中的 base64 公钥配置到主程序环境变量
  * PPT_EXTENSION_PUBLIC_KEY，否则主程序会拒绝安装带签名的包。
  */
@@ -39,15 +40,7 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 const sourceDir = path.join(projectRoot, "extensions", "ppt-master");
 const outDir = path.resolve(
-  args.out ??
-    path.join(
-      projectRoot,
-      "src-tauri",
-      "target",
-      "release",
-      "bundle",
-      "nsis",
-    ),
+  args.out ?? path.join(projectRoot, "src-tauri", "resources", "ppt-extension"),
 );
 const buildDir = path.resolve(projectRoot, "build", "ppt-extension");
 const pptMasterRoot = args["ppt-master-root"] ?? process.env.PPT_MASTER_ROOT ?? "";
@@ -187,7 +180,8 @@ fs.writeFileSync(
 );
 
 fs.mkdirSync(outDir, { recursive: true });
-const zipPath = path.join(outDir, `${packName}.zip`);
+// 固定文件名，主程序按固定资源路径自动安装；版本号仍记录在 extension.json 内。
+const zipPath = path.join(outDir, "ppt-master-extension.zip");
 fs.rmSync(zipPath, { force: true });
 // Windows 自带 tar 对 -a/zip 的支持不稳定，统一用 Compress-Archive。
 const psQuote = (value) => value.replace(/'/g, "''");
@@ -197,6 +191,13 @@ const psCommand =
 execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psCommand], {
   stdio: "inherit",
 });
+
+// 小版本文件供主程序启动时快速判断，避免每次都解压 zip 读取 manifest。
+fs.writeFileSync(
+  path.join(outDir, "ppt-master-extension.version"),
+  `${manifest.version}\n`,
+  "utf8",
+);
 
 const size = fs.statSync(zipPath).size;
 console.log(`[build] 完成: ${zipPath} (${(size / 1024 / 1024).toFixed(1)} MB)`);

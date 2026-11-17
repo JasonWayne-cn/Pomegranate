@@ -7,17 +7,6 @@ mod services;
 mod state;
 #[cfg(desktop)]
 mod tray;
-#[cfg(target_os = "windows")]
-mod win7_stubs;
-
-/// 强制链接器保留 win7_stubs 模块中的符号
-/// 这确保 stub 函数不会被优化掉
-#[cfg(target_os = "windows")]
-#[no_mangle]
-#[allow(dead_code)]
-pub extern "C" fn force_link_win7_stubs() {
-    // 这里不需要实际代码，只要符号被导出即可
-}
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -777,6 +766,44 @@ pub fn run() {
             if instance_id.is_none() {
                 start_md_deliver_watcher(app.handle().clone(), framework_app_data_dir.clone());
 
+                // 随安装包分发的 PPT 扩展：仅默认实例自动安装。
+                // 放后台线程执行，避免首次启动解压 30MB+ 资源阻塞主线程。
+                // 失败只记日志，不阻断启动；用户主动卸载后会被 dismissed 标记拦住。
+                match app.path().resource_dir() {
+                    Ok(resource_dir) => {
+                        let zip_path =
+                            services::extension::ExtensionService::bundled_zip_path(&resource_dir);
+                        let db = app.state::<AppState>().db.clone();
+                        let data_dir = instance_dir.clone();
+                        let handle = app.handle().clone();
+                        std::thread::Builder::new()
+                            .name("ppt-extension-install".into())
+                            .spawn(move || {
+                                match services::extension::ExtensionService::install_bundled(
+                                    &db, &data_dir, &zip_path,
+                                ) {
+                                    Ok(Some(info)) => {
+                                        log::info!(
+                                            "[extension] 已自动安装内置扩展 {} v{}",
+                                            info.id,
+                                            info.version
+                                        );
+                                        let _ = handle.emit("extension:auto-installed", &info);
+                                    }
+                                    Ok(None) => {}
+                                    Err(e) => {
+                                        log::warn!("[extension] 内置扩展自动安装失败: {e}")
+                                    }
+                                }
+                            })
+                            .map(|_| ())
+                            .unwrap_or_else(|e| {
+                                log::warn!("[extension] 无法启动自动安装线程: {e}")
+                            });
+                    }
+                    Err(e) => log::warn!("[extension] 无法解析资源目录，跳过内置扩展安装: {e}"),
+                }
+
                 // 全局快捷键：仅默认实例注册，避免多开实例互抢系统级热键。
                 // 单条注册失败只 log warn，不阻断启动；用户可在设置页改键/禁用
                 services::shortcut::ShortcutService::register_all(
@@ -1014,6 +1041,17 @@ pub fn run() {
             commands::ppt_template::ppt_template_verify,
             commands::ppt_template::ppt_template_export,
             commands::ppt_template::ppt_template_reconcile,
+            // PPTX 引擎 Spike（WebView 内 GenOffice 引擎）
+            commands::pptx_spike::pptx_spike_read,
+            commands::pptx_spike::pptx_spike_write,
+            commands::pptx_spike::pptx_spike_display_name,
+            commands::pptx_spike::office_file_size,
+            commands::pptx_spike::office_xlsx_preview,
+            commands::pptx_spike::office_pdf_preview,
+            commands::pptx_spike::office_xlsx_set_cell,
+            commands::edit_log::edit_log_record,
+            commands::edit_log::edit_log_list,
+            commands::edit_log::edit_log_clear,
             // PPT 扩展作业
             commands::ppt_extension::ppt_extension_status,
             commands::ppt_extension::ppt_extension_suggest_meta,
@@ -1369,6 +1407,7 @@ pub fn run() {
             commands::session::list_project_session_messages,
             // ─── KB 2.0 合并：系统字体 / OCR / 提醒音 / 应用锁 / Excel 导入 ───
             commands::font::list_system_fonts,
+            commands::font::office_font_metrics,
             commands::ocr::ocr_available,
             commands::ocr::ocr_image,
             commands::ocr::ocr_pdf,

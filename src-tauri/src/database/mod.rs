@@ -7,6 +7,7 @@ pub mod dataset_query;
 #[cfg(test)]
 mod dataset_query_tests;
 pub mod dataview;
+pub mod edit_ops;
 pub mod embedding;
 pub mod extensions;
 pub mod folders;
