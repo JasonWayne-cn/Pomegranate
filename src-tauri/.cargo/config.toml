@@ -1,16 +1,13 @@
-# Win7 兼容：强制 getrandom crate 使用 RtlGenRandom (advapi32.dll, XP+)
-# 而非 ProcessPrng (bcryptprimitives.dll, Win8+)
+# Win7 兼容：强制 getrandom 0.3.x/0.4.x 使用 windows_legacy 后端
+# （RtlGenRandom / SystemFunction036，XP+ 可用），而非 ProcessPrng
+# (bcryptprimitives.dll, Win8+)。
 #
-# getrandom 0.2.x 通过 GETRANDOM_BACKEND 环境变量选择后端
-# getrandom 0.3.x/0.4.x 通过 getrandom_backend cfg 选择后端
-# 两者均需设置确保所有版本到位
-[env]
-GETRANDOM_BACKEND = "rdrand"
-
+# - getrandom 0.2.x 默认 Windows 后端即 RtlGenRandom，无需额外配置；
+# - 不使用 rdrand：老 CPU 可能不支持 RDRAND 指令；
+# - 该 rustflags 对所有 Windows 构建生效，Win10+ 上行为一致且安全。
 [target.x86_64-pc-windows-msvc]
 rustflags = [
-  "--cfg", "getrandom_rdrand",
-  "--cfg", "getrandom_backend=\"rdrand\"",
+  "--cfg", "getrandom_backend=\"windows_legacy\"",
 ]
 
 # Android target linker 配置

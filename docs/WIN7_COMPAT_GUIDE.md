@@ -1,88 +1,94 @@
-# Windows 7 兼容性构建指南
+# Windows 7 兼容构建指南
 
-## 问题描述
+> 完整架构与决策记录见 [win7-architecture.md](./win7-architecture.md)。
 
-应用在 Windows 7 上启动失败，错误信息：
-```
-无法定位程序输入点 GetSystemTimePreciseAsFileTime 于动态链接库 kernel32.dll 上。
-```
-
-## 已实现的解决方案
-
-### 1. `win7_stubs.rs` - Win7 兼容性存根函数
-
-提供以下 Win8+ API 的存根实现：
-- `GetSystemTimePreciseAsFileTime` → 转发到 `GetSystemTimeAsFileTime`
-- `WakeByAddressSingle` / `WakeByAddressAll` / `WaitOnAddress`
-- `CoIncrementMTAUsage` / `CoTaskMemAlloc` / `CoTaskMemFree` / `CoCreateFreeThreadedMarshaler`
-- `ProcessPrng` → 转发到 `SystemFunction036` (advapi32.dll)
-
-### 2. `build.rs` - 链接器配置
-
-- 添加 `kernel32.dll` 的延迟加载
-- 使用 `.def` 文件强制导出存根函数
-- 使用 `/FORCE:MULTIPLE` 解决符号冲突
-
-### 3. `win7_stubs.def` - 模块定义文件
-
-显式导出所有存根函数
-
-## 如何构建 Win7 兼容版本
-
-### 使用 cargo 命令
+## 快速开始
 
 ```bash
-# 进入 src-tauri 目录
-cd src-tauri
+# lite + full 双产物（默认）
+pnpm build:win7
 
-# 使用 win7-compat feature 构建
-cargo build --release --features win7-compat
+# 仅轻量版（不捆绑 WebView2，需目标机预装 109+）
+pnpm build:win7 --variant lite
 
-# 或者使用 pnpm 构建整个应用
-cd ..
-pnpm tauri build -- --features win7-compat
+# 仅完整版（内置 WebView2 109 Fixed Runtime）
+pnpm build:win7 --variant full
+
+# debug 构建 / 强制重建 shim
+pnpm build:win7:debug
+pnpm build:win7 --force-shim
 ```
 
-### 构建产物
+产物：
 
-构建完成后，可执行文件位于：
-`src-tauri/target/release/intelligent_notebook.exe`
+```
+src-tauri/target/release/bundle/nsis/
+  Pomegranate_Setup_<ver>_win7_lite_x64-setup.exe
+  Pomegranate_Setup_<ver>_win7_full_x64-setup.exe
+```
 
-## 验证兼容性
+## 构建流程
 
-### 使用 Dependency Walker 检查
+```
+shim DLL（win7rt / win7synch / WinRT）
+  → kb-mcp sidecar（win7-compat）
+  → tauri build --features win7-compat
+      beforeBundleCommand:
+        patch-win7-pe.mjs      # 结构化 PE 补丁
+        check-win7-imports.mjs # 导入门禁（失败即中止）
+  → NSIS 产物重命名
+```
 
-1. 下载 Dependency Walker (depends.exe)
-2. 打开生成的 .exe 文件
-3. 检查导入表中是否还有 `GetSystemTimePreciseAsFileTime`
-4. 确认所有 Win8+ DLL 都是延迟加载
+## 适用系统
 
-### 在 Win7 实机/虚拟机测试
+**Windows 7 SP1 x64**，另需：
 
-1. 将可执行文件复制到 Win7 系统
-2. 双击运行
-3. 确认应用正常启动
+- KB2533623、KB4474419
+- KB2999226 / VC++ 2015-2022 Redistributable（UCRT）
+- lite 版：WebView2 Fixed Runtime 109+
 
-## 技术细节
+## 验证
 
-### GetSystemTimePreciseAsFileTime 的问题
+构建期自动：
 
-这个 API 在 Win8+ 的 kernel32.dll 中提供，但 Win7 没有。
+```bash
+# 只跑补丁（干跑）
+node scripts/patch-win7-pe.mjs --dry-run --verbose
 
-我们的解决方案：
-1. 延迟加载 kernel32.dll
-2. 提供我们自己的 `GetSystemTimePreciseAsFileTime` 实现
-3. 运行时检查：
-   - Win8+：转发到真实的 API
-   - Win7：回退到 `GetSystemTimeAsFileTime`
+# 只跑门禁
+node scripts/check-win7-imports.mjs --verbose
 
-### 延迟加载机制
+# 可选：对照 Win7 SP1 System32 导出表
+node scripts/check-win7-imports.mjs --baseline "D:\win7-sp1\System32"
+```
 
-`/DELAYLOAD` 链接器标志告诉 Windows：
-- 启动时不立即加载 DLL
-- 第一次调用 DLL 中的函数时才加载
-- 这样我们的 stub 可以有机会介入
+Win7 实机冒烟：
 
-### 符号冲突解决
+```bash
+node scripts/win7-smoke.mjs --app "C:\Program Files\Pomegranate\Pomegranate.exe" ^
+  --sidecar "C:\Program Files\Pomegranate\kb-mcp.exe"
+```
 
-windows crate 会自动导入这些函数。我们用 `/FORCE:MULTIPLE` 和 `.def` 文件确保我们的 stub 覆盖默认导入。
+## 常见启动错误
+
+| 错误 | 原因 | 处理 |
+|------|------|------|
+| 无法定位程序输入点 `GetSystemTimePreciseAsFileTime` | PE 补丁未执行 | 检查 beforeBundleCommand 与补丁输出 |
+| 无法定位程序输入点 `EventSetInformation` | 旧包或 stub 未链接 | 用 `--features win7-compat` 重新构建 |
+| 计算机中丢失 `win7synch.dll` / `win7rt.dll` | shim 未随包或未复制到 EXE 目录 | 检查 resources 与 NSIS POSTINSTALL |
+| 计算机中丢失 `bcryptprimitives.dll` | 旧安装包残留 | 重新构建；新架构已重映射到 `win7rt.dll` |
+| 启动即退出、无提示 | 缺少 WebView2（lite） | 安装 WebView2 109+ 或改用 full |
+| 提示缺少 `api-ms-win-crt-*` | 未安装 UCRT/VC++ Redist | 安装 KB2999226 / VC++ 2015-2022 |
+
+## 关键文件
+
+| 文件 | 作用 |
+|------|------|
+| `src-tauri/win7-shims/` | 主应用与 kb-mcp 共享的 Rust stub |
+| `src-tauri/win7_winrt_shim/` | WinRT shim + `win7rt.dll` |
+| `src-tauri/win7_synch_shim/` | `win7synch.dll` |
+| `scripts/build-win7.mjs` | 双产物构建流水线 |
+| `scripts/patch-win7-pe.mjs` | 结构化 PE 补丁 |
+| `scripts/check-win7-imports.mjs` | 导入门禁 |
+| `src-tauri/tauri.win7.conf.json` | lite 构建配置 |
+| `src-tauri/tauri.win7.full.conf.json` | full 构建配置 |

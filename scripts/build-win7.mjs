@@ -1,25 +1,33 @@
 #!/usr/bin/env node
 // scripts/build-win7.mjs
-// Windows 7 兼容版构建脚本
+// Windows 7 兼容版一体化构建流水线。
 //
 // 用法：
-//   pnpm build:win7                  — release 构建
-//   pnpm build:win7 --debug           — debug 构建
+//   pnpm build:win7                         — lite + full 双产物（默认）
+//   pnpm build:win7 --variant lite          — 仅轻量版（不捆绑 WebView2）
+//   pnpm build:win7 --variant full          — 仅完整版（捆绑 WebView2 109 Fixed Runtime）
+//   pnpm build:win7 --debug                 — debug 构建
+//   pnpm build:win7 --force-shim            — 强制重建 shim DLL
 //
 // 流程：
-//   1. 用 tauri.win7.conf.json 替换 tauri.conf.json（备份原文件）
-//   2. 运行 pnpm tauri build --bundles nsis
-//   3. 产物重命名为 Pomegranate_Setup_x.x.x_win7.exe
-//   4. 恢复原 tauri.conf.json
-//
-// 前置条件：
-//   1. 目标系统已预装 WebView2 109+ (Win7) 或 Evergreen (Win10+)
-//   2. 前端依赖已安装 (pnpm install)
-//   3. kb-mcp sidecar 已构建 (pnpm build:mcp)
-//   4. MSVC 工具链可用（构建 Shim DLL 用 cl.exe）
+//   1. 校验工具链，构建/校验三个 shim DLL（win7synch / win7rt / WinRT）
+//   2. 以 win7-compat feature 构建 kb-mcp sidecar
+//   3. 逐 variant：切换 tauri 配置 → tauri build（内部执行 PE 补丁 + 导入门禁）
+//      → 校验新产物 → 重命名
+//   4. try/finally 恢复 tauri.conf.json
 
 import { execSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -27,426 +35,289 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const SRC_TAURI = join(ROOT, "src-tauri");
 const CONFIG = join(SRC_TAURI, "tauri.conf.json");
-const WIN7_CONFIG = join(SRC_TAURI, "tauri.win7.conf.json");
 const CONFIG_BACKUP = join(SRC_TAURI, "tauri.conf.json.bak");
-const BUNDLE_DIR = join(SRC_TAURI, "target", "release", "bundle", "nsis");
-const NSI_DIR = join(SRC_TAURI, "target", "release", "nsis", "x64");
+const LITE_CONFIG = join(SRC_TAURI, "tauri.win7.conf.json");
+const FULL_CONFIG = join(SRC_TAURI, "tauri.win7.full.conf.json");
+const BINARIES = join(SRC_TAURI, "binaries");
+const WEBVIEW2_RUNTIME = join(SRC_TAURI, "WebView2-FixedRuntime-109");
 
 const argv = process.argv.slice(2);
 const isDebug = argv.includes("--debug");
-const CARGO = "cargo";
-const RUSTC = "rustc";
-const WIN7_RUSTFLAGS = `${process.env.RUSTFLAGS || ""} --cfg getrandom_backend=\"windows_legacy\"`.trim();
-const WIN7_ENV = {
-  ...process.env,
-  GETRANDOM_BACKEND: "windows_legacy",
-  RUSTFLAGS: WIN7_RUSTFLAGS,
-};
+const forceShim = argv.includes("--force-shim");
 
-// ─── 读取版本号 ─────────────────────────────
-function getVersion() {
-  // 从 tauri.win7.conf.json 读取（避免读 package.json 单独解析）
-  const raw = execSync(`node -e "console.log(require('${WIN7_CONFIG.replace(/\\/g, "/")}').version)"`, {
-    cwd: ROOT,
-    encoding: "utf8",
-  });
-  return raw.trim();
+function argValue(name, fallback) {
+  const eq = argv.find((a) => a.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const idx = argv.indexOf(name);
+  if (idx >= 0 && argv[idx + 1] && !argv[idx + 1].startsWith("--")) return argv[idx + 1];
+  return fallback;
 }
 
-// ─── 验证前置条件 ──────────────────────────
+const variantArg = argValue("--variant", "both");
+const requestedVariants = variantArg === "both" ? ["lite", "full"] : [variantArg];
+if (requestedVariants.some((v) => v !== "lite" && v !== "full")) {
+  console.error(`[build-win7] 未知 variant: ${variantArg}（可选 lite / full / both）`);
+  process.exit(1);
+}
+
+const VS2022_PATH = process.env.VS2022_PATH || "D:\\Dev\\MicrosoftVisualStudio\\2022\\Community";
+
+// ─── 工具链 ────────────────────────────────────────────────────
+
+function hostTriple() {
+  const out = execSync("rustc -vV", { encoding: "utf8" });
+  const match = out.match(/^host:\s*(\S+)$/m);
+  if (!match) throw new Error("无法从 rustc -vV 解析 host triple");
+  return match[1];
+}
+
+const TARGET_TRIPLE = hostTriple();
+
 function checkPrerequisites() {
-  const rustcVersion = execSync(`${RUSTC} --version`, { encoding: "utf8" }).trim();
-  console.log(`[build-win7] Rust 工具链: ${rustcVersion}`);
-  console.log("[build-win7] WebView2 运行时由目标系统提供（跳过捆绑检查）");
+  console.log(`[build-win7] Rust: ${execSync("rustc --version", { encoding: "utf8" }).trim()}`);
+  console.log(`[build-win7] target: ${TARGET_TRIPLE}`);
+  if (!TARGET_TRIPLE.includes("windows")) {
+    throw new Error("build:win7 只能在 Windows 主机上运行");
+  }
 }
 
-// ─── 切换配置 ──────────────────────────────
-function switchConfig() {
+function mtime(path) {
+  return existsSync(path) ? statSync(path).mtimeMs : 0;
+}
+
+function newestMtime(paths) {
+  return Math.max(0, ...paths.map(mtime));
+}
+
+// ─── Shim 构建 ─────────────────────────────────────────────────
+
+const SHIMS = [
+  {
+    script: join(SRC_TAURI, "win7_winrt_shim", "build.ps1"),
+    outputs: [
+      join(BINARIES, "api-ms-win-core-winrt-l1-1-0.dll"),
+      join(BINARIES, "win7rt.dll"),
+    ],
+    sources: [
+      "win7_winrt_shim/build.ps1",
+      "win7_winrt_shim/dllmain.c",
+      "win7_winrt_shim/hstring.c",
+      "win7_winrt_shim/hstring.h",
+      "win7_winrt_shim/winrt_stubs.c",
+      "win7_winrt_shim/exports.def",
+      "win7_winrt_shim/bcrypt_stubs.c",
+      "win7_winrt_shim/bcrypt_exports.def",
+    ].map((p) => join(SRC_TAURI, p)),
+  },
+  {
+    script: join(SRC_TAURI, "win7_synch_shim", "build.ps1"),
+    outputs: [join(BINARIES, "win7synch.dll")],
+    sources: [
+      "win7_synch_shim/build.ps1",
+      "win7_synch_shim/api-ms-win-core-synch-l1-2-0.c",
+      "win7_synch_shim/exports.def",
+    ].map((p) => join(SRC_TAURI, p)),
+  },
+];
+
+function needsRebuild(shim) {
+  if (forceShim) return true;
+  if (!shim.outputs.every((p) => existsSync(p) && statSync(p).size > 0)) return true;
+  return newestMtime(shim.sources) > Math.min(...shim.outputs.map(mtime));
+}
+
+function runPowerShellBuild(shim) {
+  const vcvars = join(VS2022_PATH, "VC", "Auxiliary", "Build", "vcvars64.bat");
+  const invoke = `powershell -NoProfile -ExecutionPolicy Bypass -File "${shim.script}"`;
+  if (existsSync(vcvars)) {
+    // 通过 vcvars64 注入 cl.exe/link.exe 环境。
+    // execSync 在 Windows 上本身即由 cmd.exe 执行，无需再嵌套 cmd /c。
+    execSync(`call "${vcvars}" >NUL 2>&1 && ${invoke}`, {
+      cwd: ROOT,
+      stdio: "inherit",
+    });
+  } else {
+    console.warn(`[build-win7] vcvars64.bat 未找到（${vcvars}），尝试直接调用 build.ps1`);
+    execSync(invoke, { cwd: ROOT, stdio: "inherit" });
+  }
+}
+
+function buildShims() {
+  mkdirSync(BINARIES, { recursive: true });
+  // 清理旧命名的 shim，避免被误打包或误部署
+  for (const legacy of ["bcryptprimitives.dll", "api-ms-win-core-synch-l1-2-0.dll"]) {
+    const path = join(BINARIES, legacy);
+    if (existsSync(path)) {
+      rmSync(path, { force: true });
+      console.log(`[build-win7] 已删除 legacy shim: ${legacy}`);
+    }
+  }
+  for (const shim of SHIMS) {
+    if (!needsRebuild(shim)) {
+      console.log(`[build-win7] shim 已是最新：${shim.outputs.map((p) => p.split(/[\\/]/).pop()).join(", ")}`);
+      continue;
+    }
+    console.log(`[build-win7] 构建 shim：${shim.script}`);
+    runPowerShellBuild(shim);
+    for (const output of shim.outputs) {
+      if (!existsSync(output) || statSync(output).size === 0) {
+        throw new Error(`shim 构建失败或输出为空：${output}`);
+      }
+    }
+  }
+}
+
+// ─── kb-mcp sidecar ────────────────────────────────────────────
+
+function buildSidecar() {
+  console.log("[build-win7] 构建 kb-mcp sidecar（win7-compat）...");
+  execSync("cargo build -p kb-mcp --release --features win7-compat", {
+    cwd: SRC_TAURI,
+    stdio: "inherit",
+  });
+  const src = join(SRC_TAURI, "target", "release", "kb-mcp.exe");
+  if (!existsSync(src)) throw new Error(`未找到 sidecar 产物：${src}`);
+  mkdirSync(BINARIES, { recursive: true });
+  const dst = join(BINARIES, `kb-mcp-${TARGET_TRIPLE}.exe`);
+  copyFileSync(src, dst);
+  console.log(`[build-win7] sidecar → ${dst}`);
+}
+
+// ─── Tauri 配置切换 ────────────────────────────────────────────
+
+function backupConfig() {
   if (existsSync(CONFIG_BACKUP)) {
-    console.error("[build-win7] 检测到残留备份文件，可能上次构建未正常完成");
-    console.error(`  手动删除 ${CONFIG_BACKUP} 后重试`);
-    // 尝试恢复
+    console.error("[build-win7] 检测到残留 tauri.conf.json.bak，已自动恢复");
     copyFileSync(CONFIG_BACKUP, CONFIG);
     unlinkSync(CONFIG_BACKUP);
-    console.log("[build-win7] 已自动恢复原配置，请重新运行");
-    process.exit(1);
   }
-
-  // 备份原配置
   copyFileSync(CONFIG, CONFIG_BACKUP);
-  console.log(`[build-win7] 已备份原配置 → ${CONFIG_BACKUP}`);
-
-  // 替换为 Win7 配置
-  copyFileSync(WIN7_CONFIG, CONFIG);
-  console.log(`[build-win7] 已切换到 Win7 配置 ← ${WIN7_CONFIG}`);
 }
 
-// ─── 恢复配置 ──────────────────────────────
+function switchConfig(configPath) {
+  if (!existsSync(configPath)) throw new Error(`缺少配置：${configPath}`);
+  copyFileSync(configPath, CONFIG);
+  console.log(`[build-win7] 配置 → ${configPath.split(/[\\/]/).pop()}`);
+}
+
 function restoreConfig() {
   if (existsSync(CONFIG_BACKUP)) {
     copyFileSync(CONFIG_BACKUP, CONFIG);
     unlinkSync(CONFIG_BACKUP);
-    console.log("[build-win7] 已恢复原配置");
+    console.log("[build-win7] 已恢复 tauri.conf.json");
   }
 }
 
-// ─── WinRT Shim DLL 构建 ────────────────────
-// 使用环境变量 VS2022_PATH 指定 Visual Studio 2022 安装路径
-// 默认：D:\Dev\MicrosoftVisualStudio\2022\Community
-const VS2022_PATH = process.env.VS2022_PATH || "D:\\Dev\\MicrosoftVisualStudio\\2022\\Community";
+function readVersion() {
+  const config = JSON.parse(readFileSync(LITE_CONFIG, "utf8"));
+  return config.version;
+}
 
-function buildShimDll() {
-  const shimDir = join(SRC_TAURI, "win7_winrt_shim");
-  const buildScript = join(shimDir, "build.ps1");
-  const expectedDll = join(SRC_TAURI, "binaries", "api-ms-win-core-winrt-l1-1-0.dll");
-  const sidecarName = "api-ms-win-core-winrt-l1-1-0.dll-x86_64-pc-windows-msvc.exe";
-  const sidecarPath = join(SRC_TAURI, "binaries", sidecarName);
-  const vcvars = join(VS2022_PATH, "VC", "Auxiliary", "Build", "vcvars64.bat");
+// ─── 构建与产物 ────────────────────────────────────────────────
 
-  // 如果 DLL + sidecar 已存在且非强制重建，跳过
-  const force = argv.includes("--force-shim");
-  if (!force && existsSync(expectedDll) && readFileSync(expectedDll).length > 0) {
-    // 确保 sidecar 也存在（可能上次构建后被清理）
-    createSidecarCopy(expectedDll, sidecarName);
-    console.log("[build-win7] Shim DLL 已存在，跳过构建（--force-shim 强制重建）");
-    return;
-  }
+function bundleDir() {
+  return join(SRC_TAURI, "target", isDebug ? "debug" : "release", "bundle", "nsis");
+}
 
-  if (!existsSync(buildScript)) {
-    console.warn("[build-win7] build.ps1 未找到，跳过 Shim DLL 构建");
-    return;
-  }
+function findFreshInstaller(startMs) {
+  const dir = bundleDir();
+  if (!existsSync(dir)) return null;
+  const candidates = readdirSync(dir)
+    .filter((f) => f.endsWith("_x64-setup.exe") && !f.includes("_win7"))
+    .map((f) => join(dir, f))
+    .filter((p) => statSync(p).mtimeMs >= startMs)
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+  return candidates[0] ?? null;
+}
 
-  if (!existsSync(vcvars)) {
-    console.warn(`[build-win7] vcvars64.bat 未找到: ${vcvars}`);
-    console.warn(`  设置 VS2022_PATH 环境变量指向 VS 2022 安装目录`);
-    // 降级：直接尝试 powershell（如果 cl.exe 在 PATH 里）
-    console.warn("  降级：直接尝试 build.ps1...");
-    tryBuildDirectly();
-    return;
-  }
-
-  // 确保 binaries 目录存在
-  mkdirSync(join(SRC_TAURI, "binaries"), { recursive: true });
-
-  console.log(`[build-win7] 构建 WinRT Shim DLL (MSVC: ${VS2022_PATH})...`);
-
-  // cmd /c 链式调用：
-  //   1. vcvars64.bat 设置 MSVC 环境变量（PATH 包含 cl.exe）
-  //   2. powershell 执行 build.ps1（继承 cmd 的环境变量）
-  // vcvars64.bat 输出重定向到 temp 文件避免污染构建日志
-  try {
-    const vcvarsLog = join(ROOT, "src-tauri", "win7_winrt_shim", "vcvars.log");
-    const cmd = `cmd /c "call "${vcvars}" 1>"${vcvarsLog}" 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File "${buildScript}""`;
-    execSync(cmd, { cwd: ROOT, stdio: "inherit" });
-
-    if (!existsSync(expectedDll) || readFileSync(expectedDll).length === 0) {
-      console.warn("[build-win7] Shim DLL 构建后未在预期位置找到，安装包可能不含 WinRT 垫片");
-    } else {
-      console.log(`[build-win7] Shim DLL 构建完成: ${expectedDll}`);
-      // Tauri externalBin 会对路径追加 -{target_triple}.exe 后缀查找文件
-      createSidecarCopy(expectedDll, "api-ms-win-core-winrt-l1-1-0.dll-x86_64-pc-windows-msvc.exe");
+function renameInstaller(installer, variant, version) {
+  const dir = dirname(installer);
+  for (const file of readdirSync(dir)) {
+    if (file.includes(`_win7_${variant}_`) && file.endsWith(".exe")) {
+      rmSync(join(dir, file), { force: true });
     }
-  } catch (e) {
-    console.warn("[build-win7] Shim DLL 构建失败，降级：直接尝试 build.ps1...");
-    console.warn("  错误: " + String(e.message || e).split("\n")[0]);
-    tryBuildDirectly();
   }
+  const dst = join(dir, `Pomegranate_Setup_${version}_win7_${variant}_x64-setup.exe`);
+  renameSync(installer, dst);
+  return dst;
 }
 
-function createSidecarCopy(dllPath, sidecarName) {
-  const sidecarPath = join(SRC_TAURI, "binaries", sidecarName);
-  copyFileSync(dllPath, sidecarPath);
-  console.log(`[build-win7] 已创建 externalBin sidecar: ${sidecarName}`);
-}
-
-function tryBuildDirectly() {
-  const buildScript = join(SRC_TAURI, "win7_winrt_shim", "build.ps1");
+function runTauriBuild() {
+  const args = ["tauri", "build", "--bundles", "nsis", "--features", "win7-compat"];
+  if (isDebug) args.push("--debug");
+  const command = `pnpm ${args.join(" ")}`;
+  console.log(`[build-win7] ${command}`);
   try {
-    execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${buildScript}"`, {
+    execSync(command, {
       cwd: ROOT,
       stdio: "inherit",
+      env: { ...process.env, WIN7_BUILD_PROFILE: isDebug ? "debug" : "release" },
     });
-    const expectedDll = join(SRC_TAURI, "binaries", "api-ms-win-core-winrt-l1-1-0.dll");
-    if (existsSync(expectedDll) && readFileSync(expectedDll).length > 0) {
-      console.log("[build-win7] Shim DLL 构建完成（降级路径）");
-    }
-  } catch (e2) {
-    console.warn("[build-win7] Shim DLL 构建失败（缺少 MSVC 工具链），继续构建主程序");
-  }
-}
-
-// ─── Synch Shim DLL 构建 ─────────────────────
-// 创建 api-ms-win-core-synch-l1-2-0.dll，提供 Sleep/SleepEx 转发 + WaitOnAddress 桩
-// 通过 resources 随 NSIS 安装到 EXE 目录，延迟加载时本地目录优先
-
-function buildSynchShimDll() {
-  const shimDir = join(SRC_TAURI, "win7_synch_shim");
-  const buildScript = join(shimDir, "build.ps1");
-  const expectedDll = join(SRC_TAURI, "binaries", "api-ms-win-core-synch-l1-2-0.dll");
-  const vcvars = join(VS2022_PATH, "VC", "Auxiliary", "Build", "vcvars64.bat");
-
-  const force = argv.includes("--force-shim");
-  if (!force && existsSync(expectedDll) && readFileSync(expectedDll).length > 0) {
-    console.log("[build-win7] Synch Shim DLL 已存在，跳过构建（--force-shim 强制重建）");
-    return;
-  }
-
-  if (!existsSync(buildScript)) {
-    console.warn("[build-win7] Synch shim build.ps1 未找到，跳过");
-    return;
-  }
-
-  mkdirSync(join(SRC_TAURI, "binaries"), { recursive: true });
-
-  console.log(`[build-win7] 构建 Synch Shim DLL (MSVC: ${VS2022_PATH})...`);
-
-  try {
-    const vcvarsLog = join(ROOT, "src-tauri", "win7_synch_shim", "vcvars.log");
-    const cmd = `cmd /c "call "${vcvars}" 1>"${vcvarsLog}" 2>&1 && powershell -NoProfile -ExecutionPolicy Bypass -File "${buildScript}""`;
-    execSync(cmd, { cwd: ROOT, stdio: "inherit" });
-
-    if (!existsSync(expectedDll) || readFileSync(expectedDll).length === 0) {
-      console.warn("[build-win7] Synch Shim DLL 构建后未找到");
-    } else {
-      console.log(`[build-win7] Synch Shim DLL: ${expectedDll}`);
-    }
-  } catch (e) {
-    console.warn("[build-win7] Synch Shim DLL 构建失败: " + String(e.message || e).split("\n")[0]);
-    // 降级：直接尝试 powershell
-    try {
-      execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${buildScript}"`, {
-        cwd: ROOT, stdio: "inherit",
-      });
-    } catch (e2) {
-      console.warn("[build-win7] Synch Shim DLL 降级构建也失败，继续（依赖 PE patch safety net）");
-    }
-  }
-}
-
-// ─── PE 补丁 ─────────────────────────────────
-const BLOCKING_IMPORTS = [
-  "GetSystemTimePreciseAsFileTime",
-  "api-ms-win-crt-private-l1-1-0.dll",
-  "ProcessPrng",
-  // api-ms-win-core-synch-l1-2-0.dll 已被 patch-win7-pe.mjs 重映射到 bcryptprimitives.dll
-  // bcrypt 统一 shim 同时导出 ProcessPrng + WaitOnAddress + WakeByAddressSingle/All
-  // WinRT DLL 不应出现在直接导入表中（已通过 DELAYLOAD 处理）
-  "api-ms-win-core-winrt-l1-1-0.dll",
-  "api-ms-win-core-winrt-string-l1-1-0.dll",
-];
-const RISKY_IMPORTS = [
-  // combase.dll 延迟加载，C 桩提供 CoTaskMemFree/CoTaskMemAlloc 等 ole32 转发
-  "combase.dll",
-];
-
-function patchPE(exePath) {
-  if (!existsSync(exePath)) {
-    console.warn(`[build-win7] 未找到 exe，跳过 PE 补丁: ${exePath}`);
-    return;
-  }
-
-  const buffer = readFileSync(exePath);
-  const peOffset = buffer.readUInt32LE(0x3c);
-  const optionalHeaderOffset = peOffset + 24;
-
-  // PE Optional Header: MajorSubsystemVersion / MinorSubsystemVersion
-  buffer.writeUInt16LE(6, optionalHeaderOffset + 48);
-  buffer.writeUInt16LE(1, optionalHeaderOffset + 50);
-
-  // Win8+ API 降级：GetSystemTimePreciseAsFileTime → GetSystemTimeAsFileTime
-  // 两者签名相同，目标函数 Win7 可用；目标名更短，可原地覆盖并用 \0 填充。
-  const from = Buffer.from("GetSystemTimePreciseAsFileTime\0", "ascii");
-  const to = Buffer.from("GetSystemTimeAsFileTime\0", "ascii");
-  let patchedImports = 0;
-  let offset = buffer.indexOf(from);
-  while (offset !== -1) {
-    to.copy(buffer, offset);
-    buffer.fill(0, offset + to.length, offset + from.length);
-    patchedImports += 1;
-    offset = buffer.indexOf(from, offset + from.length);
-  }
-
-  writeFileSync(exePath, buffer);
-  console.log(`[build-win7] PE 已补丁: ${exePath} (subsystem=6.1, imports=${patchedImports})`);
-}
-
-function patchAllBinaries() {
-  const profile = isDebug ? "debug" : "release";
-  patchPE(join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe"));
-  patchPE(join(SRC_TAURI, "target", profile, "Pomegranate.exe"));
-
-  const binariesDir = join(SRC_TAURI, "binaries");
-  if (existsSync(binariesDir)) {
-    for (const file of readdirSync(binariesDir)) {
-      if (file.endsWith(".exe")) patchPE(join(binariesDir, file));
-    }
-  }
-}
-
-function verifyWin7Imports(exePath) {
-  if (!existsSync(exePath)) return;
-  const text = readFileSync(exePath).toString("latin1");
-
-  // 直接搜索 GetSystemTimePreciseAsFileTime 字符串
-  // 此函数在 Rust std::time 中被调用，Win7 的 kernel32.dll 无此导出 → 必须已通过 PE patch 替换为 GetSystemTimeAsFileTime
-  if (text.includes("GetSystemTimePreciseAsFileTime")) {
-    throw new Error(
-      `[build-win7] ${exePath} 仍包含 GetSystemTimePreciseAsFileTime 导入！\n` +
-      `  此函数仅 Win8+ 可用，Win7 将无法启动（错误：无法定位程序输入点）。\n` +
-      `  请检查 scripts/patch-win7-pe.mjs 是否成功运行。`
+  } catch (error) {
+    // 常见非零退出：未设置 TAURI_SIGNING_PRIVATE_KEY 时 updater 产物签名失败，
+    // 但安装包本身已生成。是否成功以 findFreshInstaller 的 mtime 校验为准。
+    console.warn(
+      "[build-win7] tauri build 非零退出（签名密钥缺失等），继续校验安装包是否已生成",
     );
   }
-
-  // 区分直接导入 vs DELAYLOAD（延迟加载）：
-  // DELAYLOAD 的 DLL 名在 PE 中只出现在 Delay-Load Descriptor 区域，
-  // 通常出现 1-2 次。直接导入的 DLL 名在 IMAGE_IMPORT_DESCRIPTOR 数组
-  // 中，可能引用多次（模块名 + Hint/Name 表引用）。
-  const blocking = BLOCKING_IMPORTS.filter((name) => {
-    const count = text.split(name).length - 1;
-    if (count === 0) return false;
-    // DLL 名出现 > 2 次 → 可能在直接导入表中（非 DELAYLOAD）
-    if (count > 2) return true;
-    // 出现 1-2 次 → 可能在 DELAYLOAD 描述符中，视为安全
-    console.log(`[build-win7] ${name} 出现 ${count} 次（疑似在 delay-load 表中），跳过`);
-    return false;
-  });
-
-  if (blocking.length > 0) {
-    throw new Error(`[build-win7] ${exePath} 仍包含 Win7 加载阻断导入: ${blocking.join(", ")}`);
-  }
-
-  const risky = RISKY_IMPORTS.filter((name) => {
-    const count = text.split(name).length - 1;
-    return count > 2; // 同理：仅在直接导入表超过阈值时告警
-  });
-  if (risky.length > 0) {
-    console.warn(`[build-win7] 警告: ${exePath} 仍包含需 Win7 实测的风险导入: ${risky.join(", ")}`);
-  }
 }
 
-// ─── 检查 bcryptprimitives.dll shim ────────────
-function verifyBcryptShim() {
-  const bcryptDll = join(SRC_TAURI, "binaries", "bcryptprimitives.dll");
-  if (!existsSync(bcryptDll)) {
-    console.warn("[build-win7] WARNING: bcryptprimitives.dll shim 未找到!");
-    console.warn("  安装包可能不含 ProcessPrng shim，Win7 加载器将调用 System32 版本");
-    return;
-  }
+// ─── 主流程 ────────────────────────────────────────────────────
 
-  const size = readFileSync(bcryptDll).length;
-  if (size === 0) {
-    console.warn("[build-win7] WARNING: bcryptprimitives.dll shim 文件为空!");
-    return;
-  }
-
-  // 快速 PE 头检查
-  const buf = readFileSync(bcryptDll);
-  const sig = buf.toString("ascii", 0, 2);
-  if (sig !== "MZ") {
-    console.warn("[build-win7] WARNING: bcryptprimitives.dll 可能不是有效的 PE 文件");
-    return;
-  }
-
-  // 检查是否导出 ProcessPrng
-  const text = buf.toString("latin1");
-  if (text.includes("ProcessPrng")) {
-    console.log("[build-win7] bcryptprimitives.dll shim: OK (exports ProcessPrng)");
-  } else {
-    console.warn("[build-win7] WARNING: bcryptprimitives.dll 可能未导出 ProcessPrng!");
-  }
-
-  console.log("[build-win7] 提示: 安装后该 DLL 应位于 EXE 同目录（$INSTDIR\\bcryptprimitives.dll）");
-}
-
-// ─── 重命名产物 ─────────────────────────────
-function renameOutput(installer) {
-  if (!existsSync(BUNDLE_DIR) || !installer) {
-    throw new Error("未找到本次构建生成的 NSIS 安装包（构建可能已失败），已中止重命名");
-  }
-
-  const version = getVersion();
-  const files = readdirSync(BUNDLE_DIR);
-
-  // 清理旧 win7 产物，避免残留混淆
-  for (const f of files) {
-    if (f.endsWith(".exe") && f.includes("_win7") && f !== installer) {
-      const old = join(BUNDLE_DIR, f);
-      unlinkSync(old);
-      console.log(`[build-win7] 已删除旧 win7 产物: ${f}`);
-    }
-  }
-
-  const src = join(BUNDLE_DIR, installer);
-  const dstName = `Pomegranate_Setup_${version}_win7_x64-setup.exe`;
-  const dst = join(BUNDLE_DIR, dstName);
-
-  renameSync(src, dst);
-  console.log(`[build-win7] 产物已重命名: ${dstName}`);
-}
-
-// ─── 主流程 ─────────────────────────────────
 function main() {
-  console.log("[build-win7] === Windows 7 兼容版构建开始 ===");
-
+  console.log("[build-win7] === Windows 7 兼容构建开始 ===");
   checkPrerequisites();
-  switchConfig();
 
+  let variants = [...requestedVariants];
+  if (variants.includes("full")) {
+    if (!existsSync(join(WEBVIEW2_RUNTIME, "msedgewebview2.exe"))) {
+      console.warn(
+        `[build-win7] 未找到 WebView2 Fixed Runtime：${WEBVIEW2_RUNTIME}\n` +
+          "  跳过 full 产物（部署方式见 .gitignore 注释 / 文档）",
+      );
+      variants = variants.filter((v) => v !== "full");
+    }
+    if (!existsSync(FULL_CONFIG)) variants = variants.filter((v) => v !== "full");
+  }
+  if (variants.length === 0) {
+    console.error("[build-win7] 没有可构建的 variant");
+    process.exit(1);
+  }
+
+  const version = readVersion();
+  const outputs = [];
+
+  backupConfig();
   try {
-    // Phase 0: 构建 Shim DLL
-    buildShimDll();          // WinRT shim: api-ms-win-core-winrt-l1-1-0.dll
-    buildSynchShimDll();     // Synch shim: api-ms-win-core-synch-l1-2-0.dll
+    buildShims();
+    buildSidecar();
 
-    // tauri.win7.conf.json 已配置 beforeBundleCommand：
-    //   cargo build → scripts/patch-win7-pe.mjs (PE patch) → makensis
-    // PE patch 在 cargo 编译后、NSIS 打包前执行，确保安装包含已补丁 EXE。
-    // --features win7-compat 跳过 tauri-plugin-notification 注册（消除 WinRT 依赖链 A）
-    // RUSTFLAGS: 强制 getrandom 0.3.x/0.4.x 使用 rdrand 后端 (RtlGenRandom)
-    // getrandom 0.2.x 已通过 Cargo.toml 的 getrandom02 feature 配置
-    process.env.RUSTFLAGS = process.env.RUSTFLAGS
-      ? process.env.RUSTFLAGS + ' --cfg getrandom_backend="rdrand"'
-      : '--cfg getrandom_backend="rdrand"';
+    for (const variant of variants) {
+      console.log(`\n[build-win7] ── 构建 ${variant} ──`);
+      switchConfig(variant === "full" ? FULL_CONFIG : LITE_CONFIG);
+      const started = Date.now();
+      runTauriBuild();
 
-    const tauriCmd = `pnpm tauri build --bundles nsis${isDebug ? " --debug" : ""} -- --features win7-compat`;
-    console.log(`[build-win7] ${tauriCmd}`);
-    const buildStartMs = Date.now();
-    try {
-      execSync(tauriCmd, { cwd: ROOT, stdio: "inherit", env: WIN7_ENV });
-    } catch (e) {
-      console.warn("[build-win7] tauri build 非零退出码（签名缺失为正常情况），继续验证...");
+      const fresh = findFreshInstaller(started);
+      if (!fresh) {
+        throw new Error("tauri build 未产出新安装包（前端或 Rust 构建失败）");
+      }
+      const renamed = renameInstaller(fresh, variant, version);
+      outputs.push(renamed);
+      console.log(`[build-win7] 产物：${renamed}`);
     }
 
-    // 校验本次构建确实产出了新的安装包：否则说明前端/Rust 构建失败，
-    // 绝不能把上一次的旧产物改名冒充新版本。
-    const freshInstaller =
-      existsSync(BUNDLE_DIR) &&
-      readdirSync(BUNDLE_DIR)
-        .filter((f) => f.endsWith("_x64-setup.exe") && !f.includes("_win7"))
-        .find((f) => statSync(join(BUNDLE_DIR, f)).mtimeMs >= buildStartMs);
-    if (!freshInstaller) {
-      throw new Error("tauri build 未产出新安装包（前端或 Rust 构建失败），已中止重命名");
-    }
-
-    const profile = isDebug ? "debug" : "release";
-    const exePath = join(SRC_TAURI, "target", profile, "IntelligentNoteBook.exe");
-    const pomegranatePath = join(SRC_TAURI, "target", profile, "Pomegranate.exe");
-
-    // 双保险：beforeBundleCommand 已运行 patch-win7-pe.mjs，
-    // 这里再次 patch 确保所有二进制文件（含 sidecar）无误
-    patchAllBinaries();
-    verifyWin7Imports(exePath);
-    verifyWin7Imports(pomegranatePath);
-    verifyBcryptShim();
-
-    renameOutput(freshInstaller);
-    console.log("[build-win7] === 构建成功 ===");
-  } catch (err) {
-    console.error("[build-win7] === 构建失败 ===");
-    console.error(err.message);
-    process.exitCode = 1;
+    console.log("\n[build-win7] === 构建成功 ===");
+    for (const output of outputs) console.log(`  ${output}`);
   } finally {
     restoreConfig();
   }
 }
 
-main();
+try {
+  main();
+} catch (error) {
+  console.error("[build-win7] === 构建失败 ===");
+  console.error(error.message);
+  process.exitCode = 1;
+}

@@ -1,0 +1,22 @@
+; win7-shims/win7_stubs.def
+; 强制链接器保留 win7-shims 的 #[no_mangle] stub 符号。
+; 符号名必须与 Rust 函数名完全一致（大小写敏感）。
+EXPORTS
+    WakeByAddressSingle
+    WakeByAddressAll
+    WaitOnAddress
+    RtlWaitOnAddress
+    RtlWakeAddressSingle
+    RtlWakeAddressAll
+    CoIncrementMTAUsage
+    CoTaskMemAlloc
+    CoTaskMemFree
+    CoCreateFreeThreadedMarshaler
+    RoGetAgileReference
+    ProcessPrng
+    GetSystemTimePreciseAsFileTime
+    DiscardVirtualMemory
+    GetCurrentThreadStackLimits
+    GetThreadDescription
+    SetThreadDescription
+    EventSetInformation

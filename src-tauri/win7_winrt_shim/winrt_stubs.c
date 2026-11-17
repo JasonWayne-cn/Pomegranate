@@ -94,3 +94,22 @@ HRESULT WINAPI RoResolveRestrictedErrorInfoReference(
     if (info) *info = NULL;
     return E_NOTIMPL;
 }
+
+// ─── api-ms-win-core-winrt-error API Set ─────────────────────────
+// Rust 的 windows crate 会静态导入 RoOriginateErrorW。
+// Win7 无 WinRT 错误上报机制，返回 FALSE 表示未上报（调用方可继续降级）。
+
+BOOL WINAPI RoOriginateErrorW(HRESULT error, UINT cchMax, PCWSTR message)
+{
+    (void)error;
+    (void)cchMax;
+    (void)message;
+    return FALSE;
+}
+
+BOOL WINAPI RoOriginateError(HRESULT error, HSTRING message)
+{
+    (void)error;
+    (void)message;
+    return FALSE;
+}

@@ -31,3 +31,5 @@ EXPORTS
   RoGetErrorReportingFlags
   RoSetErrorReportingFlags
   RoResolveRestrictedErrorInfoReference
+  RoOriginateErrorW
+  RoOriginateError

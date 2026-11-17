@@ -118,12 +118,14 @@ Remove-Item -Path $ObjFiles -Force -ErrorAction SilentlyContinue
 
 Write-Host "[shim-dll] Built: $OutPath" -ForegroundColor Green
 
-# ─── Build bcryptprimitives.dll shim (ProcessPrng) ───
+# ─── Build win7rt.dll shim (ProcessPrng + WaitOnAddress) ───
+# 输出名刻意避开系统 DLL 名 bcryptprimitives.dll（KnownDLLs / 系统解析风险），
+# PE 补丁在构建期把导入表中的 bcryptprimitives.dll 重映射到 win7rt.dll。
 $BcryptSrc = "$ScriptDir\bcrypt_stubs.c"
 $BcryptDef = "$ScriptDir\bcrypt_exports.def"
-$BcryptOut = Join-Path (Resolve-Path $OutDir) "bcryptprimitives.dll"
+$BcryptOut = Join-Path (Resolve-Path $OutDir) "win7rt.dll"
 
-Write-Host "[shim-dll] Building bcryptprimitives.dll shim..." -ForegroundColor Cyan
+Write-Host "[shim-dll] Building win7rt.dll shim..." -ForegroundColor Cyan
 $bcryptObj = Join-Path $ObjDir "bcrypt_stubs.obj"
 & $clPath @CFlags "/Fo`"$bcryptObj`"" "`"$BcryptSrc`""
 if ($LASTEXITCODE -ne 0) { Write-Error "bcrypt_stubs compile failed"; exit $LASTEXITCODE }

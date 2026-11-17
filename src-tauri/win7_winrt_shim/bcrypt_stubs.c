@@ -1,5 +1,7 @@
 // win7_winrt_shim/bcrypt_stubs.c
-// bcryptprimitives.dll — unified Win7 compatibility shim.
+// win7rt.dll — unified Win7 runtime shim (built output; NOT bcryptprimitives.dll).
+// 构建期 PE 补丁把对 bcryptprimitives.dll 的导入重映射到本文件输出名，
+// 从而绕开系统 DLL 名解析与 KnownDLLs 规则。
 //
 // Exports:
 //   ProcessPrng       → forwards to advapi32!RtlGenRandom (XP+)

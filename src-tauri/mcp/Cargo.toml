@@ -10,6 +10,11 @@ license = "AGPL-3.0-or-later"
 name = "kb-mcp"
 path = "src/main.rs"
 
+[features]
+# 启用 Win7 兼容层：内联编译 win7-shims 源码，
+# 并提供 DELAYLOAD / FORCE:MULTIPLE 链接参数（见 build.rs）
+win7-compat = []
+
 [dependencies]
 # kb-core：KbDb + KbServer + 12 工具的实现，与主应用共享
 kb-core = { path = "../kb-core" }

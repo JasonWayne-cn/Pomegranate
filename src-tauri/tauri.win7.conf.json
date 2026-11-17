@@ -8,7 +8,7 @@
     "beforeDevCommand": "pnpm dev:clean",
     "devUrl": "http://localhost:2010",
     "beforeBuildCommand": "npm run build:vite",
-    "beforeBundleCommand": "node scripts/patch-win7-pe.mjs",
+    "beforeBundleCommand": "node scripts/win7-before-bundle.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -58,8 +58,10 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "binaries/bcryptprimitives.dll",
-      "binaries/api-ms-win-core-synch-l1-2-0.dll",
+      "resources/ppt-extension/ppt-master-extension.zip",
+      "resources/ppt-extension/ppt-master-extension.version",
+      "binaries/win7synch.dll",
+      "binaries/win7rt.dll",
       "binaries/api-ms-win-core-winrt-l1-1-0.dll"
     ],
     "fileAssociations": [

@@ -1,4 +1,7 @@
-; bcryptprimitives.dll — unified Win7 compatibility shim exports
+; win7rt.dll — unified Win7 compatibility shim exports
+; 替代 bcryptprimitives.dll（ProcessPrng）与 api-ms-win-core-synch-l1-2-0.dll
+; 的 Win8+ 函数。构建期由 PE 补丁重映射导入名到 win7rt.dll。
+LIBRARY win7rt
 EXPORTS
   ProcessPrng
   WaitOnAddress

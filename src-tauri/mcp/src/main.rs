@@ -9,6 +9,13 @@
 
 use std::path::PathBuf;
 
+#[cfg(all(target_os = "windows", feature = "win7-compat"))]
+#[path = "../../win7-shims/src/lib.rs"]
+mod win7_shims;
+#[cfg(all(target_os = "windows", feature = "win7-compat"))]
+#[path = "../../win7-shims/src/imp.rs"]
+mod win7_imp;
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use kb_core::{KbDb, KbServer};
@@ -34,6 +41,10 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Win7 兼容：引用 `__imp_*` IAT 覆盖符号，消除 Win8+ 导入。
+    #[cfg(all(target_os = "windows", feature = "win7-compat"))]
+    win7_imp::force_link();
+
     // clap 自己处理 --help / --version（写 stdout 后 exit），先解析再打日志
     let cli = Cli::parse();
 

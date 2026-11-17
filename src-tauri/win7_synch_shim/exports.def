@@ -1,7 +1,32 @@
-LIBRARY "api-ms-win-core-synch-l1-2-0.dll"
+; win7synch.dll — api-ms-win-core-synch-l1-2-0.dll shim for Windows 7
+;
+; Win7 的 kernel32 已导出 InitOnce*/SRWLock/ConditionVariable 系列，
+; 直接以转发器暴露，行为与 Win8+ API Set 一致。
+; WaitOnAddress / WakeByAddress* 为 Win8+ 新增，由本地轮询实现提供。
+
+LIBRARY win7synch
 EXPORTS
+    ; ── 本地实现 ─────────────────────────────
     Sleep
     SleepEx
     WaitOnAddress
     WakeByAddressSingle
     WakeByAddressAll
+
+    ; ── kernel32 转发 ────────────────────────
+    InitOnceBeginInitialize = kernel32.InitOnceBeginInitialize
+    InitOnceComplete = kernel32.InitOnceComplete
+    InitOnceExecuteOnce = kernel32.InitOnceExecuteOnce
+    InitOnceInitialize = kernel32.InitOnceInitialize
+    InitializeConditionVariable = kernel32.InitializeConditionVariable
+    SleepConditionVariableCS = kernel32.SleepConditionVariableCS
+    SleepConditionVariableSRW = kernel32.SleepConditionVariableSRW
+    WakeAllConditionVariable = kernel32.WakeAllConditionVariable
+    WakeConditionVariable = kernel32.WakeConditionVariable
+    InitializeSRWLock = kernel32.InitializeSRWLock
+    AcquireSRWLockExclusive = kernel32.AcquireSRWLockExclusive
+    AcquireSRWLockShared = kernel32.AcquireSRWLockShared
+    ReleaseSRWLockExclusive = kernel32.ReleaseSRWLockExclusive
+    ReleaseSRWLockShared = kernel32.ReleaseSRWLockShared
+    TryAcquireSRWLockExclusive = kernel32.TryAcquireSRWLockExclusive
+    TryAcquireSRWLockShared = kernel32.TryAcquireSRWLockShared
