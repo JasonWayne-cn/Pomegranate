@@ -1,9 +1,10 @@
 /**
  * 三维查看器格式与路径工具（纯函数，不依赖 Tauri / DOM）。
  *
- * 当前内置引擎（Online 3D Viewer 0.18）可离线解析的格式集合。
- * STEP / IGES / BREP / 3DM / IFC 需要外部解码器（OCCT / rhino3dm / web-ifc），
- * 不在内置引擎的离线能力内，等扩展包接入后再加入。
+ * 内置引擎可离线解析的格式集合。
+ *
+ * CAD 格式（step/iges/brep/fcstd）使用 `public/viewer3d/vendor/occt/` 的 OCCT WASM；
+ * 3DM / IFC 仍需要 rhino3dm / web-ifc，尚未接入。
  */
 export const VIEWER3D_EXTS = [
   "stl",
@@ -18,6 +19,14 @@ export const VIEWER3D_EXTS = [
   "dae",
   "fbx",
   "wrl",
+  // CAD（OCCT）
+  "step",
+  "stp",
+  "iges",
+  "igs",
+  "brep",
+  "brp",
+  "fcstd",
 ] as const;
 
 /** 引擎支持、但语义不专属于三维的容器格式：只允许显式"作为三维模型插入"时使用 */
@@ -30,6 +39,17 @@ export const VIEWER3D_IMPORT_EXTS = [
 ] as const;
 
 export type Viewer3dExt = (typeof VIEWER3D_EXTS)[number];
+
+/** 需要 OCCT WASM 解析的 CAD 格式 */
+export const VIEWER3D_CAD_EXTS = [
+  "step",
+  "stp",
+  "iges",
+  "igs",
+  "brep",
+  "brp",
+  "fcstd",
+] as const;
 
 /**
  * 从路径/文件名提取小写扩展名（不含点）。
@@ -55,6 +75,13 @@ export function isViewer3dExt(pathOrName: string): boolean {
 /** 内置引擎能否读取（含显式插入的 zip 模型包） */
 export function isViewer3dImportable(pathOrName: string): boolean {
   return (VIEWER3D_IMPORT_EXTS as readonly string[]).includes(
+    viewer3dExtOf(pathOrName),
+  );
+}
+
+/** 是否需要 OCCT WASM 解码（CAD） */
+export function isViewer3dCadExt(pathOrName: string): boolean {
+  return (VIEWER3D_CAD_EXTS as readonly string[]).includes(
     viewer3dExtOf(pathOrName),
   );
 }

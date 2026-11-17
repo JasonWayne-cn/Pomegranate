@@ -7,6 +7,8 @@
 | Online 3D Viewer | 0.18.0 | MIT | https://github.com/kovacsv/Online3DViewer |
 | three.js | 0.176.0 | MIT | https://github.com/mrdoob/three.js |
 | fflate | 0.8.2 | MIT | https://github.com/101arrowz/fflate |
+| occt-import-js | 0.0.22 | LGPL-2.1 | https://github.com/kovacsv/occt-import-js |
+| Open CASCADE Technology (OCCT) | 随 occt-import-js 0.0.22 WASM | LGPL-2.1 | https://github.com/Open-Cascade-SAS/OCCT |
 
 ## MIT License
 
@@ -32,5 +34,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-> 说明：STEP / IGES / BREP / 3DM / IFC 等 CAD 格式需要 Online 3D Viewer 的
-> 外部解码器（OCCT / rhino3dm / web-ifc），当前内置版本未包含，后续通过扩展包提供。
+## LGPL 组件（OCCT）
+
+STEP / IGES / BREP / FCSTD 由 `vendor/occt/` 下的 occt-import-js 0.0.22 解析：
+
+- 许可证全文：`vendor/occt/LICENSE-OCCT-LGPL-2.1.txt`、
+  `vendor/occt/LICENSE-occt-import-js-LGPL-2.1.txt`
+- 源码获取与书面要约：`vendor/occt/SOURCE_OFFER.md`
+- 替换说明：`vendor/occt/NOTICE.md`
+
+3DM / IFC 仍需要 rhino3dm / web-ifc，当前未包含。

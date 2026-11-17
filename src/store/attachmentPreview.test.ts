@@ -61,6 +61,7 @@ describe("附件预览：可预览判定与预览器选择必须口径一致", (
     "kb_assets/attachments/1/带 空格 和中文.txt",
     "kb_assets/attachments/1/三维模型.stl",
     "kb_assets/attachments/1/模型.glb",
+    "kb_assets/attachments/1/装配.step",
   ];
 
   it.each(cases)("%s 能被某个预览器接住", (rel) => {

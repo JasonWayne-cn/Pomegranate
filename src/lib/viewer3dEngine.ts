@@ -62,6 +62,24 @@ export interface Viewer3dEmbedParams {
   onModelLoadFailed?: () => void;
 }
 
+export interface Viewer3dCoord3D {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface Viewer3dCamera {
+  eye: Viewer3dCoord3D;
+  center: Viewer3dCoord3D;
+  up: Viewer3dCoord3D;
+  fov: number;
+}
+
+export interface Viewer3dBoundingSphere {
+  center: { x: number; y: number; z: number };
+  radius: number;
+}
+
 export interface Viewer3dViewerApi {
   mainModel: Viewer3dMainModel;
   SetMeshesVisibility(
@@ -69,6 +87,17 @@ export interface Viewer3dViewerApi {
   ): void;
   SetEdgeSettings(settings: Viewer3dEdgeSettings): void;
   Render(): void;
+  GetCamera(): Viewer3dCamera;
+  SetCamera(camera: Viewer3dCamera): void;
+  SetProjectionMode(mode: number): void;
+  FitSphereToWindow(
+    sphere: Viewer3dBoundingSphere,
+    animation: boolean,
+  ): void;
+  GetBoundingSphere(
+    needToProcess: (userData: Viewer3dMeshUserData) => boolean,
+  ): Viewer3dBoundingSphere | null;
+  AdjustClippingPlanesToSphere(sphere: Viewer3dBoundingSphere): void;
 }
 
 export interface Viewer3dEmbeddedViewer {
@@ -97,6 +126,20 @@ export interface Viewer3dEngine {
     edgeColor: Viewer3dColor,
     edgeThreshold: number,
   ) => Viewer3dEdgeSettings;
+  /** OV.Coord3D，用于构造相机 eye/center/up */
+  Coord3D: new (x: number, y: number, z: number) => Viewer3dCoord3D;
+  /** OV.Camera，必须使用引擎类实例（FitSphereToWindow 内部会调用 Camera.Clone） */
+  Camera: new (
+    eye: Viewer3dCoord3D,
+    center: Viewer3dCoord3D,
+    up: Viewer3dCoord3D,
+    fov: number,
+  ) => Viewer3dCamera;
+  /** OV.ProjectionMode 枚举 */
+  ProjectionMode: {
+    Perspective: number;
+    Orthographic: number;
+  };
 }
 
 // ───────────────────────── 结构树 ─────────────────────────
