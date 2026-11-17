@@ -300,9 +300,9 @@ impl Database {
         // 对 notes 的 4 个聚合用一次扫描完成
         let (total_notes, today_updated, total_words): (usize, usize, usize) = conn.query_row(
             "SELECT
-                COUNT(*) FILTER (WHERE is_deleted = 0),
-                COUNT(*) FILTER (WHERE is_deleted = 0 AND substr(updated_at, 1, 10) = ?1),
-                COALESCE(SUM(word_count) FILTER (WHERE is_deleted = 0), 0)
+                COUNT(*) FILTER (WHERE is_deleted = 0 AND ext_index_only = 0),
+                COUNT(*) FILTER (WHERE is_deleted = 0 AND ext_index_only = 0 AND substr(updated_at, 1, 10) = ?1),
+                COALESCE(SUM(word_count) FILTER (WHERE is_deleted = 0 AND ext_index_only = 0), 0)
              FROM notes",
             [&today],
             |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? as usize)),
@@ -338,6 +338,7 @@ impl Database {
             "SELECT DATE(updated_at) as d, COUNT(*) as cnt, COALESCE(SUM(word_count), 0) as wc
              FROM notes
              WHERE is_deleted = 0
+               AND ext_index_only = 0
                AND updated_at >= DATE('now', 'localtime', ?1)
              GROUP BY d
              ORDER BY d",

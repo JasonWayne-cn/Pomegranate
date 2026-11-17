@@ -2982,6 +2982,8 @@ export interface ExternalEntry {
   syncState: ExternalSyncState;
   /** text / pdf / word / sheet */
   typeCategory: "text" | "pdf" | "word" | "sheet" | null;
+  /** 原文件绝对路径（挂载根 + 相对路径），供 Office 工作台直接打开 */
+  absPath: string;
 }
 
 /** 打开外部文件的结果 */

@@ -71,6 +71,26 @@ export interface PptxSceneResult {
   emuPerPx: number;
   canUndo: boolean;
   canRedo: boolean;
+  /** 结构操作（增删/排序/撤销）后返回全部缩略图，UI 据此刷新幻灯片栏。 */
+  slides?: PptxSlidePreviewData[];
+  pageCount?: number;
+}
+
+/** 幻灯片结构操作。 */
+export type PptxSlideAction =
+  | { kind: "insert-blank" }
+  | { kind: "duplicate" }
+  | { kind: "delete" }
+  | { kind: "move"; to: number };
+
+export interface PptxFontPatch {
+  fontFamily?: string;
+  fontSizePt?: number;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  color?: string;
 }
 
 /** 前端提交的编辑动作（语义化，坐标一律用页面 px）。 */
@@ -81,7 +101,11 @@ export type PptxEditOp =
       box: { x: number; y: number; w: number; h: number };
       rotDeg: number;
     }
-  | { kind: "text"; el: string; text: string };
+  | { kind: "text"; el: string; text: string }
+  | { kind: "fill"; el: string; color: string | null }
+  | { kind: "stroke"; el: string; color: string | null; widthPt: number }
+  | { kind: "font"; el: string; font: PptxFontPatch }
+  | { kind: "align"; el: string; align: "left" | "center" | "right" | "justify" };
 
 export interface PptxOpenResult {
   kind: "pptx";
@@ -95,6 +119,7 @@ export type WorkerRequest = {
     | "open"
     | "get-scene"
     | "apply-op"
+    | "slide-op"
     | "undo"
     | "redo"
     | "save"

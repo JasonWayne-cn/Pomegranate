@@ -16,6 +16,7 @@ import {
   Plug,
   Package,
   Presentation,
+  FileText,
   Trash2,
   Info,
   EyeOff,
@@ -471,6 +472,49 @@ export function ActivityBar() {
     >
       {MAIN_GROUPS.flat().filter(isVisible).map(renderItem)}
       {pptEnabled && renderItem(PPT_ITEM)}
+
+      {/* Office 工作台：开发模式入口，正式化后并入 ActiveView */}
+      {import.meta.env.DEV && (
+        <Tooltip title="Office 工作台（开发）" placement="right" mouseEnterDelay={0.15}>
+          <button
+            type="button"
+            onClick={() => startTransition(() => navigate("/office"))}
+            aria-label="Office 工作台（开发）"
+            className="activity-item"
+            style={{
+              width: 56,
+              height: 52,
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 2,
+              padding: "4px 2px",
+              background: "transparent",
+              color: token.colorTextSecondary,
+              transition: "background .15s, color .15s",
+            }}
+          >
+            <FileText size={18} />
+            <span
+              style={{
+                fontSize: 10,
+                lineHeight: 1.1,
+                fontWeight: 400,
+                maxWidth: "100%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Office
+            </span>
+          </button>
+        </Tooltip>
+      )}
 
       {/* 插件主区：按 group 分桶，桶之间用细分隔线区分；与内置导航之间也加一条 */}
       {groupedPluginItems.main.length > 0 && renderPluginDivider("plugin-top-divider")}

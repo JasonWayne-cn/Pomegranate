@@ -228,7 +228,7 @@ impl Database {
             |row| row.get(0),
         )?;
         let active_notes: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM notes WHERE folder_id = ?1 AND is_deleted = 0",
+            "SELECT COUNT(*) FROM notes WHERE folder_id = ?1 AND is_deleted = 0 AND ext_index_only = 0",
             params![id],
             |row| row.get(0),
         )?;
@@ -355,7 +355,7 @@ impl Database {
 
         let mut stmt = conn.prepare(
             "SELECT f.id, f.name, f.parent_id, f.sort_order,
-                    (SELECT COUNT(*) FROM notes WHERE folder_id = f.id) as note_count,
+                    (SELECT COUNT(*) FROM notes WHERE folder_id = f.id AND ext_index_only = 0) as note_count,
                     f.mount_id
              FROM folders f ORDER BY f.sort_order, f.name",
         )?;

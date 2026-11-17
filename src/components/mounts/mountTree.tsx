@@ -115,8 +115,8 @@ export function buildTree(entries: ExternalEntry[]): DataNode[] {
           ),
           isLeaf: !node.children.size,
           children: node.children.size ? convert(node.children) : undefined,
-          // 自定义字段挂到 node 上，供 onSelect 取 noteId
-          ...(entry ? { noteId: entry.noteId } : {}),
+          // 自定义字段挂到 node 上，供 onSelect 判断打开方式
+          ...(entry ? { noteId: entry.noteId, entry } : {}),
         };
       });
   return convert(root);
@@ -165,8 +165,9 @@ export function buildFlatList(entries: ExternalEntry[]): DataNode[] {
           </span>
         ),
         isLeaf: true,
-        // 自定义字段挂到 node 上，供 onSelect 取 noteId
+        // 自定义字段挂到 node 上，供 onSelect 判断打开方式
         noteId: entry.noteId,
-      } as DataNode & { noteId: number };
+        entry,
+      } as DataNode & { noteId: number; entry: ExternalEntry };
     });
 }

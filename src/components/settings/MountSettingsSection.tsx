@@ -363,6 +363,7 @@ export function MountSettingsSection({ compact }: Props) {
           <MountFileBrowser
             mountId={browseMountId}
             mountName={mounts.find((m) => m.id === browseMountId)?.name}
+            readOnly={mounts.find((m) => m.id === browseMountId)?.readOnly}
             height={320}
           />
         </div>

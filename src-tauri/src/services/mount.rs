@@ -590,6 +590,7 @@ impl MountService {
                                     Some(&ext),
                                     Some("failed"),
                                     Some(&err_msg),
+                                    true,
                                 ) {
                                     seen_ids.push(id);
                                     result.added += 1;
@@ -630,6 +631,7 @@ impl MountService {
                 src_type,
                 Some("ok"),
                 None,
+                kind.is_binary(),
             ) {
                 Ok((note_id, was_new)) => {
                     seen_ids.push(note_id);

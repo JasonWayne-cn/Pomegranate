@@ -543,6 +543,7 @@ impl Database {
         source_type: Option<&str>,
         status: Option<&str>,
         error: Option<&str>,
+        index_only: bool,
     ) -> Result<(i64, bool), AppError> {
         let existing = self.find_external_note(mount_id, rel_path)?.map(|r| r.id);
         let normalized = crate::database::links::normalize_title(title);
@@ -561,8 +562,9 @@ impl Database {
                      ext_indexed_at = datetime('now', 'localtime'),
                      ext_stale = 0, ext_index_status = ?10, ext_index_error = ?11,
                      ext_missing = 0, source_file_path = ?12, source_file_type = ?13,
+                     ext_index_only = ?14,
                      updated_at = datetime('now', 'localtime')
-                 WHERE id = ?14",
+                 WHERE id = ?15",
                 params![
                     title,
                     content,
@@ -577,6 +579,7 @@ impl Database {
                     error,
                     source_path,
                     source_type,
+                    index_only,
                     id
                 ],
             )?;
@@ -589,12 +592,13 @@ impl Database {
                      storage_kind, mount_id, ext_rel_path, ext_mtime, ext_size, ext_hash,
                      ext_indexed_hash, ext_indexed_at, ext_stale,
                      ext_index_status, ext_index_error,
-                     ext_missing, is_scratch, source_file_path, source_file_type, sort_order)
+                     ext_missing, is_scratch, source_file_path, source_file_type,
+                     ext_index_only, sort_order)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6,
                          'external', ?7, ?8, ?9, ?10, ?11,
                          ?12, datetime('now', 'localtime'), 0,
                          ?13, ?14,
-                         0, 0, ?15, ?16,
+                         0, 0, ?15, ?16, ?17,
                          COALESCE(
                              (SELECT MAX(sort_order) FROM notes
                               WHERE COALESCE(folder_id, -1) = COALESCE(?3, -1) AND is_deleted = 0),
@@ -616,7 +620,8 @@ impl Database {
                     status,
                     error,
                     source_path,
-                    source_type
+                    source_type,
+                    index_only
                 ],
             )?;
             Ok((conn.last_insert_rowid(), true))
@@ -734,12 +739,14 @@ impl Database {
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
         let mut stmt = conn.prepare(
-            "SELECT id, ext_rel_path, title, ext_missing, COALESCE(ext_mtime, 0),
-                    ext_stale, ext_index_status, ext_index_error, source_file_type,
-                    COALESCE(ext_size, 0), ext_indexed_at, content_hash, ext_indexed_hash
-             FROM notes
-             WHERE mount_id = ?1 AND is_deleted = 0 AND ext_rel_path IS NOT NULL
-             ORDER BY ext_rel_path",
+            "SELECT n.id, n.ext_rel_path, n.title, n.ext_missing, COALESCE(n.ext_mtime, 0),
+                    n.ext_stale, n.ext_index_status, n.ext_index_error, n.source_file_type,
+                    COALESCE(n.ext_size, 0), n.ext_indexed_at, n.content_hash, n.ext_indexed_hash,
+                    m.root_path
+             FROM notes n
+             JOIN external_mounts m ON m.id = n.mount_id
+             WHERE n.mount_id = ?1 AND n.is_deleted = 0 AND n.ext_rel_path IS NOT NULL
+             ORDER BY n.ext_rel_path",
         )?;
         let rows = stmt.query_map(params![mount_id], |row| {
             let rel_path: String = row.get(1)?;
@@ -749,6 +756,11 @@ impl Database {
             let source_type: Option<String> = row.get(8)?;
             let content_hash: Option<String> = row.get(11)?;
             let indexed_hash: Option<String> = row.get(12)?;
+            let root_path: String = row.get(13)?;
+            let abs_path = Path::new(&root_path)
+                .join(&rel_path)
+                .to_string_lossy()
+                .into_owned();
             let user_edited = match (&content_hash, &indexed_hash) {
                 (Some(cur), Some(base)) => cur != base,
                 _ => false,
@@ -790,6 +802,7 @@ impl Database {
                 last_synced_at: row.get(10)?,
                 sync_state: sync_state.to_string(),
                 type_category,
+                abs_path,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
@@ -988,6 +1001,7 @@ mod tests {
                 Some("md"),
                 Some("ok"),
                 None,
+                false,
             )
             .unwrap();
         assert!(is_new);
@@ -1014,6 +1028,7 @@ mod tests {
                 Some("md"),
                 Some("ok"),
                 None,
+                false,
             )
             .unwrap();
         assert_eq!(same_id, note_id);
@@ -1038,6 +1053,81 @@ mod tests {
             .mark_external_missing_except(mount.id, &[note_id])
             .unwrap();
         assert_eq!(missing, 0);
+    }
+
+    #[test]
+    fn index_only_docs_hidden_from_list_but_searchable() {
+        let db = Database::init(":memory:").unwrap();
+        let mount = db.create_external_mount(&test_input()).unwrap();
+
+        let (md_id, _) = db
+            .upsert_external_note(
+                mount.id,
+                "notes/a.md",
+                mount.root_folder_id,
+                "A",
+                "hello markdown",
+                "h-md",
+                "h-md",
+                "h-md",
+                1,
+                10,
+                Some("C:\\tmp\\kb-mount-test\\notes\\a.md"),
+                Some("md"),
+                Some("ok"),
+                None,
+                false,
+            )
+            .unwrap();
+        let (pdf_id, _) = db
+            .upsert_external_note(
+                mount.id,
+                "docs/b.pdf",
+                mount.root_folder_id,
+                "B",
+                "hello pdf",
+                "h-pdf",
+                "h-pdf",
+                "h-pdf",
+                2,
+                20,
+                Some("C:\\tmp\\kb-mount-test\\docs\\b.pdf"),
+                Some("pdf"),
+                Some("ok"),
+                None,
+                true,
+            )
+            .unwrap();
+
+        // 文档列表只保留文本类外部笔记
+        let (notes, total) = db
+            .list_notes(None, None, 1, 100, false, true, None)
+            .unwrap();
+        assert_eq!(total, 1, "索引-only 文档不应计入文档总数");
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].id, md_id);
+
+        // 全文搜索仍能命中二进制文档
+        let hits = db
+            .search_notes_filtered("hello", 10, &Default::default())
+            .unwrap();
+        assert!(
+            hits.iter().any(|r| r.id == pdf_id),
+            "索引-only 文档仍应参与全文搜索"
+        );
+
+        // 挂载文件树仍展示全部条目，并带原文件绝对路径
+        let entries = db.list_external_entries(mount.id).unwrap();
+        assert_eq!(entries.len(), 2);
+        let pdf = entries
+            .iter()
+            .find(|e| e.rel_path == "docs/b.pdf")
+            .expect("pdf 应出现在挂载文件树");
+        assert!(
+            pdf.abs_path.replace('\\', "/").ends_with("docs/b.pdf"),
+            "abs_path 应拼出原文件路径; got = {}",
+            pdf.abs_path
+        );
     }
 
     #[test]
@@ -1081,6 +1171,7 @@ mod tests {
                 Some("pdf"),
                 Some("ok"),
                 None,
+                true,
             )
             .unwrap();
 
@@ -1117,6 +1208,7 @@ mod tests {
                 Some("md"),
                 Some("ok"),
                 None,
+                false,
             )
             .unwrap();
 
@@ -1150,6 +1242,7 @@ mod tests {
                 Some("md"),
                 Some("ok"),
                 None,
+                false,
             )
             .unwrap();
 

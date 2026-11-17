@@ -10,6 +10,7 @@ import type {
   OfficeOpenedData,
   PptxEditOp,
   PptxSceneResult,
+  PptxSlideAction,
   WorkerRequest,
   WorkerResponse,
 } from "@/lib/office/editor/protocol";
@@ -113,6 +114,11 @@ export class PptxWorkerClient {
   /** 提交一次语义化编辑；返回受影响页的新场景。 */
   applyOp(slide: number, edit: PptxEditOp): Promise<PptxSceneResult> {
     return this.call<PptxSceneResult>("apply-op", { slide, edit });
+  }
+
+  /** 幻灯片结构操作；结果可能携带全部缩略图。 */
+  slideOp(slide: number, action: PptxSlideAction): Promise<PptxSceneResult> {
+    return this.call<PptxSceneResult>("slide-op", { slide, action });
   }
 
   undo(): Promise<PptxSceneResult> {

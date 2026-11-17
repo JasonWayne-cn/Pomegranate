@@ -594,11 +594,14 @@ impl Database {
         // 日记 is_daily=1 也无条件过滤：所有用户视角的「笔记列表」（主列表 / 未分类 / 文件夹）
         // 都不显示日记，日记只走 📅 每日笔记专用面板。
         // 不影响 FTS 全文搜索 / MCP / AI RAG —— 那些走独立查询路径。
+        // ext_index_only=0：外部二进制文档（PDF/Word/Excel）仅作索引，正文是抽取结果，
+        // 从挂载树走 Office 工作台打开原文件，不混进文档列表。
         let mut conditions = vec![
             "is_deleted = 0".to_string(),
             "is_hidden = 0".to_string(),
             "is_scratch = 0".to_string(),
             "is_daily = 0".to_string(),
+            "ext_index_only = 0".to_string(),
         ];
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -1086,6 +1089,7 @@ impl Database {
             "is_hidden = 0".to_string(),
             "is_scratch = 0".to_string(),
             "is_daily = 0".to_string(),
+            "ext_index_only = 0".to_string(),
         ];
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 

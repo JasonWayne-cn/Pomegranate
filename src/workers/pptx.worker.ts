@@ -29,17 +29,32 @@ import type {
   PptxEditOp,
   PptxOpenResult,
   PptxSceneResult,
+  PptxSlideAction,
   WorkerRequest,
   WorkerResponse,
 } from "@/lib/office/editor/protocol";
+import { activeAfterDelete } from "@/lib/office/editor/slideActions";
 
 const MAX_UNDO = 30;
 
-interface UndoEntry {
-  slide: number;
-  before: Slide;
-  after: Slide;
+interface DeckSnapshot {
+  slides: Slide[];
+  /** 浅拷贝：op 层约定字节缓冲区整体替换、不原地修改。 */
+  entries: Map<string, Uint8Array>;
+  size: { cx: number; cy: number };
 }
+
+type UndoEntry =
+  | { kind: "element"; slide: number; before: Slide; after: Slide }
+  | {
+      kind: "deck";
+      /** 结构操作完成后的激活页 */
+      slide: number;
+      /** 撤销时应恢复到的激活页 */
+      undoSlide: number;
+      before: DeckSnapshot;
+      after: DeckSnapshot;
+    };
 
 let kind: "pptx" | "docx" | null = null;
 let pptxSession: PptxSession | null = null;
@@ -85,32 +100,150 @@ function deckSlide(index: number): Slide {
   return slide;
 }
 
+function snapshotDeck(): DeckSnapshot {
+  if (!pptxSession) throw new Error("请先打开 PPTX");
+  const { deck, archive } = pptxSession.opened;
+  return {
+    slides: structuredClone(deck.slides),
+    entries: new Map(archive.entries),
+    size: { ...deck.size },
+  };
+}
+
+function restoreDeck(snapshot: DeckSnapshot): void {
+  if (!pptxSession) throw new Error("请先打开 PPTX");
+  const { deck, archive } = pptxSession.opened;
+  deck.slides = structuredClone(snapshot.slides);
+  archive.entries.clear();
+  for (const [path, bytes] of snapshot.entries) archive.entries.set(path, bytes);
+  deck.size = { ...snapshot.size };
+}
+
+/** 结构变更后的完整场景：连同全部缩略图一起返回。 */
+function deckScene(index: number): PptxSceneResult {
+  if (!pptxSession) throw new Error("请先打开 PPTX");
+  const previews = renderPptxSlides(pptxSession, fitWidth);
+  if (previews.length === 0) throw new Error("文档没有幻灯片");
+  const slides = previews.map((preview) => ({
+    index: preview.index,
+    svg: renderSlideSvg(preview.render),
+    widthPx: preview.widthPx,
+    heightPx: preview.heightPx,
+  }));
+  const safe = Math.max(0, Math.min(index, previews.length - 1));
+  const active = previews[safe]!;
+  return {
+    slide: safe,
+    scene: active.render,
+    svg: slides[safe]!.svg,
+    widthPx: active.widthPx,
+    heightPx: active.heightPx,
+    emuPerPx: pptxEmuPerPx(pptxSession, active.widthPx),
+    canUndo: undoStack.length > 0,
+    canRedo: redoStack.length > 0,
+    slides,
+    pageCount: previews.length,
+  };
+}
+
+function applySlideOp(index: number, action: PptxSlideAction): PptxSceneResult {
+  if (!pptxSession) throw new Error("请先打开 PPTX");
+  deckSlide(index);
+  const count = pptxSession.opened.deck.slides.length;
+  if (action.kind === "delete" && count <= 1) throw new Error("至少保留一页幻灯片");
+  if (action.kind === "move" && (action.to < 0 || action.to >= count || action.to === index)) {
+    throw new Error("移动目标无效");
+  }
+
+  const before = snapshotDeck();
+  let op: Op;
+  let nextIndex: number;
+  switch (action.kind) {
+    case "insert-blank":
+      op = { op: "addBlankSlide", target: { slide: index } };
+      nextIndex = Math.min(index + 1, count);
+      break;
+    case "duplicate":
+      op = { op: "duplicateSlide", target: { slide: index } };
+      nextIndex = Math.min(index + 1, count);
+      break;
+    case "delete":
+      op = { op: "deleteSlide", target: { slide: index } };
+      nextIndex = activeAfterDelete(index, count);
+      break;
+    case "move":
+      op = { op: "moveSlide", target: { slide: index }, to: action.to };
+      nextIndex = action.to;
+      break;
+  }
+
+  const result = runTxn(pptxSession.opened, { ops: [op], isolation: "per_op" });
+  if (!result.applied) {
+    restoreDeck(before);
+    throw new Error(result.failures?.[0]?.error ?? "幻灯片操作失败");
+  }
+
+  undoStack.push({
+    kind: "deck",
+    slide: nextIndex,
+    undoSlide: index,
+    before,
+    after: snapshotDeck(),
+  });
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack = [];
+  return deckScene(nextIndex);
+}
+
 /** 语义化编辑 → pptx-ops 操作。坐标用页面 px，这里换算成 EMU。 */
 function buildOp(index: number, edit: PptxEditOp): Op {
-  if (edit.kind === "transform") {
-    const scale = pptxSession ? pptxEmuPerPx(pptxSession, fitWidth) : 12700;
-    const round = (value: number) => Math.round(value * scale);
-    return {
-      op: "setTransform",
-      target: { slide: index, el: edit.el },
-      box: {
-        x: round(edit.box.x),
-        y: round(edit.box.y),
-        cx: round(edit.box.w),
-        cy: round(edit.box.h),
-      },
-      rotDeg: edit.rotDeg,
-    };
+  const target = { slide: index, el: edit.el };
+  switch (edit.kind) {
+    case "transform": {
+      const scale = pptxSession ? pptxEmuPerPx(pptxSession, fitWidth) : 12700;
+      const round = (value: number) => Math.round(value * scale);
+      return {
+        op: "setTransform",
+        target,
+        box: {
+          x: round(edit.box.x),
+          y: round(edit.box.y),
+          cx: round(edit.box.w),
+          cy: round(edit.box.h),
+        },
+        rotDeg: edit.rotDeg,
+      };
+    }
+    case "text":
+      // setText 的纯文本模式：不传 srcRun/srcPara，按位置继承原段落与主 run 的格式。
+      return {
+        op: "setText",
+        target,
+        paragraphs: edit.text.split(/\r?\n/).map((line) => ({ runs: [{ text: line }] })),
+      };
+    case "fill":
+      return { op: "setFill", target, fill: edit.color ?? "none" };
+    case "stroke":
+      return {
+        op: "setStroke",
+        target,
+        stroke:
+          edit.color == null
+            ? null
+            : {
+                color: edit.color,
+                widthEmu: Math.max(12700, Math.round(edit.widthPt * 12700)),
+              },
+      };
+    case "font":
+      return { op: "setFont", target, font: edit.font };
+    case "align":
+      return {
+        op: "setParagraphFormat",
+        target,
+        format: { align: edit.align },
+      };
   }
-  // setText 的纯文本模式：不传 srcRun/srcPara，按位置继承原段落与主 run 的格式。
-  const paragraphs = edit.text
-    .split(/\r?\n/)
-    .map((line) => ({ runs: [{ text: line }] }));
-  return {
-    op: "setText",
-    target: { slide: index, el: edit.el },
-    paragraphs,
-  };
 }
 
 function applyEdit(index: number, edit: PptxEditOp): PptxSceneResult {
@@ -127,28 +260,40 @@ function applyEdit(index: number, edit: PptxEditOp): PptxSceneResult {
     throw new Error(detail);
   }
   const after = structuredClone(deckSlide(index));
-  undoStack.push({ slide: index, before, after });
+  undoStack.push({ kind: "element", slide: index, before, after });
   if (undoStack.length > MAX_UNDO) undoStack.shift();
   redoStack = [];
   return sceneOf(index);
+}
+
+function restoreEntry(entry: UndoEntry, useBefore: boolean): PptxSceneResult {
+  if (entry.kind === "deck") {
+    restoreDeck(useBefore ? entry.before : entry.after);
+    return deckScene(useBefore ? entry.undoSlide : entry.slide);
+  }
+  if (!pptxSession) throw new Error("请先打开 PPTX");
+  pptxSession.opened.deck.slides[entry.slide] = structuredClone(
+    useBefore ? entry.before : entry.after,
+  );
+  return sceneOf(entry.slide);
 }
 
 function undo(): PptxSceneResult {
   if (!pptxSession) throw new Error("请先打开 PPTX");
   const entry = undoStack.pop();
   if (!entry) throw new Error("没有可撤销的操作");
-  pptxSession.opened.deck.slides[entry.slide] = structuredClone(entry.before);
+  const result = restoreEntry(entry, true);
   redoStack.push(entry);
-  return sceneOf(entry.slide);
+  return result;
 }
 
 function redo(): PptxSceneResult {
   if (!pptxSession) throw new Error("请先打开 PPTX");
   const entry = redoStack.pop();
   if (!entry) throw new Error("没有可重做的操作");
-  pptxSession.opened.deck.slides[entry.slide] = structuredClone(entry.after);
+  const result = restoreEntry(entry, false);
   undoStack.push(entry);
-  return sceneOf(entry.slide);
+  return result;
 }
 
 async function handleOpen(params: {
@@ -220,6 +365,12 @@ async function handle(request: WorkerRequest): Promise<void> {
     if (method === "apply-op") {
       const { slide, edit } = params as { slide: number; edit: PptxEditOp };
       respond(id, applyEdit(slide, edit));
+      return;
+    }
+
+    if (method === "slide-op") {
+      const { slide, action } = params as { slide: number; action: PptxSlideAction };
+      respond(id, applySlideOp(slide, action));
       return;
     }
 

@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 85;
+pub const SCHEMA_VERSION: i32 = 86;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -118,6 +118,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             82 => migrate_v82_to_v83(conn)?,
             83 => migrate_v83_to_v84(conn)?,
             84 => migrate_v84_to_v85(conn)?,
+            85 => migrate_v85_to_v86(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -3103,6 +3104,45 @@ fn migrate_v84_to_v85(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 85)?;
+    Ok(())
+}
+
+
+/// v85 -> v86: 外部二进制文档降级为“仅索引行”
+///
+/// PDF / Word / Excel 的影子笔记正文只是抽取结果，不应作为文档本体出现在列表里。
+/// `ext_index_only = 1` 的行继续参与 FTS / RAG / 标签，但被主列表、文件夹计数和
+/// 仪表盘统计排除；打开入口改走 Office 工作台读取磁盘原文件。
+fn migrate_v85_to_v86(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v85 -> v86 (外部二进制文档仅索引)");
+
+    let cols = list_columns(conn, "notes")?;
+    if !cols.iter().any(|c| c == "ext_index_only") {
+        conn.execute_batch(
+            "ALTER TABLE notes ADD COLUMN ext_index_only INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+
+    // 回填：只处理外部挂载的二进制文档，文本类（md/txt）保持 0。
+    conn.execute_batch(
+        "UPDATE notes SET ext_index_only = 1
+         WHERE storage_kind = 'external'
+           AND mount_id IS NOT NULL
+           AND (
+               lower(ext_rel_path) LIKE '%.pdf'
+            OR lower(ext_rel_path) LIKE '%.doc'
+            OR lower(ext_rel_path) LIKE '%.docx'
+            OR lower(ext_rel_path) LIKE '%.xls'
+            OR lower(ext_rel_path) LIKE '%.xlsx'
+            OR lower(ext_rel_path) LIKE '%.xlsm'
+            OR lower(ext_rel_path) LIKE '%.xlsb'
+            OR lower(ext_rel_path) LIKE '%.ods'
+            OR lower(ext_rel_path) LIKE '%.csv'
+            OR lower(ext_rel_path) LIKE '%.tsv'
+           );",
+    )?;
+
+    set_version(conn, 86)?;
     Ok(())
 }
 

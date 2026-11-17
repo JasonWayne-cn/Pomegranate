@@ -343,6 +343,7 @@ npx vite build
 
 ## 相关文档
 
+- [Office 工作台界面设计与开发计划](./office-workbench-ui-plan.md)
 - [PPT 扩展包](./ppt-extension.md)
 - [PPT 生成进度](./ppt-generation-progress.md)
 - [Win7 兼容架构](./win7-architecture.md)

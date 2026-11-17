@@ -32,6 +32,7 @@ import {
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { mountApi } from "@/lib/api";
+import { formatOf } from "@/lib/office/formats";
 import { SyncTypeFields } from "@/components/settings/SyncTypeFields";
 import { buildFlatList, buildTree } from "@/components/mounts/mountTree";
 import type {
@@ -283,7 +284,28 @@ export default function MountsPage() {
     });
   }
 
-  async function openEntry(noteId: number) {
+  /**
+   * 点击文件：
+   * - 二进制文档（PDF / Word / Excel）直接进 Office 工作台打开磁盘原文件
+   * - 文本文件 / Office 不支持的旧格式仍打开影子笔记
+   */
+  function openEntry(entry: ExternalEntry) {
+    if (entry.typeCategory && entry.typeCategory !== "text" && entry.absPath) {
+      const format = formatOf(entry.absPath);
+      if (format) {
+        const mount = mounts.find((m) => m.id === activeMountId);
+        const readOnly = mount?.readOnly ? "1" : "0";
+        // t 保证重复点击同一文件也会触发工作台定位
+        navigate(
+          `/office?path=${encodeURIComponent(entry.absPath)}&readonly=${readOnly}&t=${Date.now()}`,
+        );
+        return;
+      }
+    }
+    void openShadowNote(entry.noteId);
+  }
+
+  async function openShadowNote(noteId: number) {
     try {
       const r = await mountApi.openFile(noteId);
       if (r.readOnly) {
@@ -553,9 +575,12 @@ export default function MountsPage() {
                   defaultExpandAll={!flatView}
                   treeData={treeData}
                   onSelect={(_, info) => {
-                    const noteId = (info.node as unknown as { noteId?: number })
-                      .noteId;
-                    if (noteId) void openEntry(noteId);
+                    const node = info.node as unknown as {
+                      noteId?: number;
+                      entry?: ExternalEntry;
+                    };
+                    if (node.entry) void openEntry(node.entry);
+                    else if (node.noteId) void openShadowNote(node.noteId);
                   }}
                 />
               )}

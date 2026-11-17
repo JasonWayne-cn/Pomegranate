@@ -19,6 +19,7 @@ import { RefreshCw } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useNavigate } from "react-router-dom";
 import { mountApi } from "@/lib/api";
+import { formatOf } from "@/lib/office/formats";
 import type { ExternalEntry, ExternalSyncState } from "@/types";
 import { buildFlatList, buildTree } from "./mountTree";
 
@@ -26,9 +27,16 @@ interface Props {
   mountId: number;
   mountName?: string;
   height?: number;
+  /** 只读挂载：Office 工作台打开后禁止保存 */
+  readOnly?: boolean;
 }
 
-export function MountFileBrowser({ mountId, mountName, height = 360 }: Props) {
+export function MountFileBrowser({
+  mountId,
+  mountName,
+  height = 360,
+  readOnly = false,
+}: Props) {
   const navigate = useNavigate();
   const [entries, setEntries] = useState<ExternalEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -97,7 +105,25 @@ export function MountFileBrowser({ mountId, mountName, height = 360 }: Props) {
     [filteredEntries, flatView],
   );
 
-  async function openEntry(noteId: number) {
+  /**
+   * 二进制文档直接进 Office 工作台打开原文件；文本 / 旧格式仍打开影子笔记。
+   */
+  function openEntry(entry: ExternalEntry) {
+    if (entry.typeCategory && entry.typeCategory !== "text" && entry.absPath) {
+      const format = formatOf(entry.absPath);
+      if (format) {
+        navigate(
+          `/office?path=${encodeURIComponent(entry.absPath)}&readonly=${
+            readOnly ? "1" : "0"
+          }&t=${Date.now()}`,
+        );
+        return;
+      }
+    }
+    void openShadowNote(entry.noteId);
+  }
+
+  async function openShadowNote(noteId: number) {
     try {
       const r = await mountApi.openFile(noteId);
       if (r.readOnly) {
@@ -166,9 +192,12 @@ export function MountFileBrowser({ mountId, mountName, height = 360 }: Props) {
             defaultExpandAll={!flatView}
             treeData={treeData}
             onSelect={(_, info) => {
-              const noteId = (info.node as unknown as { noteId?: number })
-                .noteId;
-              if (noteId) void openEntry(noteId);
+              const node = info.node as unknown as {
+                noteId?: number;
+                entry?: ExternalEntry;
+              };
+              if (node.entry) void openEntry(node.entry);
+              else if (node.noteId) void openShadowNote(node.noteId);
             }}
           />
         )}

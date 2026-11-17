@@ -2826,6 +2826,8 @@ pub struct ExternalEntry {
     pub sync_state: String,
     /// text / pdf / word / sheet
     pub type_category: Option<String>,
+    /// 原文件绝对路径（挂载根 + 相对路径），供 Office 工作台直接打开
+    pub abs_path: String,
 }
 
 /// 打开外部文件的结果

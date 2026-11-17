@@ -38,6 +38,7 @@ const EmergencyReminderPage = lazy(() => import("@/pages/emergency-reminder"));
 const TaskSessionPage = lazy(() => import("@/pages/task-session"));
 const PushPage = lazy(() => import("@/pages/push"));
 const PptxSpikePage = lazy(() => import("@/pages/pptx-spike"));
+const OfficeWorkspacePage = lazy(() => import("@/pages/office"));
 const WhiteboardPage = lazy(() => import("@/pages/whiteboard"));
 const PushPopupPage = lazy(() => import("@/pages/push-popup"));
 const MindMapPopoutPage = lazy(() => import("@/pages/mindmap-popout"));
@@ -161,6 +162,8 @@ const router = createHashRouter([
       { path: "feature-toggle", element: <LazyPage><FeatureTogglePage /></LazyPage> },
       // P0 Spike：WebView 内 PPTX 引擎验证页（不进入侧边栏）
       { path: "pptx-spike", element: <LazyPage><PptxSpikePage /></LazyPage> },
+      // Office 工作台（开发模式入口，后续正式化）
+      { path: "office", element: <LazyPage><OfficeWorkspacePage /></LazyPage> },
     ],
   },
 ]);
