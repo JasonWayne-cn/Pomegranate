@@ -13,8 +13,11 @@ import { Button, Spin, theme as antdTheme } from "antd";
 import { AlertTriangle, RotateCw } from "lucide-react";
 import {
   applyViewer3dEdges,
+  applyViewer3dFit,
   applyViewer3dFlatShading,
   applyViewer3dOpacity,
+  applyViewer3dProjection,
+  applyViewer3dView,
   applyViewer3dVisibility,
   applyViewer3dWireframe,
   loadViewer3dEngine,
@@ -24,12 +27,17 @@ import {
   type Viewer3dEngine,
 } from "@/services/viewer3d";
 import {
+  VIEWER3D_BEST_VIEW,
+  type Viewer3dProjection,
+} from "@/lib/viewer3dView";
+import { Viewer3DViewCube } from "./Viewer3DViewCube";
+import {
   buildViewer3dTree,
   collectAllNodeIds,
   collectHiddenMeshKeys,
   type Viewer3dTreeNode,
 } from "@/lib/viewer3dEngine";
-import { viewer3dFileName } from "@/lib/viewer3d";
+import { isViewer3dCadExt, viewer3dFileName } from "@/lib/viewer3d";
 import {
   Viewer3DControls,
   type Viewer3dRenderMode,
@@ -58,11 +66,14 @@ export function Viewer3DPreview({ rel, fileName }: Props) {
   const [renderMode, setRenderMode] = useState<Viewer3dRenderMode>("solid");
   const [shading, setShading] = useState<Viewer3dShadingMode>("smooth");
   const [opacity, setOpacity] = useState(100);
+  const [projection, setProjection] =
+    useState<Viewer3dProjection>("orthographic");
   const [hiddenNodes, setHiddenNodes] = useState<Set<string>>(new Set());
   const [hiddenMeshes, setHiddenMeshes] = useState<Set<string>>(new Set());
 
   const bgHex = token.colorBgContainer ?? "#202020";
   const ready = status === "ready";
+  const isCad = isViewer3dCadExt(rel);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -105,13 +116,26 @@ export function Viewer3DPreview({ rel, fileName }: Props) {
               console.warn("[viewer3d] 构建模型结构树失败:", e);
               setTree(null);
             }
+            // 打开即最佳视角：前上右等轴测 + 正交 + fit
+            try {
+              const OV = engineRef.current;
+              if (OV) {
+                setProjection("orthographic");
+                applyViewer3dView(OV, embedded, VIEWER3D_BEST_VIEW, "orthographic");
+              }
+            } catch (e) {
+              console.warn("[viewer3d] 应用最佳视角失败:", e);
+            }
             setStatus("ready");
           },
           onModelLoadFailed: () => {
             if (disposed) return;
+            console.error("[viewer3d] 模型解析失败:", rel);
             setStatus("error");
             setError(
-              "模型解析失败。若模型依赖同目录的纹理/bin 文件，请打包为 zip 后重新插入。",
+              isCad
+                ? "CAD 模型解析失败：请确认应用已重启以加载 OCCT 解码器；若仍失败，可能是文件结构异常或内存不足。"
+                : "模型解析失败。若模型依赖同目录的纹理/bin 文件，请打包为 zip 后重新插入。",
             );
           },
         });
@@ -216,6 +240,42 @@ export function Viewer3DPreview({ rel, fileName }: Props) {
     setHiddenMeshes(new Set());
   }
 
+  // ── 视角操作 ──
+  function handleBestView() {
+    const viewer = viewerRef.current;
+    const engine = engineRef.current;
+    if (!viewer || !engine) return;
+    try {
+      applyViewer3dView(engine, viewer, VIEWER3D_BEST_VIEW, projection);
+    } catch (e) {
+      console.warn("[viewer3d] 应用最佳视角失败:", e);
+    }
+  }
+
+  function handleFit() {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    try {
+      applyViewer3dFit(viewer);
+    } catch (e) {
+      console.warn("[viewer3d] 适应窗口失败:", e);
+    }
+  }
+
+  function handleToggleProjection() {
+    const viewer = viewerRef.current;
+    const engine = engineRef.current;
+    if (!viewer || !engine) return;
+    const next: Viewer3dProjection =
+      projection === "orthographic" ? "perspective" : "orthographic";
+    try {
+      applyViewer3dProjection(engine, viewer, next);
+      setProjection(next);
+    } catch (e) {
+      console.warn("[viewer3d] 切换投影方式失败:", e);
+    }
+  }
+
   const displayName = fileName || viewer3dFileName(rel);
 
   return (
@@ -252,10 +312,24 @@ export function Viewer3DPreview({ rel, fileName }: Props) {
           onShadingChange={setShading}
           opacity={opacity}
           onOpacityChange={setOpacity}
+          projection={projection}
+          onBestView={handleBestView}
+          onFit={handleFit}
+          onToggleProjection={handleToggleProjection}
         />
 
         <div className="relative min-h-[240px] flex-1">
           <div ref={containerRef} className="absolute inset-0" />
+
+          {status === "ready" &&
+            viewerRef.current &&
+            engineRef.current && (
+              <Viewer3DViewCube
+                viewer={viewerRef.current}
+                engine={engineRef.current}
+                projection={projection}
+              />
+            )}
 
           {status === "loading" && (
             <div
@@ -269,6 +343,14 @@ export function Viewer3DPreview({ rel, fileName }: Props) {
               >
                 正在加载 {displayName}...
               </span>
+              {isCad && (
+                <span
+                  className="text-[11px]"
+                  style={{ color: token.colorTextTertiary }}
+                >
+                  CAD 首次解析需加载 OCCT WASM，可能需要 10–30 秒
+                </span>
+              )}
             </div>
           )}
 

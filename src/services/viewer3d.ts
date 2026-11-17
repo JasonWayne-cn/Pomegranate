@@ -18,6 +18,12 @@ import {
   type Viewer3dEngine,
   type Viewer3dMaterial,
 } from "@/lib/viewer3dEngine";
+import {
+  buildViewer3dCamera,
+  cameraDirection,
+  type Viewer3dProjection,
+  type Viewer3dViewSpec,
+} from "@/lib/viewer3dView";
 
 export type {
   Viewer3dColor,
@@ -239,4 +245,66 @@ export function applyViewer3dEdges(
   const edgeColor = new engine.RGBColor(120, 120, 120);
   const settings = new engine.EdgeSettings(enabled, edgeColor, 30);
   viewer.GetViewer().SetEdgeSettings(settings);
+}
+
+// ───────────────────────── 视角 ─────────────────────────
+
+/** 当前相机方向（eye - center 归一化） */
+export function getViewer3dDirection(
+  viewer: Viewer3dEmbeddedViewer,
+): [number, number, number] | null {
+  try {
+    return cameraDirection(viewer.GetViewer().GetCamera());
+  } catch {
+    return null;
+  }
+}
+
+/** 切换到标准/等轴测视角并适应窗口 */
+export function applyViewer3dView(
+  engine: Viewer3dEngine,
+  viewer: Viewer3dEmbeddedViewer,
+  view: Viewer3dViewSpec,
+  projection: Viewer3dProjection = "orthographic",
+): void {
+  const api = viewer.GetViewer();
+  const sphere = api.GetBoundingSphere(() => true);
+  if (!sphere) return;
+
+  api.SetProjectionMode(
+    projection === "orthographic"
+      ? engine.ProjectionMode.Orthographic
+      : engine.ProjectionMode.Perspective,
+  );
+  api.SetCamera(buildViewer3dCamera(engine, view, sphere));
+  api.FitSphereToWindow(sphere, false);
+  api.AdjustClippingPlanesToSphere(sphere);
+}
+
+/** 仅适应窗口，不改变方向 */
+export function applyViewer3dFit(viewer: Viewer3dEmbeddedViewer): void {
+  const api = viewer.GetViewer();
+  const sphere = api.GetBoundingSphere(() => true);
+  if (!sphere) return;
+  api.FitSphereToWindow(sphere, false);
+  api.AdjustClippingPlanesToSphere(sphere);
+}
+
+/**
+ * 切换透视/正交，保持模型当前位置与视角。
+ *
+ * 只切换投影方式：引擎用当前相机距离和 fov 推导正交视锥，因此 eye/center/up
+ * 不变时两种投影在模型中心平面的成像一致；若再调用 FitSphereToWindow，
+ * 会重新计算相机距离导致画面缩放跳变。
+ */
+export function applyViewer3dProjection(
+  engine: Viewer3dEngine,
+  viewer: Viewer3dEmbeddedViewer,
+  projection: Viewer3dProjection,
+): void {
+  viewer.GetViewer().SetProjectionMode(
+    projection === "orthographic"
+      ? engine.ProjectionMode.Orthographic
+      : engine.ProjectionMode.Perspective,
+  );
 }
