@@ -89,6 +89,17 @@ import type { Note, PageResult, Folder, Tag as NoteTag } from "@/types";
 
 const { Title, Text, Paragraph } = Typography;
 
+/**
+ * 菜单项动作延迟到下拉关闭动画结束后再执行。
+ *
+ * 原生保存对话框会暂停 WebView 合成动画；若在菜单 leave 动画结束前同步打开，
+ * rc-motion 收不到 animationend，菜单会永久卡在 pointer-events:none 的关闭态，
+ * 之后点任何菜单项都没反应。
+ */
+function runAfterMenuClose(fn: () => void) {
+  setTimeout(fn, 250);
+}
+
 type ViewMode = "list" | "card" | "timeline";
 
 /**
@@ -1240,17 +1251,17 @@ function DesktopNoteListPage() {
                   {
                     key: "md",
                     label: "导出为 Markdown",
-                    onClick: () => void handleExport(record),
+                    onClick: () => runAfterMenuClose(() => void handleExport(record)),
                   },
                   {
                     key: "docx",
                     label: "导出为 Word (.docx)",
-                    onClick: () => void handleExportWordSingle(record),
+                    onClick: () => runAfterMenuClose(() => void handleExportWordSingle(record)),
                   },
                   {
                     key: "html",
                     label: "导出为 HTML (单文件)",
-                    onClick: () => void handleExportHtmlSingle(record),
+                    onClick: () => runAfterMenuClose(() => void handleExportHtmlSingle(record)),
                   },
                 ],
               }}
@@ -1468,17 +1479,17 @@ function DesktopNoteListPage() {
                   {
                     key: "md",
                     label: "批量导出为 Markdown",
-                    onClick: () => void handleExportBatch(selectedIds),
+                    onClick: () => runAfterMenuClose(() => void handleExportBatch(selectedIds)),
                   },
                   {
                     key: "docx",
                     label: "批量导出为 Word (.docx)",
-                    onClick: () => void handleExportBatchSingleFile(selectedIds, "docx"),
+                    onClick: () => runAfterMenuClose(() => void handleExportBatchSingleFile(selectedIds, "docx")),
                   },
                   {
                     key: "html",
                     label: "批量导出为 HTML (单文件)",
-                    onClick: () => void handleExportBatchSingleFile(selectedIds, "html"),
+                    onClick: () => runAfterMenuClose(() => void handleExportBatchSingleFile(selectedIds, "html")),
                   },
                 ],
               }}
@@ -1727,17 +1738,17 @@ function DesktopNoteListPage() {
                                           {
                                             key: "md",
                                             label: "导出为 Markdown",
-                                            onClick: () => void handleExport(note),
+                                            onClick: () => runAfterMenuClose(() => void handleExport(note)),
                                           },
                                           {
                                             key: "docx",
                                             label: "导出为 Word (.docx)",
-                                            onClick: () => void handleExportWordSingle(note),
+                                            onClick: () => runAfterMenuClose(() => void handleExportWordSingle(note)),
                                           },
                                           {
                                             key: "html",
                                             label: "导出为 HTML (单文件)",
-                                            onClick: () => void handleExportHtmlSingle(note),
+                                            onClick: () => runAfterMenuClose(() => void handleExportHtmlSingle(note)),
                                           },
                                         ],
                                       }}

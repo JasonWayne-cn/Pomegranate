@@ -36,7 +36,6 @@
 
 import type { Editor } from "@tiptap/react";
 import { exportApi } from "@/lib/api";
-import { printHtmlAsPdf } from "@/lib/exportPdf";
 
 /** 图片固化的并发上限：太大则内存峰值失控，太小则串行等待久 */
 const IMAGE_CONCURRENCY = 4;
@@ -54,6 +53,22 @@ export interface SelfContainedProgress {
   total: number;
   /** 因体积上限被跳过、保留原 URL 的资源数（phase=done 时有效） */
   skipped?: number;
+}
+
+/**
+ * 判断克隆出的编辑器 DOM 是否已经以「与笔记标题相同」的一级标题开头。
+ *
+ * 很多笔记习惯把标题手写成正文首个 `# 标题`。这种情况下再在顶部插标题就会
+ * 得到两个大标题。比较前剔除自动编号 widget（`.kb-hnum`），并压缩空白，
+ * 因为屏幕上标题文本可能是「1 标题」。
+ */
+function startsWithSameTitleHeading(clone: HTMLElement, title: string): boolean {
+  const first = clone.firstElementChild as HTMLElement | null;
+  if (!first || first.tagName !== "H1") return false;
+  const probe = first.cloneNode(true) as HTMLElement;
+  probe.querySelectorAll(".kb-hnum, .kb-hnum-manual").forEach((n) => n.remove());
+  const normalize = (s: string) => s.replace(/\s+/g, " ").trim();
+  return normalize(probe.textContent ?? "") === normalize(title);
 }
 
 /**
@@ -81,10 +96,20 @@ export async function editorDomToSelfContainedHtml(
   // 1. 克隆真实渲染 DOM（.tiptap.ProseMirror 节点，含 callout / 分栏 / 编号 widget）
   const clone = (editor.view.dom as HTMLElement).cloneNode(true) as HTMLElement;
 
-  // 2. 顶部插入标题（作为 .tiptap 的首个子节点，命中 .tiptap h1 同款样式）
-  const safeTitle = escapeHtml(title.trim() || "未命名");
-  const cls = titleClass ? ` class="${titleClass}"` : "";
-  clone.insertAdjacentHTML("afterbegin", `<h1${cls}>${safeTitle}</h1>`);
+  // 2. 顶部插入标题（作为 .tiptap 的首个子节点，命中 .tiptap h1 同款样式）。
+  //    正文若本身就以同名 H1 开头（用户把标题手写进了正文），跳过插入，
+  //    否则打印/导出物会出现两个大标题。
+  if (startsWithSameTitleHeading(clone, title.trim())) {
+    // 不重复插标题，但仍要把打印用的 class 挂到已有标题上（压掉顶部空白）
+    const existing = clone.firstElementChild as HTMLElement | null;
+    if (existing && titleClass) {
+      existing.classList.add(...titleClass.split(/\s+/).filter(Boolean));
+    }
+  } else {
+    const safeTitle = escapeHtml(title.trim() || "未命名");
+    const cls = titleClass ? ` class="${titleClass}"` : "";
+    clone.insertAdjacentHTML("afterbegin", `<h1${cls}>${safeTitle}</h1>`);
+  }
 
   // 3. 剥掉编辑态专属、不参与排版的交互元素（含末尾的 ProseMirror 空段落）
   stripEditingArtifacts(clone);
@@ -146,7 +171,9 @@ export async function printEditorContent(
   const appCss = collectDocumentCss();
   const html = buildPrintDocument(escapeHtml(title.trim() || "未命名"), appCss, body);
 
-  await printHtmlAsPdf(html, title.trim() || "未命名");
+  // 交给独立打印窗口执行：主窗口直接 window.print() 会阻塞本 WebView 的渲染
+  // 进程，关闭打印对话框后应用可能长时间「点了没反应」。
+  await exportApi.openPrintWindow(html, title.trim() || "未命名");
 }
 
 /**

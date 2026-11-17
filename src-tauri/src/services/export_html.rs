@@ -106,8 +106,10 @@ impl HtmlExportService {
         // 把 <img src="..."> 中的本地路径 inline 成 base64
         let (body, inlined, missing) = inline_images(&body, assets_root);
 
-        // markdown 里没有笔记标题（标题存在 notes 表），模板负责补一个 <h1>
-        let html = wrap_template(title, &body, fonts, layout, true);
+        // 标题通常不在 markdown 里（存在 notes 表），由模板补一个 <h1>；
+        // 但不少笔记会把标题手写成正文首个 `# 标题`，此时再补就会重复，需跳过。
+        let insert_title = !body_starts_with_title_h1(&body, title);
+        let html = wrap_template(title, &body, fonts, layout, insert_title);
         Ok((html, inlined, missing))
     }
 
@@ -466,6 +468,48 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// 判断渲染后的正文是否已经以「与笔记标题相同」的一级标题开头。
+///
+/// 不少笔记把标题手写成正文第一行的 `# 标题`；模板此时再补一个 `<h1>` 就会
+/// 出现两个大标题。只认「首个块就是 h1 且文本与标题一致」，保守匹配，
+/// 不影响标题与正文首标题不同的常规笔记。
+fn body_starts_with_title_h1(body: &str, title: &str) -> bool {
+    let trimmed = body.trim_start();
+    let Some(rest) = trimmed.strip_prefix("<h1") else {
+        return false;
+    };
+    let Some(gt) = rest.find('>') else {
+        return false;
+    };
+    let after = &rest[gt + 1..];
+    let Some(end) = after.find("</h1>") else {
+        return false;
+    };
+    normalize_heading_text(&after[..end]) == normalize_heading_text(title)
+}
+
+/// 去掉 HTML 标签、解码常见实体、压缩空白，用于标题文本比对。
+fn normalize_heading_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for ch in s.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' if in_tag => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    let decoded = out
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ");
+    decoded.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// 把 HTML 里 `<img src="...">` 的本地路径替换为 base64 data: URL
@@ -926,6 +970,29 @@ mod tests {
             article.matches("<h1").count(),
             1,
             "正文里应当只有 body 自带的那一个 h1，实际：{article}"
+        );
+    }
+
+    /// 回归：正文本身以同名 H1 开头（用户把标题手写进正文）→ 不得再补标题
+    #[test]
+    fn markdown_path_skips_duplicate_title_h1() {
+        let (html, _i, _m) = HtmlExportService::render_html(
+            "我的笔记",
+            "# 我的笔记\n\n正文段落",
+            Path::new("/nonexistent"),
+            None,
+            TemplateLayout::Web,
+        )
+        .unwrap();
+        let article = html
+            .split("<article>")
+            .nth(1)
+            .and_then(|s| s.split("</article>").next())
+            .unwrap_or_default();
+        assert_eq!(
+            article.matches("<h1").count(),
+            1,
+            "正文与标题重复时只应保留一个 h1，实际：{article}"
         );
     }
 

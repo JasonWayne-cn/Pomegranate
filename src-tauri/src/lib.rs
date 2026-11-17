@@ -1234,6 +1234,14 @@ pub fn run() {
             #[cfg(desktop)]
             commands::export::export_single_note_to_word,
             commands::export::export_single_note_to_html,
+            // R-005 / R-005b 打印：HTML 字符串 → 前端 hidden iframe → 系统打印对话框
+            commands::export::render_note_html_for_pdf,
+            commands::export::inline_note_html_assets,
+            commands::export::resolve_asset_data_urls,
+            // R-005b 专用打印窗口（隔离 window.print 的渲染进程阻塞）
+            commands::print::open_print_window,
+            commands::print::print_page_html,
+            commands::print::print_page_done,
             // 笔记批量操作
             commands::notes::trash_all_notes,
             // 图片模块

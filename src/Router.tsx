@@ -40,6 +40,7 @@ const WhiteboardPage = lazy(() => import("@/pages/whiteboard"));
 const PushPopupPage = lazy(() => import("@/pages/push-popup"));
 const MindMapPopoutPage = lazy(() => import("@/pages/mindmap-popout"));
 const QuickAddPage = lazy(() => import("@/pages/quick-add"));
+const PrintPage = lazy(() => import("@/pages/print"));
 
 /** 懒加载页面统一 Suspense fallback */
 function LazyPage({ children }: { children: React.ReactNode }) {
@@ -88,6 +89,12 @@ const router = createHashRouter([
   {
     path: "/quick-add",
     element: <LazyPage><QuickAddPage /></LazyPage>,
+    errorElement: <RouteErrorFallback />,
+  },
+  // R-005b 专用打印窗口：独立 URL，不挂 AppLayout
+  {
+    path: "/print",
+    element: <LazyPage><PrintPage /></LazyPage>,
     errorElement: <RouteErrorFallback />,
   },
   // 移动端 AI 聊天页：独立全屏路由（不走 MobileLayout / AppLayout）

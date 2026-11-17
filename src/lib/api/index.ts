@@ -1255,6 +1255,15 @@ export const exportApi = {
    *  解析不到 / 超出 maxBytes 的条目返回 dataUrl = null，调用方保留原 URL。 */
   resolveAssetDataUrls: (urls: string[], maxBytes?: number) =>
     invoke<ResolvedAssetUrl[]>("resolve_asset_data_urls", { urls, maxBytes }),
+  /** R-005b 打开专用打印窗口：WebView2 的 window.print() 会阻塞所在渲染进程，
+   *  放在主窗口会卡死整个应用；交给独立窗口后阻塞被隔离。 */
+  openPrintWindow: (html: string, title: string) =>
+    invoke<void>("open_print_window", { html, title }),
+  /** 打印页：获取本窗口对应的 HTML 内容（用于同源 srcdoc 渲染）。
+   *  不用 asset 文件 URL：iframe 跨源时无法调用 contentWindow.print()。 */
+  printPageHtml: (label: string) => invoke<string>("print_page_html", { label }),
+  /** 打印页：清理临时 HTML。 */
+  printPageDone: (label: string) => invoke<void>("print_page_done", { label }),
 };
 
 /** 附件 API（PDF/Office/ZIP/音视频等非图片非文本文件）

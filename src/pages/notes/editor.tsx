@@ -20,7 +20,7 @@ import {
   App as AntdApp,
   theme as antdTheme,
 } from "antd";
-import { ArrowLeft, Save, Trash2, Pin, FolderOpen, Tags, Link2, Share, Maximize2, Minimize2, FileText as FileTextIcon, ChevronRight, ChevronDown, CornerUpLeft, Folder as FolderIcon, Eye, EyeOff, Lock, Unlock, MessageSquare, ListTree, Network, ExternalLink } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Pin, FolderOpen, Tags, Link2, Share, Maximize2, Minimize2, FileText as FileTextIcon, ChevronRight, ChevronDown, CornerUpLeft, Folder as FolderIcon, Eye, EyeOff, Lock, Unlock, MessageSquare, ListTree, Network, ExternalLink, Printer } from "lucide-react";
 import { CloseCircleFilled } from "@ant-design/icons";
 import { useAppStore } from "@/store";
 import { useTabsStore } from "@/store/tabs";
@@ -32,6 +32,7 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { relativeTime, stripHtml } from "@/lib/utils";
+import { printEditorContent } from "@/lib/printNote";
 import { useModuleConfig } from "@/hooks/useModuleConfig";
 import { TiptapEditor } from "@/components/editor";
 import { EditorOutline } from "@/components/editor/EditorOutline";
@@ -1503,12 +1504,14 @@ function DesktopNoteEditorPage() {
   /** T-020: 导出为 HTML — 单文件，图片内嵌 base64，可独立分享 */
   async function handleExportHtml() {
     const safeName = title.replace(/[/\\:*?"<>|]/g, "_").trim() || "未命名";
-    const filePath = await save({
-      defaultPath: `${safeName}.html`,
-      filters: [{ name: "HTML", extensions: ["html", "htm"] }],
-    });
-    if (!filePath) return;
     try {
+      // save() 也放进 try：对话框插件调用失败（权限/窗口异常）时若不捕获，
+      // Promise 拒绝会被吞掉，用户看到的就是「点了没反应」。
+      const filePath = await save({
+        defaultPath: `${safeName}.html`,
+        filters: [{ name: "HTML", extensions: ["html", "htm"] }],
+      });
+      if (!filePath) return;
       const result = await exportApi.exportSingleToHtml(noteId, filePath);
       Modal.success({
         title: "导出 HTML 成功",
@@ -1532,6 +1535,35 @@ function DesktopNoteEditorPage() {
       });
     } catch (e) {
       message.error(`导出 HTML 失败: ${e}`);
+    }
+  }
+
+  /**
+   * 延迟到菜单关闭动画结束后再执行动作。
+   *
+   * 原生保存 / 打印对话框会暂停 WebView 的合成动画：若在菜单 leave 动画
+   * 尚未结束时同步打开，rc-motion 永远收不到 animationend，菜单 DOM 会
+   * 永久停在 `pointer-events: none` 的关闭态（表现为「点一次之后菜单再也点不动」）。
+   */
+  function runAfterMenuClose(fn: () => void) {
+    setTimeout(fn, 250);
+  }
+
+  /** R-005b 打印 / 打印成 PDF：编辑器实时 DOM → 系统打印对话框（可另存为 PDF）。 */
+  async function handlePrint() {
+    if (!editorInstance) {
+      message.warning("编辑器尚未就绪，请稍后再试");
+      return;
+    }
+    // 图多的笔记内嵌资源要几秒，先给个 loading；HTML 准备好并交给独立
+    // 打印窗口后即可收起——真正的 window.print() 在独立窗口里执行。
+    const hideLoading = message.loading("正在准备打印内容…", 0);
+    try {
+      await printEditorContent(editorInstance, title);
+    } catch (e) {
+      message.error(`打印准备失败: ${e}`);
+    } finally {
+      hideLoading();
     }
   }
 
@@ -1806,17 +1838,24 @@ function DesktopNoteEditorPage() {
                   {
                     key: "md",
                     label: "导出为 Markdown",
-                    onClick: () => void handleExportNote(),
+                    onClick: () => runAfterMenuClose(() => void handleExportNote()),
                   },
                   {
                     key: "docx",
                     label: "导出为 Word (.docx)",
-                    onClick: () => void handleExportWord(),
+                    onClick: () => runAfterMenuClose(() => void handleExportWord()),
                   },
                   {
                     key: "html",
                     label: "导出为 HTML (单文件)",
-                    onClick: () => void handleExportHtml(),
+                    onClick: () => runAfterMenuClose(() => void handleExportHtml()),
+                  },
+                  { type: "divider" },
+                  {
+                    key: "print",
+                    label: "打印 / 打印成 PDF",
+                    icon: <Printer size={14} />,
+                    onClick: () => runAfterMenuClose(() => void handlePrint()),
                   },
                 ],
               }}

@@ -53,6 +53,15 @@ export function printHtmlAsPdf(html: string, title: string): Promise<void> {
       "position:fixed;left:-99999px;top:0;width:794px;height:1123px;border:0;background:#fff;";
 
     let cleaned = false;
+    let settled = false;
+    // 打印对话框一拉起就算调用方完成：预览窗口关闭后 WebView2 不保证触发
+    // afterprint / focus，若等它们回调，loading 会一直挂到 30s 超时，
+    // 期间用户点击会误以为功能失效。
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
@@ -69,7 +78,7 @@ export function printHtmlAsPdf(html: string, title: string): Promise<void> {
     const onMainFocus = () => {
       // print() 期间主窗处于 blur，首个 focus 即对话框已关闭
       setTimeout(cleanup, 200);
-      resolve();
+      settle();
     };
 
     iframe.onload = () => {
@@ -121,7 +130,7 @@ export function printHtmlAsPdf(html: string, title: string): Promise<void> {
         win.removeEventListener("afterprint", onAfterPrint);
         // 延迟清理：部分内核 print() 调用是异步的，立即移除会打断
         setTimeout(cleanup, 200);
-        resolve();
+        settle();
       };
       win.addEventListener("afterprint", onAfterPrint);
       // 信号 2：主窗 focus（afterprint 在部分 WebView2 不触发时的可靠兜底）
@@ -131,7 +140,7 @@ export function printHtmlAsPdf(html: string, title: string): Promise<void> {
       setTimeout(() => {
         if (!cleaned) {
           cleanup();
-          resolve();
+          settle();
         }
       }, 30_000);
 
@@ -139,6 +148,9 @@ export function printHtmlAsPdf(html: string, title: string): Promise<void> {
         // 关键调用：必须先 focus 再 print，否则部分浏览器会忽略
         win.focus();
         win.print();
+        // 对话框已拉起 → 通知调用方收起 loading。iframe 的清理仍由
+        // afterprint / 主窗 focus / 30s 兜底继续，不影响打印本身。
+        setTimeout(settle, 300);
       } catch (e) {
         cleanup();
         reject(e);
