@@ -2,7 +2,10 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    // 构建 target 仍是 ES2020（Win7 WebView2 109 / Safari 15.6）；
+    // lib 用 ES2022 只是补齐 vendored 引擎用到的类型：
+    // String.replaceAll / Array.at / Intl.Segmenter / Error(cause)。
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
 
@@ -21,6 +24,17 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
+      "@genoffice/agent-core/redact-range": ["src/vendor/genoffice/agent-core/redact-range.ts"],
+      "@genoffice/zip-gate": ["src/vendor/genoffice/zip-gate/index.ts"],
+      "@genoffice/zip-gate/*": ["src/vendor/genoffice/zip-gate/*"],
+      "@genoffice/pptx-engine": ["src/vendor/genoffice/pptx-engine/index.ts"],
+      "@genoffice/pptx-engine/*": ["src/vendor/genoffice/pptx-engine/*"],
+      "@genoffice/pptx-render": ["src/vendor/genoffice/pptx-render/index.ts"],
+      "@genoffice/pptx-render/*": ["src/vendor/genoffice/pptx-render/*"],
+      "@genoffice/docx-engine": ["src/vendor/genoffice/docx-engine/index.ts"],
+      "@genoffice/docx-engine/*": ["src/vendor/genoffice/docx-engine/*"],
+      "@genoffice/pptx-ops": ["src/vendor/genoffice/pptx-ops/index.ts"],
+      "@genoffice/pptx-ops/*": ["src/vendor/genoffice/pptx-ops/*"],
       "@/*": ["src/*"]
     }
   },

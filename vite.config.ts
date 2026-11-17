@@ -49,10 +49,68 @@ function excalidrawAssetsPlugin() {
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss(), excalidrawAssetsPlugin()],
 
+  // Office 引擎 Worker 内部使用 dynamic import（docx-engine 按需加载），
+  // IIFE 不支持 code-splitting，必须用 ES module worker。
+  worker: { format: "es" },
+
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
-    },
+    alias: [
+      // GenOffice 引擎：用正则区分包根与子路径，避免
+      // `@genoffice/pptx-engine/table-grid` 被包根规则吞掉。
+      {
+        find: /^@genoffice\/agent-core\/redact-range$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/agent-core/redact-range.ts"),
+      },
+      {
+        find: /^@genoffice\/zip-gate$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/zip-gate/index.ts"),
+      },
+      {
+        find: /^@genoffice\/zip-gate\/(.*)$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/zip-gate/$1"),
+      },
+      {
+        find: /^@genoffice\/pptx-engine$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/pptx-engine/index.ts"),
+      },
+      {
+        find: /^@genoffice\/pptx-engine\/(.*)$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/pptx-engine/$1"),
+      },
+      {
+        find: /^@genoffice\/pptx-render$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/pptx-render/index.ts"),
+      },
+      {
+        find: /^@genoffice\/pptx-render\/(.*)$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/pptx-render/$1"),
+      },
+      {
+        find: /^@genoffice\/docx-engine$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/docx-engine/index.ts"),
+      },
+      {
+        find: /^@genoffice\/docx-engine\/(.*)$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/docx-engine/$1"),
+      },
+      {
+        find: /^@genoffice\/pptx-ops$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/pptx-ops/index.ts"),
+      },
+      {
+        find: /^@genoffice\/pptx-ops\/(.*)$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/pptx-ops/$1"),
+      },
+      // WebView 没有 Node 内置模块；只替换引擎实际用到的两个。
+      { find: /^node:crypto$/, replacement: path.resolve(__dirname, "src/vendor/genoffice/shims/crypto.ts") },
+      { find: /^node:zlib$/, replacement: path.resolve(__dirname, "src/vendor/genoffice/shims/zlib.ts") },
+      { find: /^node:fs$/, replacement: path.resolve(__dirname, "src/vendor/genoffice/shims/fs.ts") },
+      {
+        find: /^node:stream\/promises$/,
+        replacement: path.resolve(__dirname, "src/vendor/genoffice/shims/stream-promises.ts"),
+      },
+      { find: /^@\/(.*)$/, replacement: path.resolve(__dirname, "src/$1") },
+    ],
   },
 
   build: {
