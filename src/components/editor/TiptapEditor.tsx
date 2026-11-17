@@ -178,7 +178,9 @@ import { message } from "antd";
 import { theme as antdTheme } from "antd";
 import { attachmentApi, imageApi, systemApi, videoApi } from "@/lib/api";
 import { parseKbAsset, resolveAssetSrc, toKbAsset, KB_ASSET_SCHEME } from "@/lib/assetUrl";
+import { isViewer3dExt } from "@/lib/viewer3d";
 import { useAppStore } from "@/store";
+import { useAttachmentPreviewStore } from "@/store/attachmentPreview";
 import { EditorToolbar } from "./EditorToolbar";
 import { TableBubbleMenu } from "./TableBubbleMenu";
 import { AiWriteMenu } from "./AiWriteMenu";
@@ -188,6 +190,7 @@ import { useEditorContextMenu } from "./useEditorContextMenu";
 import { ContextMenuOverlay } from "@/components/ui/ContextMenuOverlay";
 import { Video as VideoNode } from "./VideoNode";
 import { VideoTimestamp } from "./VideoTimestamp";
+import { Viewer3DNode } from "./Viewer3DNode";
 import { EmbedVideo } from "./EmbedVideoNode";
 import { AllowFileLink } from "./AllowFileLink";
 import { Callout } from "./Callout";
@@ -1124,6 +1127,7 @@ export function TiptapEditor({
       }),
       VideoNode,
       VideoTimestamp,
+      Viewer3DNode,
       EmbedVideo,
       Callout,
       Toggle,
@@ -1444,8 +1448,16 @@ export function TiptapEditor({
       ev.stopPropagation();
 
       if (href.startsWith(KB_ASSET_SCHEME)) {
-        // 新格式：kb-asset://<rel> → resolve 当前 data_dir 拿绝对路径再喂 opener
         const rel = parseKbAsset(href) ?? "";
+        // 三维附件：优先用应用内查看器，而不是外部程序
+        if (isViewer3dExt(rel)) {
+          useAttachmentPreviewStore.getState().open({
+            rel,
+            fileName: rel.split("/").pop() || rel,
+          });
+          return;
+        }
+        // 其它附件：resolve 当前 data_dir 拿绝对路径再喂 opener
         void systemApi
           .resolveAssetAbsolute(rel)
           .then((abs) => openPath(abs))

@@ -15,10 +15,12 @@ import {
   useAttachmentPreviewStore,
   isTextAttachmentExt,
 } from "@/store/attachmentPreview";
+import { isViewer3dExt } from "@/lib/viewer3d";
 import { systemApi } from "@/lib/api";
 import { DocxPreview } from "./DocxPreview";
 import { XlsxPreview } from "./XlsxPreview";
 import { TextPreview } from "./TextPreview";
+import { Viewer3DPreview } from "./Viewer3DPreview";
 
 /**
  * 全局附件预览 Modal（单例，挂在 AppLayout 根部）。
@@ -106,6 +108,8 @@ export function AttachmentPreviewModal() {
     ext === "csv" ||
     ext === "tsv";
   const isPdf = ext === "pdf";
+  const isViewer3d =
+    target?.preview === "viewer3d" || isViewer3dExt(ext);
 
   return (
     <Modal
@@ -168,6 +172,8 @@ export function AttachmentPreviewModal() {
         ) : (
           <div style={{ padding: 24 }}>正在加载 PDF...</div>
         )
+      ) : isViewer3d ? (
+        <Viewer3DPreview rel={target.rel} fileName={fileName} />
       ) : isOfficeWord ? (
         <DocxPreview rel={target.rel} />
       ) : isExcel ? (

@@ -40,6 +40,7 @@ import { EditorStats } from "@/components/editor/EditorStats";
 import { TagColorPicker } from "@/components/TagColorPicker";
 import { MicButton } from "@/components/MicButton";
 import { NoteAiDrawer } from "@/components/ai/NoteAiDrawer";
+import { AttachmentPreviewModal } from "@/components/preview/AttachmentPreviewModal";
 import { MindMapView } from "@/components/notes/MindMapView";
 import type { Note, Tag, Folder, NoteLink, MountNoteStatus } from "@/types";
 
@@ -2256,6 +2257,9 @@ function DesktopNoteEditorPage() {
           message.info("保险库已就绪，再次点击锁图标即可加密此文档");
         }}
       />
+
+      {/* 笔记内附件/三维模型预览：挂在编辑页根部，路由切换时自动卸载 */}
+      <AttachmentPreviewModal />
     </div>
   );
 }

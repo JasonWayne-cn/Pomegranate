@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { VIEWER3D_EXTS } from "@/lib/viewer3d";
 
 /**
  * 附件预览全局 store。
@@ -20,6 +21,13 @@ import { create } from "zustand";
 export interface AttachmentPreviewTarget {
   rel: string;
   fileName: string;
+  /**
+   * 显式预览器提示。
+   *
+   * 例如 zip 语义上不属于三维，但用户通过"插入三维模型"显式选择的 zip
+   * 必须交给三维查看器；此时调用方设置 preview: "viewer3d"。
+   */
+  preview?: "viewer3d";
 }
 
 interface AttachmentPreviewStore {
@@ -91,11 +99,20 @@ export const TEXT_ATTACHMENT_EXTS = [
   "sql",
 ];
 
-/** 已支持应用内预览的扩展名（小写、不含点）= Office + PDF + 文本 */
+/**
+ * 内置三维查看器支持的扩展名（小写、不含点）。
+ *
+ * CAD 格式（step/iges/brep/3dm/ifc）需要外部解码器，待扩展包接入后再加入；
+ * 当前加入白名单的格式都能在离线引擎里直接解析。
+ */
+export const VIEWER3D_ATTACHMENT_EXTS = [...VIEWER3D_EXTS];
+
+/** 已支持应用内预览的扩展名（小写、不含点）= Office + PDF + 文本 + 三维 */
 export const PREVIEWABLE_ATTACHMENT_EXTS = [
   ...OFFICE_ATTACHMENT_EXTS,
   "pdf",
   ...TEXT_ATTACHMENT_EXTS,
+  ...VIEWER3D_ATTACHMENT_EXTS,
 ];
 
 /** 该扩展名是否走文本预览（后端 UTF-8 读取） */

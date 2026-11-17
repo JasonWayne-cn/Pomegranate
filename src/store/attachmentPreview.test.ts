@@ -5,6 +5,7 @@ import {
   OFFICE_ATTACHMENT_EXTS,
   TEXT_ATTACHMENT_EXTS,
 } from "./attachmentPreview";
+import { isViewer3dExt } from "@/lib/viewer3d";
 
 /** 从路径取扩展名 —— 与 AttachmentPreviewModal 里的推导保持同一套语义 */
 function extOf(pathOrName: string): string {
@@ -58,6 +59,8 @@ describe("附件预览：可预览判定与预览器选择必须口径一致", (
     "kb_assets/attachments/1/data.xlsx",
     "kb_assets/attachments/1/notes.md",
     "kb_assets/attachments/1/带 空格 和中文.txt",
+    "kb_assets/attachments/1/三维模型.stl",
+    "kb_assets/attachments/1/模型.glb",
   ];
 
   it.each(cases)("%s 能被某个预览器接住", (rel) => {
@@ -66,7 +69,8 @@ describe("附件预览：可预览判定与预览器选择必须口径一致", (
     const claimed =
       ext === "pdf" ||
       OFFICE_ATTACHMENT_EXTS.includes(ext) ||
-      isTextAttachmentExt(ext);
+      isTextAttachmentExt(ext) ||
+      isViewer3dExt(ext);
     expect(claimed).toBe(true);
   });
 
@@ -90,7 +94,9 @@ describe("附件预览：可预览判定与预览器选择必须口径一致", (
   });
 
   it("不可预览的类型不会被误判为文本", () => {
+    // 通用 zip 不自动进三维查看器；只有显式"插入三维模型"才走 viewer3d
     expect(isPreviewableAttachment("a/b/archive.zip")).toBe(false);
+    expect(isViewer3dExt("archive.zip")).toBe(false);
     expect(isTextAttachmentExt("zip")).toBe(false);
   });
 

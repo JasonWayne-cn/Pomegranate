@@ -32,6 +32,7 @@ import {
   Film,
   Globe,
   Paperclip,
+  Box,
   MapPin,
   Table as TableIcon,
   AlignLeft,
@@ -44,6 +45,7 @@ import {
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { toKbAsset } from "@/lib/assetUrl";
+import { VIEWER3D_IMPORT_EXTS } from "@/lib/viewer3d";
 import { attachmentApi, imageApi, videoApi } from "@/lib/api";
 import { MicButton } from "@/components/MicButton";
 import { insertVideoTimestamp } from "./VideoTimestamp";
@@ -277,6 +279,51 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
     }
     if (nodes.length > 0) {
       editor.chain().focus().insertContent(nodes).run();
+    }
+  }
+
+  /**
+   * 插入三维模型：选中文件 → 零拷贝保存到笔记附件目录 → 插入 viewer3d 节点。
+   *
+   * 节点只存 `kb-asset://<rel>`；真正的引擎在点击卡片后由预览 Modal 按需加载。
+   * 当前内置引擎支持 core 格式；CAD（step/iges/3dm/ifc）待扩展包接入。
+   */
+  async function insertViewer3d() {
+    let effectiveNoteId = noteId;
+    if (!effectiveNoteId && ensureNoteId) {
+      try {
+        effectiveNoteId = await ensureNoteId();
+      } catch (e) {
+        message.error(`三维模型插入失败: ${e}`);
+        return;
+      }
+    }
+    if (!effectiveNoteId) {
+      message.warning("请先保存笔记后再插入三维模型");
+      return;
+    }
+
+    const selected = await open({
+      multiple: false,
+      filters: [
+        {
+          name: "三维模型",
+          extensions: [...VIEWER3D_IMPORT_EXTS],
+        },
+      ],
+    });
+    if (typeof selected !== "string") return;
+
+    try {
+      const info = await attachmentApi.saveFromPath(effectiveNoteId, selected);
+      editor.chain().focus().setViewer3D({
+        src: toKbAsset(info.path),
+        name: info.fileName,
+        size: info.size,
+      }).run();
+      message.success("已插入三维模型，点击卡片可预览");
+    } catch (e) {
+      message.error(`三维模型插入失败: ${e}`);
     }
   }
 
@@ -956,6 +1003,12 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
             icon: <Paperclip size={14} />,
             label: "插入附件",
             onClick: insertAttachment,
+          },
+          {
+            key: "viewer3d",
+            icon: <Box size={14} />,
+            label: "插入三维模型",
+            onClick: insertViewer3d,
           },
         ],
       },
