@@ -38,6 +38,7 @@ import {
   Globe,
   Presentation,
   Package,
+  FileUp,
 } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FolderOutlined } from "@ant-design/icons";
@@ -149,12 +150,17 @@ export function Sidebar() {
   }, []);
 
   const allNavItems = useMemo(() => {
-    if (!pptEnabled) return navItems;
+    // P0 Spike 入口仅在开发模式显示，避免污染正式安装包导航。
+    const spikeItems = import.meta.env.DEV
+      ? [{ key: "/pptx-spike", icon: <FileUp size={16} />, label: "Office 预览（实验）" }]
+      : [];
+    if (!pptEnabled) return [...navItems, ...spikeItems];
     const about = navItems.find((item) => item.key === "/about");
     return [
       ...navItems.filter((item) => item.key !== "/about"),
       { key: "/ppt", icon: <Presentation size={16} />, label: "PPT 生成" },
       ...(about ? [about] : []),
+      ...spikeItems,
     ];
   }, [pptEnabled]);
 

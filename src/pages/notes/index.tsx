@@ -1316,7 +1316,10 @@ function DesktopNoteListPage() {
   return (
     <div className="max-w-4xl mx-auto h-full flex flex-col min-h-0">
       {/* 顶部标题栏 */}
-      <div className="flex items-center justify-between mb-2 flex-shrink-0">
+      <div
+        className="flex items-center justify-between mb-2 flex-shrink-0"
+        data-tour="notes-toolbar"
+      >
         <Title level={3} style={{ margin: 0, lineHeight: "32px" }}>
           文档
         </Title>
@@ -1344,6 +1347,7 @@ function DesktopNoteListPage() {
           按钮之间留 6px 间距，避免 Compact 紧贴模式让 suffix 显示拥挤。 */}
       <div
         className="mb-2 flex-shrink-0 flex items-stretch gap-1.5"
+        data-tour="notes-search"
         style={{ width: "100%" }}
       >
         <Input
@@ -1551,7 +1555,7 @@ function DesktopNoteListPage() {
               ]}
             />
           </div>
-          <div className="flex-1 min-h-0 overflow-auto">
+          <div className="flex-1 min-h-0 overflow-auto" data-tour="notes-list">
             {dndEnabled ? (
               <DndContext
                 sensors={dndSensors}

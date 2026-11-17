@@ -34,6 +34,7 @@ import { ExitConfirmListener } from "@/components/ui/ExitConfirmListener";
 import { CloseRequestedListener } from "@/components/ui/CloseRequestedListener";
 import { useUpdateChecker } from "@/hooks/useUpdateChecker";
 import { SyncStatusButton } from "./SyncStatusButton";
+import { TourEntry } from "@/components/onboarding/TourEntry";
 import { syncV1Api } from "@/lib/api";
 
 const { Header, Sider, Content } = Layout;
@@ -577,6 +578,7 @@ export function AppLayout() {
               onClick={openModal}
               onCheck={() => void checkManually()}
             />
+            <TourEntry />
             <RibbonBar />
             <Tooltip title="搜索 (Ctrl+K)">
               <Button

@@ -420,7 +420,7 @@ function DesktopDailyPage() {
   return (
     <div className="editor-page">
       {/* 顶部工具栏 */}
-      <div className="editor-topbar">
+      <div className="editor-topbar" data-tour="daily-toolbar">
         <Space align="center">
           <Calendar size={18} />
           <span style={{ fontWeight: 600, fontSize: 15 }}>日记</span>
@@ -573,7 +573,7 @@ function DesktopDailyPage() {
             : undefined
         }
       >
-        <div className="editor-content-area">
+        <div className="editor-content-area" data-tour="daily-editor">
           {loading ? (
             <div className="flex items-center justify-center flex-1">
               <Spin size="large" />
@@ -584,6 +584,7 @@ function DesktopDailyPage() {
                   不直接用 antd Input.suffix / allowClear——两者都会包一层
                   .ant-input-affix-wrapper 把 borderless 大标题撑成白底大框。 */}
               <div
+                data-tour="daily-title"
                 style={{ position: "relative", marginBottom: 12 }}
               >
                 <Input

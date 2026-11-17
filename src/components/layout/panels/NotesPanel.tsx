@@ -1788,6 +1788,7 @@ export function NotesPanel() {
         }}
       >
         <div
+          data-tour="notes-tree"
           style={{ padding: "4px 12px 0" }}
           tabIndex={0}
           onKeyDown={handleTreeKeyDown}

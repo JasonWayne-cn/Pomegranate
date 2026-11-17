@@ -397,6 +397,7 @@ export function ActivityBar() {
           aria-current={isActive ? "page" : undefined}
           className="activity-item"
           data-active={isActive || undefined}
+          data-tour={`nav-${item.view}`}
           style={{
             width: 56,
             height: 52,

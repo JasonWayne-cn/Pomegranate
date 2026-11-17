@@ -2,6 +2,7 @@ import { createHashRouter, RouterProvider } from "react-router-dom";
 import { Suspense, lazy } from "react";
 import { Spin } from "antd";
 import { LayoutSwitch } from "@/components/layout/LayoutSwitch";
+import { OnboardingProvider } from "@/components/onboarding/OnboardingProvider";
 import { RouteErrorFallback } from "@/components/ui/ErrorBoundary";
 // 首屏常用页面 — 同步加载，不拆 chunk
 import HomePage from "@/pages/home";
@@ -36,6 +37,7 @@ const MigrationSplash = lazy(() => import("@/pages/migration-splash"));
 const EmergencyReminderPage = lazy(() => import("@/pages/emergency-reminder"));
 const TaskSessionPage = lazy(() => import("@/pages/task-session"));
 const PushPage = lazy(() => import("@/pages/push"));
+const PptxSpikePage = lazy(() => import("@/pages/pptx-spike"));
 const WhiteboardPage = lazy(() => import("@/pages/whiteboard"));
 const PushPopupPage = lazy(() => import("@/pages/push-popup"));
 const MindMapPopoutPage = lazy(() => import("@/pages/mindmap-popout"));
@@ -123,7 +125,11 @@ const router = createHashRouter([
   },
   {
     path: "/",
-    element: <LayoutSwitch />,
+    element: (
+      <OnboardingProvider>
+        <LayoutSwitch />
+      </OnboardingProvider>
+    ),
     errorElement: <RouteErrorFallback />,
     children: [
       { index: true, element: <HomePage /> },
@@ -153,6 +159,8 @@ const router = createHashRouter([
       { path: "about", element: <AboutPage /> },
       { path: "quick-create", element: <LazyPage><QuickCreatePage /></LazyPage> },
       { path: "feature-toggle", element: <LazyPage><FeatureTogglePage /></LazyPage> },
+      // P0 Spike：WebView 内 PPTX 引擎验证页（不进入侧边栏）
+      { path: "pptx-spike", element: <LazyPage><PptxSpikePage /></LazyPage> },
     ],
   },
 ]);

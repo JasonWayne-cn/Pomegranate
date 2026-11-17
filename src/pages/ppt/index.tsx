@@ -42,6 +42,7 @@ import {
   Download,
   FilePlus2,
   FileText,
+  FileUp,
   FolderOpen,
   History,
   Plus,
@@ -1515,9 +1516,14 @@ export default function PptPage() {
             搜索并选择多个文档，或添加本地 PDF/Word/Markdown 文件，AI 生成大纲后由本地 PPT 扩展渲染为可编辑 PPTX。
           </Text>
         </div>
-        <Button icon={<History size={14} />} onClick={() => setHistoryOpen(true)}>
-          历史作业
-        </Button>
+        <Space>
+          <Button icon={<FileUp size={14} />} onClick={() => navigate("/pptx-spike")}>
+            打开 Office 文档（实验）
+          </Button>
+          <Button icon={<History size={14} />} onClick={() => setHistoryOpen(true)}>
+            历史作业
+          </Button>
+        </Space>
       </div>
 
       {status?.platformCompatible === false && (

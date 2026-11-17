@@ -578,7 +578,7 @@ function DesktopHomePage() {
 
       {/* ① 顶部搜索 + 新建笔记
           搜索：输入即下拉建议（笔记 + 待办，点击跳详情），回车去 /search 全量结果 */}
-      <div className="flex gap-3">
+      <div className="flex gap-3" data-tour="home-search">
         <HomeSearchInput
           value={searchKeyword}
           onChange={setSearchKeyword}
@@ -652,6 +652,7 @@ function DesktopHomePage() {
         if (visible.length === 0) return null;
         return (
           <div
+            data-tour="home-quick-actions"
             style={{
               display: "grid",
               gridTemplateColumns: `repeat(${visible.length}, 1fr)`,
@@ -1250,7 +1251,7 @@ function DesktopHomePage() {
                   icon: <PencilLine size={14} style={{ color: token.colorPrimary }} />,
                   extra: (
                     <Text type="secondary" style={{ fontSize: 11 }}>
-                      追加到「今日文档」
+                      追加到「日记」
                     </Text>
                   ),
                 },
@@ -1317,6 +1318,7 @@ function DesktopHomePage() {
                 <div
                   key={w.id}
                   className={colSpanClass}
+                  data-tour={`home-widget-${w.id}`}
                   style={{ gridRow: `span ${rowSpan}` }}
                 >
                   <SortableWidget id={w.id}>
