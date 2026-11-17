@@ -1,6 +1,6 @@
 # PPT 扩展包（Engine Pack）设计与使用
 
-> 目标：让主程序在不内置 Python / 不增大安装包的前提下，通过本地 zip 安装可选的 PPT 生成能力。
+> 目标：主程序安装包内置 PPT 扩展 zip（含 Python 3.8 与 PPT/PDF 依赖），默认实例首次启动自动安装；同时保留本地 zip 导入与按需卸载。
 
 ## 1. 架构
 
@@ -14,7 +14,7 @@
     ├── PptExtensionService     多文档收集 / AI 规划 / 作业状态
     └── Database v81            extensions / extension_versions / ppt_jobs
 
-扩展包（按需安装，本地 zip）
+扩展包（随安装包分发，首次启动自动安装；也可手动导入）
 └── ppt-master/
     ├── extension.json
     ├── entry.py               Python Executor
@@ -290,7 +290,14 @@ node scripts/build-ppt-extension.mjs \
   --signing-key "D:/keys/extension-private.pem"
 ```
 
-输出：`src-tauri/target/release/bundle/nsis/ppt-master-extension-<version>-win7-x64.zip`
+输出：`src-tauri/resources/ppt-extension/ppt-master-extension.zip`（固定文件名，随 `bundle.resources` 打入安装包）
+
+自动安装规则：
+
+- 仅默认实例执行；多开实例不自动安装。
+- 用户主动卸载后写入 `ppt_extension_bundled_dismissed=1`，后续启动不再装回。
+- 已处理过的内置版本记录在 `ppt_extension_bundled_version`；应用升级带来更高版本时自动升级，用户回滚后不会被覆盖。
+- 安装失败只写日志，不阻断应用启动。
 
 可选参数：
 

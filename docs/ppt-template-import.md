@@ -1,13 +1,13 @@
 # PPT 用户模板导入
 
-> 状态：P0/P1 已实施  
-> 决策日期：2026-11-02  
+> 状态：P0/P1 已实施\
+> 决策日期：2026-11-02\
 > 目标：用户在 PPT-Master 中生成模板后，可以不修改主程序、不重打扩展包，直接把模板导入 Pomegranate 并使用。
 
 ## 1. 范围
 
 | 做 | 不做 |
-|---|---|
+| --- | --- |
 | 用户在 PPT-Master 中生成模板 | 在应用内从 PPTX 生成模板 |
 | 导入文件夹 / zip 到用户模板库 | 调用 AI 写 SVG |
 | 解析 `design_spec.md` + SVG，自动建索引 | 运行上游 `pptx_template_import.py` |
@@ -18,7 +18,7 @@
 
 ## 2. 导入契约
 
-> 如何从零构建一个模板，见 [§14 用户模板构建指南](#14-用户模板构建指南)。
+> 如何从零构建一个模板，见 [§14 用户模板构建指南](#14-%E7%94%A8%E6%88%B7%E6%A8%A1%E6%9D%BF%E6%9E%84%E5%BB%BA%E6%8C%87%E5%8D%97)。
 
 ### 2.1 单 Layout 工作区
 
@@ -53,7 +53,7 @@ pack/
 ### 2.3 必需与可选
 
 | 文件 | 要求 | 缺失时 |
-|---|---|---|
+| --- | --- | --- |
 | 至少一个 `.svg` | 必需 | 拒绝导入 |
 | `design_spec.md` | 推荐 | 允许导入，画布/页型从 SVG 推导 |
 | frontmatter `layout_id`/`deck_id` | 推荐 | 用目录名或用户输入 |
@@ -207,7 +207,7 @@ CREATE TABLE IF NOT EXISTS ppt_user_templates (
 ## 8. Commands
 
 | Command | 作用 |
-|---|---|
+| --- | --- |
 | `ppt_template_inspect` | 预览文件夹/zip，不安装 |
 | `ppt_template_install` | 安装选中的模板 |
 | `ppt_template_list` | 用户模板列表 |
@@ -269,7 +269,7 @@ PPT 风格页中用户模板与内置模板并列，增加「用户」徽标。
 ## 11. 更新与迁移
 
 | 场景 | 行为 |
-|---|---|
+| --- | --- |
 | 重新导出同名模板 | 选“覆盖”，原子替换，保留 id |
 | 保留旧版 | 选“另存为”，自动 `<id>-2` |
 | 删除模板 | 删除目录 + DB 行，不影响扩展包 |
@@ -314,7 +314,7 @@ pnpm prepare:ppt-template-packs
 生成到 `test-data/ppt-templates/`：
 
 | 路径 | 用途 |
-|---|---|
+| --- | --- |
 | `user/aviation_training_blue/` | 用户自定义模板包，通过模板库导入 |
 | `user/aviation_training_blue-user.zip` | 同一模板的 zip，测试 zip 导入 |
 | `system/layouts/` | 其余 6 套系统默认模板 |
