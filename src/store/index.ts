@@ -1806,7 +1806,7 @@ export async function applyThemeOverrides(state: {
   );
 }
 
-/** 从 tauri-plugin-store 恢复持久化的偏好（主题 + 窗口置顶） */
+/** 从 tauri-plugin-store 恢复持久化的偏好（主题 + 布局；窗口置顶不跨重启恢复） */
 export async function loadThemeFromStore() {
   try {
     const store = await Store.load(STORE_FILE);
@@ -1817,12 +1817,8 @@ export async function loadThemeFromStore() {
     if (dt) useAppStore.getState().setDarkTheme(dt);
     if (cat) useAppStore.getState().setThemeCategory(cat);
 
-    // 恢复窗口置顶：走 setAlwaysOnTop 让 window API + 托盘 CheckMenuItem 同步生效
-    const aot = await store.get<boolean>("alwaysOnTop");
-    if (aot === true) {
-      // 只在持久化值为 true 时调用，避免无意义的 emit
-      await useAppStore.getState().setAlwaysOnTop(true);
-    }
+    // 不恢复窗口置顶：应用每次启动默认不置顶，避免上次会话的置顶状态影响下次启动。
+    // 右上角图钉/托盘仍可在本次会话内临时开启，只是不再跨重启保留。
 
     // 恢复 SidePanel 宽度与可见性（Activity Bar 模式偏好）
     const spw = await store.get<number>("sidePanelWidth");
@@ -2099,7 +2095,6 @@ function collectPersistPayload(state: AppStore): Record<string, unknown> {
     lightTheme: state.lightTheme,
     darkTheme: state.darkTheme,
     themeCategory: state.themeCategory,
-    alwaysOnTop: state.alwaysOnTop,
     sidePanelWidth: state.sidePanelWidth,
     sidePanelVisible: state.sidePanelVisible,
     autoHideActivityBar: state.autoHideActivityBar,
