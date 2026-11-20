@@ -18,11 +18,24 @@ fn parse_sync_types(raw: Option<String>) -> SyncTypeSettings {
         .unwrap_or_default()
 }
 
+/// DB 里的相对路径统一用 `/`；拼成磁盘路径前换成平台分隔符。
+///
+/// Windows 的 `\\?\` 扩展路径不接受正斜杠，混用会直接返回 os error 123
+///（“文件名、目录名或卷标语法不正确”），导致 PDF/Office 打不开。
+fn native_rel_path(rel: &str) -> String {
+    if cfg!(windows) {
+        rel.replace('/', "\\")
+    } else {
+        rel.to_string()
+    }
+}
+
 fn category_for_ext(ext: &str) -> Option<&'static str> {
     match ext {
         "md" | "markdown" | "txt" | "text" => Some("text"),
         "pdf" => Some("pdf"),
-        "docx" | "doc" => Some("word"),
+        "docx" | "docm" | "doc" => Some("word"),
+        "pptx" | "pptm" => Some("slide"),
         "xlsx" | "xls" | "xlsm" | "xlsb" | "ods" | "csv" | "tsv" => Some("sheet"),
         _ => None,
     }
@@ -758,7 +771,7 @@ impl Database {
             let indexed_hash: Option<String> = row.get(12)?;
             let root_path: String = row.get(13)?;
             let abs_path = Path::new(&root_path)
-                .join(&rel_path)
+                .join(native_rel_path(&rel_path))
                 .to_string_lossy()
                 .into_owned();
             let user_edited = match (&content_hash, &indexed_hash) {
@@ -869,7 +882,7 @@ impl Database {
                     return None;
                 }
                 let abs_path = Path::new(&root_path)
-                    .join(&rel_path)
+                    .join(native_rel_path(&rel_path))
                     .to_string_lossy()
                     .to_string();
                 Some(ExternalNoteMeta {
@@ -1101,20 +1114,44 @@ mod tests {
 
         // 文档列表只保留文本类外部笔记
         let (notes, total) = db
-            .list_notes(None, None, 1, 100, false, true, None)
+            .list_notes(None, None, 1, 100, false, true, None, false)
             .unwrap();
         assert_eq!(total, 1, "索引-only 文档不应计入文档总数");
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].id, md_id);
 
+        // 文档树模式：显式 include_external_docs 时包含二进制文档
+        let (with_docs, total_with_docs) = db
+            .list_notes(None, None, 1, 100, false, true, None, true)
+            .unwrap();
+        assert_eq!(total_with_docs, 2, "文档树应包含 PDF 影子文档");
+        assert!(
+            with_docs.iter().any(|n| n.id == pdf_id),
+            "PDF 影子文档应出现在文档树数据里"
+        );
+
         // 全文搜索仍能命中二进制文档
         let hits = db
             .search_notes_filtered("hello", 10, &Default::default())
             .unwrap();
+        let pdf_hit = hits
+            .iter()
+            .find(|r| r.id == pdf_id)
+            .expect("索引-only 文档仍应参与全文搜索");
+        assert!(pdf_hit.ext_index_only, "搜索结果应带 index-only 标记");
         assert!(
-            hits.iter().any(|r| r.id == pdf_id),
-            "索引-only 文档仍应参与全文搜索"
+            pdf_hit
+                .abs_path
+                .as_deref()
+                .unwrap_or_default()
+                .replace('\\', "/")
+                .ends_with("docs/b.pdf"),
+            "搜索结果应带原文件绝对路径; got = {:?}",
+            pdf_hit.abs_path
         );
+        assert!(!pdf_hit.read_only, "默认可写挂载不应标记只读");
+        let md_hit = hits.iter().find(|r| r.id == md_id).expect("md 也应命中");
+        assert!(!md_hit.ext_index_only, "文本类外部笔记不应标记 index-only");
 
         // 挂载文件树仍展示全部条目，并带原文件绝对路径
         let entries = db.list_external_entries(mount.id).unwrap();
@@ -1267,5 +1304,14 @@ mod tests {
         let root = tree.into_iter().find(|f| f.id == root_id).unwrap();
         assert!(root.children.iter().all(|c| c.name != "merge"));
         assert!(root.children.iter().any(|c| c.name == "archive"));
+    }
+
+    /// Windows 混用 `/` 时，`\\?\` 扩展路径会被 File::open 拒绝（os error 123）。
+    #[test]
+    fn native_rel_path_uses_platform_separator() {
+        #[cfg(windows)]
+        assert_eq!(native_rel_path("参考文献/a/b.pdf"), r"参考文献\a\b.pdf");
+        #[cfg(not(windows))]
+        assert_eq!(native_rel_path("参考文献/a/b.pdf"), "参考文献/a/b.pdf");
     }
 }

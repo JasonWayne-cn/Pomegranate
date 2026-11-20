@@ -10,7 +10,9 @@ export function SyncTypeFields({ counts }: Props) {
     { key: "text", label: "Markdown / 纯文本" },
     { key: "pdf", label: "PDF" },
     { key: "word", label: "Word" },
+    { key: "slide", label: "PowerPoint" },
     { key: "sheet", label: "Excel / CSV" },
+    { key: "ocr", label: "扫描件 OCR（较慢）" },
   ];
 
   return (
@@ -25,7 +27,7 @@ export function SyncTypeFields({ counts }: Props) {
             <Switch size="small" />
           </Form.Item>
           <span className="flex-1 text-sm">{row.label}</span>
-          {counts && (
+          {counts && row.key !== "ocr" && (
             <span className="text-xs opacity-60">
               已索引 {counts[row.key] ?? 0} 个
             </span>

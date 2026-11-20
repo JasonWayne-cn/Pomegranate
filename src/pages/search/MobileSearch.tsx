@@ -140,7 +140,11 @@ export function MobileSearch() {
                 result={r}
                 keyword={keyword}
                 onClick={() =>
-                  navigate(`/notes/${r.id}?q=${encodeURIComponent(keyword)}`)
+                  r.ext_index_only && r.abs_path
+                    ? navigate(
+                        `/office?path=${encodeURIComponent(r.abs_path)}&readonly=${r.read_only ? "1" : "0"}&t=${Date.now()}`,
+                      )
+                    : navigate(`/notes/${r.id}?q=${encodeURIComponent(keyword)}`)
                 }
               />
             ))}

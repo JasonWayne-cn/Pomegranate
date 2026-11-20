@@ -355,6 +355,18 @@ function DesktopSearchPage() {
     setLoading(false);
   }
 
+  /** 索引-only 的外部二进制文档直接进 Office 打开原文件，其余仍进笔记编辑器 */
+  function openResult(item: SearchResult) {
+    if (item.ext_index_only && item.abs_path) {
+      const readOnly = item.read_only ? "1" : "0";
+      navigate(
+        `/office?path=${encodeURIComponent(item.abs_path)}&readonly=${readOnly}&t=${Date.now()}`,
+      );
+      return;
+    }
+    navigate(`/notes/${item.id}?q=${encodeURIComponent(query)}`);
+  }
+
   function handleInputChange(value: string) {
     setQuery(value);
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -629,11 +641,7 @@ function DesktopSearchPage() {
                           item={item}
                           token={token}
                           keyword={query}
-                          onClick={() =>
-                            navigate(
-                              `/notes/${item.id}?q=${encodeURIComponent(query)}`,
-                            )
-                          }
+                          onClick={() => openResult(item)}
                         />
                       </div>
                     );

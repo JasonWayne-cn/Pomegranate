@@ -2406,6 +2406,55 @@ impl AiService {
         })
     }
 
+    /// Word / PowerPoint 附件解析：抽取纯文本，复用文本附件的字符上限与截断语义。
+    pub fn parse_office_attachment(file_path: &str) -> Result<TextPreview, AppError> {
+        let file_path = file_path.trim();
+        if file_path.is_empty() {
+            return Err(AppError::InvalidInput("文档路径不能为空".into()));
+        }
+        let path = std::path::Path::new(file_path);
+        if !path.exists() {
+            return Err(AppError::Custom("文件不存在".into()));
+        }
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_default();
+        let raw = match ext.as_str() {
+            "docx" | "docm" => {
+                crate::services::doc_extract::DocExtractService::extract_word_text(path)?
+            }
+            "pptx" | "pptm" => {
+                crate::services::doc_extract::DocExtractService::extract_presentation_text(path)?
+            }
+            _ => {
+                return Err(AppError::InvalidInput(format!(
+                    "不支持的 Office 附件类型: .{ext}"
+                )))
+            }
+        };
+        if raw.trim().is_empty() {
+            return Err(AppError::Custom("文档没有可抽取的文本".into()));
+        }
+        let display_name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("文档")
+            .to_string();
+        let (content, truncated) = truncate_for_attachment(&raw, SINGLE_ATTACHMENT_CHAR_LIMIT);
+        let total_lines = content.lines().count();
+        let chars_estimated = content.chars().count();
+        Ok(TextPreview {
+            file_path: file_path.to_string(),
+            display_name,
+            content,
+            total_lines,
+            chars_estimated,
+            truncated,
+        })
+    }
+
     /// 按扩展名自动分发到对应的解析器，返回统一的 AttachmentPreview。
     /// 不识别的扩展名当文本处理（够用大多数代码 / 配置文件场景）。
     pub fn parse_attachment_auto(file_path: &str) -> Result<AttachmentPreview, AppError> {
@@ -2421,6 +2470,9 @@ impl AiService {
             "pdf" => Ok(AttachmentPreview::Pdf(Self::parse_pdf_attachment(
                 file_path,
             )?)),
+            "docx" | "docm" | "pptx" | "pptm" => Ok(AttachmentPreview::Text(
+                Self::parse_office_attachment(file_path)?,
+            )),
             _ => Ok(AttachmentPreview::Text(Self::parse_text_attachment(
                 file_path,
             )?)),

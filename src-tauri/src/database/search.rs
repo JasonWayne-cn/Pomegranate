@@ -158,9 +158,11 @@ impl Database {
         let sql = format!(
             "SELECT n.id, n.title,
                     snippet(notes_fts, 1, '<mark>', '</mark>', '...', 32) as snippet,
-                    n.updated_at, n.folder_id, n.note_type
+                    n.updated_at, n.folder_id, n.note_type,
+                    n.ext_index_only, n.ext_rel_path, m.root_path, m.read_only
              FROM notes_fts fts
              JOIN notes n ON fts.rowid = n.id
+             LEFT JOIN external_mounts m ON m.id = n.mount_id
              WHERE notes_fts MATCH ?1
                AND n.is_deleted = 0
                AND n.is_hidden = 0
@@ -203,6 +205,9 @@ impl Database {
                     updated_at: row.get(3)?,
                     folder_id: row.get(4)?,
                     note_type: row.get(5)?,
+                    ext_index_only: row.get::<_, Option<i32>>(6)?.unwrap_or(0) != 0,
+                    abs_path: external_abs_path(row.get(8)?, row.get(7)?),
+                    read_only: row.get::<_, Option<i32>>(9)?.unwrap_or(0) != 0,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -295,8 +300,10 @@ impl Database {
         let sql = format!(
             "SELECT n.id, n.title, COALESCE(n.search_text, n.content), n.updated_at, n.folder_id,
                     n.note_type,
-                    CASE WHEN ({}) THEN 0 ELSE 1 END AS _title_score
+                    CASE WHEN ({}) THEN 0 ELSE 1 END AS _title_score,
+                    n.ext_index_only, n.ext_rel_path, m.root_path, m.read_only
              FROM notes n
+             LEFT JOIN external_mounts m ON m.id = n.mount_id
              WHERE n.is_deleted = 0 AND n.is_hidden = 0 AND n.is_scratch = 0 AND ({}){}
              ORDER BY _title_score ASC, n.updated_at DESC
              LIMIT ?{}",
@@ -335,6 +342,10 @@ impl Database {
                     row.get::<_, String>(3)?,
                     row.get::<_, Option<i64>>(4)?,
                     row.get::<_, String>(5)?,
+                    row.get::<_, Option<i32>>(7)?.unwrap_or(0) != 0,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<i32>>(10)?.unwrap_or(0) != 0,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -359,21 +370,36 @@ impl Database {
 
         let results = results
             .into_iter()
-            .map(|(id, title, body, updated_at, folder_id, note_type)| {
-                let snippet = build_highlight_snippet(&body, &highlight_terms);
-                SearchResult {
-                    id,
-                    title,
-                    snippet,
-                    updated_at,
-                    folder_id,
-                    note_type,
-                }
-            })
+            .map(
+                |(id, title, body, updated_at, folder_id, note_type, ext_index_only, ext_rel_path, root_path, read_only)| {
+                    let snippet = build_highlight_snippet(&body, &highlight_terms);
+                    SearchResult {
+                        id,
+                        title,
+                        snippet,
+                        updated_at,
+                        folder_id,
+                        note_type,
+                        ext_index_only,
+                        abs_path: external_abs_path(root_path, ext_rel_path),
+                        read_only,
+                    }
+                },
+            )
             .collect();
 
         Ok(results)
     }
+}
+
+/// 挂载根 + POSIX 相对路径 → 平台绝对路径。普通笔记（root/rel 任一为空）返回 None。
+fn external_abs_path(root: Option<String>, rel: Option<String>) -> Option<String> {
+    let (root, rel) = (root?, rel?);
+    let mut path = std::path::PathBuf::from(root);
+    for part in rel.split('/').filter(|p| !p.is_empty()) {
+        path.push(part);
+    }
+    Some(path.to_string_lossy().to_string())
 }
 
 /// 生成带 <mark> 高亮的摘要：截取第一个关键词附近的上下文

@@ -47,8 +47,8 @@ Office 工作台（`/office`）已经具备直接打开原文件的能力，因�
 
 - 不拆分独立的 `external_index` 表（FTS 触发器、标签、链接、RAG 都会被迫重做，收益不匹配成本）。
 - 不改变文本文件（`.md` / `.txt`）的行为，仍走影子笔记编辑 / 写回。
-- 不实现 PDF 富文本抽取或 OCR。
 - 不在本轮改变 `sync_v1`（WebDAV/S3）——外部笔记仍不参与云同步。
+- OCR 仅作为挂载设置里的可选开关（扫描件 PDF 文字过少时补索引），不是默认路径。
 
 ---
 
@@ -65,7 +65,7 @@ Office 工作台（`/office`）已经具备直接打开原文件的能力，因�
 
 扫描时按文件类别写入：
 
-- `pdf` / `docx` / `doc` / `xlsx` / `xls` / `xlsm` / `xlsb` / `ods` / `csv` / `tsv` → `1`
+- `pdf` / `docx` / `docm` / `doc` / `pptx` / `pptm` / `xlsx` / `xls` / `xlsm` / `xlsb` / `ods` / `csv` / `tsv` → `1`
 - `md` / `markdown` / `txt` / `text` → `0`
 
 迁移 v86 回填已有外部笔记，按 `ext_rel_path` 的扩展名判定。
@@ -178,7 +178,9 @@ npx tsc --noEmit
 
 ## 8. 后续
 
-- 挂载文件树增加“查看索引文本”操作，替代隐藏后的正文查看入口。
-- 二进制文档的搜索结果跳转改为 Office 工作台（当前仍进影子笔记）。
-- `doc` / `xls` / `xlsb` / `ods` 的 Office 打开支持（需要引擎扩展）。
-- 保存后主动触发单文件索引刷新，减少轮询延迟。
+以下四项已落地：
+
+- 挂载文件树二进制文档行尾菜单提供“查看索引文本”。
+- 二进制文档的搜索结果直接跳转 Office 工作台（`SearchResult.abs_path / ext_index_only / read_only`）。
+- 保存后调用 `mount_refresh_path` 主动触发单文件索引刷新。
+- `pptx` / `pptm` / `docm` 纳入挂载扫描与索引；`doc` / `xls` / `xlsb` / `ods` 的 Office 打开仍待引擎扩展。

@@ -24,6 +24,7 @@ import {
   FolderInput,
   FolderOpen,
   HardDrive,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   Settings2,
@@ -294,11 +295,15 @@ export default function MountsPage() {
       const format = formatOf(entry.absPath);
       if (format) {
         const mount = mounts.find((m) => m.id === activeMountId);
-        const readOnly = mount?.readOnly ? "1" : "0";
-        // t 保证重复点击同一文件也会触发工作台定位
-        navigate(
-          `/office?path=${encodeURIComponent(entry.absPath)}&readonly=${readOnly}&t=${Date.now()}`,
-        );
+        // 用 URLSearchParams 统一编码：Windows 挂载常带 `\\?\` 前缀，
+        // 手拼查询串时 ? / \ 容易被路由二次解析。
+        const params = new URLSearchParams({
+          path: entry.absPath,
+          readonly: mount?.readOnly ? "1" : "0",
+          // t 保证重复点击同一文件也会触发工作台定位
+          t: String(Date.now()),
+        });
+        navigate(`/office?${params.toString()}`);
         return;
       }
     }
@@ -320,18 +325,53 @@ export default function MountsPage() {
     }
   }
 
+  /** 二进制文档行尾菜单：点击行仍进 Office，菜单里可查看抽取出的索引文本 */
+  function renderEntryActions(entry: ExternalEntry) {
+    if (!entry.typeCategory || entry.typeCategory === "text") return null;
+    return (
+      <Dropdown
+        trigger={["click"]}
+        menu={{
+          items: [{ key: "index-text", label: "查看索引文本" }],
+          onClick: ({ key, domEvent }) => {
+            domEvent.stopPropagation();
+            if (key === "index-text") void openShadowNote(entry.noteId);
+          },
+        }}
+      >
+        <Button
+          type="text"
+          size="small"
+          icon={<MoreHorizontal size={14} />}
+          aria-label="更多操作"
+          onClick={(e) => e.stopPropagation()}
+        />
+      </Dropdown>
+    );
+  }
+
   const filteredEntries = useMemo(() => {
     if (entryFilter === "all") return entries;
     return entries.filter((e) => e.syncState === entryFilter);
   }, [entries, entryFilter]);
 
   const treeData = useMemo(
-    () => (flatView ? buildFlatList(filteredEntries) : buildTree(filteredEntries)),
+    () =>
+      flatView
+        ? buildFlatList(filteredEntries, { renderActions: renderEntryActions })
+        : buildTree(filteredEntries, { renderActions: renderEntryActions }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [filteredEntries, flatView],
   );
 
   const editTypeCounts = useMemo(() => {
-    const counts: Record<string, number> = { text: 0, pdf: 0, word: 0, sheet: 0 };
+    const counts: Record<string, number> = {
+      text: 0,
+      pdf: 0,
+      word: 0,
+      slide: 0,
+      sheet: 0,
+    };
     for (const entry of editEntries) {
       if (entry.typeCategory) counts[entry.typeCategory] += 1;
     }
@@ -349,7 +389,9 @@ export default function MountsPage() {
     if (m.syncTypes.text) labels.push("文本");
     if (m.syncTypes.pdf) labels.push("PDF");
     if (m.syncTypes.word) labels.push("Word");
+    if (m.syncTypes.slide) labels.push("演示文稿");
     if (m.syncTypes.sheet) labels.push("表格");
+    if (m.syncTypes.ocr) labels.push("OCR");
     return labels.length === 0 ? "全部暂停" : labels.join(" / ");
   }
 
@@ -606,7 +648,14 @@ export default function MountsPage() {
             indexEnabled: true,
             dailyMode: false,
             scanInterval: 10,
-            syncTypes: { text: true, pdf: true, word: true, sheet: true },
+            syncTypes: {
+              text: true,
+              pdf: true,
+              word: true,
+              slide: true,
+              sheet: true,
+              ocr: false,
+            },
           }}
         >
           <Form.Item

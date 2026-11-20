@@ -112,6 +112,16 @@ pub fn mount_reextract(
     MountService::reextract(&state.db, note_id).map_err(|e| e.to_string())
 }
 
+/// Office 工作台保存原文件后，按绝对路径立即刷新该文件的索引。
+/// 路径不在任何挂载内时返回 `null`（不报错）。
+#[tauri::command(async)]
+pub fn mount_refresh_path(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Option<i64>, String> {
+    MountService::refresh_path(&state.db, &path).map_err(|e| e.to_string())
+}
+
 /// 保存外部文件：写回磁盘并更新索引
 #[tauri::command]
 pub fn mount_save_file(

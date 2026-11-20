@@ -41,7 +41,9 @@ function syncSummary(m: ExternalMount): string {
   if (m.syncTypes.text) labels.push("文本");
   if (m.syncTypes.pdf) labels.push("PDF");
   if (m.syncTypes.word) labels.push("Word");
+  if (m.syncTypes.slide) labels.push("演示文稿");
   if (m.syncTypes.sheet) labels.push("表格");
+  if (m.syncTypes.ocr) labels.push("OCR");
   return labels.length === 0 ? "全部暂停" : labels.join(" / ");
 }
 
@@ -388,7 +390,14 @@ export function MountSettingsSection({ compact }: Props) {
             indexEnabled: true,
             dailyMode: false,
             scanInterval: 10,
-            syncTypes: { text: true, pdf: true, word: true, sheet: true },
+            syncTypes: {
+              text: true,
+              pdf: true,
+              word: true,
+              slide: true,
+              sheet: true,
+              ocr: false,
+            },
           }}
         >
           <Form.Item

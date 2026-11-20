@@ -16,6 +16,7 @@ import type {
   XlsxSheetPreview,
 } from "@/lib/api/pptxSpike";
 import { pptxSpikeApi } from "@/lib/api/pptxSpike";
+import { mountApi } from "@/lib/api";
 import { fontMetricsApi, type FontMetrics } from "@/lib/api/fontMetrics";
 import {
   PptxWorkerClient,
@@ -319,6 +320,8 @@ export default function OfficeWorkspacePage() {
       try {
         const bytes = await rt.client.save();
         await pptxSpikeApi.write(target, bytes);
+        // 挂载内的文件立刻重抽索引，避免搜索 / RAG 在下一轮轮询前命中旧正文。
+        void mountApi.refreshPath(target).catch(() => {});
         const name = baseName(target);
         updateSession(id, { saving: false, dirty: false, path: target, name });
         addRecent({ path: target, name, format: meta.format });

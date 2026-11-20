@@ -1048,7 +1048,10 @@ pub fn run() {
             commands::pptx_spike::office_file_size,
             commands::pptx_spike::office_xlsx_preview,
             commands::pptx_spike::office_pdf_preview,
+            commands::pptx_spike::office_pdf_page_count,
+            commands::pptx_spike::office_pdf_render_pages,
             commands::pptx_spike::office_xlsx_set_cell,
+            commands::pptx_spike::office_export_write,
             commands::edit_log::edit_log_record,
             commands::edit_log::edit_log_list,
             commands::edit_log::edit_log_clear,
@@ -1264,6 +1267,7 @@ pub fn run() {
             commands::mount::mount_save_file,
             commands::mount::mount_note_status,
             commands::mount::mount_reextract,
+            commands::mount::mount_refresh_path,
             // 导出模块
             commands::export::export_notes,
             commands::export::export_single_note,

@@ -1123,6 +1123,9 @@ export const mountApi = {
   /** 强制重新抽取（会覆盖影子笔记的本地编辑） */
   reextract: (noteId: number) =>
     invoke<MountOpenResult>("mount_reextract", { noteId }),
+  /** Office 保存后按绝对路径立即刷新索引；不在挂载内返回 null */
+  refreshPath: (path: string) =>
+    invoke<number | null>("mount_refresh_path", { path }),
 };
 
 /** 孤儿素材维护 API（图片/视频/附件/PDF/源文件统一扫描清理） */

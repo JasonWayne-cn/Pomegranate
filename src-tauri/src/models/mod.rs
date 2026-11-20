@@ -289,6 +289,10 @@ pub struct NoteQuery {
     /// - "created" → is_pinned DESC, created_at DESC
     /// - "title" → is_pinned DESC, title ASC
     pub sort_by: Option<String>,
+    /// 是否返回外部二进制文档（PDF/Word/Excel，`ext_index_only = 1`）。
+    /// 文档树需要展示这些文件；主文档列表默认不传，保持旧行为。
+    #[serde(default)]
+    pub include_external_docs: Option<bool>,
 }
 
 // ─── 文件夹 ───────────────────────────────────
@@ -347,6 +351,12 @@ pub struct SearchResult {
     pub updated_at: String,
     pub folder_id: Option<i64>,
     pub note_type: String,
+    /// 外部挂载文件的磁盘绝对路径；普通笔记为 None。
+    pub abs_path: Option<String>,
+    /// 外部二进制文档仅作索引（点击应进 Office 工作台而非影子笔记）。
+    pub ext_index_only: bool,
+    /// 所在挂载点是否只读（供 Office 打开时禁用保存）。
+    pub read_only: bool,
 }
 
 // ─── 回收站 ───────────────────────────────────
@@ -2685,6 +2695,12 @@ pub struct SyncTypeSettings {
     pub word: bool,
     #[serde(default = "sync_default_true")]
     pub sheet: bool,
+    /// PowerPoint（.pptx / .pptm）。旧挂载点 JSON 没有该字段时默认开启。
+    #[serde(default = "sync_default_true")]
+    pub slide: bool,
+    /// 扫描件 PDF 是否用本地 OCR 补索引。默认关闭：OCR 明显慢于文本抽取。
+    #[serde(default)]
+    pub ocr: bool,
 }
 
 impl Default for SyncTypeSettings {
@@ -2694,6 +2710,8 @@ impl Default for SyncTypeSettings {
             pdf: true,
             word: true,
             sheet: true,
+            slide: true,
+            ocr: false,
         }
     }
 }
@@ -2705,6 +2723,7 @@ impl SyncTypeSettings {
             "pdf" => self.pdf,
             "word" => self.word,
             "sheet" => self.sheet,
+            "slide" => self.slide,
             _ => false,
         }
     }
@@ -2824,7 +2843,7 @@ pub struct ExternalEntry {
     pub last_synced_at: Option<String>,
     /// synced / stale / failed / missing / paused
     pub sync_state: String,
-    /// text / pdf / word / sheet
+    /// text / pdf / word / slide / sheet
     pub type_category: Option<String>,
     /// 原文件绝对路径（挂载根 + 相对路径），供 Office 工作台直接打开
     pub abs_path: String,

@@ -728,6 +728,8 @@ export interface NoteQuery {
   include_descendants?: boolean;
   /** 排序模式：默认按 is_pinned DESC, updated_at DESC */
   sort_by?: "default" | "custom" | "created" | "title";
+  /** 是否包含外部二进制文档（PDF/Word/Excel）；文档树传 true */
+  include_external_docs?: boolean;
 }
 
 // ─── 文件夹 ───────────────────────────────────
@@ -792,6 +794,12 @@ export interface SearchResult {
   folder_id: number | null;
   /** 笔记类型：搜索结果据此换图标（白板点开是画布，不是编辑器） */
   note_type: NoteType;
+  /** 外部挂载文件的磁盘绝对路径；普通笔记为 null */
+  abs_path: string | null;
+  /** 外部二进制文档仅作索引：点击直接进 Office 工作台 */
+  ext_index_only: boolean;
+  /** 所在挂载点是否只读 */
+  read_only: boolean;
 }
 
 
@@ -1700,6 +1708,10 @@ export interface WordExportResult {
   imagesMissing: number;
   /** 拷贝到 `<docx 同名>.attachments/` 旁挂目录里的非图片附件数 */
   attachmentsCopied: number;
+  /** 转换器路径中直接内嵌为 data: 链接的非图片附件数 */
+  attachmentsInlined: number;
+  /** 实际使用的生成引擎：converter = 本机 Office/WPS/LibreOffice；native = 内置生成器 */
+  engine: "converter" | "native";
 }
 
 /** T-020 HTML 导出结果（单文件，图片 + 非图片附件均内嵌） */
@@ -2885,7 +2897,10 @@ export interface SyncTypeSettings {
   text: boolean;
   pdf: boolean;
   word: boolean;
+  slide: boolean;
   sheet: boolean;
+  /** 扫描件 PDF 是否用本地 OCR 补索引（默认关闭） */
+  ocr: boolean;
 }
 
 /** 外部文件同步状态 */
@@ -2981,7 +2996,7 @@ export interface ExternalEntry {
   /** 统一同步状态 */
   syncState: ExternalSyncState;
   /** text / pdf / word / sheet */
-  typeCategory: "text" | "pdf" | "word" | "sheet" | null;
+  typeCategory: "text" | "pdf" | "word" | "slide" | "sheet" | null;
   /** 原文件绝对路径（挂载根 + 相对路径），供 Office 工作台直接打开 */
   absPath: string;
 }

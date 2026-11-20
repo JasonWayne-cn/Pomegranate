@@ -33,7 +33,8 @@ static SCAN_LOCK: Mutex<()> = Mutex::new(());
 /// 可索引的扩展名
 const TEXT_EXTS: &[&str] = &["md", "markdown", "txt", "text"];
 const PDF_EXTS: &[&str] = &["pdf"];
-const WORD_EXTS: &[&str] = &["docx", "doc"];
+const WORD_EXTS: &[&str] = &["docx", "docm", "doc"];
+const SLIDE_EXTS: &[&str] = &["pptx", "pptm"];
 const SHEET_EXTS: &[&str] = &["xlsx", "xls", "xlsm", "xlsb", "ods", "csv", "tsv"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +42,7 @@ enum MountFileKind {
     Text,
     Pdf,
     Word,
+    Slide,
     Sheet,
 }
 
@@ -54,6 +56,7 @@ impl MountFileKind {
             Self::Text => "text",
             Self::Pdf => "pdf",
             Self::Word => "word",
+            Self::Slide => "slide",
             Self::Sheet => "sheet",
         }
     }
@@ -68,6 +71,7 @@ fn extensions_for_category(category: &str) -> &'static [&'static str] {
         "text" => TEXT_EXTS,
         "pdf" => PDF_EXTS,
         "word" => WORD_EXTS,
+        "slide" => SLIDE_EXTS,
         "sheet" => SHEET_EXTS,
         _ => &[],
     }
@@ -80,6 +84,8 @@ fn classify_ext(ext: &str) -> Option<MountFileKind> {
         Some(MountFileKind::Pdf)
     } else if WORD_EXTS.contains(&ext) {
         Some(MountFileKind::Word)
+    } else if SLIDE_EXTS.contains(&ext) {
+        Some(MountFileKind::Slide)
     } else if SHEET_EXTS.contains(&ext) {
         Some(MountFileKind::Sheet)
     } else {
@@ -123,16 +129,27 @@ fn text_to_paragraph_html(text: &str) -> String {
 }
 
 /// 抽取二进制文档正文；失败时返回面向用户的错误
-fn extract_binary_content(path: &Path, kind: MountFileKind) -> Result<String, AppError> {
+fn extract_binary_content(
+    path: &Path,
+    kind: MountFileKind,
+    settings: &SyncTypeSettings,
+) -> Result<String, AppError> {
     match kind {
         MountFileKind::Pdf => {
-            let text = PdfService::extract_text_only(path)?;
+            let text = extract_pdf_index_text(path, settings.ocr)?;
             Ok(text_to_paragraph_html(&text))
         }
         MountFileKind::Word => {
             let text = DocExtractService::extract_word_text(path)?;
             if text.trim().is_empty() {
                 return Err(AppError::Custom("Word 文件没有可抽取的文本".into()));
+            }
+            Ok(text_to_paragraph_html(&text))
+        }
+        MountFileKind::Slide => {
+            let text = DocExtractService::extract_presentation_text(path)?;
+            if text.trim().is_empty() {
+                return Err(AppError::Custom("PowerPoint 文件没有可抽取的文本".into()));
             }
             Ok(text_to_paragraph_html(&text))
         }
@@ -143,6 +160,60 @@ fn extract_binary_content(path: &Path, kind: MountFileKind) -> Result<String, Ap
         }
         MountFileKind::Text => Err(AppError::Custom("不是二进制文档".into())),
     }
+}
+
+/// PDF 索引文本：优先 PDFium 的阅读顺序；扫描件在开启 OCR 时用本地引擎兜底。
+fn extract_pdf_index_text(path: &Path, ocr_enabled: bool) -> Result<String, AppError> {
+    #[cfg(desktop)]
+    {
+        if let Ok(layout) = crate::services::pdf_layout::PdfLayoutService::extract(path, 0) {
+            let text = layout.plain_text();
+            if text.chars().count() >= 20 {
+                return Ok(text);
+            }
+        }
+    }
+
+    let text = PdfService::extract_text_only(path)?;
+    if text.chars().count() >= 20 || !ocr_enabled {
+        return Ok(text);
+    }
+
+    #[cfg(desktop)]
+    {
+        if crate::services::ocr::is_available() {
+            match ocr_pdf_text(path) {
+                Ok(ocr) if !ocr.trim().is_empty() => return Ok(ocr),
+                Ok(_) => {}
+                Err(e) => log::warn!("[mount] OCR 失败 {}: {}", path.display(), e),
+            }
+        }
+    }
+
+    Ok(text)
+}
+
+/// 扫描件 PDF → 前 N 页渲染成 PNG → 逐页 OCR。索引场景限 10 页，避免慢到拖垮扫描轮询。
+#[cfg(desktop)]
+fn ocr_pdf_text(path: &Path) -> Result<String, String> {
+    let tmp_root = std::env::temp_dir().join(format!(
+        "kb_mount_ocr_{}_{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&tmp_root).map_err(|e| format!("创建 OCR 临时目录失败: {e}"))?;
+    let pngs = crate::services::pdf::render_pdf_to_pngs(path, &tmp_root, 10)?;
+    let mut parts = Vec::new();
+    for png in &pngs {
+        if let Ok(text) = crate::services::ocr::recognize_image(png) {
+            if !text.trim().is_empty() {
+                parts.push(text);
+            }
+        }
+        let _ = std::fs::remove_file(png);
+    }
+    let _ = std::fs::remove_dir_all(&tmp_root);
+    Ok(parts.join("\n\n"))
 }
 
 fn ext_lower(path: &Path) -> String {
@@ -286,7 +357,7 @@ impl MountService {
 
         // 类型开关变化：关闭时把已索引笔记标记 paused；重新开启时清空状态等待重抽
         if let Some(new_types) = normalized.sync_types.as_ref() {
-            for category in ["text", "pdf", "word", "sheet"] {
+            for category in ["text", "pdf", "word", "slide", "sheet"] {
                 let was = old.sync_types.enabled_category(category);
                 let now = new_types.enabled_category(category);
                 if was != now {
@@ -547,7 +618,7 @@ impl MountService {
                             continue;
                         }
                     };
-                    match extract_binary_content(file, kind) {
+                    match extract_binary_content(file, kind, &mount.sync_types) {
                         Ok(content) => (content, source_hash, stem.clone(), None, String::new()),
                         Err(e) => {
                             let err_msg = e.to_string();
@@ -711,8 +782,14 @@ impl MountService {
                 (content, source_hash, fm.map(|f| f.tags), body)
             }
             _ => {
+                let settings = db
+                    .list_external_mounts()
+                    .ok()
+                    .and_then(|mounts| mounts.into_iter().find(|m| m.id == meta.mount_id))
+                    .map(|m| m.sync_types)
+                    .unwrap_or_default();
                 let source_hash = sha256_file_hex(path)?;
-                let content = extract_binary_content(path, kind)?;
+                let content = extract_binary_content(path, kind, &settings)?;
                 (content, source_hash, None, String::new())
             }
         };
@@ -1075,9 +1152,71 @@ impl MountService {
         Ok(())
     }
 
+    /// Office 工作台保存原文件后按绝对路径立即刷新索引。
+    ///
+    /// 背景扫描是轮询制（默认 10 秒），保存后立刻搜索会暂时命中旧正文。
+    /// 这里按「挂载根 + 相对路径」定位影子笔记并强制重抽；路径不在任何挂载内时返回 `Ok(None)`。
+    pub fn refresh_path(db: &Database, path: &str) -> Result<Option<i64>, AppError> {
+        let target = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+        for mount in db.list_external_mounts()? {
+            let root = std::fs::canonicalize(&mount.root_path)
+                .unwrap_or_else(|_| PathBuf::from(&mount.root_path));
+            let Ok(rel) = target.strip_prefix(&root) else {
+                continue;
+            };
+            let rel = rel
+                .components()
+                .filter_map(|c| c.as_os_str().to_str())
+                .collect::<Vec<_>>()
+                .join("/");
+            if rel.is_empty() {
+                continue;
+            }
+            if let Some(row) = db.find_external_note(mount.id, &rel)? {
+                Self::reextract(db, row.id)?;
+                return Ok(Some(row.id));
+            }
+        }
+        Ok(None)
+    }
+
     /// 打开笔记前刷新外部内容（供 NoteService::get 调用）。
     pub fn refresh_if_external(db: &Database, note_id: i64) {
         let _ = Self::open_note(db, note_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_supports_all_office_formats() {
+        assert_eq!(classify_ext("docx"), Some(MountFileKind::Word));
+        assert_eq!(classify_ext("docm"), Some(MountFileKind::Word));
+        assert_eq!(classify_ext("pptx"), Some(MountFileKind::Slide));
+        assert_eq!(classify_ext("pptm"), Some(MountFileKind::Slide));
+        assert_eq!(classify_ext("xlsm"), Some(MountFileKind::Sheet));
+        assert_eq!(classify_ext("pdf"), Some(MountFileKind::Pdf));
+        assert_eq!(classify_ext("unknown"), None);
+    }
+
+    #[test]
+    fn slide_toggle_only_affects_presentations() {
+        let mut settings = SyncTypeSettings::default();
+        assert!(type_enabled(&settings, MountFileKind::Slide));
+        settings.slide = false;
+        assert!(!type_enabled(&settings, MountFileKind::Slide));
+        assert!(type_enabled(&settings, MountFileKind::Word));
+    }
+
+    #[test]
+    fn binary_documents_are_index_only() {
+        for ext in ["pdf", "docx", "docm", "pptx", "pptm", "xlsx", "csv"] {
+            let kind = classify_ext(ext).expect(ext);
+            assert!(kind.is_binary(), "{ext} 应标记为二进制文档");
+        }
+        assert!(!MountFileKind::Text.is_binary());
     }
 }
 

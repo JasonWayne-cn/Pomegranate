@@ -6,11 +6,17 @@
  *
  * 供 /mounts 完整管理页与设置抽屉里的内嵌文件浏览共用。
  */
+import type { ReactNode } from "react";
 import { Tag } from "antd";
 import type { DataNode } from "antd/es/tree";
 import { FolderOpen } from "lucide-react";
 import { FileTypeIcon } from "@/components/FileTypeIcon";
 import type { ExternalEntry, ExternalSyncState } from "@/types";
+
+interface TreeOptions {
+  /** 行尾操作区（如「查看索引文本」）；点击内部按钮需自行 stopPropagation */
+  renderActions?: (entry: ExternalEntry) => ReactNode;
+}
 
 export function formatSize(bytes: number): string {
   if (!bytes || bytes <= 0) return "—";
@@ -48,7 +54,10 @@ interface TreeNode {
 }
 
 /** 原始树形列表：按 relPath 的目录层级分组，可逐级折叠 */
-export function buildTree(entries: ExternalEntry[]): DataNode[] {
+export function buildTree(
+  entries: ExternalEntry[],
+  opts?: TreeOptions,
+): DataNode[] {
   const root = new Map<string, TreeNode>();
   const ensure = (
     map: Map<string, TreeNode>,
@@ -105,6 +114,7 @@ export function buildTree(entries: ExternalEntry[]): DataNode[] {
               <span className="flex shrink-0 items-center gap-2 text-xs opacity-80">
                 <span>{formatSize(entry.size)}</span>
                 <SyncStateTag state={entry.syncState} />
+                {opts?.renderActions?.(entry)}
               </span>
             </span>
           ) : (
@@ -126,7 +136,10 @@ export function buildTree(entries: ExternalEntry[]): DataNode[] {
  * 扁平文件列表：不显示文件夹节点和折叠箭头。
  * 用相对目录作为副标题，避免不同目录下的同名文件无法区分。
  */
-export function buildFlatList(entries: ExternalEntry[]): DataNode[] {
+export function buildFlatList(
+  entries: ExternalEntry[],
+  opts?: TreeOptions,
+): DataNode[] {
   return entries
     .slice()
     .sort((a, b) => a.relPath.localeCompare(b.relPath, "zh-CN"))
@@ -161,6 +174,7 @@ export function buildFlatList(entries: ExternalEntry[]): DataNode[] {
             <span className="flex shrink-0 items-center gap-2 text-xs opacity-80">
               <span>{formatSize(entry.size)}</span>
               <SyncStateTag state={entry.syncState} />
+              {opts?.renderActions?.(entry)}
             </span>
           </span>
         ),
