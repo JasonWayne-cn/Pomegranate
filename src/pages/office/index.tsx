@@ -29,6 +29,7 @@ import {
   message,
   theme as antdTheme,
 } from "antd";
+import "@/styles/office-sheet-tabs.css";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import type {
@@ -1173,8 +1174,8 @@ export default function OfficeWorkspacePage() {
     if (activeMeta.format === "xlsx") {
       const sheets = runtime?.xlsx ?? [];
       return (
-        <div className="min-h-0 flex-1 overflow-auto p-3">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex min-h-0 flex-1 flex-col px-3 pt-3">
+          <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
             <Select
               size="small"
               style={{ width: 160 }}
@@ -1217,6 +1218,7 @@ export default function OfficeWorkspacePage() {
           </div>
           {sheets.length > 0 && (
             <Tabs
+              className="office-sheet-tabs"
               activeKey={String(sheetIndex)}
               onChange={(key) => setSheetIndex(Number(key))}
               tabPosition="bottom"
@@ -1224,31 +1226,33 @@ export default function OfficeWorkspacePage() {
                 key: String(index),
                 label: sheet.name,
                 children: (
-                  <Table
-                    size="small"
-                    bordered
-                    className="office-sheet-table"
-                    pagination={false}
-                    scroll={{ x: "max-content", y: 520 }}
-                    dataSource={buildSheetGrid(sheet)}
-                    columns={[
-                      {
-                        title: "",
-                        dataIndex: "key",
-                        width: 44,
-                        render: (_: unknown, row: SheetGridRow) => excelRowNumber(row),
-                      },
-                      ...sheet.headers.map((_header, colIndex) => ({
-                        title: columnLabel(colIndex),
-                        width: 110,
-                        render: (_: unknown, row: SheetGridRow) => (
-                          <span className={row.header ? "font-medium" : undefined}>
-                            {row.cells[colIndex] ?? ""}
-                          </span>
-                        ),
-                      })),
-                    ]}
-                  />
+                  <div className="office-sheet-scroll">
+                    <Table
+                      size="small"
+                      bordered
+                      className="office-sheet-table"
+                      pagination={false}
+                      scroll={{ x: "max-content" }}
+                      dataSource={buildSheetGrid(sheet)}
+                      columns={[
+                        {
+                          title: "",
+                          dataIndex: "key",
+                          width: 44,
+                          render: (_: unknown, row: SheetGridRow) => excelRowNumber(row),
+                        },
+                        ...sheet.headers.map((_header, colIndex) => ({
+                          title: columnLabel(colIndex),
+                          width: 110,
+                          render: (_: unknown, row: SheetGridRow) => (
+                            <span className={row.header ? "font-medium" : undefined}>
+                              {row.cells[colIndex] ?? ""}
+                            </span>
+                          ),
+                        })),
+                      ]}
+                    />
+                  </div>
                 ),
               }))}
             />
