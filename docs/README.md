@@ -14,6 +14,7 @@
 - [tasks/qq-group-feedback-tasks.md](./tasks/qq-group-feedback-tasks.md) — QQ 群反馈任务
 - [tasks/mobile-qa-checklist.md](./tasks/mobile-qa-checklist.md) — 移动端功能核查清单
 - [pdf-import-image-development-plan.md](./pdf-import-image-development-plan.md) — PDF 导入保留图片（待手工样张验收）
+- [ai-prompt-groups-plan.md](./ai-prompt-groups-plan.md) — AI 提示词分组与划词快捷框改造（实施中）
 - [ppt-generation-progress.md](./ppt-generation-progress.md) — PPT 生成进度与效率优化
 - [待办插件化方案.md](./待办插件化方案.md) — 待办扩展点插件化（提议中）
 - [prototypes/tasks/](./prototypes/tasks/) — 待办视图原型

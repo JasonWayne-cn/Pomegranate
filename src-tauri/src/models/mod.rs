@@ -1246,8 +1246,30 @@ pub struct PromptTemplate {
     pub icon: Option<String>,
     pub is_builtin: bool,
     pub builtin_code: Option<String>,
+    /// 所属分组；None 视为默认组（快捷指令）
+    pub group_id: Option<i64>,
+    /// 组内排序（同组内升序）
     pub sort_order: i32,
     pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// AI 提示词分组
+///
+/// 划词快捷框为每组渲染一个折叠下拉。内置组：
+/// - `quick`    快捷指令（内置写作类模板 + 用户自建模板）
+/// - `translate` 翻译（译英 / 译中）
+///
+/// 内置组允许改名，但 `builtin_code` 不变；内置组不可删除。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptGroup {
+    pub id: i64,
+    pub name: String,
+    pub is_builtin: bool,
+    pub builtin_code: Option<String>,
+    pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1554,7 +1576,9 @@ pub struct PromptTemplateInput {
     /// 'replace' | 'append' | 'popup'，省略则用 'replace'
     pub output_mode: Option<String>,
     pub icon: Option<String>,
-    /// 省略视为末尾（会取 max(sort_order)+10）
+    /// 所属分组；新建省略时落到默认组（快捷指令）
+    pub group_id: Option<i64>,
+    /// 省略视为末尾（会取同组 max(sort_order)+10）
     pub sort_order: Option<i32>,
     /// 省略视为启用
     pub enabled: Option<bool>,

@@ -6,7 +6,7 @@
 
 use tauri::State;
 
-use crate::models::{PromptTemplate, PromptTemplateInput};
+use crate::models::{PromptGroup, PromptTemplate, PromptTemplateInput};
 use crate::state::AppState;
 
 /// 列出所有提示词
@@ -73,5 +73,69 @@ pub fn set_prompt_enabled(
     state
         .db
         .set_prompt_enabled(id, enabled)
+        .map_err(|e| e.to_string())
+}
+
+// ─── 提示词分组 ─────────────────────────────
+
+/// 列出全部分组（按 sort_order）
+#[tauri::command]
+pub fn list_prompt_groups(state: State<'_, AppState>) -> Result<Vec<PromptGroup>, String> {
+    state.db.list_prompt_groups().map_err(|e| e.to_string())
+}
+
+/// 新建自定义分组（排到末尾）
+#[tauri::command]
+pub fn create_prompt_group(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<PromptGroup, String> {
+    state
+        .db
+        .create_prompt_group(&name)
+        .map_err(|e| e.to_string())
+}
+
+/// 重命名分组（内置组也允许改名，builtin_code 不变）
+#[tauri::command]
+pub fn update_prompt_group(
+    state: State<'_, AppState>,
+    id: i64,
+    name: String,
+) -> Result<PromptGroup, String> {
+    state
+        .db
+        .update_prompt_group(id, &name)
+        .map_err(|e| e.to_string())
+}
+
+/// 删除自定义分组（组内模板迁回默认组）；内置分组会返回错误
+#[tauri::command]
+pub fn delete_prompt_group(state: State<'_, AppState>, id: i64) -> Result<bool, String> {
+    state.db.delete_prompt_group(id).map_err(|e| e.to_string())
+}
+
+/// 分组排序（传入完整 id 顺序，事务保存）
+#[tauri::command]
+pub fn reorder_prompt_groups(
+    state: State<'_, AppState>,
+    ids: Vec<i64>,
+) -> Result<(), String> {
+    state
+        .db
+        .reorder_prompt_groups(&ids)
+        .map_err(|e| e.to_string())
+}
+
+/// 组内提示词排序（传入完整 id 顺序，事务保存）
+#[tauri::command]
+pub fn reorder_prompts(
+    state: State<'_, AppState>,
+    group_id: i64,
+    ids: Vec<i64>,
+) -> Result<(), String> {
+    state
+        .db
+        .reorder_prompts(group_id, &ids)
         .map_err(|e| e.to_string())
 }

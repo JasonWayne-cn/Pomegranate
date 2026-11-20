@@ -2224,6 +2224,9 @@ export interface PromptTemplate {
   icon: string | null;
   isBuiltin: boolean;
   builtinCode: string | null;
+  /** 所属分组；null 视为默认组（快捷指令） */
+  groupId: number | null;
+  /** 组内排序 */
   sortOrder: number;
   enabled: boolean;
   createdAt: string;
@@ -2236,8 +2239,22 @@ export interface PromptTemplateInput {
   prompt: string;
   outputMode?: PromptOutputMode;
   icon?: string | null;
+  /** 所属分组；新建缺省落到默认组（快捷指令） */
+  groupId?: number | null;
   sortOrder?: number | null;
   enabled?: boolean | null;
+}
+
+/** AI 提示词分组：划词快捷框为每组渲染一个折叠下拉 */
+export interface PromptGroup {
+  id: number;
+  name: string;
+  isBuiltin: boolean;
+  /** 'quick' | 'translate' | null（用户自建） */
+  builtinCode: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── T-024 同步 V1 ─────────────────────────────

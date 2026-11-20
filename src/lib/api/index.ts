@@ -108,6 +108,7 @@ import type {
   DataviewRow,
   PromptTemplate,
   PromptTemplateInput,
+  PromptGroup,
   PlanTodayRequest,
   PlanTodayResponse,
   PlanFromGoalRequest,
@@ -1501,6 +1502,26 @@ export const promptApi = {
   delete: (id: number) => invoke<boolean>("delete_prompt", { id }),
   setEnabled: (id: number, enabled: boolean) =>
     invoke<void>("set_prompt_enabled", { id, enabled }),
+  /** 组内排序：传入完整 id 顺序，后端事务重写 sort_order */
+  reorder: (groupId: number, ids: number[]) =>
+    invoke<void>("reorder_prompts", { groupId, ids }),
+};
+
+/**
+ * AI 提示词分组 API
+ *
+ * 内置分组 `quick`（快捷指令）/ `translate`（翻译）在迁移 v87 时写入。
+ * 内置分组可改名但不可删除；删除自定义分组时模板回落到默认组。
+ */
+export const promptGroupApi = {
+  list: () => invoke<PromptGroup[]>("list_prompt_groups"),
+  create: (name: string) => invoke<PromptGroup>("create_prompt_group", { name }),
+  update: (id: number, name: string) =>
+    invoke<PromptGroup>("update_prompt_group", { id, name }),
+  delete: (id: number) => invoke<boolean>("delete_prompt_group", { id }),
+  /** 分组排序：传入完整 id 顺序，后端事务重写 sort_order */
+  reorder: (ids: number[]) =>
+    invoke<void>("reorder_prompt_groups", { ids }),
 };
 
 /** 定时推送：用户维护多条推送，到点让 AI 跑提示词并推送结果 */

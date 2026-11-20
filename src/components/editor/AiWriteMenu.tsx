@@ -1,11 +1,26 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import type { Editor } from "@tiptap/react";
 import { useFeatureEnabled } from "@/hooks/useFeatureEnabled";
 import { PluginKey } from "@tiptap/pm/state";
 import type { DecorationSet } from "@tiptap/pm/view";
 import { createFakeSelectionPlugin } from "./fakeSelection";
 import { SelectionFormatButtons } from "./SelectionFormatButtons";
-import { Button, Input, Popover, Tooltip, message, theme as antdTheme } from "antd";
+import {
+  Button,
+  Dropdown,
+  Input,
+  Popover,
+  Tooltip,
+  message,
+  theme as antdTheme,
+} from "antd";
 import {
   Sparkles,
   ArrowRight,
@@ -29,9 +44,9 @@ import {
 } from "lucide-react";
 import { useInRouterContext, useNavigate } from "react-router-dom";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { aiWriteApi, promptApi } from "@/lib/api";
+import { aiWriteApi, promptApi, promptGroupApi } from "@/lib/api";
 import { splitThinking } from "@/lib/stripThinking";
-import type { PromptOutputMode, PromptTemplate } from "@/types";
+import type { PromptGroup, PromptOutputMode, PromptTemplate } from "@/types";
 
 interface AiWriteMenuProps {
   editor: Editor;
@@ -79,6 +94,27 @@ function renderIcon(name: string | null, size: number): React.ReactNode {
   if (name && ICON_MAP[name]) return ICON_MAP[name](size);
   return <Wand2 size={size} />; // 用户自定义没填图标时的默认占位
 }
+
+// 与提示词管理页「结果插入方式」保持同一套中文文案
+const OUTPUT_MODE_LABEL: Record<PromptOutputMode, string> = {
+  replace: "替换选区",
+  append: "追加到末尾",
+  popup: "仅展示",
+};
+
+/** 快捷框按钮/下拉项的悬停提示：说明 + 结果插入模式 */
+function promptHint(p: PromptTemplate): React.ReactNode {
+  const desc = p.description?.trim();
+  return (
+    <div style={{ maxWidth: 260 }}>
+      {desc ? <div>{desc}</div> : null}
+      <div style={{ marginTop: desc ? 2 : 0, opacity: 0.75 }}>
+        模式：{OUTPUT_MODE_LABEL[p.outputMode] ?? p.outputMode}
+      </div>
+    </div>
+  );
+}
+
 
 /**
  * 修复 R-016：AI 写作处理选区时丢图片。
@@ -233,13 +269,26 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
   // 思考过程折叠区是否展开（每次新请求重置为折叠）
   const [thinkExpanded, setThinkExpanded] = useState(false);
   const [selectedText, setSelectedText] = useState("");
-  // 浮动 AI 工具栏：贴近选区下方，一行展示所有提示词按钮（横向滚动，不换行）
-  // 直接展开整条工具栏，不再走"先点小按钮→再展开菜单"的二段交互
-  const [triggerPos, setTriggerPos] = useState<{ x: number; y: number } | null>(null);
+  // 浮动 AI 工具栏：贴近选区下方，按分组渲染折叠下拉
+  // anchorTop 用于下方空间不足时把整条工具栏翻到选区上方
+  const [triggerPos, setTriggerPos] = useState<{
+    x: number;
+    y: number;
+    anchorTop: number;
+  } | null>(null);
+  // 量测后的实际落点（视口 clamp / 翻转），null = 尚未量测
+  const [floatingPos, setFloatingPos] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+  // 浮条当前是否可见（用 ref 判断"刚弹出"，避免每次键盘微调选区都重新拉列表）
+  const visibleRef = useRef(false);
   // 正在执行的 Prompt（用于决定结果插入模式 / 菜单标题）
   const [activePrompt, setActivePrompt] = useState<PromptTemplate | null>(null);
   // DB 里的提示词列表，AI 菜单从这里渲染；为空时显示"去添加提示词"占位
   const [prompts, setPrompts] = useState<PromptTemplate[]>([]);
+  // 提示词分组：每组对应浮条上的一个折叠下拉
+  const [groups, setGroups] = useState<PromptGroup[]>([]);
   const [promptsLoaded, setPromptsLoaded] = useState(false);
   // 自定义提示词弹窗
   const [customOpen, setCustomOpen] = useState(false);
@@ -255,8 +304,8 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
 
-  // 首次挂载时拉一次提示词；管理页增删后由用户重新选中触发刷新（下面 selectionUpdate 里刷）。
-  // 不做全局事件订阅：管理页和编辑器通常不同时打开，多拉一次成本可以忽略。
+  // 首次挂载时拉一次提示词与分组；之后每次浮条"从隐藏到弹出"再刷新一次，
+  // 保证管理页调整分组/排序后，重新选中文字即可看到新顺序。
   useEffect(() => {
     void reloadPrompts();
   }, []);
@@ -286,14 +335,63 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
 
   async function reloadPrompts() {
     try {
-      const list = await promptApi.list(true);
+      const [list, groupList] = await Promise.all([
+        promptApi.list(true),
+        promptGroupApi.list(),
+      ]);
       setPrompts(list);
+      setGroups(groupList);
     } catch (e) {
       console.error("加载提示词失败:", e);
     } finally {
       setPromptsLoaded(true);
     }
   }
+
+  // 同步 visible → ref，供 evaluateSelection 判断"浮条是否刚从隐藏变弹出"
+  useEffect(() => {
+    visibleRef.current = visible;
+  }, [visible]);
+
+  // 提示词按分组归档：组按 sortOrder，组内模板按 sortOrder/id。
+  // groupId 为空的模板兜底并入默认组（quick，快捷指令）。
+  const groupBuckets = useMemo(() => {
+    if (groups.length === 0) return [];
+    const sortedGroups = [...groups].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.id - b.id,
+    );
+    const defaultGroup =
+      sortedGroups.find((g) => g.builtinCode === "quick") ?? sortedGroups[0];
+    return sortedGroups.map((group) => ({
+      group,
+      items: prompts
+        .filter((p) => (p.groupId ?? defaultGroup.id) === group.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id),
+    }));
+  }, [groups, prompts]);
+
+  // 量测浮条实际宽高，做视口 clamp；下方放不下时翻到选区上方。
+  // 用 layout effect：浏览器绘制前完成校正，避免先闪一下再跳到正确位置。
+  useLayoutEffect(() => {
+    if (!visible || streaming || result || error || !triggerPos) {
+      setFloatingPos(null);
+      return;
+    }
+    const el = menuRef.current;
+    if (!el) return;
+    const M = 8;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const left = Math.min(
+      Math.max(M, triggerPos.x),
+      Math.max(M, window.innerWidth - w - M),
+    );
+    const top =
+      triggerPos.y + h > window.innerHeight - M
+        ? Math.max(M, triggerPos.anchorTop - h - 4)
+        : triggerPos.y;
+    setFloatingPos({ left, top });
+  }, [visible, streaming, result, error, triggerPos, groupBuckets]);
 
   // 监听编辑器选区变化，显示/隐藏 AI bar
   // bar 本身是钉在 EditorToolbar 正下方的 sticky 横条（CSS 控制 max-height + opacity 过渡），
@@ -326,16 +424,19 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
 
       setSelectedText(text);
       selectionRangeRef.current = { from, to };
-      // 选区结束位置的视口坐标 → 把 ✨ 按钮贴在选区右下方 4px 处
+      // 选区结束位置的视口坐标 → 先把浮条锚在选区右下方 4px 处；
+      // anchorTop 留给"下方放不下时翻到选区上方"用。
       // coordsAtPos 返回的就是视口坐标（getBoundingClientRect 体系），fixed 定位直接可用
       try {
         const coords = editor.view.coordsAtPos(to);
-        setTriggerPos({ x: coords.left, y: coords.bottom + 4 });
+        setTriggerPos({ x: coords.left, y: coords.bottom + 4, anchorTop: coords.top });
       } catch {
         setTriggerPos(null);
       }
 
       if (!streaming) {
+        // 每次浮条从隐藏变为弹出时重新拉一次分组/模板，保证管理页排序即时生效
+        if (!visibleRef.current) void reloadPrompts();
         setResult("");
         setError(null);
         setActivePrompt(null);
@@ -365,7 +466,7 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
       if (!selectionRangeRef.current) return;
       try {
         const coords = editor.view.coordsAtPos(selectionRangeRef.current.to);
-        setTriggerPos({ x: coords.left, y: coords.bottom + 4 });
+        setTriggerPos({ x: coords.left, y: coords.bottom + 4, anchorTop: coords.top });
       } catch {
         /* ignore */
       }
@@ -587,6 +688,7 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
       icon: "PenLine",
       isBuiltin: false,
       builtinCode: null,
+      groupId: null,
       sortOrder: 0,
       enabled: true,
       createdAt: "",
@@ -767,68 +869,24 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
       {divider}
       {/* leading：问 AI 这段（蓝色 CTA） */}
       {onAskAi && (
-        <>
-          <button
-            className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium whitespace-nowrap"
-            style={{
-              background: token.colorPrimary,
-              color: "#fff",
-              border: "none",
-              cursor: "pointer",
-            }}
-            onMouseDown={(e) => {
-              // mousedown 先于 blur，避免点击瞬间选区丢失
-              e.preventDefault();
-              onAskAi(selectedText);
-            }}
-          >
-            🤖 问AI
-          </button>
-          <span
-            style={{
-              width: 1,
-              height: 18,
-              background: token.colorBorderSecondary,
-              margin: "0 4px",
-            }}
-          />
-        </>
-      )}
-      {!onAskAi && (
-        <Sparkles
-          size={13}
-          style={{ color: token.colorPrimary, marginRight: 4 }}
-        />
-      )}
-      {prompts.length === 0 && promptsLoaded && (
-        <span
+        <button
+          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium whitespace-nowrap"
           style={{
-            color: token.colorTextTertiary,
-            fontSize: 12,
-            padding: "2px 6px",
+            background: token.colorPrimary,
+            color: "#fff",
+            border: "none",
+            cursor: "pointer",
+          }}
+          onMouseDown={(e) => {
+            // mousedown 先于 blur，避免点击瞬间选区丢失
+            e.preventDefault();
+            onAskAi(selectedText);
           }}
         >
-          无可用提示词，去"提示词"页添加
-        </span>
+          🤖 问AI
+        </button>
       )}
-      {prompts.map((p) => (
-        <Tooltip
-          key={p.id}
-          title={p.description || p.title}
-          mouseEnterDelay={0.3}
-        >
-          <button
-            className="flex items-center gap-1 px-2 py-1 rounded text-xs hover:bg-black/5 transition-colors whitespace-nowrap"
-            style={{ color: token.colorText }}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => handlePrompt(p)}
-          >
-            {renderIcon(p.icon, 13)}
-            {p.title}
-          </button>
-        </Tooltip>
-      ))}
-      {/* 自定义提示词：嵌套 Popover 输入即兴指令 */}
+      {/* AI指令：输入即兴指令，单次处理选中文本并写回选区 */}
       <Popover
         open={customOpen}
         onOpenChange={(o) => {
@@ -913,7 +971,7 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
           </div>
         }
       >
-        <Tooltip title="输入自定义指令" mouseEnterDelay={0.3}>
+        <Tooltip title="输入 AI 指令，单次处理选中文本" mouseEnterDelay={0.3}>
           <button
             className="flex items-center gap-1 px-2 py-1 rounded text-xs hover:bg-black/5 transition-colors whitespace-nowrap"
             style={{
@@ -922,10 +980,94 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
             onMouseDown={(e) => e.preventDefault()}
           >
             <PenLine size={13} />
-            自定义
+            AI指令
           </button>
         </Tooltip>
       </Popover>
+      {divider}
+      {!onAskAi && (
+        <Sparkles
+          size={13}
+          style={{ color: token.colorPrimary, marginRight: 4 }}
+        />
+      )}
+      {prompts.length === 0 && promptsLoaded && (
+        <span
+          style={{
+            color: token.colorTextTertiary,
+            fontSize: 12,
+            padding: "2px 6px",
+          }}
+        >
+          无可用提示词，去"提示词"页添加
+        </span>
+      )}
+      {/* 分组下拉：每组一个折叠菜单，顺序 = 组 sort_order → 组内 sort_order */}
+      {groupBuckets.length > 0
+        ? groupBuckets.map(({ group, items }) =>
+            items.length === 0 ? null : (
+              <Dropdown
+                key={group.id}
+                trigger={["click"]}
+                placement="bottomLeft"
+                menu={{
+                  items: items.map((p) => ({
+                    key: String(p.id),
+                    // 图标放进 Tooltip 内，悬停整行（含图标）都能看到说明 + 模式
+                    label: (
+                      <Tooltip
+                        title={promptHint(p)}
+                        placement="right"
+                        mouseEnterDelay={0.25}
+                      >
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                          }}
+                        >
+                          {renderIcon(p.icon, 13)}
+                          {p.title}
+                        </span>
+                      </Tooltip>
+                    ),
+                  })),
+                  onClick: ({ key }) => {
+                    const p = items.find((x) => String(x.id) === key);
+                    if (p) handlePrompt(p);
+                  },
+                }}
+              >
+                <button
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs hover:bg-black/5 transition-colors whitespace-nowrap"
+                  style={{ color: token.colorText }}
+                  onMouseDown={(e) => e.preventDefault()}
+                >
+                  {group.name}
+                  <ChevronDown size={11} />
+                </button>
+              </Dropdown>
+            ),
+          )
+        : // 分组数据异常缺失时回退到旧行为：全部平铺
+          prompts.map((p) => (
+            <Tooltip
+              key={p.id}
+              title={promptHint(p)}
+              mouseEnterDelay={0.3}
+            >
+              <button
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs hover:bg-black/5 transition-colors whitespace-nowrap"
+                style={{ color: token.colorText }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handlePrompt(p)}
+              >
+                {renderIcon(p.icon, 13)}
+                {p.title}
+              </button>
+            </Tooltip>
+          ))}
     </div>
   );
 
@@ -941,8 +1083,9 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
           ref={menuRef}
           style={{
             position: "fixed",
-            left: triggerPos.x,
-            top: triggerPos.y,
+            // 量测后使用视口 clamp 的位置；未量测前先落在锚点（不可见时无感）
+            left: floatingPos?.left ?? triggerPos.x,
+            top: floatingPos?.top ?? triggerPos.y,
             zIndex: 999,
             maxWidth: "min(720px, calc(100vw - 24px))",
           }}

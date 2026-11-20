@@ -1251,6 +1251,12 @@ pub fn run() {
             commands::prompt::update_prompt,
             commands::prompt::delete_prompt,
             commands::prompt::set_prompt_enabled,
+            commands::prompt::list_prompt_groups,
+            commands::prompt::create_prompt_group,
+            commands::prompt::update_prompt_group,
+            commands::prompt::delete_prompt_group,
+            commands::prompt::reorder_prompt_groups,
+            commands::prompt::reorder_prompts,
             // 导入模块
             commands::import::scan_markdown_folder,
             commands::import::import_selected_files,

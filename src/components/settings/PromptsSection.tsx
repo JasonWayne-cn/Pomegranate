@@ -17,16 +17,36 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
+  ArrowDown,
+  ArrowUp,
+  Check,
   Copy as CopyIcon,
   Edit3,
+  GripVertical,
   Plus,
   Power,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
-import { promptApi } from "@/lib/api";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { promptApi, promptGroupApi } from "@/lib/api";
 import { MicButton } from "@/components/MicButton";
 import type {
+  PromptGroup,
   PromptOutputMode,
   PromptTemplate,
   PromptTemplateInput,
@@ -73,6 +93,8 @@ interface FormValues {
   outputMode: PromptOutputMode;
   icon: string | null;
   enabled: boolean;
+  /** 所属分组 id */
+  groupId: number;
 }
 
 interface Props {
@@ -80,12 +102,172 @@ interface Props {
   compact?: boolean;
 }
 
+interface SortableGroupCardProps {
+  group: PromptGroup;
+  count: number;
+  editing: boolean;
+  editName: string;
+  onEditNameChange: (v: string) => void;
+  onStartRename: () => void;
+  onCancelRename: () => void;
+  onSaveRename: () => void;
+  onAdd: () => void;
+  onDelete: () => void;
+  children: React.ReactNode;
+}
+
+/**
+ * 单个分组卡片，可拖拽调整组间顺序。
+ * 拖拽手柄只绑在 GripVertical 图标上，标题/按钮区域不受影响。
+ */
+function SortableGroupCard({
+  group,
+  count,
+  editing,
+  editName,
+  onEditNameChange,
+  onStartRename,
+  onCancelRename,
+  onSaveRename,
+  onAdd,
+  onDelete,
+  children,
+}: SortableGroupCardProps) {
+  const { token } = antdTheme.useToken();
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: group.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    ...(isDragging
+      ? { position: "relative" as const, zIndex: 999, opacity: 0.75 }
+      : {}),
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <Card
+        size="small"
+        title={
+          <div className="flex items-center gap-2">
+            <span
+              {...attributes}
+              {...listeners}
+              title="拖动以调整分组顺序"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                cursor: "grab",
+                color: token.colorTextTertiary,
+                touchAction: "none",
+              }}
+            >
+              <GripVertical size={14} />
+            </span>
+            {editing ? (
+              <Input
+                size="small"
+                value={editName}
+                onChange={(e) => onEditNameChange(e.target.value)}
+                onPressEnter={onSaveRename}
+                maxLength={30}
+                autoFocus
+                style={{ width: 160 }}
+              />
+            ) : (
+              <span style={{ color: token.colorText, fontWeight: 600 }}>
+                {group.name}
+              </span>
+            )}
+            <AntTag
+              color={group.isBuiltin ? "blue" : undefined}
+              style={{ margin: 0, fontSize: 11 }}
+            >
+              {group.isBuiltin ? "内置" : "自定义"}
+            </AntTag>
+            <span style={{ color: token.colorTextTertiary, fontSize: 12 }}>
+              {count} 条
+            </span>
+          </div>
+        }
+        extra={
+          <Space size={4}>
+            {editing ? (
+              <>
+                <Tooltip title="保存">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<Check size={14} />}
+                    onClick={onSaveRename}
+                  />
+                </Tooltip>
+                <Tooltip title="取消">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<X size={14} />}
+                    onClick={onCancelRename}
+                  />
+                </Tooltip>
+              </>
+            ) : (
+              <Tooltip title="重命名分组">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<Edit3 size={14} />}
+                  onClick={onStartRename}
+                />
+              </Tooltip>
+            )}
+            <Tooltip title="在本组新建提示词">
+              <Button
+                type="text"
+                size="small"
+                icon={<Plus size={14} />}
+                onClick={onAdd}
+              />
+            </Tooltip>
+            {!group.isBuiltin && (
+              <Tooltip title="删除分组（组内提示词迁回快捷指令）">
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<Trash2 size={14} />}
+                  onClick={onDelete}
+                />
+              </Tooltip>
+            )}
+          </Space>
+        }
+      >
+        {children}
+      </Card>
+    </div>
+  );
+}
+
 export function PromptsSection({ compact = false }: Props) {
   const { token } = antdTheme.useToken();
   const [list, setList] = useState<PromptTemplate[]>([]);
+  const [groups, setGroups] = useState<PromptGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<PromptTemplate | null>(null);
+  // 分组行内改名态
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState("");
+  // 新建分组弹窗
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [groupNameInput, setGroupNameInput] = useState("");
   /**
    * Modal 打开时要填充的初始值。
    *
@@ -106,8 +288,12 @@ export function PromptsSection({ compact = false }: Props) {
   async function loadList() {
     setLoading(true);
     try {
-      const data = await promptApi.list(false);
+      const [data, groupList] = await Promise.all([
+        promptApi.list(false),
+        promptGroupApi.list(),
+      ]);
       setList(data);
+      setGroups(groupList);
     } catch (e) {
       message.error(`加载提示词失败：${e}`);
     } finally {
@@ -115,7 +301,32 @@ export function PromptsSection({ compact = false }: Props) {
     }
   }
 
-  function openCreate() {
+  /** 默认组（快捷指令）：新建/无分组模板都落到这里 */
+  const defaultGroupId = useMemo(
+    () =>
+      groups.find((g) => g.builtinCode === "quick")?.id ??
+      groups[0]?.id ??
+      null,
+    [groups],
+  );
+
+  /** 分组归档：组按 sortOrder，组内模板按 sortOrder/id */
+  const buckets = useMemo(() => {
+    if (groups.length === 0) {
+      return [] as Array<{ group: PromptGroup; items: PromptTemplate[] }>;
+    }
+    const sortedGroups = [...groups].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.id - b.id,
+    );
+    return sortedGroups.map((group) => ({
+      group,
+      items: list
+        .filter((p) => (p.groupId ?? defaultGroupId) === group.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id),
+    }));
+  }, [groups, list, defaultGroupId]);
+
+  function openCreate(groupId?: number) {
     setEditing(null);
     setPendingValues({
       title: "",
@@ -124,6 +335,7 @@ export function PromptsSection({ compact = false }: Props) {
       outputMode: "replace",
       icon: null,
       enabled: true,
+      groupId: groupId ?? defaultGroupId ?? 0,
     });
     setFormKey((k) => k + 1);
     setModalOpen(true);
@@ -138,6 +350,7 @@ export function PromptsSection({ compact = false }: Props) {
       outputMode: record.outputMode,
       icon: record.icon,
       enabled: record.enabled,
+      groupId: record.groupId ?? defaultGroupId ?? 0,
     });
     setFormKey((k) => k + 1);
     setModalOpen(true);
@@ -152,6 +365,7 @@ export function PromptsSection({ compact = false }: Props) {
       outputMode: record.outputMode,
       icon: record.icon,
       enabled: true,
+      groupId: record.groupId ?? defaultGroupId ?? 0,
     });
     setFormKey((k) => k + 1);
     setModalOpen(true);
@@ -166,6 +380,7 @@ export function PromptsSection({ compact = false }: Props) {
         prompt: values.prompt,
         outputMode: values.outputMode,
         icon: values.icon || null,
+        groupId: values.groupId ?? defaultGroupId ?? undefined,
         enabled: values.enabled,
       };
       if (editing) {
@@ -218,6 +433,108 @@ export function PromptsSection({ compact = false }: Props) {
     }
   }
 
+  // ─── 分组操作 ────────────────────────────────
+
+  async function handleCreateGroup() {
+    const name = groupNameInput.trim();
+    if (!name) {
+      message.warning("请输入分组名称");
+      return;
+    }
+    try {
+      await promptGroupApi.create(name);
+      setGroupModalOpen(false);
+      setGroupNameInput("");
+      await loadList();
+      message.success("已创建分组");
+    } catch (e) {
+      message.error(`创建分组失败：${e}`);
+    }
+  }
+
+  function startRenameGroup(g: PromptGroup) {
+    setEditingGroupId(g.id);
+    setEditingGroupName(g.name);
+  }
+
+  async function saveRenameGroup(id: number) {
+    const name = editingGroupName.trim();
+    if (!name) {
+      message.warning("分组名称不能为空");
+      return;
+    }
+    try {
+      await promptGroupApi.update(id, name);
+      setEditingGroupId(null);
+      await loadList();
+    } catch (e) {
+      message.error(`重命名失败：${e}`);
+    }
+  }
+
+  function handleDeleteGroup(g: PromptGroup) {
+    Modal.confirm({
+      title: `删除分组「${g.name}」？`,
+      content: "组内提示词会迁回「快捷指令」分组，不会丢失。",
+      okText: "删除",
+      okType: "danger",
+      cancelText: "取消",
+      async onOk() {
+        try {
+          await promptGroupApi.delete(g.id);
+          await loadList();
+          message.success("已删除分组");
+        } catch (e) {
+          message.error(`删除失败：${e}`);
+          throw e;
+        }
+      },
+    });
+  }
+
+  // PointerSensor 5px 阈值：组头上的微点击不会误触发拖拽
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  /** 组间拖拽排序：乐观展示 + 一次事务保存 */
+  async function handleGroupDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const ids = buckets.map((b) => b.group.id);
+    const from = ids.indexOf(Number(active.id));
+    const to = ids.indexOf(Number(over.id));
+    if (from < 0 || to < 0) return;
+    const next = arrayMove(ids, from, to);
+    try {
+      await promptGroupApi.reorder(next);
+      await loadList();
+    } catch (e) {
+      message.error(`排序保存失败：${e}`);
+    }
+  }
+
+  /** 组内上移/下移：按显示顺序重写该组 sort_order */
+  async function movePrompt(
+    items: PromptTemplate[],
+    index: number,
+    delta: number,
+  ) {
+    const target = index + delta;
+    if (target < 0 || target >= items.length) return;
+    const next = [...items];
+    const [moved] = next.splice(index, 1);
+    next.splice(target, 0, moved);
+    const groupId = moved.groupId ?? defaultGroupId;
+    if (groupId == null) return;
+    try {
+      await promptApi.reorder(groupId, next.map((p) => p.id));
+      await loadList();
+    } catch (e) {
+      message.error(`排序保存失败：${e}`);
+    }
+  }
+
   // ─── 右键菜单 ────────────────────────────────
   const ctx = useContextMenu<PromptTemplate>();
 
@@ -267,7 +584,8 @@ export function PromptsSection({ compact = false }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctx.state.payload]);
 
-  const columns = useMemo<ColumnsType<PromptTemplate>>(() => {
+  /** 单个分组内的表格列；「顺序」列按该组当前显示顺序提供上移/下移 */
+  function buildColumns(items: PromptTemplate[]): ColumnsType<PromptTemplate> {
     const cols: ColumnsType<PromptTemplate> = [
       {
         title: "标题",
@@ -308,15 +626,36 @@ export function PromptsSection({ compact = false }: Props) {
       },
     ];
 
-    // 抽屉宽度有限，compact 时省掉排序列
-    if (!compact) {
-      cols.push({
-        title: "排序",
-        dataIndex: "sortOrder",
-        key: "sortOrder",
-        width: 70,
-      });
-    }
+    cols.push({
+      title: "顺序",
+      key: "order",
+      width: 86,
+      render: (_, r) => {
+        const idx = items.findIndex((x) => x.id === r.id);
+        return (
+          <Space size={0}>
+            <Tooltip title="上移">
+              <Button
+                type="text"
+                size="small"
+                icon={<ArrowUp size={13} />}
+                disabled={idx <= 0}
+                onClick={() => movePrompt(items, idx, -1)}
+              />
+            </Tooltip>
+            <Tooltip title="下移">
+              <Button
+                type="text"
+                size="small"
+                icon={<ArrowDown size={13} />}
+                disabled={idx < 0 || idx >= items.length - 1}
+                onClick={() => movePrompt(items, idx, 1)}
+              />
+            </Tooltip>
+          </Space>
+        );
+      },
+    });
 
     cols.push(
       {
@@ -369,8 +708,7 @@ export function PromptsSection({ compact = false }: Props) {
     );
 
     return cols;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, compact]);
+  }
 
   return (
     <div
@@ -391,9 +729,17 @@ export function PromptsSection({ compact = false }: Props) {
           </div>
         }
         extra={
-          <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>
-            新建提示词
-          </Button>
+          <Space>
+            <Button
+              icon={<Plus size={14} />}
+              onClick={() => setGroupModalOpen(true)}
+            >
+              新建分组
+            </Button>
+            <Button type="primary" icon={<Plus size={14} />} onClick={() => openCreate()}>
+              新建提示词
+            </Button>
+          </Space>
         }
       >
         <p
@@ -403,32 +749,59 @@ export function PromptsSection({ compact = false }: Props) {
             marginBottom: 12,
           }}
         >
-          在笔记编辑器选中文本后，AI 菜单会列出所有启用的提示词。
-          你可以修改内置模板的文案，也可以新建自己的模板；变量见下方占位符列表。
+          在笔记编辑器选中文本后，快捷框会按分组渲染折叠下拉。
+          拖动组标题左侧手柄可调整组顺序，组内用「顺序」列的上下箭头调整；
+          改动后重新选中文字即可看到新顺序。
         </p>
 
-        {list.length === 0 && !loading ? (
+        {buckets.length === 0 && !loading ? (
           <Empty description="还没有提示词" />
         ) : (
-          <Table
-            size="small"
-            rowKey="id"
-            loading={loading}
-            columns={columns}
-            dataSource={list}
-            pagination={false}
-            scroll={compact ? { x: 620 } : undefined}
-            onRow={(record) => ({
-              onContextMenu: (e) => {
-                e.preventDefault();
-                ctx.open(e.nativeEvent, record);
-              },
-              style:
-                ctx.state.payload?.id === record.id
-                  ? { background: token.colorPrimaryBg }
-                  : undefined,
-            })}
-          />
+          <DndContext sensors={dndSensors} onDragEnd={handleGroupDragEnd}>
+            <SortableContext
+              items={buckets.map((b) => b.group.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="flex flex-col gap-3">
+                {buckets.map(({ group, items }) => (
+                  <SortableGroupCard
+                    key={group.id}
+                    group={group}
+                    count={items.length}
+                    editing={editingGroupId === group.id}
+                    editName={editingGroupName}
+                    onEditNameChange={setEditingGroupName}
+                    onStartRename={() => startRenameGroup(group)}
+                    onCancelRename={() => setEditingGroupId(null)}
+                    onSaveRename={() => saveRenameGroup(group.id)}
+                    onAdd={() => openCreate(group.id)}
+                    onDelete={() => handleDeleteGroup(group)}
+                  >
+                    <Table
+                      size="small"
+                      rowKey="id"
+                      loading={loading}
+                      columns={buildColumns(items)}
+                      dataSource={items}
+                      pagination={false}
+                      locale={{ emptyText: "本组还没有提示词" }}
+                      scroll={compact ? { x: 720 } : undefined}
+                      onRow={(record) => ({
+                        onContextMenu: (e) => {
+                          e.preventDefault();
+                          ctx.open(e.nativeEvent, record);
+                        },
+                        style:
+                          ctx.state.payload?.id === record.id
+                            ? { background: token.colorPrimaryBg }
+                            : undefined,
+                      })}
+                    />
+                  </SortableGroupCard>
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
       </Card>
 
@@ -582,6 +955,19 @@ export function PromptsSection({ compact = false }: Props) {
             </Form.Item>
           </div>
           <Form.Item
+            name="groupId"
+            label="所属分组"
+            tooltip="决定这条提示词出现在快捷框的哪个折叠下拉里"
+            rules={[{ required: true, message: "请选择分组" }]}
+          >
+            <Select
+              options={groups.map((g) => ({
+                value: g.id,
+                label: g.isBuiltin ? `${g.name}（内置）` : g.name,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item
             name="icon"
             label="图标（可选）"
             tooltip="Lucide 图标名，如 Sparkles / Languages / FileText"
@@ -589,6 +975,28 @@ export function PromptsSection({ compact = false }: Props) {
             <Input placeholder="Lucide 图标名（可留空）" maxLength={40} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="新建分组"
+        open={groupModalOpen}
+        onCancel={() => {
+          setGroupModalOpen(false);
+          setGroupNameInput("");
+        }}
+        onOk={handleCreateGroup}
+        okText="创建"
+        cancelText="取消"
+        destroyOnHidden
+      >
+        <Input
+          placeholder="分组名称，如：翻译 / 润色"
+          value={groupNameInput}
+          onChange={(e) => setGroupNameInput(e.target.value)}
+          onPressEnter={handleCreateGroup}
+          maxLength={30}
+          autoFocus
+        />
       </Modal>
 
       <ContextMenuOverlay

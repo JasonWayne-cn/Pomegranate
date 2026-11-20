@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 86;
+pub const SCHEMA_VERSION: i32 = 87;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -119,6 +119,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             83 => migrate_v83_to_v84(conn)?,
             84 => migrate_v84_to_v85(conn)?,
             85 => migrate_v85_to_v86(conn)?,
+            86 => migrate_v86_to_v87(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -3143,6 +3144,56 @@ fn migrate_v85_to_v86(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 86)?;
+    Ok(())
+}
+
+/// v86 -> v87: 提示词分组（prompt_groups + prompt_templates.group_id）
+///
+/// 划词快捷框按组渲染折叠下拉，组与组内模板均可排序。
+/// - 内置组：`快捷指令`(quick, 10)、`翻译`(translate, 20)
+/// - 内置模板按 builtin_code 回填到对应组；用户自建模板回落到「快捷指令」
+/// - 组内排序继续复用 prompt_templates.sort_order
+fn migrate_v86_to_v87(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v86 -> v87 (提示词分组)");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS prompt_groups (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            name         TEXT NOT NULL,
+            is_builtin   INTEGER NOT NULL DEFAULT 0,
+            builtin_code TEXT UNIQUE,
+            sort_order   INTEGER NOT NULL DEFAULT 0,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            updated_at   TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_prompt_groups_sort
+            ON prompt_groups(sort_order, id);
+
+        INSERT OR IGNORE INTO prompt_groups (name, is_builtin, builtin_code, sort_order)
+        VALUES ('快捷指令', 1, 'quick', 10),
+               ('翻译', 1, 'translate', 20);
+        ",
+    )?;
+
+    // group_id 用普通 INTEGER 列（不走外键）：删除组时由 DAO 把模板迁回默认组
+    let cols = list_columns(conn, "prompt_templates")?;
+    if !cols.iter().any(|c| c == "group_id") {
+        conn.execute_batch("ALTER TABLE prompt_templates ADD COLUMN group_id INTEGER;")?;
+    }
+
+    // 先归翻译组，再把剩余（写作类 + 用户自建）全部落到快捷指令组
+    conn.execute_batch(
+        "UPDATE prompt_templates SET group_id =
+             (SELECT id FROM prompt_groups WHERE builtin_code = 'translate')
+         WHERE builtin_code IN ('translate_en', 'translate_zh');
+
+         UPDATE prompt_templates SET group_id =
+             (SELECT id FROM prompt_groups WHERE builtin_code = 'quick')
+         WHERE group_id IS NULL;",
+    )?;
+
+    set_version(conn, 87)?;
     Ok(())
 }
 

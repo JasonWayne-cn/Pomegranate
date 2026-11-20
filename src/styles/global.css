@@ -728,6 +728,28 @@ body,
 
 /* 暗色模式工具栏 — 见 themes.css */
 
+/* ─── AI 划词浮条 ──────────────────────────────────────────────
+ * 贴在选区右下方的一整条工具栏（格式按钮 + 问AI + 提示词）。
+ * 容器定位由 AiWriteMenu 的内联 style（fixed + 选区坐标）驱动，
+ * 这里只负责横向排布：flex-nowrap + 横向滚动，按钮再多也不换行/纵向堆叠。
+ */
+.kb-ai-floating-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+.kb-ai-floating-toolbar::-webkit-scrollbar {
+  height: 0;
+  background: transparent;
+}
+
 .tiptap-content .tiptap {
   outline: none;
   padding: 20px 0;
