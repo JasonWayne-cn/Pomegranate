@@ -81,6 +81,15 @@ describe("DOCX 预览渲染", () => {
     expect(pageCount).toBeGreaterThan(1);
   });
 
+  it("编辑块索引使用 parsed.blocks 原下标（含隐藏块）", () => {
+    const { html } = renderDocxHtml([
+      block({ hidden: true, runs: [{ text: "隐藏段落" }] }),
+      block({ runs: [{ text: "可见段落" }] }),
+    ]);
+    expect(html).toContain('data-block-index="1"');
+    expect(html).not.toContain('data-block-index="0"');
+  });
+
   it("渲染表格与单元格文本", () => {
     const { html } = renderDocxHtml([
       block({

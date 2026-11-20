@@ -189,6 +189,7 @@ impl NoteService {
             query.uncategorized.unwrap_or(false),
             query.include_descendants.unwrap_or(true),
             query.sort_by.as_deref(),
+            query.include_external_docs.unwrap_or(false),
         )
     }
 
@@ -215,6 +216,7 @@ impl NoteService {
             // 默认递归子文件夹（符合用户直觉：点父目录看到所有子树笔记）
             query.include_descendants.unwrap_or(true),
             query.sort_by.as_deref(),
+            query.include_external_docs.unwrap_or(false),
         )?;
 
         Ok(PageResult {

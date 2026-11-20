@@ -142,6 +142,11 @@ pub fn read_workbook(path: &str) -> Result<ExcelSummary, AppError> {
     read_workbook_with(path, ReadMode::ForLlm)
 }
 
+/// Office 工作台预览：每表最多 500 行，避免整表读入内存。
+pub fn read_workbook_preview(path: &str) -> Result<ExcelSummary, AppError> {
+    read_workbook_with(path, ReadMode::Preview)
+}
+
 /// 读取模式 —— 决定要不要截断行、要不要拼 markdown。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadMode {
@@ -154,7 +159,12 @@ pub enum ReadMode {
     /// AI 拿它算「有多少已激活」会答 47（真实 2041），且界面上毫无提示 ——
     /// 精确计算的前提是数据完整，这条路径上截断等于在骗人。
     Full,
+    /// **界面预览**：每表最多 500 行，不拼 markdown。
+    Preview,
 }
+
+/// 界面预览的行数上限（按表）。
+const MAX_PREVIEW_ROWS: usize = 500;
 
 /// 单个 Sheet 入库的行数上限。
 ///
@@ -220,6 +230,14 @@ fn read_workbook_with(path: &str, mode: ReadMode) -> Result<ExcelSummary, AppErr
         let (kept_rows, truncated_rows) = match mode {
             ReadMode::ForLlm => trim_sheet_rows(&all_rows, &headers),
             ReadMode::Full => cap_rows_for_dataset(&name, all_rows),
+            ReadMode::Preview => {
+                if all_rows.len() > MAX_PREVIEW_ROWS {
+                    let truncated = all_rows.len() - MAX_PREVIEW_ROWS;
+                    (all_rows[..MAX_PREVIEW_ROWS].to_vec(), truncated)
+                } else {
+                    (all_rows, 0)
+                }
+            }
         };
         sheets.push(SheetSnapshot {
             name,
@@ -230,9 +248,9 @@ fn read_workbook_with(path: &str, mode: ReadMode) -> Result<ExcelSummary, AppErr
         });
     }
 
-    // Full 到此为止：调用方只要结构化行，markdown 拼出来没人用 ——
+    // Full / Preview 到此为止：调用方只要结构化行，markdown 拼出来没人用 ——
     // 2000 行的表拼一遍是几百 KB 的纯浪费
-    if mode == ReadMode::Full {
+    if mode != ReadMode::ForLlm {
         let truncated_sheet_names = sheets
             .iter()
             .filter(|s| s.truncated_rows > 0)
@@ -330,6 +348,14 @@ fn read_csv(path: &str, delimiter: u8, mode: ReadMode) -> Result<ExcelSummary, A
     let (kept_rows, truncated_rows) = match mode {
         ReadMode::ForLlm => trim_sheet_rows(&all, &headers),
         ReadMode::Full => cap_rows_for_dataset(&name, all),
+        ReadMode::Preview => {
+            if all.len() > MAX_PREVIEW_ROWS {
+                let truncated = all.len() - MAX_PREVIEW_ROWS;
+                (all[..MAX_PREVIEW_ROWS].to_vec(), truncated)
+            } else {
+                (all, 0)
+            }
+        }
     };
     let sheets = vec![SheetSnapshot {
         name: name.clone(),
@@ -341,7 +367,7 @@ fn read_csv(path: &str, delimiter: u8, mode: ReadMode) -> Result<ExcelSummary, A
     // Full 模式不拼 markdown（与 read_workbook_with 同口径：调用方只要结构化行）
     let markdown = match mode {
         ReadMode::ForLlm => render_markdown(&sheets),
-        ReadMode::Full => String::new(),
+        ReadMode::Full | ReadMode::Preview => String::new(),
     };
     let truncated_sheet_names = if truncated_rows > 0 { vec![name] } else { Vec::new() };
 

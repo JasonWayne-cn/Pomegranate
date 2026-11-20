@@ -97,17 +97,23 @@ function paragraphStyle(block: Block): string {
   return styles.join(";");
 }
 
-function renderBlock(block: Block): string {
+function blockAttr(index: number | undefined): string {
+  return index == null ? "" : ` data-block-index="${index}"`;
+}
+
+function renderBlock(block: Block, blockIndex?: number): string {
+  // 书签是零宽标记，不是内容：不渲染占位框。
+  if (block.type === "passthrough" && /bookmark/i.test(block.label ?? "")) return "";
   if (block.type === "heading") {
     const level = Math.min(6, Math.max(1, block.level ?? 1));
-    return `<h${level} style="margin:18px 0 8px;font-size:${Math.max(16, 28 - level * 2)}px;color:#111827">${runsHtml(block.runs)}</h${level}>`;
+    return `<h${level}${blockAttr(blockIndex)} style="margin:18px 0 8px;font-size:${Math.max(16, 28 - level * 2)}px;color:#111827">${runsHtml(block.runs)}</h${level}>`;
   }
   if (block.type === "listItem") {
     const list = block.list;
     const ordered = list?.kind === "ordered";
     const indent = 20 + (list?.ilvl ?? 0) * 20;
     const marker = ordered ? "1." : "•";
-    return `<div style="${paragraphStyle(block)};display:flex;gap:6px;padding-left:${indent}px"><span style="flex:none;color:#6b7280">${marker}</span><span>${runsHtml(block.runs)}</span></div>`;
+    return `<div${blockAttr(blockIndex)} style="${paragraphStyle(block)};display:flex;gap:6px;padding-left:${indent}px"><span style="flex:none;color:#6b7280">${marker}</span><span>${runsHtml(block.runs)}</span></div>`;
   }
   if (block.type === "table") {
     const table = block.table;
@@ -141,7 +147,7 @@ function renderBlock(block: Block): string {
   if (block.type === "passthrough") {
     return renderPlaceholder(block);
   }
-  return `<p style="${paragraphStyle(block)}">${runsHtml(block.runs)}</p>`;
+  return `<p${blockAttr(blockIndex)} style="${paragraphStyle(block)}">${runsHtml(block.runs)}</p>`;
 }
 
 function renderPlaceholder(block: Block): string {
@@ -179,6 +185,7 @@ function renderPage(
   options: DocxRenderOptions,
   pageIndex: number,
   pageCount: number,
+  indexOf: (block: Block) => number | undefined,
 ): string {
   const header = options.headerText
     ? `<div style="position:absolute;left:${PAGE_PADDING_X}px;right:${PAGE_PADDING_X}px;top:28px;font-size:11px;color:#9ca3af;border-bottom:1px solid #e5e7eb;padding-bottom:6px">${escapeHtml(options.headerText)}</div>`
@@ -189,7 +196,7 @@ function renderPage(
   const footer = footerParts.length
     ? `<div style="position:absolute;left:${PAGE_PADDING_X}px;right:${PAGE_PADDING_X}px;bottom:24px;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:6px;display:flex;justify-content:space-between"><span>${footerParts[0]}</span><span>${footerParts[1] ?? ""}</span></div>`
     : "";
-  const body = blocks.map(renderBlock).join("");
+  const body = blocks.map((block) => renderBlock(block, indexOf(block))).join("");
   return `<div style="position:relative;width:${PAGE_WIDTH_PX}px;min-height:${PAGE_MIN_HEIGHT_PX}px;margin:0 auto 24px;padding:${PAGE_PADDING_Y}px ${PAGE_PADDING_X}px;background:#fff;color:#1f2937;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-serif;font-size:14px;line-height:1.7;box-shadow:0 1px 4px rgba(0,0,0,.1);box-sizing:border-box">${header}${body || '<p style="color:#9ca3af">（空文档）</p>'}${footer}</div>`;
 }
 
@@ -269,6 +276,9 @@ export function renderDocxHtml(
   blocks: Block[],
   options: DocxRenderOptions = {},
 ): { html: string; truncated: boolean; pageCount: number } {
+  // 编辑提交用的是 parsed.blocks 的索引（含隐藏块），必须按原数组定位。
+  const indexMap = new Map(blocks.map((block, index) => [block, index] as const));
+  const indexOf = (block: Block) => indexMap.get(block);
   const visible = blocks.filter((block) => !block.hidden);
   const truncated = visible.length > MAX_PREVIEW_BLOCKS;
   const limited = visible.slice(0, MAX_PREVIEW_BLOCKS);
@@ -290,7 +300,7 @@ export function renderDocxHtml(
 
   const html = pages
     .map((page, index) =>
-      renderPage(page, { showPageNumbers: true, ...options }, index, pages.length),
+      renderPage(page, { showPageNumbers: true, ...options }, index, pages.length, indexOf),
     )
     .join("");
   return { html, truncated, pageCount: pages.length };

@@ -45,6 +45,8 @@ export interface DocxOpenedData {
   html: string;
   saved: Uint8Array;
   textBlocks: DocxTextBlock[];
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 export type OfficeOpenedData = PptxOpenedData | DocxOpenedData;
@@ -125,7 +127,9 @@ export type WorkerRequest = {
     | "save"
     | "list-text"
     | "docx-list-text"
-    | "docx-update-text";
+    | "docx-update-text"
+    | "docx-undo"
+    | "docx-redo";
   params?: unknown;
 };
 

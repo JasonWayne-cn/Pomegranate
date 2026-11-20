@@ -569,6 +569,7 @@ impl Database {
         uncategorized: bool,
         include_descendants: bool,
         sort_by: Option<&str>,
+        include_external_docs: bool,
     ) -> Result<(Vec<Note>, usize), AppError> {
         // 先在锁外算好 folder_id 列表（涉及另一次 query，避免锁内嵌套）
         // include_descendants=true 时把 root 子树所有 ID 一起塞进 IN 子句
@@ -594,15 +595,17 @@ impl Database {
         // 日记 is_daily=1 也无条件过滤：所有用户视角的「笔记列表」（主列表 / 未分类 / 文件夹）
         // 都不显示日记，日记只走 📅 每日笔记专用面板。
         // 不影响 FTS 全文搜索 / MCP / AI RAG —— 那些走独立查询路径。
-        // ext_index_only=0：外部二进制文档（PDF/Word/Excel）仅作索引，正文是抽取结果，
-        // 从挂载树走 Office 工作台打开原文件，不混进文档列表。
+        // ext_index_only=0：外部二进制文档（PDF/Word/Excel）默认不进文档列表；
+        // 文档树需要展示它们时由 include_external_docs 显式打开。
         let mut conditions = vec![
             "is_deleted = 0".to_string(),
             "is_hidden = 0".to_string(),
             "is_scratch = 0".to_string(),
             "is_daily = 0".to_string(),
-            "ext_index_only = 0".to_string(),
         ];
+        if !include_external_docs {
+            conditions.push("ext_index_only = 0".to_string());
+        }
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if let Some(ids) = folder_ids {
@@ -1066,6 +1069,7 @@ impl Database {
         uncategorized: bool,
         include_descendants: bool,
         sort_by: Option<&str>,
+        include_external_docs: bool,
     ) -> Result<Vec<i64>, AppError> {
         let folder_ids: Option<Vec<i64>> = if let Some(fid) = folder_id {
             if include_descendants {
@@ -1089,8 +1093,10 @@ impl Database {
             "is_hidden = 0".to_string(),
             "is_scratch = 0".to_string(),
             "is_daily = 0".to_string(),
-            "ext_index_only = 0".to_string(),
         ];
+        if !include_external_docs {
+            conditions.push("ext_index_only = 0".to_string());
+        }
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
         if let Some(ids) = folder_ids {

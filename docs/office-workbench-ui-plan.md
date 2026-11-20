@@ -140,6 +140,7 @@ clean ──编辑──► dirty ──保存──► saving ──成功─�
 - Shift 等比缩放、Alt 中心缩放（后置）；吸附/对齐线（后置）。
 - 双击文本进入 textarea；`Ctrl+Enter` 提交，`Esc` 取消。
 - 缩略图右键：新建/复制/删除/上移/下移（走 op 层，可撤销）。
+- 右侧属性面板：位置/尺寸/旋转、填充/描边、字号/字体/颜色/加粗斜体下划线/对齐。
 - 旋转节点首期只支持拖动，不提供缩放柄。
 
 | 快捷键 | 行为 |
@@ -152,21 +153,27 @@ clean ──编辑──► dirty ──保存──► saving ──成功─�
 
 ### 5.4 DOCX
 
-- 连续分页视图，点击定位、拖选、输入法直接输入。
-- 首期编辑范围：段落/标题/列表文字；表格与图片只读。
-- 导航面板列出标题层级，点击跳页。
+- 连续分页视图；双击段落/标题/列表进入内联 textarea（`cancelledRef` 防误提交）。
+- 提交：失焦或 `Ctrl+Enter`；取消：`Esc`。
+- 编辑范围：段落/标题/列表文字；表格与图片只读。
+- 左侧标题导航点击滚动定位；`Ctrl+Z / Ctrl+Y` 撤销重做（字节快照）。
 - 提交粒度：失焦或 `Ctrl+Enter` 提交一次 `setText`，避免每次按键产生 op。
 
 ### 5.5 XLSX
 
-- 名称框 + 公式栏；单元格内直接输入，`Enter` 下移、`Tab` 右移。
-- 区域选择与框选；行列头选中整行/整列。
-- 首期：单元格值 + 基础数字格式；公式只显示缓存值，不可计算。
-- 工作表标签：切换/新建/重命名（后置）。
+- 当前实现：工作表选择 + 单元格地址 + 值 →「写入单元格」，即时写回原文件。
+- 预览窗口为前 40 行；全局预览截断时给出提示。
+- 只读挂载禁用写入；公式只显示缓存值，不参与计算。
+- 后续：区域选择、行列头操作、完整网格虚拟化、公式求值。
 
 ### 5.6 PDF
 
 - 按需分页渲染（滚到哪渲染到哪），缩放/翻页；只读。
+
+### 5.7 导出
+
+- PPTX：命令栏「导出 PNG（2x 白底）/ 导出 SVG」，导出当前页。
+- 后续：PDF 导出、批量导出、导出字体嵌入检查。
 
 ---
 
@@ -262,6 +269,8 @@ React UI ──RPC(postMessage)──► Office Worker
 
 ### Phase 2：属性面板
 
+> 状态：✅ 已实现（2026-11-18）
+
 | 项 | 内容 |
 |---|---|
 | 范围 | 位置/尺寸/旋转、填充/描边、文本字体与对齐；批量选择后置 |
@@ -270,6 +279,8 @@ React UI ──RPC(postMessage)──► Office Worker
 | 风险 | 主题色/继承色的显示与回写 |
 
 ### Phase 3：DOCX 编辑
+
+> 状态：✅ 已实现段落级编辑（表格/图片仍只读，2026-11-18）
 
 | 项 | 内容 |
 |---|---|
@@ -280,6 +291,8 @@ React UI ──RPC(postMessage)──► Office Worker
 
 ### Phase 4：XLSX 编辑
 
+> 状态：✅ 已实现单元格值编辑（前 40 行预览窗口）；公式求值与完整网格仍待后续
+
 | 项 | 内容 |
 |---|---|
 | 范围 | vendor `xlsx-gateway`、虚拟网格、单元格值/样式编辑、工作表切换 |
@@ -289,6 +302,8 @@ React UI ──RPC(postMessage)──► Office Worker
 
 ### Phase 5：导出与 AI
 
+> 状态：部分完成（当前页 PNG/SVG 导出 ✅；PDF 导出与 AI diff 待后续）
+
 | 项 | 内容 |
 |---|---|
 | 范围 | 导出 PDF/PNG/SVG、AI 修改以 diff + 回滚呈现、编辑历史面板 |
@@ -297,6 +312,8 @@ React UI ──RPC(postMessage)──► Office Worker
 | 风险 | 导出字体嵌入与跨平台一致性 |
 
 ### Phase 6：硬化
+
+> 状态：部分完成（大文件提示、撤销上限 ✅；Win7 实机与大文件压测待环境）
 
 | 项 | 内容 |
 |---|---|
@@ -433,6 +450,71 @@ React UI ──RPC(postMessage)──► Office Worker
 **验收路径（无鼠标）**：Tab 选中元素 → 方向键移动 → `Ctrl+Z` 撤销 → `Ctrl+S` 保存；`Ctrl+M` 新建页后用 `Alt+↑` 排序。
 
 **注意**：结构操作为保证 `presentation.xml` 与媒体条目一致，撤销快照包含整个 `archive.entries`（浅拷贝），因此单次结构操作的内存开销高于元素编辑；后续可按"反向 op"优化。
+
+### Phase 2 实施记录（2026-11-18）
+
+| 模块 | 文件 | 说明 |
+|---|---|---|
+| 样式提取 | `src/lib/office/editor/nodeStyle.ts` | 从 RenderTree 读取填充/描边/字体/对齐；`pxToPt` 处理 viewport scale |
+| 协议 | `src/lib/office/editor/protocol.ts` | 新增 `fill` / `stroke` / `font` / `align` 编辑动作 |
+| Worker | `src/workers/pptx.worker.ts` | 映射到 `setFill` / `setStroke` / `setFont` / `setParagraphFormat` |
+| Hook | `src/lib/office/editor/usePptxEditor.ts` | `commitStyle` / `commitRotation` |
+| 面板 | `src/components/office/OfficePropertyPanel.tsx` | 位置尺寸、旋转、填充、描边、字号/字体/颜色/B-I-U/对齐 |
+| 页面 | `src/pages/office/index.tsx` | 右侧属性面板、选中节点样式同步、只读会话禁用编辑 |
+
+**提交策略**：数字输入在失焦/回车时提交；颜色使用 `onChangeComplete`；B/I/U 与对齐即时提交。每次提交生成一条可撤销 op。
+
+**已知限制**
+
+1. 样式面板一次只作用于单个元素（多选待做）。
+2. 渐变/图片/图案填充仅显示类型，替换为纯色会覆盖原效果（面板已有提示）。
+3. 字体列表为常用字体；写入的是字体名称，渲染依赖本机字体度量。
+4. 图片暂不支持裁剪/替换，仅描边与位置尺寸。
+
+### Phase 3 实施记录（2026-11-18）
+
+| 模块 | 文件 | 说明 |
+|---|---|---|
+| 块索引 | `src/lib/office/docxEngine.ts` | 段落/标题/列表输出 `data-block-index`，使用 `parsed.blocks` 原下标（含隐藏块） |
+| 内联编辑 | `src/components/office/DocxPageView.tsx` | 双击块 → 固定定位 textarea；Ctrl+Enter 提交 / Esc 取消 / 失焦提交 |
+| Worker | `src/workers/pptx.worker.ts` | DOCX 撤销/重做（字节快照，上限 30）；结果携带 `canUndo/canRedo` |
+| 客户端 | `src/lib/office/pptxWorkerClient.ts` | `undoDocx` / `redoDocx` |
+| 页面 | `src/pages/office/index.tsx` | 标题导航、段落提交、DOCX 撤销/重做与快捷键 |
+
+**范围**：段落/标题/列表文字可编辑并写回；表格、图片、页眉页脚内容仍只读；分页仍为估算。
+
+### Phase 4 实施记录（2026-11-18）
+
+| 模块 | 文件 | 说明 |
+|---|---|---|
+| 编辑栏 | `src/pages/office/index.tsx` | 工作表选择、单元格地址、值、写入按钮 |
+| 写回 | `pptxSpikeApi.xlsxSetCell`（Rust umya-spreadsheet） | 修改即时写回原文件；写后刷新预览 |
+| 预览范围 | `src-tauri/src/services/excel_parser.rs` | 新增 `ReadMode::Preview`：每表最多 500 行，不拼 markdown；`office_preview` 使用该模式 |
+| 表头 | `src/lib/office/sheets.ts` | Excel 列字母 A/B/C、表头行作为第 1 行、行号连续 |
+| 撤销/重做 | `src/pages/office/index.tsx` | 写前/写后读取 xlsx 字节，字节快照栈（上限 20）；顶栏与 `Ctrl+Z/Y` 可用 |
+| 布局 | 页面 | 工作表标签移到底部；紧凑单元格样式（12px、1px 内边距） |
+| 保护 | 页面 | 只读挂载禁用写入 |
+
+**未完成**：完整网格虚拟化、公式求值、行列操作、样式编辑、`xlsx-gateway` 接入。
+
+### Phase 5 实施记录（2026-11-18）
+
+| 模块 | 说明 |
+|---|---|
+| 导出 | PPTX 当前页导出 SVG / PNG（2x，白底） |
+| 入口 | PPT 命令栏「导出 PNG / 导出 SVG」 |
+
+**未完成**：PDF 导出、批量导出、AI 修改 diff 与逐条回滚。
+
+### Phase 6 实施记录（2026-11-18）
+
+- 打开大文件（>80MB）时给出内存警告。
+- PPTX 撤销上限 30；DOCX 撤销上限 30（字节快照）；XLSX 字节快照撤销上限 20。
+- 结构操作整簿快照的内存开销已在 Phase 1 注明。
+- **外部修改检测**：打开/保存时记录文件 SHA-256；保存（PPT/DOCX）与 XLSX 写入前重新哈希，发现外部修改时弹出“覆盖/取消”确认。
+- **会话恢复**：标签与当前文档路径写入 `office.session.v1`；空状态提供“恢复上次会话”，按序重新打开（不保留未保存修改）；关闭全部标签时清除快照。
+
+**未完成**：Win7 实机、50–100MB 文档压测、Worker 空闲回收、应用退出时的未保存拦截。
 
 ---
 

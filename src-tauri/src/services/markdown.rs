@@ -292,6 +292,32 @@ pub fn html_to_markdown(html: &str) -> String {
     html2md::parse_html(html)
 }
 
+/// 判断整篇 Markdown 是否可以安全启用 `ENABLE_MATH`。
+///
+/// pulldown-cmark 的 `$...$` 配对比编辑器迁移逻辑宽松：`价格$100元，原价$200元`
+/// 会被误当成公式，两个 `$` 会从正文里消失。这里沿用编辑器 `inlineMathRanges`
+/// 的保守规则——只要存在「收尾 `$` 紧跟数字」的候选对，就整篇禁用数学解析。
+pub fn math_is_safe(markdown: &str) -> bool {
+    if !markdown.contains('$') {
+        return true;
+    }
+    // 注：Rust regex 不支持 lookahead，这里先匹配 `$…$` 再手工检查紧随其后的字符。
+    let Ok(re) = regex::Regex::new(r"\$[^$\n]+?\$") else {
+        // 正则异常时宁可关闭数学解析，也不要吞掉正文。
+        return false;
+    };
+    for m in re.find_iter(markdown) {
+        if markdown[m.end()..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit())
+        {
+            return false;
+        }
+    }
+    true
+}
+
 /// Markdown → HTML（开启 GFM：表格 / 删除线 / 任务列表）
 ///
 /// 修正点：pulldown-cmark 会在 `</code>` 前插入尾部换行符，导致
@@ -312,6 +338,16 @@ pub fn markdown_to_html(md: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 公式文本可启用数学解析；货币式 `$…$` 必须禁用，避免吞掉正文。
+    #[test]
+    fn math_safety_allows_formulas_and_rejects_currency() {
+        assert!(math_is_safe("行内 $x^2$ 公式"));
+        assert!(math_is_safe("$$\n\\int_0^1 x dx\n$$"));
+        assert!(!math_is_safe("价格$100元，原价$200元"));
+        assert!(!math_is_safe("售价 $100 与 $200 元"));
+        assert!(math_is_safe("没有公式的正文"));
+    }
 
     #[test]
     fn md_to_html_basic() {

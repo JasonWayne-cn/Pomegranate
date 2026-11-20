@@ -55,13 +55,44 @@ pub fn read(path: &str) -> Result<Vec<u8>, AppError> {
 
 pub fn write_atomic(path: &str, bytes: &[u8]) -> Result<(), AppError> {
     let p = validate(path)?;
+    write_atomic_to(&p, bytes, MAX_PPTX_BYTES)
+}
+
+/// 导出产物（PNG/SVG）的上限。
+pub const MAX_EXPORT_BYTES: u64 = 64 * 1024 * 1024;
+
+fn validate_export(path: &str) -> Result<PathBuf, AppError> {
+    let p = PathBuf::from(path);
+    if !p.is_absolute() {
+        return Err(AppError::InvalidInput("导出路径必须是绝对路径".into()));
+    }
+    let ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !matches!(ext.as_str(), "png" | "svg") {
+        return Err(AppError::InvalidInput(format!(
+            "导出仅支持 .png/.svg，当前扩展名: {ext}"
+        )));
+    }
+    Ok(p)
+}
+
+/// 导出文件原子写入（PNG/SVG）。
+pub fn write_export_atomic(path: &str, bytes: &[u8]) -> Result<(), AppError> {
+    let p = validate_export(path)?;
+    write_atomic_to(&p, bytes, MAX_EXPORT_BYTES)
+}
+
+fn write_atomic_to(p: &Path, bytes: &[u8], max_bytes: u64) -> Result<(), AppError> {
     let parent = p
         .parent()
         .ok_or_else(|| AppError::InvalidInput("无法确定目标目录".into()))?;
     if !parent.is_dir() {
         return Err(AppError::InvalidInput("目标目录不存在".into()));
     }
-    if bytes.len() as u64 > MAX_PPTX_BYTES {
+    if bytes.len() as u64 > max_bytes {
         return Err(AppError::InvalidInput("写入内容超过大小上限".into()));
     }
 
@@ -74,7 +105,7 @@ pub fn write_atomic(path: &str, bytes: &[u8]) -> Result<(), AppError> {
         let _ = fs::remove_file(&tmp);
         return Err(err.into());
     }
-    if let Err(err) = fs::rename(&tmp, &p) {
+    if let Err(err) = fs::rename(&tmp, p) {
         let _ = fs::remove_file(&tmp);
         return Err(err.into());
     }

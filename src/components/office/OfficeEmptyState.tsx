@@ -10,6 +10,12 @@ interface OfficeEmptyStateProps {
   onOpenRecent: (path: string) => void;
   onRemoveRecent: (path: string) => void;
   busy?: boolean;
+  /** 上次会话可恢复时展示的入口 */
+  restorable?: {
+    count: number;
+    onRestore: () => void;
+    onDismiss: () => void;
+  } | null;
 }
 
 export function OfficeEmptyState({
@@ -18,6 +24,7 @@ export function OfficeEmptyState({
   onOpenRecent,
   onRemoveRecent,
   busy,
+  restorable,
 }: OfficeEmptyStateProps) {
   const { token } = antdTheme.useToken();
 
@@ -39,6 +46,28 @@ export function OfficeEmptyState({
             选择文件
           </Button>
         </Empty>
+
+        {restorable && restorable.count > 0 && (
+          <div
+            className="mt-6 flex items-center justify-between rounded-lg border px-3 py-2"
+            style={{ borderColor: token.colorBorderSecondary }}
+          >
+            <div className="text-sm">
+              上次会话 · {restorable.count} 个文档
+              <div className="text-[11px]" style={{ color: token.colorTextTertiary }}>
+                恢复后会重新打开这些文件（未保存的修改不会保留）
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button size="small" onClick={restorable.onDismiss}>
+                忽略
+              </Button>
+              <Button size="small" type="primary" loading={busy} onClick={restorable.onRestore}>
+                恢复
+              </Button>
+            </div>
+          </div>
+        )}
 
         {recent.length > 0 && (
           <div className="mt-8">

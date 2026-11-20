@@ -1,6 +1,6 @@
 /** PPTX 命令栏（Phase 1）：幻灯片增删、复制、排序。 */
 import { Button, Space, Tooltip, theme as antdTheme } from "antd";
-import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Download, Image, Plus, Trash2 } from "lucide-react";
 import { moveTarget } from "@/lib/office/editor/slideActions";
 
 interface OfficePptxCommandBarProps {
@@ -11,6 +11,8 @@ interface OfficePptxCommandBarProps {
   onDuplicate: () => void;
   onDelete: () => void;
   onMove: (to: number) => void;
+  onExportPng: () => void;
+  onExportSvg: () => void;
 }
 
 export function OfficePptxCommandBar({
@@ -21,6 +23,8 @@ export function OfficePptxCommandBar({
   onDuplicate,
   onDelete,
   onMove,
+  onExportPng,
+  onExportSvg,
 }: OfficePptxCommandBarProps) {
   const { token } = antdTheme.useToken();
   const prev = moveTarget(activeSlide, pageCount, -1);
@@ -71,6 +75,26 @@ export function OfficePptxCommandBar({
             disabled={busy || next == null}
             onClick={() => next != null && onMove(next)}
           />
+        </Tooltip>
+        <Tooltip title="导出当前页 PNG（2x）">
+          <Button
+            size="small"
+            icon={<Image size={14} />}
+            disabled={busy}
+            onClick={onExportPng}
+          >
+            导出 PNG
+          </Button>
+        </Tooltip>
+        <Tooltip title="导出当前页 SVG">
+          <Button
+            size="small"
+            icon={<Download size={14} />}
+            disabled={busy}
+            onClick={onExportSvg}
+          >
+            导出 SVG
+          </Button>
         </Tooltip>
       </Space>
       <div className="flex-1" />

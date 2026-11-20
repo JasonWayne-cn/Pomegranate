@@ -40,6 +40,12 @@ export const pptxSpikeApi = {
       headers: { "x-pptx-path": encodePathHeader(path) },
     }),
 
+  /** 导出 PNG/SVG 专用写入（Rust 侧仅校验 .png/.svg）。 */
+  writeExport: (path: string, bytes: Uint8Array): Promise<void> =>
+    invoke<void>("office_export_write", bytes, {
+      headers: { "x-export-path": encodePathHeader(path) },
+    }),
+
   displayName: (path: string): Promise<string> =>
     invoke<string>("pptx_spike_display_name", { path }),
 
@@ -51,6 +57,14 @@ export const pptxSpikeApi = {
 
   pdfPreview: (path: string, maxPages = 3): Promise<PdfPagePreview[]> =>
     invoke<PdfPagePreview[]>("office_pdf_preview", { path, maxPages }),
+
+  /** PDF 总页数（分批加载用）。 */
+  pdfPageCount: (path: string): Promise<number> =>
+    invoke<number>("office_pdf_page_count", { path }),
+
+  /** 按页范围渲染（start 从 0 开始；后端单次最多 24 页）。 */
+  pdfRenderPages: (path: string, start: number, count: number): Promise<PdfPagePreview[]> =>
+    invoke<PdfPagePreview[]>("office_pdf_render_pages", { path, start, count }),
 
   xlsxSetCell: (path: string, sheet: string, cell: string, value: string) =>
     invoke<XlsxSheetPreview[]>("office_xlsx_set_cell", { path, sheet, cell, value }),

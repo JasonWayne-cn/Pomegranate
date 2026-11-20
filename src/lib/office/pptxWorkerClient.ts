@@ -139,6 +139,14 @@ export class PptxWorkerClient {
     return this.call<DocxOpenedData>("docx-update-text", { blockIndex, text });
   }
 
+  undoDocx(): Promise<DocxOpenedData> {
+    return this.call<DocxOpenedData>("docx-undo");
+  }
+
+  redoDocx(): Promise<DocxOpenedData> {
+    return this.call<DocxOpenedData>("docx-redo");
+  }
+
   terminate(): void {
     const error = new Error("Worker 已终止");
     for (const call of this.pending.values()) {

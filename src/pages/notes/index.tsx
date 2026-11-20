@@ -84,6 +84,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { NewNoteButton } from "@/components/NewNoteButton";
 import { createBlankAndOpen } from "@/lib/noteCreator";
 import { startAiChatWithNotes } from "@/lib/aiAttach";
+import { officePathForSource } from "@/lib/office/formats";
 // AntD 已有 Tag 组件同名，这里给类型起个别名避免冲突
 import type { Note, PageResult, Folder, Tag as NoteTag } from "@/types";
 
@@ -567,6 +568,11 @@ function DesktopNoteListPage() {
   const [searchParams] = useSearchParams();
   const { token } = antdTheme.useToken();
 
+  /** 外部 PDF/Word/Excel 进 Office 工作台；普通笔记进编辑器。 */
+  function openNoteOrOffice(note: Pick<Note, "id" | "source_file_path">) {
+    navigate(officePathForSource(note.source_file_path) ?? `/notes/${note.id}`);
+  }
+
   const [data, setData] = useState<PageResult<Note>>({
     items: [],
     total: 0,
@@ -705,6 +711,8 @@ function DesktopNoteListPage() {
             !isUncategorized && folderId ? false : undefined,
           // 只 list 视图才让用户切换 sort_by；卡片/时间线沿用默认
           sort_by: viewMode === "list" ? sortBy : undefined,
+          // 与左侧文档树一致：显示挂载目录里的 PDF/Word/Excel
+          include_external_docs: true,
         });
         setData(result);
       } catch (e) {
@@ -1091,7 +1099,7 @@ function DesktopNoteListPage() {
         icon: <ExternalLink size={13} />,
         onClick: () => {
           noteCtx.close();
-          navigate(`/notes/${note.id}`);
+          openNoteOrOffice(note);
         },
       },
       {
@@ -1185,7 +1193,7 @@ function DesktopNoteListPage() {
                   </span>
                 </Tooltip>
               )}
-              <a onClick={() => navigate(`/notes/${record.id}`)}>{title}</a>
+              <a onClick={() => openNoteOrOffice(record)}>{title}</a>
               <NoteDecorators note={record} warningColor={token.colorWarning} />
             </span>
           );
@@ -1241,7 +1249,7 @@ function DesktopNoteListPage() {
                 type="link"
                 size="small"
                 icon={<Edit3 size={14} />}
-                onClick={() => navigate(`/notes/${record.id}`)}
+                onClick={() => openNoteOrOffice(record)}
               />
             </Tooltip>
             <Dropdown
@@ -1693,7 +1701,7 @@ function DesktopNoteListPage() {
                               <Card
                                 hoverable
                                 size="small"
-                                onClick={() => navigate(`/notes/${note.id}`)}
+                                onClick={() => openNoteOrOffice(note)}
                                 style={{
                                   height: 170,
                                   display: "flex",
@@ -1859,7 +1867,7 @@ function DesktopNoteListPage() {
                       children: (
                         <div
                           className="cursor-pointer group -mt-0.5"
-                          onClick={() => navigate(`/notes/${note.id}`)}
+                          onClick={() => openNoteOrOffice(note)}
                         >
                           <div className="flex items-center gap-1.5">
                             <Text

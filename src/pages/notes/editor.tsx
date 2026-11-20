@@ -32,7 +32,7 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { relativeTime, stripHtml } from "@/lib/utils";
-import { printEditorContent } from "@/lib/printNote";
+import { editorDomToSelfContainedHtml, printEditorContent } from "@/lib/printNote";
 import { useModuleConfig } from "@/hooks/useModuleConfig";
 import { TiptapEditor } from "@/components/editor";
 import { EditorOutline } from "@/components/editor/EditorOutline";
@@ -42,7 +42,7 @@ import { MicButton } from "@/components/MicButton";
 import { NoteAiDrawer } from "@/components/ai/NoteAiDrawer";
 import { AttachmentPreviewModal } from "@/components/preview/AttachmentPreviewModal";
 import { MindMapView } from "@/components/notes/MindMapView";
-import type { Note, Tag, Folder, NoteLink, MountNoteStatus } from "@/types";
+import type { Note, Tag, Folder, NoteLink, MountNoteStatus, WordExportResult } from "@/types";
 
 const { Text } = Typography;
 
@@ -651,6 +651,7 @@ function DesktopNoteEditorPage() {
   const navigate = useNavigate();
   // 上下文感知的 message / notification（避免静态方法丢主题、偶发不显示）
   const { message, notification } = AntdApp.useApp();
+  const { token } = antdTheme.useToken();
   const { focusMode, setFocusMode } = useAppStore();
   const { openTab, updateTabTitle, setTabDirty, setDraft, getDraft, clearDraft } = useTabsStore();
   const [note, setNote] = useState<Note | null>(null);
@@ -1467,6 +1468,28 @@ function DesktopNoteEditorPage() {
     }
   }
 
+  /**
+   * 导出用的自包含 HTML：优先取编辑器实时 DOM，保住标题自动编号 / callout /
+   * mermaid 等只活在渲染层的内容。编辑器未就绪或生成失败时返回 undefined，
+   * 后端会退回 Markdown 重渲（批量导出、弹窗初始化等场景）。
+   */
+  async function buildExportBodyHtml(): Promise<string | undefined> {
+    if (!editorInstance) return undefined;
+    try {
+      return await editorDomToSelfContainedHtml(editorInstance, title);
+    } catch (e) {
+      console.warn("[export] 生成自包含 HTML 失败，退回 Markdown 渲染:", e);
+      return undefined;
+    }
+  }
+
+  /** Word 引擎提示：转换器保真高，内置生成器会简化复杂版式。 */
+  function wordEngineHint(engine: WordExportResult["engine"]): string {
+    return engine === "converter"
+      ? "使用本机 Office / WPS / LibreOffice 转换，版式保真度较高"
+      : "未检测到 Office / WPS / LibreOffice，已使用内置生成器（复杂版式可能简化）";
+  }
+
   /** T-020: 导出为 Word (.docx) — 用 save dialog 选最终文件路径 */
   async function handleExportWord() {
     const safeName = title.replace(/[/\\:*?"<>|]/g, "_").trim() || "未命名";
@@ -1475,18 +1498,27 @@ function DesktopNoteEditorPage() {
       filters: [{ name: "Word", extensions: ["docx"] }],
     });
     if (!filePath) return;
+    // 实时 DOM 内嵌图片/附件需要时间，先给 loading 再生成
+    const hideLoading = message.loading("正在生成 Word…", 0);
     try {
-      const result = await exportApi.exportSingleToWord(noteId, filePath);
+      const bodyHtml = await buildExportBodyHtml();
+      const result = await exportApi.exportSingleToWord(noteId, filePath, bodyHtml);
+      hideLoading();
+      const parts = [
+        `嵌入图片 ${result.imagesEmbedded} 张`,
+        result.imagesMissing > 0 ? `${result.imagesMissing} 张缺失，已用占位符替代` : "",
+        result.attachmentsInlined > 0 ? `内嵌附件 ${result.attachmentsInlined} 个` : "",
+        result.attachmentsCopied > 0
+          ? `附件 ${result.attachmentsCopied} 个（已放到同名 .attachments 文件夹）`
+          : "",
+      ].filter(Boolean);
       Modal.success({
         title: "导出 Word 成功",
         content: (
           <div>
-            <p style={{ marginBottom: 4 }}>
-              {`嵌入图片 ${result.imagesEmbedded} 张` +
-                (result.imagesMissing > 0
-                  ? `（${result.imagesMissing} 张缺失，已用占位符替代）`
-                  : "")}
-              ，文件：
+            <p style={{ marginBottom: 4 }}>{parts.join("，")}，文件：</p>
+            <p style={{ marginBottom: 4, fontSize: 12, color: token.colorTextSecondary }}>
+              {wordEngineHint(result.engine)}
             </p>
             <p style={{ fontFamily: "monospace", fontSize: 12, wordBreak: "break-all" }}>
               {result.filePath}
@@ -1498,6 +1530,7 @@ function DesktopNoteEditorPage() {
         closable: true,
       });
     } catch (e) {
+      hideLoading();
       message.error(`导出 Word 失败: ${e}`);
     }
   }
@@ -1505,6 +1538,7 @@ function DesktopNoteEditorPage() {
   /** T-020: 导出为 HTML — 单文件，图片内嵌 base64，可独立分享 */
   async function handleExportHtml() {
     const safeName = title.replace(/[/\\:*?"<>|]/g, "_").trim() || "未命名";
+    let hideLoading: (() => void) | null = null;
     try {
       // save() 也放进 try：对话框插件调用失败（权限/窗口异常）时若不捕获，
       // Promise 拒绝会被吞掉，用户看到的就是「点了没反应」。
@@ -1513,7 +1547,10 @@ function DesktopNoteEditorPage() {
         filters: [{ name: "HTML", extensions: ["html", "htm"] }],
       });
       if (!filePath) return;
-      const result = await exportApi.exportSingleToHtml(noteId, filePath);
+      // 与 Word 相同：实时 DOM 才能保住标题编号 / callout / mermaid
+      hideLoading = message.loading("正在生成 HTML…", 0);
+      const bodyHtml = await buildExportBodyHtml();
+      const result = await exportApi.exportSingleToHtml(noteId, filePath, bodyHtml);
       Modal.success({
         title: "导出 HTML 成功",
         content: (
@@ -1523,6 +1560,9 @@ function DesktopNoteEditorPage() {
                 (result.imagesMissing > 0
                   ? `（${result.imagesMissing} 张缺失）`
                   : "")}
+              {result.attachmentsInlined > 0
+                ? `，内嵌附件 ${result.attachmentsInlined} 个`
+                : ""}
               ，文件：
             </p>
             <p style={{ fontFamily: "monospace", fontSize: 12, wordBreak: "break-all" }}>
@@ -1536,6 +1576,8 @@ function DesktopNoteEditorPage() {
       });
     } catch (e) {
       message.error(`导出 HTML 失败: ${e}`);
+    } finally {
+      hideLoading?.();
     }
   }
 

@@ -43,6 +43,7 @@ import { MicButton } from "@/components/MicButton";
 import { useTabsStore } from "@/store/tabs";
 import { folderApi, importApi, noteApi, trashApi } from "@/lib/api";
 import type { Folder, Note, ScannedFile } from "@/types";
+import { officePathForSource } from "@/lib/office/formats";
 import { parseEmojiPrefix } from "@/lib/treeIcons";
 import { NewNoteButton } from "@/components/NewNoteButton";
 import { OpenFileButton } from "@/components/OpenFileButton";
@@ -365,6 +366,8 @@ export function NotesPanel() {
         // 未拖排过的笔记 sort_order 由 v31 迁移按 updated_at DESC 初始化，
         // 肉眼仍是时间序，拖排后立刻可见
         sort_by: "custom",
+        // 文档树需要显示挂载目录里的 PDF/Word/Excel（索引影子文档）
+        include_external_docs: true,
       });
       setNotesByFolder((prev) => {
         // 标题/顺序/类型都没变 → 返回原 Map，React 直接 bail out，
@@ -391,6 +394,7 @@ export function NotesPanel() {
         page: 1,
         page_size: NOTES_PER_FOLDER_LIMIT,
         sort_by: "custom",
+        include_external_docs: true,
       });
       setUncategorizedNotes((prev) =>
         sameNoteHeaders(prev, r.items) ? prev : r.items,
@@ -1063,8 +1067,10 @@ export function NotesPanel() {
       lastClickRef.current = { key, time: now };
       const id = noteIdFromKey(key);
       if (Number.isFinite(id)) {
+        const note = findNoteById(id);
+        const officePath = officePathForSource(note?.source_file_path);
         setSelectedKey(key);
-        navigate(`/notes/${id}`);
+        navigate(officePath ?? `/notes/${id}`);
       }
       return;
     }
@@ -1119,7 +1125,7 @@ export function NotesPanel() {
           icon: <ExternalLink size={14} />,
           label: "打开",
           onClick: () => {
-            navigate(`/notes/${noteId}`);
+            navigate(officePathForSource(note?.source_file_path) ?? `/notes/${noteId}`);
             close();
           },
         },

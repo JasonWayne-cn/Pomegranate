@@ -3,6 +3,7 @@ import {
   baseName,
   formatOf,
   isEditable,
+  officePathForSource,
   stripExtension,
 } from "./formats";
 
@@ -40,5 +41,22 @@ describe("路径工具", () => {
     expect(isEditable("docx")).toBe(true);
     expect(isEditable("xlsx")).toBe(true);
     expect(isEditable("pdf")).toBe(false);
+  });
+});
+
+describe("officePathForSource", () => {
+  it("二进制文档走 Office 工作台（只读）", () => {
+    const pdf = officePathForSource("C:\\docs\\参考文献\\a.pdf");
+    expect(pdf).toMatch(/^\/office\?/);
+    expect(pdf).toContain("readonly=1");
+    expect(decodeURIComponent(pdf!)).toContain("a.pdf");
+    expect(officePathForSource("C:\\docs\\a.docx")).toMatch(/^\/office\?/);
+    expect(officePathForSource("C:\\docs\\a.xlsx")).toMatch(/^\/office\?/);
+  });
+
+  it("普通文本与空路径返回 null", () => {
+    expect(officePathForSource("C:\\docs\\a.md")).toBeNull();
+    expect(officePathForSource("C:\\docs\\a.txt")).toBeNull();
+    expect(officePathForSource(null)).toBeNull();
   });
 });

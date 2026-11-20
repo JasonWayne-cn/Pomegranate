@@ -112,11 +112,13 @@ export function MountFileBrowser({
     if (entry.typeCategory && entry.typeCategory !== "text" && entry.absPath) {
       const format = formatOf(entry.absPath);
       if (format) {
-        navigate(
-          `/office?path=${encodeURIComponent(entry.absPath)}&readonly=${
-            readOnly ? "1" : "0"
-          }&t=${Date.now()}`,
-        );
+        // 用 URLSearchParams 统一编码，兼容含 `\\?\` 前缀的 Windows 路径
+        const params = new URLSearchParams({
+          path: entry.absPath,
+          readonly: readOnly ? "1" : "0",
+          t: String(Date.now()),
+        });
+        navigate(`/office?${params.toString()}`);
         return;
       }
     }

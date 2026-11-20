@@ -29,11 +29,14 @@ use crate::services::markdown::html_to_markdown;
 ///
 /// 笔记内容是 tiptap-markdown 产出的「Markdown 夹 HTML」混合体——管道表格、删除线、
 /// 任务列表都可能出现，必须开启这些扩展，否则会被当成普通段落文本。
-fn gfm_options() -> Options {
+fn gfm_options(enable_math: bool) -> Options {
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_TABLES);
     opts.insert(Options::ENABLE_STRIKETHROUGH);
     opts.insert(Options::ENABLE_TASKLISTS);
+    if enable_math {
+        opts.insert(Options::ENABLE_MATH);
+    }
     opts
 }
 
@@ -51,6 +54,10 @@ pub struct WordExportResult {
     pub images_missing: usize,
     /// 拷贝到 `<docx 同名>.attachments/` 目录里的非图片附件数（docx 装不下任意文件，只能旁挂）
     pub attachments_copied: usize,
+    /// 转换器路径中直接内嵌进 docx 的非图片附件数（data: 链接）
+    pub attachments_inlined: usize,
+    /// 实际使用的生成引擎：`converter`（本机 Office/WPS/LibreOffice）或 `native`（内置生成器）
+    pub engine: String,
 }
 
 pub struct WordExportService;
@@ -95,7 +102,14 @@ impl WordExportService {
                 }
             }
         }
-        Self::export_single(title, content, target_path, assets_root)
+        // 裸机 / 转换器失败：有编辑器实时 DOM 就用它，否则退回 markdown 重渲。
+        // 前者能保住只活在渲染层的内容（标题自动编号、mermaid 等）。
+        match body_html {
+            Some(html) if !html.trim().is_empty() => {
+                Self::export_single_from_html_impl(html, target_path, assets_root, fonts)
+            }
+            _ => Self::export_single_impl(title, content, target_path, assets_root, fonts),
+        }
     }
 
     /// 转换器路径：笔记 → 自包含 HTML → 系统转换器 → docx → 拷到用户目标路径。
@@ -128,6 +142,9 @@ impl WordExportService {
                 TemplateLayout::Document,
             )?,
         };
+        // 附件链接也内嵌成 data: URL：否则 docx 里会留下 kb-asset:// 链接，换机器即失效。
+        // inline_assets 会再跑一遍图片内嵌，对已是 data: 的资源是幂等的。
+        let (html, _, attachments_inlined) = HtmlExportService::inline_assets(&html, assets_root);
 
         // 临时工作目录用纯 ASCII 路径与文件名，规避部分转换器对非 ASCII 路径的兼容问题
         let nanos = SystemTime::now()
@@ -158,8 +175,10 @@ impl WordExportService {
             file_path: target_path.to_string_lossy().into(),
             images_embedded: images_inlined,
             images_missing,
-            // 转换器路径下图片已内嵌进 HTML/docx，无旁挂附件
+            // 转换器路径下图片与附件都已内嵌进 HTML/docx，无旁挂附件
             attachments_copied: 0,
+            attachments_inlined,
+            engine: "converter".to_string(),
         })
     }
 
@@ -174,18 +193,32 @@ impl WordExportService {
         target_path: &Path,
         assets_root: &Path,
     ) -> Result<WordExportResult, AppError> {
+        Self::export_single_impl(title, markdown, target_path, assets_root, None)
+    }
+
+    fn export_single_impl(
+        title: &str,
+        markdown: &str,
+        target_path: &Path,
+        assets_root: &Path,
+        fonts: Option<&ExportFonts>,
+    ) -> Result<WordExportResult, AppError> {
         let mut docx = Docx::new();
+        let mut state = RenderState::new(assets_root.to_path_buf()).with_fonts(fonts);
 
         // 标题（H1 大字号）
         if !title.is_empty() {
+            let mut title_run = Run::new().add_text(title).size(48).bold();
+            if let Some(family) = state.heading_font.clone() {
+                title_run = title_run.fonts(
+                    RunFonts::new().east_asia(family.clone()).ascii(family),
+                );
+            }
             docx = docx.add_paragraph(
-                Paragraph::new()
-                    .style("Heading1")
-                    .add_run(Run::new().add_text(title).size(48).bold()),
+                Paragraph::new().style("Heading1").add_run(title_run),
             );
         }
 
-        let mut state = RenderState::new(assets_root.to_path_buf());
 
         // 走统一的事件驱动器：它会在遇到非 HTML 事件前先 flush 累积的 HTML 块
         drive_parser(markdown, &mut state, &mut docx)?;
@@ -200,18 +233,67 @@ impl WordExportService {
         // （写明每个附件在旁挂目录里的相对路径）。
         let attachments_copied = pack_attachments(markdown, target_path, assets_root, &mut docx)?;
 
-        // 写文件
-        let file = std::fs::File::create(target_path)?;
-        docx.build()
-            .pack(file)
-            .map_err(|e| AppError::Custom(format!("写 docx 失败: {}", e)))?;
+        Self::write_docx(docx, target_path)?;
 
         Ok(WordExportResult {
             file_path: target_path.to_string_lossy().into(),
             images_embedded: state.images_embedded,
             images_missing: state.images_missing,
             attachments_copied,
+            attachments_inlined: 0,
+            engine: "native".to_string(),
         })
+    }
+
+    /// 原生回退路径的「编辑器实时 DOM」变体。
+    ///
+    /// 与 [`Self::export_single`] 的区别：内容来自前端渲染好的 HTML，而不是
+    /// markdown 源码。这样标题自动编号、callout/分栏等只活在渲染层的内容不会丢。
+    /// `body_html` 已包含文档标题（`editorDomToSelfContainedHtml` 负责插入），
+    /// 这里不再追加 H1。
+    pub fn export_single_from_html(
+        body_html: &str,
+        target_path: &Path,
+        assets_root: &Path,
+    ) -> Result<WordExportResult, AppError> {
+        Self::export_single_from_html_impl(body_html, target_path, assets_root, None)
+    }
+
+    fn export_single_from_html_impl(
+        body_html: &str,
+        target_path: &Path,
+        assets_root: &Path,
+        fonts: Option<&ExportFonts>,
+    ) -> Result<WordExportResult, AppError> {
+        let mut docx = Docx::new();
+        let mut state = RenderState::new(assets_root.to_path_buf()).with_fonts(fonts);
+        state.html_buffer = body_html.to_string();
+        flush_html_buffer(&mut state, &mut docx)?;
+        state.flush_paragraph(&mut docx);
+
+        // 附件旁挂：先还原成 markdown 再走统一的链接收集。
+        let markdown = crate::services::markdown::html_to_markdown(body_html);
+        let attachments_copied =
+            pack_attachments(&markdown, target_path, assets_root, &mut docx)?;
+
+        Self::write_docx(docx, target_path)?;
+
+        Ok(WordExportResult {
+            file_path: target_path.to_string_lossy().into(),
+            images_embedded: state.images_embedded,
+            images_missing: state.images_missing,
+            attachments_copied,
+            attachments_inlined: 0,
+            engine: "native".to_string(),
+        })
+    }
+
+    /// 把内存中的 docx 写盘（转换器/原生两路共用）。
+    fn write_docx(docx: Docx, target_path: &Path) -> Result<(), AppError> {
+        let file = std::fs::File::create(target_path)?;
+        docx.build()
+            .pack(file)
+            .map_err(|e| AppError::Custom(format!("写 docx 失败: {}", e)))
     }
 }
 
@@ -254,6 +336,13 @@ struct RenderState {
     assets_root: PathBuf,
     images_embedded: usize,
     images_missing: usize,
+
+    /// 用户设置的正文字体（已从 CSS 栈里取出真实字体名）
+    body_font: Option<String>,
+    /// 用户设置的标题字体；未设置时跟随正文
+    heading_font: Option<String>,
+    /// 当前是否在表头行（加粗 + 浅灰底纹）
+    in_table_head: bool,
 }
 
 impl RenderState {
@@ -281,7 +370,18 @@ impl RenderState {
             assets_root,
             images_embedded: 0,
             images_missing: 0,
+            body_font: None,
+            heading_font: None,
+            in_table_head: false,
         }
+    }
+
+    /// 应用用户设置的正文字体 / 标题字体（转换器路径走 CSS，不经过这里）。
+    fn with_fonts(mut self, fonts: Option<&ExportFonts>) -> Self {
+        self.body_font = primary_font_family(fonts.and_then(|f| f.body.as_deref()));
+        self.heading_font = primary_font_family(fonts.and_then(|f| f.heading.as_deref()))
+            .or_else(|| self.body_font.clone());
+        self
     }
 
     /// 把"当前累积的 runs"打包成段落 push 到 docx
@@ -329,6 +429,15 @@ impl RenderState {
 
     fn make_run(&self, text: &str) -> Run {
         let mut r = Run::new().add_text(text);
+        // 用户字体：标题用标题字体，正文用正文字体；行内代码稍后覆盖为等宽。
+        let font = if self.current_heading.is_some() {
+            &self.heading_font
+        } else {
+            &self.body_font
+        };
+        if let Some(family) = font {
+            r = r.fonts(RunFonts::new().east_asia(family.clone()).ascii(family.clone()));
+        }
         if self.bold > 0 {
             r = r.bold();
         }
@@ -337,6 +446,9 @@ impl RenderState {
         }
         if self.strikethrough > 0 {
             r = r.strike();
+        }
+        if self.in_blockquote {
+            r = r.color("6b7280").italic();
         }
         if self.code > 0 {
             r = r.fonts(
@@ -351,6 +463,47 @@ impl RenderState {
         }
         r
     }
+
+    /// 公式 run：docx 暂不生成 OMML，保留 TeX 文本并用 Cambria Math 显示。
+    fn make_math_run(&self, text: &str) -> Run {
+        Run::new()
+            .add_text(text)
+            .fonts(RunFonts::new().east_asia("Cambria Math").ascii("Cambria Math"))
+            .italic()
+    }
+}
+
+/// 从 CSS `font-family` 栈里挑一个能写进 docx 的真实字体名。
+///
+/// 跳过 CSS 关键字与平台别名（`system-ui` / `-apple-system` / `BlinkMacSystemFont` 等），
+/// 它们不是可写入 OOXML 的字体名。
+fn primary_font_family(stack: Option<&str>) -> Option<String> {
+    let stack = stack?.trim();
+    for raw in stack.split(',') {
+        let name = raw.trim().trim_matches('"').trim_matches('\'').trim();
+        if name.is_empty() {
+            continue;
+        }
+        let lower = name.to_ascii_lowercase();
+        if matches!(
+            lower.as_str(),
+            "system-ui"
+                | "-apple-system"
+                | "blinkmacsystemfont"
+                | "sans-serif"
+                | "serif"
+                | "monospace"
+                | "cursive"
+                | "fantasy"
+                | "ui-sans-serif"
+                | "ui-serif"
+                | "ui-monospace"
+        ) {
+            continue;
+        }
+        return Some(name.to_string());
+    }
+    None
 }
 
 /// 统一事件驱动器：解析 `markdown`（开 GFM 扩展），逐事件喂给 `handle_event`。
@@ -358,7 +511,8 @@ impl RenderState {
 /// 关键点：在处理任何**非 HTML 事件**之前，先 flush 已累积的 HTML 块——保证
 /// 「HTML 块里的内容」与「前后 Markdown 内容」在 docx 里的先后顺序正确。
 fn drive_parser(markdown: &str, state: &mut RenderState, docx: &mut Docx) -> Result<(), AppError> {
-    let parser = Parser::new_ext(markdown, gfm_options());
+    let enable_math = crate::services::markdown::math_is_safe(markdown);
+    let parser = Parser::new_ext(markdown, gfm_options(enable_math));
     for event in parser {
         if !matches!(event, Event::Html(_)) {
             flush_html_buffer(state, docx)?;
@@ -446,6 +600,20 @@ fn handle_event(event: Event, state: &mut RenderState, docx: &mut Docx) -> Resul
             state.code -= 1;
         }
 
+        // ── 公式 ──
+        // docx 暂不生成 OMML；保留 TeX 文本（Cambria Math 显示），避免公式被当普通正文丢弃。
+        Event::InlineMath(t) => {
+            let run = state.make_math_run(&t);
+            state.pending_runs.push(run);
+        }
+        Event::DisplayMath(t) => {
+            state.flush_paragraph(docx);
+            let p = Paragraph::new()
+                .align(AlignmentType::Center)
+                .add_run(state.make_math_run(&t));
+            *docx = std::mem::take(docx).add_paragraph(p);
+        }
+
         // ── inline 样式 ──
         Event::Start(Tag::Strong) => state.bold += 1,
         Event::End(TagEnd::Strong) => {
@@ -489,7 +657,8 @@ fn handle_event(event: Event, state: &mut RenderState, docx: &mut Docx) -> Resul
                                     .east_asia("Courier New")
                                     .ascii("Courier New"),
                             )
-                            .size(20),
+                            .size(20)
+                            .shading(Shading::new().fill("F6F8FA")),
                     )
                     .indent(Some(360), None, None, None);
                 *docx = std::mem::take(docx).add_paragraph(p);
@@ -561,6 +730,7 @@ fn handle_event(event: Event, state: &mut RenderState, docx: &mut Docx) -> Resul
         Event::Start(Tag::Table(_)) => {
             state.flush_paragraph(docx);
             state.in_table = true;
+            state.in_table_head = false;
             state.table_rows = Vec::new();
         }
         Event::End(TagEnd::Table) => {
@@ -572,11 +742,23 @@ fn handle_event(event: Event, state: &mut RenderState, docx: &mut Docx) -> Resul
                 *docx = std::mem::take(docx).add_paragraph(Paragraph::new());
             }
             state.in_table = false;
+            state.in_table_head = false;
         }
-        Event::Start(Tag::TableHead) | Event::Start(Tag::TableRow) => {
+        Event::Start(Tag::TableHead) => {
+            state.in_table_head = true;
             state.current_row_cells = Vec::new();
         }
-        Event::End(TagEnd::TableHead) | Event::End(TagEnd::TableRow) => {
+        Event::End(TagEnd::TableHead) => {
+            let cells = std::mem::take(&mut state.current_row_cells);
+            if !cells.is_empty() {
+                state.table_rows.push(TableRow::new(cells));
+            }
+            state.in_table_head = false;
+        }
+        Event::Start(Tag::TableRow) => {
+            state.current_row_cells = Vec::new();
+        }
+        Event::End(TagEnd::TableRow) => {
             let cells = std::mem::take(&mut state.current_row_cells);
             if !cells.is_empty() {
                 state.table_rows.push(TableRow::new(cells));
@@ -587,8 +769,21 @@ fn handle_event(event: Event, state: &mut RenderState, docx: &mut Docx) -> Resul
         }
         Event::End(TagEnd::TableCell) => {
             let text = std::mem::take(&mut state.current_cell_text);
-            let cell =
-                TableCell::new().add_paragraph(Paragraph::new().add_run(Run::new().add_text(text)));
+            let mut run = Run::new().add_text(text);
+            if let Some(family) = &state.body_font {
+                run = run.fonts(
+                    RunFonts::new()
+                        .east_asia(family.clone())
+                        .ascii(family.clone()),
+                );
+            }
+            if state.in_table_head {
+                run = run.bold();
+            }
+            let mut cell = TableCell::new().add_paragraph(Paragraph::new().add_run(run));
+            if state.in_table_head {
+                cell = cell.shading(Shading::new().fill("F2F2F2"));
+            }
             state.current_row_cells.push(cell);
         }
 
@@ -1197,6 +1392,155 @@ mod tests {
 
         let _ = std::fs::remove_file(&target);
         let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    /// 读取 docx 里的 `word/document.xml`（断言正文内容用）
+    fn docx_document_xml(path: &Path) -> String {
+        use std::io::Read;
+        let file = std::fs::File::open(path).expect("docx 应存在");
+        let mut zip = zip::ZipArchive::new(file).expect("docx 应是 zip");
+        let mut doc = zip.by_name("word/document.xml").expect("应包含 document.xml");
+        let mut xml = String::new();
+        doc.read_to_string(&mut xml).expect("读取 document.xml");
+        xml
+    }
+
+    /// 实时 DOM 形态的 HTML 走原生回退：标题自动编号与表格都不应丢失，
+    /// 且结果标记为 native 引擎。
+    #[test]
+    fn native_export_from_body_html_preserves_rendered_content() {
+        let assets = std::env::temp_dir();
+        let body = r#"<div class="tiptap"><h1><span class="kb-hnum">1</span>研发与制造脱节</h1><p>正文 <strong>加粗重点</strong></p><table><tr><td>服务器</td><td>1.2.3.4</td></tr></table></div>"#;
+
+        let target = tmp_docx("body_html");
+        let result = WordExportService::export_single_from_html(body, &target, &assets)
+            .expect("body HTML 导出应成功");
+
+        assert_eq!(result.engine, "native");
+        let xml = docx_document_xml(&target);
+        assert!(xml.contains("研发与制造脱节"), "标题文字丢失: {xml}");
+        assert!(xml.contains("加粗重点"), "正文文字丢失");
+        assert!(xml.contains("服务器"), "表格内容丢失");
+
+        let _ = std::fs::remove_file(&target);
+    }
+
+    /// 实时 DOM 里的图片已是 data: URL（前端已固化），原生回退必须直接内嵌。
+    #[test]
+    fn native_export_from_body_html_embeds_data_url_image() {
+        let b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+        let body = format!(
+            r#"<div class="tiptap"><h1>图</h1><figure><img src="data:image/png;base64,{}" alt="图"></figure></div>"#,
+            b64
+        );
+
+        let assets = std::env::temp_dir();
+        let target = tmp_docx("body_html_img");
+        let result = WordExportService::export_single_from_html(&body, &target, &assets)
+            .expect("含 data URL 图片的 body HTML 导出应成功");
+
+        assert_eq!(
+            result.images_embedded, 1,
+            "data: 图片应内嵌，实际 embedded={} missing={}",
+            result.images_embedded, result.images_missing
+        );
+        assert_eq!(result.images_missing, 0);
+
+        let _ = std::fs::remove_file(&target);
+    }
+
+    /// CSS font-family 栈里应挑出真实字体名，跳过平台别名与关键字。
+    #[test]
+    fn primary_font_family_skips_platform_aliases() {
+        assert_eq!(
+            primary_font_family(Some(
+                r#"-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif"#
+            )),
+            Some("Segoe UI".to_string())
+        );
+        assert_eq!(
+            primary_font_family(Some("'Noto Serif SC', serif")),
+            Some("Noto Serif SC".to_string())
+        );
+        assert_eq!(primary_font_family(Some("system-ui, sans-serif")), None);
+        assert_eq!(primary_font_family(None), None);
+    }
+
+    /// 原生路径也要跟随用户字体：正文 / 标题分别写进 rFonts。
+    #[test]
+    fn native_export_applies_user_fonts() {
+        let assets = std::env::temp_dir();
+        let fonts = ExportFonts {
+            body: Some(r#""Microsoft YaHei", sans-serif"#.to_string()),
+            heading: Some("'SimHei', sans-serif".to_string()),
+        };
+        let target = tmp_docx("fonts");
+        WordExportService::export_single_impl(
+            "文档标题",
+            "## 小标题\n\n正文内容",
+            &target,
+            &assets,
+            Some(&fonts),
+        )
+        .expect("字体导出应成功");
+
+        let xml = docx_document_xml(&target);
+        assert!(xml.contains("Microsoft YaHei"), "正文字体应写入 rFonts");
+        assert!(xml.contains("SimHei"), "标题字体应写入 rFonts");
+
+        let _ = std::fs::remove_file(&target);
+    }
+
+    /// 引用 / 代码块 / 表头的基础样式应真实写进 docx。
+    #[test]
+    fn native_export_styles_quote_code_and_table_header() {
+        let assets = std::env::temp_dir();
+        let md = "> 引用文字\n\n```rust\nlet x = 1;\n```\n\n| 列A | 列B |\n| --- | --- |\n| 1 | 2 |\n";
+        let target = tmp_docx("styles");
+        WordExportService::export_single("标题", md, &target, &assets).expect("样式导出应成功");
+
+        let xml = docx_document_xml(&target).to_lowercase();
+        assert!(xml.contains("6b7280"), "引用应为灰色");
+        assert!(xml.contains("f6f8fa"), "代码块应有浅灰底纹");
+        assert!(xml.contains("f2f2f2"), "表头应有底纹");
+
+        let _ = std::fs::remove_file(&target);
+    }
+
+    /// 公式不再被当普通正文：行内/块级 TeX 文本保留并标记 Cambria Math。
+    #[test]
+    fn native_export_keeps_math_text() {
+        let assets = std::env::temp_dir();
+        let md = "行内 $x^2$ 公式\n\n$$\n\\int_0^1 x dx\n$$\n";
+        let target = tmp_docx("math");
+        WordExportService::export_single("标题", md, &target, &assets).expect("公式导出应成功");
+
+        let xml = docx_document_xml(&target);
+        assert!(xml.contains("x^2"), "行内公式文本应保留");
+        assert!(xml.contains("Cambria Math"), "公式应使用 Cambria Math");
+        assert!(xml.contains("int_0^1"), "块级公式文本应保留");
+
+        let _ = std::fs::remove_file(&target);
+    }
+
+    /// 货币写法不能被当成公式吞掉 $ 符号。
+    #[test]
+    fn native_export_keeps_currency_dollars() {
+        let assets = std::env::temp_dir();
+        let target = tmp_docx("currency");
+        WordExportService::export_single(
+            "价格",
+            "价格$100元，原价$200元",
+            &target,
+            &assets,
+        )
+        .expect("货币文本导出应成功");
+
+        let xml = docx_document_xml(&target);
+        assert!(xml.contains("$100元"), "货币文本里的 $ 不应被当成公式吞掉");
+        assert!(!xml.contains("Cambria Math"), "货币文本不应启用公式样式");
+
+        let _ = std::fs::remove_file(&target);
     }
 
     /// 裸机路径下图片文件真的没了 → 计 missing 并留占位文本，导出本身**不能**失败

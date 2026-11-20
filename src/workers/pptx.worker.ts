@@ -25,6 +25,7 @@ import { renderSlideSvg } from "@/lib/office/renderSlideSvg";
 import type { DocxOpened } from "@/lib/office/docxEngine";
 import type {
   DocxFontMetrics,
+  DocxOpenedData,
   DocxTextBlock,
   PptxEditOp,
   PptxOpenResult,
@@ -60,6 +61,10 @@ let kind: "pptx" | "docx" | null = null;
 let pptxSession: PptxSession | null = null;
 let docxSession: DocxOpened | null = null;
 let docxEdits: Record<number, string> = {};
+let docxFontMetrics: Record<string, DocxFontMetrics> | undefined;
+const MAX_DOCX_UNDO = 30;
+let docxUndoStack: Uint8Array[] = [];
+let docxRedoStack: Uint8Array[] = [];
 let fitWidth = 960;
 let undoStack: UndoEntry[] = [];
 let redoStack: UndoEntry[] = [];
@@ -75,6 +80,40 @@ function fail(id: number, error: unknown): void {
 
 function toBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function docxResult(opened: DocxOpened): DocxOpenedData {
+  return {
+    kind: "docx",
+    info: opened.info,
+    html: opened.html,
+    saved: opened.saved,
+    textBlocks: opened.textBlocks,
+    canUndo: docxUndoStack.length > 0,
+    canRedo: docxRedoStack.length > 0,
+  };
+}
+
+async function undoDocx(): Promise<DocxOpenedData> {
+  if (!docxSession) throw new Error("请先打开 DOCX");
+  const previous = docxUndoStack.pop();
+  if (!previous) throw new Error("没有可撤销的操作");
+  docxRedoStack.push(docxSession.saved);
+  const { openDocxSession } = await import("@/lib/office/docxEngine");
+  docxSession = await openDocxSession(previous, { fontMetrics: docxFontMetrics });
+  docxEdits = {};
+  return docxResult(docxSession);
+}
+
+async function redoDocx(): Promise<DocxOpenedData> {
+  if (!docxSession) throw new Error("请先打开 DOCX");
+  const next = docxRedoStack.pop();
+  if (!next) throw new Error("没有可重做的操作");
+  docxUndoStack.push(docxSession.saved);
+  const { openDocxSession } = await import("@/lib/office/docxEngine");
+  docxSession = await openDocxSession(next, { fontMetrics: docxFontMetrics });
+  docxEdits = {};
+  return docxResult(docxSession);
 }
 
 function sceneOf(index: number): PptxSceneResult {
@@ -306,6 +345,9 @@ async function handleOpen(params: {
   pptxSession = null;
   docxSession = null;
   docxEdits = {};
+  docxFontMetrics = params.fontMetrics;
+  docxUndoStack = [];
+  docxRedoStack = [];
   undoStack = [];
   redoStack = [];
   fitWidth = params.fitWidth ?? 960;
@@ -327,17 +369,7 @@ async function handleOpen(params: {
     fontMetrics: params.fontMetrics,
   });
   docxSession = opened;
-  const buffer = toBuffer(opened.saved);
-  return {
-    result: {
-      kind: "docx",
-      info: opened.info,
-      html: opened.html,
-      saved: new Uint8Array(buffer),
-      textBlocks: opened.textBlocks,
-    },
-    transfer: [],
-  };
+  return { result: docxResult(opened), transfer: [] };
 }
 
 async function handle(request: WorkerRequest): Promise<void> {
@@ -409,18 +441,26 @@ async function handle(request: WorkerRequest): Promise<void> {
       if (!docxSession) throw new Error("请先打开 DOCX");
       const { blockIndex, text } = params as { blockIndex: number; text: string };
       docxEdits[blockIndex] = text;
+      const previous = docxSession.saved;
       const { openDocxSession, saveDocxWithEdits } = await import("@/lib/office/docxEngine");
       const saved = await saveDocxWithEdits(docxSession.parsed, docxEdits);
-      const reopened = await openDocxSession(saved);
+      const reopened = await openDocxSession(saved, { fontMetrics: docxFontMetrics });
+      docxUndoStack.push(previous);
+      if (docxUndoStack.length > MAX_DOCX_UNDO) docxUndoStack.shift();
+      docxRedoStack = [];
       docxSession = reopened;
       docxEdits = {};
-      respond(id, {
-        kind: "docx",
-        info: reopened.info,
-        html: reopened.html,
-        saved: reopened.saved,
-        textBlocks: reopened.textBlocks,
-      });
+      respond(id, docxResult(reopened));
+      return;
+    }
+
+    if (method === "docx-undo") {
+      respond(id, await undoDocx());
+      return;
+    }
+
+    if (method === "docx-redo") {
+      respond(id, await redoDocx());
       return;
     }
 

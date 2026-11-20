@@ -1,5 +1,5 @@
 /** 工作台状态栏：页码、缩放、保存状态。 */
-import { theme as antdTheme, Tooltip } from "antd";
+import { Slider, theme as antdTheme, Tooltip } from "antd";
 import { Minus, Plus } from "lucide-react";
 import { FORMAT_LABEL } from "@/lib/office/formats";
 import type { OfficeSessionMeta } from "@/store/office";
@@ -79,6 +79,16 @@ export function OfficeStatusBar({
           <Plus size={12} />
         </button>
       </Tooltip>
+      <Slider
+        className="!m-0"
+        style={{ width: 120 }}
+        min={ZOOM_MIN}
+        max={ZOOM_MAX}
+        step={ZOOM_STEP}
+        value={zoom}
+        tooltip={{ formatter: (v) => `${v}%` }}
+        onChange={(value) => onZoom(value)}
+      />
     </div>
   );
 }

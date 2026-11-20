@@ -41,6 +41,12 @@ pub struct ExportFonts {
 const DEFAULT_BODY_FONT: &str = r#"-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
       "PingFang SC", "Source Han Sans SC", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif"#;
 
+/// 导出 HTML 内嵌的 KaTeX 样式（MIT License，https://katex.org）。
+///
+/// 只有 Web 版式且正文确实带 KaTeX 节点时才插入，避免每份导出都多 23KB。
+/// 字体文件不随包分发，缺失时由浏览器回退到系统数学字体，布局仍能保持。
+const KATEX_CSS: &str = include_str!("../../resources/katex.min.css");
+
 /// 模板版式：同一份 CSS 服务两类目标，**外层留白的归属**不同。
 ///
 /// 起因是用户反馈「导出的 Word 首行上方 / 末行下方有一段空白，怎么也消不掉」：
@@ -98,6 +104,10 @@ impl HtmlExportService {
         options.insert(Options::ENABLE_STRIKETHROUGH);
         options.insert(Options::ENABLE_TASKLISTS);
         options.insert(Options::ENABLE_FOOTNOTES);
+        // 只有不存在「货币式 $…$」时才启用数学解析，避免吞掉正文里的 $
+        if crate::services::markdown::math_is_safe(markdown) {
+            options.insert(Options::ENABLE_MATH);
+        }
 
         let parser = Parser::new_ext(markdown, options);
         let mut body = String::new();
@@ -319,6 +329,14 @@ fn wrap_template(
     } else {
         String::new()
     };
+    // KaTeX 节点只在「编辑器 DOM 路径」出现；模板自身不带公式样式。
+    // 不内嵌时，KaTeX 的 mathml / html 两份结构会同时显示，公式会重复。
+    let katex_style =
+        if layout == TemplateLayout::Web && body.contains("class=\"katex") {
+            format!("<style>{KATEX_CSS}</style>")
+        } else {
+            String::new()
+        };
     format!(
         r##"<!DOCTYPE html>
 <html lang="zh-CN">
@@ -353,6 +371,19 @@ fn wrap_template(
   p {{ margin: 0.8em 0; }}
   a {{ color: var(--link); text-decoration: none; }}
   a:hover {{ text-decoration: underline; }}
+  /* 公式：markdown 重渲路径输出 .math-inline/.math-display（TeX 文本）；
+     编辑器 DOM 路径则携带 KaTeX 生成的 .katex 结构。 */
+  .math-inline, .math-display, .katex {{
+    font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", serif;
+  }}
+  .math-display {{
+    display: block;
+    text-align: center;
+    margin: 1em 0;
+  }}
+  /* KaTeX 同时输出 MathML 与视觉 HTML；无完整 KaTeX CSS 时必须隐藏 MathML，
+     否则 Word 转换器会把公式内容转两遍。 */
+  .katex-mathml {{ display: none; }}
   code {{
     font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", "Source Code Pro",
       Consolas, "Courier New", monospace;
@@ -447,6 +478,7 @@ fn wrap_template(
   .kb-doc-first {{ margin-top: 0; }}
   .kb-doc-last {{ margin-bottom: 0; }}
 </style>
+{katex_style}
 </head>
 <body>
 <article>
@@ -460,6 +492,7 @@ fn wrap_template(
         body = body,
         page_css = page_css,
         at_page_css = at_page_css,
+        katex_style = katex_style,
     )
 }
 
@@ -776,6 +809,94 @@ mod tests {
         );
         // 合法部分仍然保留，不是整条丢弃
         assert!(html.contains("宋体"), "无害的字体名应保留");
+    }
+
+    /// 数学事件应输出可样式化的 `.math-inline` / `.math-display` 结构。
+    #[test]
+    fn render_html_emits_math_markup() {
+        let assets = std::env::temp_dir();
+        let (html, _, _) = HtmlExportService::render_html(
+            "公式",
+            "行内 $x^2$ 与\n\n$$\n\\int_0^1 x dx\n$$\n",
+            &assets,
+            None,
+            TemplateLayout::Web,
+        )
+        .expect("公式渲染应成功");
+
+        assert!(
+            html.contains(r#"class="math math-inline""#),
+            "行内公式应输出 math-inline 结构"
+        );
+        assert!(
+            html.contains(r#"class="math math-display""#),
+            "块级公式应输出 math-display 结构"
+        );
+    }
+
+    /// 编辑器 DOM 里的 KaTeX 节点需要 KaTeX 样式，否则 mathml/html 两份内容会同时显示。
+    #[test]
+    fn body_with_katex_gets_katex_styles() {
+        let body = r#"<div class="tiptap"><h1>标题</h1><p><span class="katex"><span class="katex-mathml">x</span><span class="katex-html">x</span></span></p></div>"#;
+
+        let (web, _, _) = HtmlExportService::render_html_from_body(
+            "标题",
+            body,
+            Path::new("."),
+            None,
+            TemplateLayout::Web,
+        );
+        assert!(
+            web.contains("font-family:KaTeX_Main"),
+            "Web 版式应注入完整 KaTeX 样式"
+        );
+
+        // Word 转换器走 Document 版式：不注入完整 CSS，但仍要隐藏 MathML 副本
+        let (doc, _, _) = HtmlExportService::render_html_from_body(
+            "标题",
+            body,
+            Path::new("."),
+            None,
+            TemplateLayout::Document,
+        );
+        assert!(
+            !doc.contains("font-family:KaTeX_Main"),
+            "Document 版式不应注入完整 KaTeX 样式"
+        );
+        assert!(
+            doc.contains(".katex-mathml"),
+            "Document 版式仍应隐藏 KaTeX 的 MathML 副本"
+        );
+
+        // 没有公式的正文不注入，避免每份导出都多 23KB
+        let (plain, _, _) = HtmlExportService::render_html_from_body(
+            "标题",
+            "<p>正文</p>",
+            Path::new("."),
+            None,
+            TemplateLayout::Web,
+        );
+        assert!(!plain.contains("font-family:KaTeX_Main"));
+    }
+
+    /// 货币写法不能被当成公式吞掉 $ 符号。
+    #[test]
+    fn render_html_keeps_currency_dollars() {
+        let assets = std::env::temp_dir();
+        let (html, _, _) = HtmlExportService::render_html(
+            "价格",
+            "价格$100元，原价$200元",
+            &assets,
+            None,
+            TemplateLayout::Web,
+        )
+        .expect("货币文本渲染应成功");
+
+        assert!(html.contains("$100元"), "货币文本里的 $ 应保留");
+        assert!(
+            !html.contains(r#"class="math math-inline""#),
+            "货币文本不应被解析成公式"
+        );
     }
 
     /// 建一个带内容的临时文件，返回路径；调用方负责删

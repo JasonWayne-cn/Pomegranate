@@ -46,3 +46,21 @@ export function stripExtension(name: string): string {
 export function isEditable(format: OfficeFormat): boolean {
   return format !== "pdf";
 }
+
+/**
+ * 文档（笔记/外部文档）对应的 Office 工作台路由；不支持的类型返回 null。
+ *
+ * 外部 PDF/Word/Excel 以只读方式打开，避免误写回源文件。
+ */
+export function officePathForSource(sourcePath: string | null | undefined): string | null {
+  if (!sourcePath) return null;
+  const format = formatOf(sourcePath);
+  if (!format) return null;
+  // t 保证重复点击同一文件也会触发 Office 的 query effect
+  const params = new URLSearchParams({
+    path: sourcePath,
+    readonly: "1",
+    t: String(Date.now()),
+  });
+  return `/office?${params.toString()}`;
+}

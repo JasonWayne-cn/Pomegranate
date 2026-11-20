@@ -51,7 +51,8 @@ export function OfficeTopBar({
     session.status === "ready" &&
     !session.readOnly &&
     (session.format === "pptx" || session.format === "docx");
-  const isPptx = session?.format === "pptx";
+  const hasHistory =
+    session?.format === "pptx" || session?.format === "docx" || session?.format === "xlsx";
 
   return (
     <div
@@ -94,7 +95,7 @@ export function OfficeTopBar({
 
       {session && (
         <Space size={4}>
-          {isPptx && (
+          {hasHistory && (
             <>
               <Tooltip title="撤销 (Ctrl+Z)">
                 <Button

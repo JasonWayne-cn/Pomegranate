@@ -5,6 +5,7 @@
  * 与 SVG 的 viewBox 一致，因此交互层只需要一个线性缩放系数。
  */
 import type { RenderNode, RenderSlide } from "@genoffice/pptx-render";
+import { styleOfNode, type EditorNodeStyle } from "./nodeStyle";
 
 export interface Box {
   x: number;
@@ -25,6 +26,8 @@ export interface EditorNode {
   background: boolean;
   /** 可内联编辑的纯文本（多段以 \n 连接）；非文本节点为 null */
   text: string | null;
+  /** 属性面板显示的当前样式 */
+  style?: EditorNodeStyle;
 }
 
 export type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
@@ -54,6 +57,7 @@ export function collectEditableNodes(scene: RenderSlide): EditorNode[] {
       centerY: node.box.centerY,
       background: !!node.background,
       text: nodeText(node),
+      style: styleOfNode(node, scene.scale),
     });
   }
   return nodes;
