@@ -2808,7 +2808,7 @@ fn mount_default_true() -> bool {
 }
 
 fn mount_default_scan_interval() -> i64 {
-    10
+    600
 }
 
 /// 更新挂载点设置（只更新传入的字段）
@@ -2988,6 +2988,28 @@ pub struct LlmExtractionStatus {
     pub prompt_version: i32,
     pub error: Option<String>,
     pub updated_at: String,
+}
+
+/// 文献图谱作用域状态（文件夹 / 全库）
+///
+/// `state` 取值：
+/// - `full`：范围内所有笔记都已建图且内容未变
+/// - `partial`：已建图但未覆盖全部笔记，或部分长文档只抽取了采样块
+/// - `none`：范围内尚未建图
+/// - `stale`：已建图但部分笔记内容在抽取后发生了更新
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmGraphScopeStatus {
+    pub state: String,
+    /// 范围内可建图的笔记总数（不含回收站 / 隐藏）
+    pub total: i64,
+    /// 已建图且内容未变、覆盖完整的笔记数
+    pub built: i64,
+    /// 已建图且内容未变，但长文档仅抽取了采样块的笔记数
+    pub partial: i64,
+    /// 已建图但内容已更新的笔记数
+    pub stale: i64,
+    /// 最近一次抽取失败的笔记数
+    pub failed: i64,
 }
 
 /// 批量抽取的单项结果

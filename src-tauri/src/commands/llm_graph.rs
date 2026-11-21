@@ -6,6 +6,7 @@ use tauri::{AppHandle, State};
 
 use crate::models::{
     LlmEntityNote, LlmExtractBatchItem, LlmExtractResult, LlmExtractionStatus, LlmGraphData,
+    LlmGraphScopeStatus,
 };
 use crate::services::llm_graph;
 use crate::state::AppState;
@@ -72,6 +73,16 @@ pub fn get_llm_entity_notes(
         .db
         .list_llm_entity_notes(&norm, limit.unwrap_or(20).clamp(1, 100) as usize)
         .map_err(|e| e.to_string())
+}
+
+/// 查询作用域（文件夹子树 / 全库）的建图状态：
+/// 全建图 / 部分建图 / 未建图 / 有更新。
+#[tauri::command]
+pub fn get_llm_graph_scope_status(
+    state: State<'_, AppState>,
+    folder_id: Option<i64>,
+) -> Result<LlmGraphScopeStatus, String> {
+    llm_graph::scope_status(state.db.as_ref(), folder_id).map_err(|e| e.to_string())
 }
 
 /// 查询单篇笔记的抽取状态。

@@ -1015,6 +1015,18 @@ export interface LlmExtractionStatus {
   updated_at: string;
 }
 
+/** 图谱作用域状态（文件夹子树 / 全库） */
+export interface LlmGraphScopeStatus {
+  /** full = 全建图，partial = 部分建图，none = 未建图，stale = 有更新 */
+  state: "full" | "partial" | "none" | "stale" | string;
+  /** 范围内可建图的笔记总数（不含回收站 / 隐藏） */
+  total: number;
+  built: number;
+  partial: number;
+  stale: number;
+  failed: number;
+}
+
 export interface LlmExtractBatchItem {
   note_id: number;
   ok: boolean;

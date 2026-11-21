@@ -1204,6 +1204,7 @@ pub fn run() {
             commands::llm_graph::get_llm_graph_data,
             commands::llm_graph::get_llm_entity_notes,
             commands::llm_graph::get_llm_extraction_status,
+            commands::llm_graph::get_llm_graph_scope_status,
             commands::llm_graph::delete_note_llm_graph,
             // AI Provider 注册表
             commands::ai_provider::list_ai_providers,

@@ -9,7 +9,6 @@
 //! - 分块与整体数量都有上限，控制单篇成本。
 
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
 use serde::Deserialize;
@@ -19,9 +18,12 @@ use tauri::Emitter;
 use crate::database::llm_graph::{LlmEntityRow, LlmRelationRow};
 use crate::database::Database;
 use crate::error::AppError;
-use crate::models::{LlmExtractBatchItem, LlmExtractResult, LlmGraphProgress};
+use crate::models::{
+    LlmExtractBatchItem, LlmExtractResult, LlmGraphProgress, LlmGraphScopeStatus,
+};
 use crate::services::ai::AiService;
 use crate::services::embedding::chunk_text;
+use crate::services::hash::sha256_hex;
 
 const PROGRESS_EVENT: &str = "llm-graph:progress";
 
@@ -182,10 +184,75 @@ fn select_chunks<'a>(chunks: Vec<&'a str>, max: usize) -> Vec<&'a str> {
         .collect()
 }
 
+/// 正文指纹。与 `notes.content_hash` 使用同一算法（SHA-256），
+/// 这样作用域状态查询可以直接用 SQL 比较，不必把每篇正文读进内存。
 fn content_hash(content: &str) -> String {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    content.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    sha256_hex(content)
+}
+
+/// 超过该长度的文档只会抽取 `MAX_CHUNKS` 个采样块，视为“部分建图”。
+fn partial_char_limit() -> i64 {
+    (MAX_CHUNKS * CHUNK_CHARS) as i64
+}
+
+/// 聚合一个作用域（文件夹子树 / 全库）的建图状态。
+pub fn scope_status(
+    db: &Database,
+    folder_id: Option<i64>,
+) -> Result<LlmGraphScopeStatus, AppError> {
+    let rows = db.list_llm_graph_scope_notes(folder_id)?;
+    // 空笔记没有可抽取内容，不计入“需要建图”的总数，
+    // 否则永远无法达到“全建图”。
+    let total = rows.iter().filter(|r| r.content_len > 0).count() as i64;
+    let mut built = 0i64;
+    let mut partial = 0i64;
+    let mut stale = 0i64;
+    let mut failed = 0i64;
+
+    for row in rows {
+        if row.content_len == 0 {
+            continue;
+        }
+        match row.run_status.as_deref() {
+            Some("done") => {
+                if row.run_hash.as_deref() != Some(row.note_hash.as_str()) {
+                    stale += 1;
+                } else if row.content_len > partial_char_limit() {
+                    partial += 1;
+                } else {
+                    built += 1;
+                }
+            }
+            Some("failed") => failed += 1,
+            _ => {}
+        }
+    }
+
+    let state = if total == 0 {
+        "none"
+    } else if stale > 0 {
+        // 有更新优先暴露，提示用户重新抽取
+        "stale"
+    } else if built + partial == total {
+        if partial > 0 {
+            "partial"
+        } else {
+            "full"
+        }
+    } else if built + partial > 0 {
+        "partial"
+    } else {
+        "none"
+    };
+
+    Ok(LlmGraphScopeStatus {
+        state: state.to_string(),
+        total,
+        built,
+        partial,
+        stale,
+        failed,
+    })
 }
 
 fn build_prompt(title: &str, chunk: &str) -> String {

@@ -162,6 +162,7 @@ export default function OfficeWorkspacePage() {
   const setActive = useOfficeStore((state) => state.setActive);
   const addRecent = useOfficeStore((state) => state.addRecent);
   const removeRecent = useOfficeStore((state) => state.removeRecent);
+  const clearRecent = useOfficeStore((state) => state.clearRecent);
 
   const [activeSlide, setActiveSlide] = useState(0);
   const [zoom, setZoom] = useState(100);
@@ -1473,6 +1474,7 @@ export default function OfficeWorkspacePage() {
             onOpen={() => void openDocument()}
             onOpenRecent={(path) => void openDocument(path)}
             onRemoveRecent={removeRecent}
+            onClearRecent={clearRecent}
             restorable={
               restorable
                 ? {

@@ -35,8 +35,10 @@ import {
   Clock,
   Pin,
   PinOff,
+  RefreshCw,
   Calendar,
   Folder as FolderIcon,
+  GitBranch,
   CornerUpLeft,
   Filter as FilterIcon,
   Bot,
@@ -56,6 +58,8 @@ import {
   tagApi,
   trashApi,
   moduleConfigApi,
+  llmGraphApi,
+  mountApi,
 } from "@/lib/api";
 import { MODULE_CONFIG_CHANGED_EVENT } from "@/modules/types";
 import { MicButton } from "@/components/MicButton";
@@ -83,12 +87,20 @@ import { useTabsStore } from "@/store/tabs";
 import { useAppStore } from "@/store";
 import { stripHtml, relativeTime } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { FolderCreateButton } from "@/components/FolderCreateButton";
 import { NewNoteButton } from "@/components/NewNoteButton";
 import { createBlankAndOpen } from "@/lib/noteCreator";
 import { startAiChatWithNotes } from "@/lib/aiAttach";
 import { officePathForSource } from "@/lib/office/formats";
+import { FileTypeIcon } from "@/components/FileTypeIcon";
 // AntD 已有 Tag 组件同名，这里给类型起个别名避免冲突
-import type { Note, PageResult, Folder, Tag as NoteTag } from "@/types";
+import type {
+  Note,
+  PageResult,
+  Folder,
+  LlmGraphScopeStatus,
+  Tag as NoteTag,
+} from "@/types";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -613,10 +625,33 @@ function DesktopNoteListPage() {
 
   const folderId = searchParams.get("folder");
 
+  /** 当前真实文件夹 id（未分类 / 全库都视为 null，对应全库图谱范围） */
+  const graphFolderId = useMemo<number | null>(() => {
+    if (!folderId || folderId === "uncategorized") return null;
+    const id = Number(folderId);
+    return Number.isFinite(id) ? id : null;
+  }, [folderId]);
+
+  /** 当前作用域的建图状态：全建图 / 部分建图 / 未建图 / 有更新 */
+  const [graphStatus, setGraphStatus] = useState<LlmGraphScopeStatus | null>(null);
+
   // 文件夹 id → name 映射（用于显示目录列）
   const [folderMap, setFolderMap] = useState<Map<number, string>>(new Map());
   // 原始文件夹树，供"目录"列的 Popover 选择器用
   const [folders, setFolders] = useState<Folder[]>([]);
+
+  /** 外部挂载（同步文件夹）下的文件夹 id 集合：用于区分同步文档 */
+  const syncedFolderIds = useMemo(() => {
+    const ids = new Set<number>();
+    const walk = (list: Folder[]) => {
+      for (const f of list) {
+        if (f.mount_id) ids.add(f.id);
+        if (f.children?.length) walk(f.children);
+      }
+    };
+    walk(folders);
+    return ids;
+  }, [folders]);
 
   /** 当前选中的文件夹名；null 表示"全库"（未选文件夹） */
   const selectedFolderName = useMemo(() => {
@@ -747,6 +782,22 @@ function DesktopNoteListPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notesRefreshTick]);
 
+  // 建图状态：随当前文件夹与列表/文件夹刷新而变化
+  useEffect(() => {
+    let cancelled = false;
+    llmGraphApi
+      .getScopeStatus(graphFolderId)
+      .then((s) => {
+        if (!cancelled) setGraphStatus(s);
+      })
+      .catch(() => {
+        if (!cancelled) setGraphStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [graphFolderId, notesRefreshTick, foldersRefreshTick]);
+
   useEffect(() => {
     const kw = searchParams.get("keyword");
     if (kw) {
@@ -804,6 +855,34 @@ function DesktopNoteListPage() {
         loadNotes(data.page);
       } catch (e) {
         message.error(String(e));
+      }
+    },
+    [data.page, loadNotes],
+  );
+
+  /** 同步文档：按原文件强制重新抽取，覆盖影子笔记的本地编辑 */
+  const handleRefreshSynced = useCallback(
+    async (record: Note) => {
+      const hide = message.loading("正在按原文件刷新…", 0);
+      try {
+        const result = await mountApi.reextract(record.id);
+        hide();
+        if (result.missing) {
+          message.warning("原文件已不存在，保留了现有影子笔记");
+        } else if (result.status === "failed") {
+          message.warning(
+            `已刷新索引，但内容抽取失败：${result.error ?? "未知错误"}`,
+          );
+        } else {
+          message.success("已按原文件强制刷新");
+        }
+        // 编辑器里若打开着旧内容，关闭后由用户重新进入，避免旧内容覆盖新索引
+        useTabsStore.getState().closeTab(record.id);
+        useAppStore.getState().bumpNotesRefresh();
+        loadNotes(data.page);
+      } catch (e) {
+        hide();
+        message.error(`刷新失败：${e}`);
       }
     },
     [data.page, loadNotes],
@@ -1248,6 +1327,9 @@ function DesktopNoteListPage() {
             numericFolderId !== null && record.folder_id !== numericFolderId;
           return (
             <span className="flex items-center">
+              <span className="mr-1.5 inline-flex shrink-0">
+                <FileTypeIcon type={record.source_file_type || "md"} size={14} />
+              </span>
               {isFromDescendant && (
                 <Tooltip
                   title={`来自子文件夹：${record.folder_id ? folderMap.get(record.folder_id) ?? "?" : "未分类"}`}
@@ -1308,56 +1390,8 @@ function DesktopNoteListPage() {
           </Text>
         ),
       },
-      {
-        title: "操作",
-        key: "action",
-        width: 120,
-        render: (_: unknown, record: Note) => (
-          <Space size="small">
-            <Tooltip title="编辑">
-              <Button
-                type="link"
-                size="small"
-                icon={<Edit3 size={14} />}
-                onClick={() => openNoteOrOffice(record)}
-              />
-            </Tooltip>
-            <Dropdown
-              trigger={["click"]}
-              menu={{
-                items: [
-                  {
-                    key: "md",
-                    label: "导出为 Markdown",
-                    onClick: () => runAfterMenuClose(() => void handleExport(record)),
-                  },
-                  {
-                    key: "docx",
-                    label: "导出为 Word (.docx)",
-                    onClick: () => runAfterMenuClose(() => void handleExportWordSingle(record)),
-                  },
-                  {
-                    key: "html",
-                    label: "导出为 HTML (单文件)",
-                    onClick: () => runAfterMenuClose(() => void handleExportHtmlSingle(record)),
-                  },
-                ],
-              }}
-            >
-              <Tooltip title="导出">
-                <Button type="link" size="small" icon={<Share size={14} />} />
-              </Tooltip>
-            </Dropdown>
-            <Popconfirm title="确认删除此文档？" onConfirm={() => handleDelete(record.id)}>
-              <Tooltip title="删除">
-                <Button type="link" danger size="small" icon={<Trash2 size={14} />} />
-              </Tooltip>
-            </Popconfirm>
-          </Space>
-        ),
-      },
     ],
-    [navigate, token.colorWarning, token.colorTextTertiary, handleDelete, handleExport, handleExportWordSingle, handleExportHtmlSingle, folderMap, folders, loadNotes, data.page, data.page_size],
+    [navigate, token.colorWarning, token.colorTextTertiary, folderMap, folders, loadNotes, data.page, data.page_size],
   );
 
   // 时间线分组（缓存）
@@ -1391,6 +1425,21 @@ function DesktopNoteListPage() {
     overscan: 3,
   });
 
+  /** 建图状态颜色与文案：绿=已建图，蓝=部分建图，黄=未建图，红=有更新 */
+  const graphStatusMeta = !graphStatus
+    ? null
+    : graphStatus.state === "full"
+      ? { color: token.colorSuccess, label: "已建图" }
+      : graphStatus.state === "partial"
+        ? { color: token.colorInfo, label: "部分建图" }
+        : graphStatus.state === "stale"
+          ? { color: token.colorError, label: "有更新" }
+          : { color: token.colorWarning, label: "未建图" };
+  const graphStatusTip =
+    graphStatus && graphStatusMeta
+      ? `文档图谱 · ${graphStatusMeta.label}（共 ${graphStatus.total} 篇：已建 ${graphStatus.built}，部分 ${graphStatus.partial}，待更新 ${graphStatus.stale}，失败 ${graphStatus.failed}）`
+      : "文档图谱";
+
   return (
     <div className="max-w-4xl mx-auto h-full flex flex-col min-h-0">
       {/* 顶部标题栏 */}
@@ -1404,7 +1453,7 @@ function DesktopNoteListPage() {
             ellipsis
             style={{ margin: 0, lineHeight: "32px", minWidth: 0 }}
           >
-            文档（{selectedFolderName ?? "全库"}）
+            文档-{selectedFolderName ?? "全库"}
           </Title>
           {folderId && (
             <Tooltip title="退出文件夹，查看全库">
@@ -1420,6 +1469,22 @@ function DesktopNoteListPage() {
           )}
         </div>
         <Space align="center">
+          <Tooltip title={graphStatusTip}>
+            <Button
+              aria-label="文档图谱"
+              icon={
+                <GitBranch
+                  size={16}
+                  color={graphStatusMeta?.color ?? token.colorTextSecondary}
+                />
+              }
+              onClick={() =>
+                navigate(
+                  graphFolderId ? `/graph?folder=${graphFolderId}` : "/graph",
+                )
+              }
+            />
+          </Tooltip>
           <Segmented
             value={viewMode}
             onChange={handleViewChange}
@@ -1430,11 +1495,7 @@ function DesktopNoteListPage() {
             ]}
             size="small"
           />
-          {data.total > 0 && (
-            <Button icon={<Archive size={14} />} onClick={handleTrashAll}>
-              全部移到回收站
-            </Button>
-          )}
+          <FolderCreateButton parentId={graphFolderId} />
           <NewNoteButton folderId={folderId ? Number(folderId) : null} />
         </Space>
       </div>
@@ -1682,27 +1743,38 @@ function DesktopNoteListPage() {
             overflow: "hidden",
           }}
         >
-          {/* 排序模式切换：custom 才启用拖拽，其他模式按对应字段后端排序 */}
+          {/* 列表工具条：排序靠左，全部移到回收站靠右 */}
           <div
-            className="flex-shrink-0 flex items-center justify-end gap-2 px-3 py-2"
+            className="flex-shrink-0 flex items-center justify-between gap-2 px-3 py-2"
             style={{ borderBottom: `1px solid ${token.colorBorderSecondary}` }}
           >
-            <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
-              排序
-            </span>
-            <Segmented
-              size="small"
-              value={sortBy}
-              onChange={(v) =>
-                setSortBy(v as "default" | "custom" | "created" | "title")
-              }
-              options={[
-                { value: "default", label: "修改时间" },
-                { value: "created", label: "创建时间" },
-                { value: "title", label: "标题" },
-                { value: "custom", label: "自定义" },
-              ]}
-            />
+            <div className="flex min-w-0 items-center gap-2">
+              <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                排序
+              </span>
+              <Segmented
+                size="small"
+                value={sortBy}
+                onChange={(v) =>
+                  setSortBy(v as "default" | "custom" | "created" | "title")
+                }
+                options={[
+                  { value: "default", label: "修改时间" },
+                  { value: "created", label: "创建时间" },
+                  { value: "title", label: "标题" },
+                  { value: "custom", label: "自定义" },
+                ]}
+              />
+            </div>
+            {data.total > 0 && (
+              <Button
+                size="small"
+                icon={<Archive size={14} />}
+                onClick={handleTrashAll}
+              >
+                全部移到回收站
+              </Button>
+            )}
           </div>
           <div className="flex-1 min-h-0 overflow-auto" data-tour="notes-list">
             {dndEnabled ? (
@@ -1884,38 +1956,54 @@ function DesktopNoteListPage() {
                                     {note.word_count > 0 && ` · ${note.word_count} 字`}
                                   </Text>
                                   <Space size={0}>
-                                    <Dropdown
-                                      trigger={["click"]}
-                                      menu={{
-                                        items: [
-                                          {
-                                            key: "md",
-                                            label: "导出为 Markdown",
-                                            onClick: () => runAfterMenuClose(() => void handleExport(note)),
-                                          },
-                                          {
-                                            key: "docx",
-                                            label: "导出为 Word (.docx)",
-                                            onClick: () => runAfterMenuClose(() => void handleExportWordSingle(note)),
-                                          },
-                                          {
-                                            key: "html",
-                                            label: "导出为 HTML (单文件)",
-                                            onClick: () => runAfterMenuClose(() => void handleExportHtmlSingle(note)),
-                                          },
-                                        ],
-                                      }}
-                                    >
-                                      <Tooltip title="导出">
+                                    {note.folder_id != null &&
+                                    syncedFolderIds.has(note.folder_id) ? (
+                                      <Tooltip title="按原文件强制刷新（会覆盖本地编辑）">
                                         <Button
                                           type="text"
                                           size="small"
-                                          icon={<Share size={11} />}
-                                          onClick={(e) => e.stopPropagation()}
+                                          icon={<RefreshCw size={11} />}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            void handleRefreshSynced(note);
+                                          }}
                                           style={{ height: 20, width: 20, padding: 0 }}
                                         />
                                       </Tooltip>
-                                    </Dropdown>
+                                    ) : (
+                                      <Dropdown
+                                        trigger={["click"]}
+                                        menu={{
+                                          items: [
+                                            {
+                                              key: "md",
+                                              label: "导出为 Markdown",
+                                              onClick: () => runAfterMenuClose(() => void handleExport(note)),
+                                            },
+                                            {
+                                              key: "docx",
+                                              label: "导出为 Word (.docx)",
+                                              onClick: () => runAfterMenuClose(() => void handleExportWordSingle(note)),
+                                            },
+                                            {
+                                              key: "html",
+                                              label: "导出为 HTML (单文件)",
+                                              onClick: () => runAfterMenuClose(() => void handleExportHtmlSingle(note)),
+                                            },
+                                          ],
+                                        }}
+                                      >
+                                        <Tooltip title="导出">
+                                          <Button
+                                            type="text"
+                                            size="small"
+                                            icon={<Share size={11} />}
+                                            onClick={(e) => e.stopPropagation()}
+                                            style={{ height: 20, width: 20, padding: 0 }}
+                                          />
+                                        </Tooltip>
+                                      </Dropdown>
+                                    )}
                                     <Popconfirm
                                       title="确认删除？"
                                       onConfirm={(e) => {
@@ -2090,6 +2178,7 @@ function DesktopNoteListPage() {
           autoFocus
         />
       </Modal>
+
     </div>
   );
 }

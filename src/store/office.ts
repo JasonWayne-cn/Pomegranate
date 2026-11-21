@@ -75,6 +75,8 @@ interface OfficeStore {
 
   addRecent: (entry: Omit<RecentFile, "at">) => void;
   removeRecent: (path: string) => void;
+  /** 清空全部最近文件记录 */
+  clearRecent: () => void;
 }
 
 export const useOfficeStore = create<OfficeStore>((set) => ({
@@ -116,5 +118,15 @@ export const useOfficeStore = create<OfficeStore>((set) => ({
       const recent = state.recent.filter((item) => item.path !== path);
       persistRecent(recent);
       return { recent };
+    }),
+
+  clearRecent: () =>
+    set(() => {
+      try {
+        localStorage.removeItem(RECENT_KEY);
+      } catch {
+        /* 存储清理失败不影响内存状态 */
+      }
+      return { recent: [] };
     }),
 }));

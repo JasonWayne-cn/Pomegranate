@@ -45,6 +45,7 @@ import type {
   LlmGraphData,
   LlmExtractResult,
   LlmExtractionStatus,
+  LlmGraphScopeStatus,
   LlmExtractBatchItem,
   LlmEntityNote,
   AiModel,
@@ -823,6 +824,11 @@ export const llmGraphApi = {
   /** 查询单篇抽取状态 */
   getStatus: (noteId: number) =>
     invoke<LlmExtractionStatus | null>("get_llm_extraction_status", { noteId }),
+  /** 查询作用域（文件夹子树 / 全库）的建图状态 */
+  getScopeStatus: (folderId?: number | null) =>
+    invoke<LlmGraphScopeStatus>("get_llm_graph_scope_status", {
+      folderId: folderId ?? null,
+    }),
   /** 删除单篇 LLM 图谱数据 */
   deleteNote: (noteId: number) =>
     invoke<void>("delete_note_llm_graph", { noteId }),

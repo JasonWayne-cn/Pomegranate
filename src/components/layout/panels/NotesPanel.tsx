@@ -8,6 +8,7 @@ import {
   Input,
   message,
   Modal,
+  Tooltip,
 } from "antd";
 import {
   ContextMenuOverlay,
@@ -15,7 +16,6 @@ import {
 } from "@/components/ui/ContextMenuOverlay";
 import {
   NotebookText,
-  FolderPlus,
   ChevronDown,
   ChevronRight,
   Edit3,
@@ -24,9 +24,7 @@ import {
   Plus,
   FolderOpen,
   FolderSync,
-  Cog,
   ChevronsDownUp,
-  GitBranch,
   Search,
   LayoutTemplate,
   ExternalLink,
@@ -38,16 +36,23 @@ import {
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FolderFilled } from "@ant-design/icons";
 import type { DataNode } from "antd/es/tree";
+import Markdown from "react-markdown";
 import { useAppStore } from "@/store";
 import { MicButton } from "@/components/MicButton";
 import { useTabsStore } from "@/store/tabs";
-import { folderApi, importApi, noteApi, trashApi } from "@/lib/api";
+import {
+  folderApi,
+  importApi,
+  noteApi,
+  sourceFileApi,
+  trashApi,
+} from "@/lib/api";
 import type { Folder, Note, ScannedFile } from "@/types";
 import { officePathForSource } from "@/lib/office/formats";
 import { parseEmojiPrefix } from "@/lib/treeIcons";
-import { NewNoteButton } from "@/components/NewNoteButton";
-import { OpenFileButton } from "@/components/OpenFileButton";
 import { FileTypeIcon } from "@/components/FileTypeIcon";
+import { FolderCreateButton } from "@/components/FolderCreateButton";
+import { NewNoteButton } from "@/components/NewNoteButton";
 import { TemplatePickerModal } from "@/components/TemplatePickerModal";
 import {
   createBlankAndOpen,
@@ -153,48 +158,6 @@ type TreeNoteData = { isNote: true; note: Note };
 type TreeFolderData = { isNote: false; isChild: boolean; isExternal: boolean };
 type TreeNodeData = TreeNoteData | TreeFolderData;
 type EnrichedNode = DataNode & { data?: TreeNodeData };
-
-/**
- * 「文档来源设置」按钮图标：同步文件夹 + 右下角齿轮。
- * lucide 没有 FolderSyncCog，用叠层组合出来。
- */
-function ExternalFolderSettingsIcon({
-  color,
-  bg,
-}: {
-  color: string;
-  bg: string;
-}) {
-  return (
-    <span
-      style={{
-        position: "relative",
-        display: "inline-flex",
-        width: 16,
-        height: 16,
-        flexShrink: 0,
-      }}
-    >
-      <FolderSync size={15} color={color} />
-      <span
-        style={{
-          position: "absolute",
-          right: -3,
-          bottom: -3,
-          width: 9,
-          height: 9,
-          borderRadius: "50%",
-          background: bg,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Cog size={8} color={color} />
-      </span>
-    </span>
-  );
-}
 
 /** 将 Folder[] + 各文件夹直属笔记 转为 antd Tree 的 DataNode[]
  *
@@ -453,20 +416,81 @@ export function NotesPanel() {
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  /** 当前选中的真实文件夹 id（未分类 / 笔记 / 新建占位返回 null） */
-  const selectedFolderId = useMemo<number | null>(() => {
-    if (!selectedKey) return null;
-    const s = String(selectedKey);
-    if (
-      s === UNCATEGORIZED_KEY ||
-      isNoteKey(s) ||
-      s.startsWith(NEW_NODE_PREFIX)
-    ) {
-      return null;
+  /** 文件预览弹窗（md / txt 在应用内预览，Office 类跳工作台） */
+  const [filePreview, setFilePreview] = useState<{
+    name: string;
+    path: string;
+    ext: string;
+    text: string;
+  } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  async function handlePreviewFile() {
+    try {
+      const picked = await openDialog({
+        multiple: false,
+        filters: [
+          {
+            name: "文档",
+            extensions: [
+              "md",
+              "markdown",
+              "txt",
+              "docx",
+              "docm",
+              "pdf",
+              "xlsx",
+              "xlsm",
+            ],
+          },
+        ],
+      });
+      const path = Array.isArray(picked) ? picked[0] : picked;
+      if (!path) return;
+
+      // Word / PDF / Excel：复用 Office 工作台的只读预览链路
+      const officePath = officePathForSource(path);
+      if (officePath) {
+        navigate(officePath);
+        return;
+      }
+
+      const ext = path.toLowerCase().split(".").pop() ?? "";
+      if (ext !== "md" && ext !== "markdown" && ext !== "txt") {
+        message.info("该文件类型暂不支持应用内预览");
+        return;
+      }
+
+      setPreviewLoading(true);
+      const base64 = await sourceFileApi.readFileAsBase64(path);
+      // 按 UTF-8 解码：直接 atob 会把中文变成乱码
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      const text = new TextDecoder("utf-8").decode(bytes);
+      setFilePreview({
+        name: path.split(/[\\/]/).pop() ?? "未命名",
+        path,
+        ext,
+        text,
+      });
+    } catch (e) {
+      message.error(`预览失败：${e}`);
+    } finally {
+      setPreviewLoading(false);
     }
-    const id = Number(s);
-    return Number.isFinite(id) ? id : null;
-  }, [selectedKey]);
+  }
+
+  /** md / txt 预览后可按原「打开 md」流程导入为新文档 */
+  async function handlePreviewImport() {
+    if (!filePreview) return;
+    try {
+      const result = await importApi.openMarkdownFile(filePreview.path);
+      setFilePreview(null);
+      useAppStore.getState().bumpNotesRefresh();
+      navigate(`/notes/${result.noteId}`);
+    } catch (e) {
+      message.error(`导入失败：${e}`);
+    }
+  }
 
   const [contextMenu, setContextMenu] = useState<{
     key: string;
@@ -1665,82 +1689,40 @@ export function NotesPanel() {
           文档
         </span>
         <div style={{ flex: 1 }} />
-        <Button
-          type="text"
-          size="small"
-          icon={<ChevronsDownUp size={14} />}
-          onClick={() => {
-            // 折叠/展开全部文件夹（state 走 store，自动 persist）
-            const store = useAppStore.getState();
-            if (expandedKeys.length === 0) {
-              store.clearNotesCollapsedFolders();
-            } else {
-              store.setNotesAllFoldersCollapsed(allFolderKeys);
-            }
-          }}
-          style={{ width: 24, height: 24, padding: 0 }}
-          title="折叠/展开全部"
-        />
-        <Button
-          type="text"
-          size="small"
-          icon={
-            <ExternalFolderSettingsIcon
-              color={token.colorTextSecondary}
-              bg={token.colorBgContainer}
+        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <Tooltip
+            title="预览文件（Markdown / Word / PDF / Excel / TXT）"
+            mouseEnterDelay={0.3}
+          >
+            <Button
+              type="text"
+              size="small"
+              icon={<Search size={14} />}
+              loading={previewLoading}
+              onClick={() => void handlePreviewFile()}
+              style={{ width: 24, height: 24, padding: 0 }}
+              title="预览文件"
             />
-          }
-          onClick={() => navigate("/notes?config=mounts")}
-          style={{ width: 24, height: 24, padding: 0 }}
-          title="外部目录设置"
-        />
-      </div>
-
-      {/* 新建笔记 + 打开 md */}
-      <div
-        style={{
-          padding: "10px 12px",
-          display: "flex",
-          gap: 6,
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ flex: 1, display: "flex" }}>
-          <NewNoteButton block />
+          </Tooltip>
+          <Button
+            type="text"
+            size="small"
+            icon={<ChevronsDownUp size={14} />}
+            onClick={() => {
+              // 折叠/展开全部文件夹（state 走 store，自动 persist）
+              const store = useAppStore.getState();
+              if (expandedKeys.length === 0) {
+                store.clearNotesCollapsedFolders();
+              } else {
+                store.setNotesAllFoldersCollapsed(allFolderKeys);
+              }
+            }}
+            style={{ width: 24, height: 24, padding: 0 }}
+            title="折叠/展开全部"
+          />
+          <FolderCreateButton iconOnly />
+          <NewNoteButton iconOnly />
         </div>
-        <Button
-          type="text"
-          size="small"
-          icon={<GitBranch size={14} />}
-          onClick={() =>
-            navigate(
-              selectedFolderId
-                ? `/graph?folder=${selectedFolderId}`
-                : "/graph",
-            )
-          }
-          style={{ width: 30, height: 30, padding: 0 }}
-          title={
-            selectedFolderId ? "查看此文件夹的文档关系" : "查看全库文档关系"
-          }
-        />
-        <Button
-          type="text"
-          size="small"
-          icon={<Search size={14} />}
-          onClick={() => navigate("/search")}
-          style={{ width: 30, height: 30, padding: 0 }}
-          title="检索"
-        />
-        <Button
-          type="text"
-          size="small"
-          icon={<FolderPlus size={14} />}
-          onClick={() => setCreatingRoot(true)}
-          style={{ width: 30, height: 30, padding: 0 }}
-          title="新建文件夹"
-        />
-        <OpenFileButton />
       </div>
 
       {/* 文件夹小节 —— 兼任 OS 文件拖入区（.md/.txt → 新建笔记） */}
@@ -2006,6 +1988,72 @@ export function NotesPanel() {
           }}
         />
       )}
+
+      {/* 文件预览：md / txt 在应用内渲染；Word / PDF / Excel 走 Office 工作台 */}
+      <Modal
+        open={filePreview !== null}
+        title={
+          <span className="flex items-center gap-2">
+            <Search size={16} />
+            预览：{filePreview?.name}
+          </span>
+        }
+        width={860}
+        onCancel={() => setFilePreview(null)}
+        destroyOnHidden
+        footer={
+          filePreview
+            ? [
+                <Button key="import" onClick={() => void handlePreviewImport()}>
+                  导入为文档
+                </Button>,
+                <Button
+                  key="close"
+                  type="primary"
+                  onClick={() => setFilePreview(null)}
+                >
+                  关闭
+                </Button>,
+              ]
+            : null
+        }
+      >
+        {filePreview &&
+          (filePreview.ext === "md" || filePreview.ext === "markdown" ? (
+            <div
+              className="prose prose-sm max-w-none overflow-auto"
+              style={{
+                maxHeight: "60vh",
+                padding: "12px 16px",
+                borderRadius: 6,
+                background: "var(--color-bg-elevated, #fafafa)",
+                border: "1px solid var(--color-border-secondary, #e8e8e8)",
+                fontSize: 14,
+                lineHeight: 1.7,
+              }}
+            >
+              <Markdown>{filePreview.text}</Markdown>
+            </div>
+          ) : (
+            <pre
+              style={{
+                maxHeight: "60vh",
+                overflow: "auto",
+                margin: 0,
+                padding: "12px 16px",
+                borderRadius: 6,
+                background: "var(--color-bg-elevated, #fafafa)",
+                border: "1px solid var(--color-border-secondary, #e8e8e8)",
+                fontSize: 13,
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}
+            >
+              {filePreview.text}
+            </pre>
+          ))}
+      </Modal>
 
       {/* 右键"从模板新建…" */}
       <TemplatePickerModal

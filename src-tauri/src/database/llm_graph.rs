@@ -29,6 +29,18 @@ pub struct LlmRelationRow {
     pub keywords: String,
 }
 
+/// 作用域内单篇笔记的图谱状态原始数据。
+pub struct LlmGraphScopeNoteRow {
+    /// 正文长度（字符数，SQLite LENGTH 对 TEXT 按字符计）
+    pub content_len: i64,
+    /// 当前正文的 SHA-256（notes.content_hash）
+    pub note_hash: String,
+    /// 最近一次抽取状态；None = 尚未抽取
+    pub run_status: Option<String>,
+    /// 最近一次成功抽取时记录的正文哈希
+    pub run_hash: Option<String>,
+}
+
 struct NoteEntityRow {
     note_id: i64,
     note_title: String,
@@ -304,6 +316,68 @@ impl Database {
             }
         }
         Ok(ids)
+    }
+
+    /// 列出作用域内笔记的图谱状态原始数据（不加载正文，只取长度与哈希）。
+    ///
+    /// 状态聚合放在 service 层：这里只负责把「笔记内容指纹」与「抽取运行记录」
+    /// 一次查询出来，避免 N+1。
+    pub fn list_llm_graph_scope_notes(
+        &self,
+        folder_id: Option<i64>,
+    ) -> Result<Vec<LlmGraphScopeNoteRow>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+
+        let mut out = Vec::new();
+        if let Some(root) = folder_id {
+            let mut stmt = conn.prepare(
+                "WITH RECURSIVE sub(id) AS (
+                     SELECT ?1
+                     UNION
+                     SELECT f.id FROM folders f JOIN sub ON f.parent_id = sub.id
+                 )
+                 SELECT LENGTH(n.content), COALESCE(n.content_hash, ''),
+                        r.status, r.content_hash
+                 FROM notes n
+                 LEFT JOIN llm_graph_runs r ON r.note_id = n.id
+                 WHERE n.is_deleted = 0 AND n.is_hidden = 0
+                   AND n.folder_id IN (SELECT id FROM sub)",
+            )?;
+            let rows = stmt.query_map(params![root], |r| {
+                Ok(LlmGraphScopeNoteRow {
+                    content_len: r.get(0)?,
+                    note_hash: r.get(1)?,
+                    run_status: r.get(2)?,
+                    run_hash: r.get(3)?,
+                })
+            })?;
+            for row in rows {
+                out.push(row?);
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT LENGTH(n.content), COALESCE(n.content_hash, ''),
+                        r.status, r.content_hash
+                 FROM notes n
+                 LEFT JOIN llm_graph_runs r ON r.note_id = n.id
+                 WHERE n.is_deleted = 0 AND n.is_hidden = 0",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(LlmGraphScopeNoteRow {
+                    content_len: r.get(0)?,
+                    note_hash: r.get(1)?,
+                    run_status: r.get(2)?,
+                    run_hash: r.get(3)?,
+                })
+            })?;
+            for row in rows {
+                out.push(row?);
+            }
+        }
+        Ok(out)
     }
 
     /// 聚合作用域内的 LLM 图谱。

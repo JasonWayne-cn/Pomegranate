@@ -1,6 +1,6 @@
 /** 工作台空状态：打开入口 + 最近文件。 */
-import { Button, Empty, List, Tag, theme as antdTheme } from "antd";
-import { FilePlus2, FolderOpen, X } from "lucide-react";
+import { Button, Empty, List, Popconfirm, Tag, theme as antdTheme } from "antd";
+import { FilePlus2, FolderOpen, Trash2, X } from "lucide-react";
 import { FORMAT_LABEL } from "@/lib/office/formats";
 import type { RecentFile } from "@/store/office";
 
@@ -9,6 +9,8 @@ interface OfficeEmptyStateProps {
   onOpen: () => void;
   onOpenRecent: (path: string) => void;
   onRemoveRecent: (path: string) => void;
+  /** 清空全部最近文件记录 */
+  onClearRecent: () => void;
   busy?: boolean;
   /** 上次会话可恢复时展示的入口 */
   restorable?: {
@@ -23,14 +25,16 @@ export function OfficeEmptyState({
   onOpen,
   onOpenRecent,
   onRemoveRecent,
+  onClearRecent,
   busy,
   restorable,
 }: OfficeEmptyStateProps) {
   const { token } = antdTheme.useToken();
 
   return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className="w-full max-w-lg">
+    <div className="flex h-full min-h-0 flex-col items-center overflow-hidden p-6">
+      {/* 打开入口固定在顶部，不随最近文件列表增长被挤出可视区 */}
+      <div className="w-full max-w-lg shrink-0">
         <Empty
           image={<FilePlus2 size={72} strokeWidth={1} color={token.colorTextQuaternary} />}
           description={
@@ -69,14 +73,38 @@ export function OfficeEmptyState({
           </div>
         )}
 
-        {recent.length > 0 && (
-          <div className="mt-8">
-            <div
-              className="mb-2 text-xs font-medium"
+      </div>
+
+      {recent.length > 0 && (
+        <div className="mt-6 flex min-h-0 w-full max-w-lg flex-1 flex-col">
+          <div className="mb-2 flex shrink-0 items-center justify-between">
+            <span
+              className="text-xs font-medium"
               style={{ color: token.colorTextSecondary }}
             >
               最近文件
-            </div>
+            </span>
+            <Popconfirm
+              title="清空所有最近文件记录？"
+              description="只清除历史列表，不会删除磁盘上的文件。"
+              okText="清空"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={onClearRecent}
+            >
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<Trash2 size={12} />}
+                style={{ fontSize: 12 }}
+              >
+                清空历史记录
+              </Button>
+            </Popconfirm>
+          </div>
+          {/* 历史列表独立滚动，避免长列表把顶部打开入口挤出窗口 */}
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <List
               size="small"
               dataSource={recent}
@@ -115,8 +143,8 @@ export function OfficeEmptyState({
               )}
             />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

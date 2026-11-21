@@ -28,6 +28,8 @@ interface Props {
   folderId?: number | null;
   /** 侧边栏折叠态：只显示 + 图标，不带下拉 */
   collapsed?: boolean;
+  /** 图标按钮 + 下拉菜单：单图标入口，菜单里包含新建空白/模板/导入等全部方式 */
+  iconOnly?: boolean;
   /** 块级占满父容器宽度（首页/笔记页大按钮用） */
   block?: boolean;
   /** 主按钮文字，默认"新建笔记" */
@@ -48,6 +50,7 @@ interface Props {
 export function NewNoteButton({
   folderId = null,
   collapsed = false,
+  iconOnly = false,
   block = false,
   label = "新建文档",
   style,
@@ -133,6 +136,83 @@ export function NewNoteButton({
     },
   ];
 
+  /** 图标按钮模式：把"新建空白文档"和原有次要入口合并进一个下拉菜单 */
+  const iconMenuItems: MenuProps["items"] = [
+    {
+      key: "blank",
+      label: "新建空白文档",
+      icon: <Plus size={14} />,
+      onClick: handleCreate,
+    },
+    { type: "divider" },
+    ...(menuItems ?? []),
+  ];
+
+  const templatePickerModal = (
+    <TemplatePickerModal
+      open={templateOpen}
+      folderId={folderId}
+      onClose={() => setTemplateOpen(false)}
+    />
+  );
+
+  const importPreviewModal = importPreview ? (
+    <ImportPreviewModal
+      open
+      files={importPreview.files}
+      rootPath={importPreview.rootPath}
+      onCancel={() => setImportPreview(null)}
+      onConfirm={async ({ policy, preserveRoot }) => {
+        const { files, rootPath, folderId: targetFolderId } = importPreview;
+        setImportPreview(null);
+        const paths = files.map((f) => f.path);
+        const hide = message.loading(`正在导入 ${paths.length} 个文件…`, 0);
+        try {
+          const result = await importApi.importSelected(
+            paths,
+            targetFolderId,
+            rootPath,
+            preserveRoot,
+            policy,
+          );
+          hide();
+          const parts: string[] = [];
+          if (result.imported > 0) parts.push(`导入 ${result.imported} 篇`);
+          if (result.duplicated > 0) parts.push(`副本 ${result.duplicated} 篇`);
+          if (result.skipped > 0) parts.push(`跳过 ${result.skipped} 篇`);
+          if (result.tags_attached && result.tags_attached > 0) {
+            parts.push(`关联标签 ${result.tags_attached} 条`);
+          }
+          if (result.attachments_copied && result.attachments_copied > 0) {
+            parts.push(`复制图片 ${result.attachments_copied} 张`);
+          }
+          if (parts.length > 0) message.success(parts.join("，"));
+          const missCount = result.attachments_missing?.length ?? 0;
+          if (missCount > 0) {
+            message.warning(
+              `${missCount} 张图片在 vault 里找不到，已保留原引用`,
+            );
+            console.warn(
+              "[import] 缺失图片清单:",
+              result.attachments_missing,
+            );
+          }
+          if (result.errors.length > 0) {
+            message.warning(
+              `${result.errors.length} 个文件失败，详见控制台`,
+            );
+            console.warn("[import] 失败明细:", result.errors);
+          }
+          useAppStore.getState().bumpNotesRefresh();
+          useAppStore.getState().bumpFoldersRefresh();
+        } catch (e) {
+          hide();
+          message.error(`导入失败: ${e}`);
+        }
+      }}
+    />
+  ) : null;
+
   // 折叠态：只显示单图标按钮（下拉菜单在折叠态占地方也没意义）
   if (collapsed) {
     return (
@@ -144,11 +224,30 @@ export function NewNoteButton({
           title="新建文档 (Ctrl+N)"
           style={style}
         />
-        <TemplatePickerModal
-          open={templateOpen}
-          folderId={folderId}
-          onClose={() => setTemplateOpen(false)}
-        />
+        {templatePickerModal}
+      </>
+    );
+  }
+
+  // 图标 + 下拉：单图标入口，菜单包含全部新建方式（侧栏/工具栏用）
+  if (iconOnly) {
+    return (
+      <>
+        <Dropdown
+          trigger={["click"]}
+          menu={{ items: iconMenuItems }}
+          placement="bottomRight"
+        >
+          <Button
+            type="text"
+            size="small"
+            icon={<Plus size={14} />}
+            title="新建文档"
+            style={{ width: 24, height: 24, padding: 0, ...style }}
+          />
+        </Dropdown>
+        {templatePickerModal}
+        {importPreviewModal}
       </>
     );
   }
@@ -179,67 +278,8 @@ export function NewNoteButton({
           />
         </Dropdown>
       </Space.Compact>
-      <TemplatePickerModal
-        open={templateOpen}
-        folderId={folderId}
-        onClose={() => setTemplateOpen(false)}
-      />
-      {importPreview && (
-        <ImportPreviewModal
-          open
-          files={importPreview.files}
-          rootPath={importPreview.rootPath}
-          onCancel={() => setImportPreview(null)}
-          onConfirm={async ({ policy, preserveRoot }) => {
-            const { files, rootPath, folderId: targetFolderId } = importPreview;
-            setImportPreview(null);
-            const paths = files.map((f) => f.path);
-            const hide = message.loading(`正在导入 ${paths.length} 个文件…`, 0);
-            try {
-              const result = await importApi.importSelected(
-                paths,
-                targetFolderId,
-                rootPath,
-                preserveRoot,
-                policy,
-              );
-              hide();
-              const parts: string[] = [];
-              if (result.imported > 0) parts.push(`导入 ${result.imported} 篇`);
-              if (result.duplicated > 0) parts.push(`副本 ${result.duplicated} 篇`);
-              if (result.skipped > 0) parts.push(`跳过 ${result.skipped} 篇`);
-              if (result.tags_attached && result.tags_attached > 0) {
-                parts.push(`关联标签 ${result.tags_attached} 条`);
-              }
-              if (result.attachments_copied && result.attachments_copied > 0) {
-                parts.push(`复制图片 ${result.attachments_copied} 张`);
-              }
-              if (parts.length > 0) message.success(parts.join("，"));
-              const missCount = result.attachments_missing?.length ?? 0;
-              if (missCount > 0) {
-                message.warning(
-                  `${missCount} 张图片在 vault 里找不到，已保留原引用`,
-                );
-                console.warn(
-                  "[import] 缺失图片清单:",
-                  result.attachments_missing,
-                );
-              }
-              if (result.errors.length > 0) {
-                message.warning(
-                  `${result.errors.length} 个文件失败，详见控制台`,
-                );
-                console.warn("[import] 失败明细:", result.errors);
-              }
-              useAppStore.getState().bumpNotesRefresh();
-              useAppStore.getState().bumpFoldersRefresh();
-            } catch (e) {
-              hide();
-              message.error(`导入失败: ${e}`);
-            }
-          }}
-        />
-      )}
+      {templatePickerModal}
+      {importPreviewModal}
     </>
   );
 }
