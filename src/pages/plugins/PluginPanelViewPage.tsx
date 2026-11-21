@@ -92,7 +92,7 @@ export default function PluginPanelViewPage() {
               icon={<ArrowLeft size={14} />}
               onClick={() => navigate("/notes")}
             >
-              返回笔记
+              返回文档
             </Button>
           }
         />

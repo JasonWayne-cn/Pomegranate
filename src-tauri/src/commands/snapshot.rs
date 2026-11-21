@@ -1,4 +1,4 @@
-//! 笔记历史版本 IPC 入口（普通笔记）。
+//! 文档历史版本 IPC 入口（普通文档）。
 //!
 //! 白板另有一套（`commands::whiteboard` 里的 `*_whiteboard_snapshot*`）——
 //! 它的画布内容要额外做图片内联，回滚还要重建 search_text 与画布双链，
@@ -9,7 +9,7 @@ use crate::services::snapshot;
 use crate::state::AppState;
 use tauri::{Emitter, Manager};
 
-/// 列出笔记的历史版本（不含正文，只有时间 / 体积 / 来源）。
+/// 列出文档的历史版本（不含正文，只有时间 / 体积 / 来源）。
 #[tauri::command(async)]
 pub fn list_note_snapshots(
     state: tauri::State<'_, AppState>,
@@ -40,7 +40,7 @@ pub fn create_note_snapshot(
     snapshot::capture_manual(&state.db, note_id).map_err(|e| e.to_string())
 }
 
-/// 把笔记正文回滚到某一份历史版本（回滚前会自动把当前版本另存一份）。
+/// 把文档正文回滚到某一份历史版本（回滚前会自动把当前版本另存一份）。
 ///
 /// 与 `update_note` 一样广播 `note:updated`，让别的窗口跟着刷新。
 /// 这里**不带** sourceLabel：发起方自己也要重新加载正文，
@@ -62,13 +62,13 @@ pub fn restore_note_snapshot(
 
 // ─── 用量与清理（设置页）──────────────────────────────────
 
-/// 全库历史版本用量（总数 / 总体积 / 占用最大的笔记）。
+/// 全库历史版本用量（总数 / 总体积 / 占用最大的文档）。
 #[tauri::command(async)]
 pub fn get_snapshot_usage(state: tauri::State<'_, AppState>) -> Result<SnapshotUsage, String> {
     snapshot::usage(&state.db).map_err(|e| e.to_string())
 }
 
-/// 清理某条笔记的全部历史版本，返回删除条数。
+/// 清理某条文档的全部历史版本，返回删除条数。
 #[tauri::command(async)]
 pub fn clear_note_snapshots(
     state: tauri::State<'_, AppState>,

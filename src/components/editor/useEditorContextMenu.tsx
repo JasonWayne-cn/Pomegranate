@@ -131,11 +131,11 @@ export function useEditorContextMenu(
   const cardsEnabled = useFeatureEnabled("cards");
 
   // 把当前 editor 注册到全局桥，供插件 API (app.editor.getCurrentSelection 等) 同步访问。
-  // 笔记编辑器同时只激活一个，unmount / 切笔记时清空。
+  // 文档编辑器同时只激活一个，unmount / 切文档时清空。
   useEffect(() => {
     setActiveEditor(editor, noteId ?? null);
     return () => {
-      // 切笔记会先 mount 新 editor 再 unmount 旧 editor（React 18 严格模式下顺序更复杂），
+      // 切文档会先 mount 新 editor 再 unmount 旧 editor（React 18 严格模式下顺序更复杂），
       // 这里只在当前桥仍指向自己时才清空，避免误清新 editor 的引用。
       setActiveEditor(null, null);
     };
@@ -331,7 +331,7 @@ export function useEditorContextMenu(
     };
     /**
      * 复制可在系统资源管理器 / 终端使用的绝对路径。
-     * 笔记 content 里 src 是 `kb-asset://...` 内部 URL，对用户没意义；
+     * 文档 content 里 src 是 `kb-asset://...` 内部 URL，对用户没意义；
      * 这里走 resolveAbsolute 转成 OS 原生绝对路径再写剪贴板。
      * 远程 http(s) URL 原样复制（resolveAbsolute 对其透传）。
      */
@@ -441,14 +441,14 @@ export function useEditorContextMenu(
       return [
         {
           key: "open",
-          label: "打开笔记",
+          label: "打开文档",
           icon: <ExternalLink size={13} />,
           onClick: async () => {
             ctx.close();
             try {
               const id = await linkApi.findIdByTitle(p.title);
               if (id) navigate(`/notes/${id}`);
-              else message.warning(`找不到笔记「${p.title}」`);
+              else message.warning(`找不到文档「${p.title}」`);
             } catch (err) {
               message.error(`跳转失败：${err}`);
             }

@@ -76,7 +76,7 @@ function App() {
   }, [activeTheme, themeCategory]);
 
   // 监听 db:reloaded：从 zip 导入快照后 Rust 侧会热重载 Connection 并 emit 此事件，
-  // 前端收到后批量 bump 各 refresh tick，让所有视图（笔记列表 / 文件夹 / 标签 / 任务）
+  // 前端收到后批量 bump 各 refresh tick，让所有视图（文档列表 / 文件夹 / 标签 / 任务）
   // 自动重拉数据。无需重启应用。
   useEffect(() => {
     if (!IS_MAIN_WINDOW) return;
@@ -107,14 +107,14 @@ function App() {
   }, []);
 
   // 监听 db:external-changed：外部 agent（kb-mcp 独立进程）或内置 AI 的 in-memory MCP
-  // 写入笔记/任务后，Rust 侧后台 watcher 轮询 PRAGMA data_version 侦测到变化并 emit 此事件。
+  // 写入文档/任务后，Rust 侧后台 watcher 轮询 PRAGMA data_version 侦测到变化并 emit 此事件。
   // 前端据此静默重拉各列表（不弹 message，避免外部频繁写入时刷屏）。
   useEffect(() => {
     if (!IS_MAIN_WINDOW) return;
     let cancelled = false;
     let unlisten: (() => void) | undefined;
     // trailing 节流：AI 连续调写工具时事件会在一两秒内连发多次，每次都全量重拉
-    // 笔记 / 文件夹 / 标签 / 任务会让界面反复刷新、滚动跳动。合并成静默期结束后的一次刷新。
+    // 文档 / 文件夹 / 标签 / 任务会让界面反复刷新、滚动跳动。合并成静默期结束后的一次刷新。
     let timer: number | undefined;
     const flush = () => {
       timer = undefined;

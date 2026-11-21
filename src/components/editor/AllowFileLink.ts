@@ -2,7 +2,7 @@
  * 让 tiptap-markdown 的 markdown-it 实例放行 file:// 协议链接与内联图片 data URI
  *
  * Why：markdown-it 默认 validateLink 把 file: 列入黑名单（markdown-it#108），
- * 导致笔记里的 [📎 附件](file://...) 第二次打开时被解析器拒绝，整段降级成
+ * 导致文档里的 [📎 附件](file://...) 第二次打开时被解析器拒绝，整段降级成
  * 纯 markdown 文本。
  *
  * 实现：onBeforeCreate 时 Markdown 扩展的 onBeforeCreate 已经跑过（因为本扩展

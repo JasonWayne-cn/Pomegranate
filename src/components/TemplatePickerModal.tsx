@@ -14,8 +14,8 @@ interface Props {
 }
 
 /**
- * 从模板创建笔记的独立 Modal —— 从旧 CreateNoteModal 里拆出来。
- * 列出所有模板卡片，点击即创建笔记并跳转到编辑器。
+ * 从模板创建文档的独立 Modal —— 从旧 CreateNoteModal 里拆出来。
+ * 列出所有模板卡片，点击即创建文档并跳转到编辑器。
  */
 export function TemplatePickerModal({ open, folderId = null, onClose }: Props) {
   const navigate = useNavigate();
@@ -53,7 +53,7 @@ export function TemplatePickerModal({ open, folderId = null, onClose }: Props) {
     <Modal
       open={open}
       onCancel={onClose}
-      title="从模板创建笔记"
+      title="从模板创建文档"
       footer={null}
       width={620}
       destroyOnHidden

@@ -1,8 +1,8 @@
 //! 视频资产服务（与 image.rs 对称设计）
 //!
 //! - 落盘到 `kb_assets/videos/<note_id>/`，与 images 平级
-//! - v1 不支持加密笔记的视频（视频体积大，AES 解密 + 全量加载到 WebView 不现实）
-//!   加密笔记里调用 save_* 会被 Command 层提前拒绝
+//! - v1 不支持加密文档的视频（视频体积大，AES 解密 + 全量加载到 WebView 不现实）
+//!   加密文档里调用 save_* 会被 Command 层提前拒绝
 //! - 不复用 attachments 目录：未来要做缩略图、转码、孤儿扫描时独立目录更清晰
 
 use std::path::{Path, PathBuf};
@@ -105,13 +105,13 @@ impl VideoService {
         Ok(file_path.to_string_lossy().into_owned())
     }
 
-    /// 删除笔记的所有视频
-    #[allow(dead_code)] // 公开 API，给"清空孤儿/删除笔记联级"等未来场景用
+    /// 删除文档的所有视频
+    #[allow(dead_code)] // 公开 API，给"清空孤儿/删除文档联级"等未来场景用
     pub fn delete_note_videos(data_dir: &Path, note_id: i64) -> Result<(), AppError> {
         let note_dir = Self::videos_dir(data_dir).join(note_id.to_string());
         if note_dir.exists() {
             std::fs::remove_dir_all(&note_dir)?;
-            log::info!("已删除笔记 {} 的所有视频", note_id);
+            log::info!("已删除文档 {} 的所有视频", note_id);
         }
         Ok(())
     }

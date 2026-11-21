@@ -84,7 +84,7 @@ export async function importWordFile(
       : await sourceFileApi.readFileAsBase64(filePath);
   } catch (e) {
     if (!isDoc) throw e; // .docx 失败就真没救
-    // .doc 转换失败：降级为"只保存原文件 + 占位笔记"
+    // .doc 转换失败：降级为"只保存原文件 + 占位文档"
     degradedToPlaceholder = true;
     warnings.push(
       `.doc 转换失败：${String(e)}\n` +
@@ -93,7 +93,7 @@ export async function importWordFile(
     base64 = "";
   }
 
-  // 占位策略：直接建笔记 + 挂原文件，不跑 mammoth
+  // 占位策略：直接建文档 + 挂原文件，不跑 mammoth
   if (degradedToPlaceholder) {
     const title = fileStem(filePath);
     const placeholder =
@@ -129,7 +129,7 @@ export async function importWordFile(
     if (m.type === "warning" || m.type === "error") warnings.push(m.message);
   }
 
-  // 3. 创建笔记
+  // 3. 创建文档
   const title = fileStem(filePath);
   const note = await noteApi.create({
     title,

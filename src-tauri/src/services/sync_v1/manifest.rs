@@ -21,7 +21,7 @@ use crate::services::hash::sha256_hex;
 /// 公式：`SHA-256(title + "\n" + content_hash_hex)`
 ///
 /// `content_hash_hex` 必须是 v22 起 `notes.content_hash` 列的值（即 `sha256(content)` 的 hex）。
-/// 这样 manifest 计算只需读 hash 列，无需读笔记 content；title 改动也会传递到结果（因为参与拼接）。
+/// 这样 manifest 计算只需读 hash 列，无需读文档 content；title 改动也会传递到结果（因为参与拼接）。
 pub fn content_hash(title: &str, content_hash_hex: &str) -> String {
     let mut h = Sha256::new();
     h.update(title.as_bytes());
@@ -121,7 +121,7 @@ pub fn task_category_content_hash(c: &TaskCategoryManifestEntry) -> String {
 /// 远端文件路径约定：`notes/<stable_id>.md`
 ///
 /// stable_id 现在 = `notes.stable_uuid`（v36 起，UUID v4），保证多端共用同一文件路径。
-/// 早期版本曾用本地 i64 笔记 id，会导致多端撞车 → T-S011 已切换为 UUID。
+/// 早期版本曾用本地 i64 文档 id，会导致多端撞车 → T-S011 已切换为 UUID。
 pub fn remote_path_for(stable_id: &str) -> String {
     format!("notes/{}.md", stable_id)
 }
@@ -133,11 +133,11 @@ pub const TOMBSTONE_RETENTION_DAYS: i64 = 30;
 /// 从本地 notes 表 + folders 树构建 manifest
 ///
 /// 包含：
-/// - 所有未删除的笔记（tombstone=false）
-/// - 最近 [`TOMBSTONE_RETENTION_DAYS`] 天内 soft delete 的笔记（tombstone=true）
+/// - 所有未删除的文档（tombstone=false）
+/// - 最近 [`TOMBSTONE_RETENTION_DAYS`] 天内 soft delete 的文档（tombstone=true）
 ///   —— 让其他端拉到后跟着删；超期 tombstone 被 GC 排除以防 manifest 无限膨胀
-/// - 加密笔记仅保留 placeholder 内容上传 — 当前上传流程会传 note.content（即 placeholder），
-///   不暴露密文；T-007 加密笔记应被同步排除还是带 placeholder，留给 T-S014 决策
+/// - 加密文档仅保留 placeholder 内容上传 — 当前上传流程会传 note.content（即 placeholder），
+///   不暴露密文；T-007 加密文档应被同步排除还是带 placeholder，留给 T-S014 决策
 pub fn compute_local_manifest(
     db: &Database,
     app_version: &str,
@@ -145,7 +145,7 @@ pub fn compute_local_manifest(
 ) -> Result<SyncManifestV1, AppError> {
     let conn = db.conn_lock()?;
 
-    // T-S012：tombstone GC 阈值（本机时间，30 天前）。超过此时间的软删除笔记不再入 manifest。
+    // T-S012：tombstone GC 阈值（本机时间，30 天前）。超过此时间的软删除文档不再入 manifest。
     // 用本地时间字符串与 deleted_at 比较：deleted_at 也是 datetime('now', 'localtime') 生成的。
     let tombstone_cutoff = (chrono::Local::now() - chrono::Duration::days(TOMBSTONE_RETENTION_DAYS))
         .format("%Y-%m-%d %H:%M:%S")
@@ -153,23 +153,23 @@ pub fn compute_local_manifest(
 
     // v2 优化：不再读 content 字段；改读 v22 起的 notes.content_hash 列
     // （DAO 在 create/update/update_content/get_or_create_daily 时同步维护）。
-    // 大库内存与 IO 显著下降：n 条笔记从 O(总内容字节) 降到 O(64 字节 hex × n)。
+    // 大库内存与 IO 显著下降：n 条文档从 O(总内容字节) 降到 O(64 字节 hex × n)。
     //
     // T-S011：stable_id 改用 v36 引入的 notes.stable_uuid 列。
-    // T-S012：把"最近 30 天内软删"的笔记一起拉进来，以 tombstone=1 标志推到其他端。
-    // T-S014：读 is_encrypted + encrypted_blob 列，加密笔记的 content_hash 改用 blob 的 hex 算 hash。
+    // T-S012：把"最近 30 天内软删"的文档一起拉进来，以 tombstone=1 标志推到其他端。
+    // T-S014：读 is_encrypted + encrypted_blob 列，加密文档的 content_hash 改用 blob 的 hex 算 hash。
     //
     // `WHERE stable_uuid IS NOT NULL`：NULL 行没有跨端标识，无法进 manifest，只能跳过。
     // 🔴 但"正常路径不会出现 NULL"并不成立：v36 backfill 只跑一次，之后任何漏写 stable_uuid 的
     // INSERT（v64 之前的 kb-core / MCP 就是）都会产出 NULL 行，且被这里静默排除、永远不同步。
-    // 跳过本身无法避免，所以至少留一条 warn，别让"某些笔记不同步"再无迹可查。
+    // 跳过本身无法避免，所以至少留一条 warn，别让"某些文档不同步"再无迹可查。
     match conn.query_row(
         "SELECT COUNT(*) FROM notes WHERE stable_uuid IS NULL AND is_deleted = 0",
         [],
         |r| r.get::<_, i64>(0),
     ) {
         Ok(n) if n > 0 => log::warn!(
-            "[sync_v1] {} 条笔记缺少 stable_uuid，已被排除在同步之外（重启应用会由迁移补齐；若持续出现说明有写入路径漏写该列）",
+            "[sync_v1] {} 条文档缺少 stable_uuid，已被排除在同步之外（重启应用会由迁移补齐；若持续出现说明有写入路径漏写该列）",
             n
         ),
         _ => {}
@@ -278,8 +278,8 @@ pub fn compute_local_manifest(
         } else {
             updated_at
         };
-        // T-S014：加密笔记的 content_hash 改用 encrypted_blob 的 hex 算 hash
-        // - notes.content_hash 列对加密笔记存的是占位字符串 ("🔒 已加密") 的 hash，
+        // T-S014：加密文档的 content_hash 改用 encrypted_blob 的 hex 算 hash
+        // - notes.content_hash 列对加密文档存的是占位字符串 ("🔒 已加密") 的 hash，
         //   多端会被认为内容相同 → 无法触发同步。改用 blob hex 后真正反映密文变更
         // - blob 为 None（异常路径）→ 用空串 hex 兜底
         let body_hash = if encrypted {
@@ -292,8 +292,8 @@ pub fn compute_local_manifest(
             content_hash_col
         };
         let is_daily = is_daily_int != 0;
-        // Bug 12a：tombstone / 加密笔记不带 tags（None；前者已删，后者用户可能不希望标签明文同步）
-        // 普通笔记 → Some(...)：该笔记当前的标签列表（可能是空 vec[] 表示"无标签"，要让对端也清空）
+        // Bug 12a：tombstone / 加密文档不带 tags（None；前者已删，后者用户可能不希望标签明文同步）
+        // 普通文档 → Some(...)：该文档当前的标签列表（可能是空 vec[] 表示"无标签"，要让对端也清空）
         let tags = if tombstone || encrypted {
             None
         } else {
@@ -331,7 +331,7 @@ pub fn compute_local_manifest(
 
     // T-S022：附件清单（unique hashes from note_attachments）+ Bug 9：每个 hash 携带所有原相对路径
     // 失败仅 warn 不阻塞 manifest 生成；附件同步会在后续步骤识别"远端没有这些 hash"。
-    // paths 让 pull 端能把 sync_in/<hash>.<ext> 还原到笔记里 kb-asset:// 引用的原始位置。
+    // paths 让 pull 端能把 sync_in/<hash>.<ext> 还原到文档里 kb-asset:// 引用的原始位置。
     let attachments: Vec<crate::models::AttachmentEntry> = match db.list_all_unique_attachments() {
         Ok(rows) => rows
             .into_iter()
@@ -340,7 +340,7 @@ pub fn compute_local_manifest(
                     .extension()
                     .and_then(|e| e.to_str())
                     .map(|s| s.to_ascii_lowercase());
-                // 这一 hash 在本机被引用的所有路径（同 hash 多笔记引用时返回多条）；查不到 fallback 用
+                // 这一 hash 在本机被引用的所有路径（同 hash 多文档引用时返回多条）；查不到 fallback 用
                 // list_all_unique_attachments 给的那一条 path，至少保证有一个还原目标。
                 let paths = db
                     .list_attachment_paths_by_hash(&row.sha256_hex)
@@ -596,7 +596,7 @@ pub struct ConflictPair {
 /// **为什么两边都有时按 updated_at 判胜负**（P0-2 修复）：
 /// push 只上传 `diff.to_push`，对 `to_pull`（远端较新）/ `to_delete_local`（远端 tombstone）
 /// 的条目，本地 manifest entry 是**陈旧的**。早期实现"两边都有一律取 local" → push 会把
-/// 远端较新的笔记在 manifest 里回滚成旧版本、把别端删掉的笔记复活成 alive，导致 manifest
+/// 远端较新的文档在 manifest 里回滚成旧版本、把别端删掉的文档复活成 alive，导致 manifest
 /// 与远端 `.md` 文件不一致（其他端 pull 拿不到新内容 / 报 ".md 丢失"）。
 /// 改为 merge 阶段也做 updated_at 胜负判断，与 `diff_manifests` 同款逻辑 → 结果自洽。
 ///
@@ -620,7 +620,7 @@ pub fn merge_manifests(local: &SyncManifestV1, remote: &SyncManifestV1) -> SyncM
     let mut merged: Vec<ManifestEntry> =
         Vec::with_capacity(local.entries.len() + remote.entries.len());
     // 本地每条 entry：与远端同 stable_id 比 updated_at，远端较新则取远端
-    // （修 push 回滚远端较新笔记 / 复活远端已删笔记）
+    // （修 push 回滚远端较新文档 / 复活远端已删文档）
     for le in &local.entries {
         match remote_map.get(le.stable_id.as_str()) {
             Some(re) if re.updated_at > le.updated_at => merged.push((*re).clone()),
@@ -635,11 +635,11 @@ pub fn merge_manifests(local: &SyncManifestV1, remote: &SyncManifestV1) -> SyncM
     }
     merged.sort_by(|a, b| a.stable_id.cmp(&b.stable_id));
 
-    // T-S022：附件清单合并（与笔记 entry 合并规则同——以 hash 为键 outer-join）+ Bug 9 paths 并集。
+    // T-S022：附件清单合并（与文档 entry 合并规则同——以 hash 为键 outer-join）+ Bug 9 paths 并集。
     // 本地附件清单全部保留 + 远端独有的 hash 也保留 → 防止两端各上传过一些附件时漏掉对方的 hash。
     // 同 hash 双方都有 → **paths 取并集**：A 端引用同一图在 path P_a、B 端引用在 P_b，本机（C 端）
     // 写出的 manifest 必须同时带上 P_a 和 P_b，否则 D 端 pull 时只能把字节还原到我们 local 这一条
-    // path，B 端引用的 P_b 还原不了 → 笔记里 kb-asset:// 显示不出来。
+    // path，B 端引用的 P_b 还原不了 → 文档里 kb-asset:// 显示不出来。
     let mut merged_attachments: Vec<crate::models::AttachmentEntry> = local.attachments.clone();
     let mut local_idx: std::collections::HashMap<String, usize> = merged_attachments
         .iter()
@@ -807,7 +807,7 @@ pub fn diff_manifests(local: &SyncManifestV1, remote: &SyncManifestV1) -> Manife
                 (false, true) => {
                     // 远端把这条删成 tombstone。
                     // P0-4：tombstone entry 的 updated_at 是删除时刻（deleted_at）。
-                    // 若本地 updated_at 比它还新 → 本地在"对端删除之后"又编辑过这条笔记
+                    // 若本地 updated_at 比它还新 → 本地在"对端删除之后"又编辑过这条文档
                     // → "编辑胜过删除"：不删本地，改为 to_push 把本地编辑版重新推上去
                     // （复活远端），避免本地这次编辑被静默丢进回收站。
                     // 否则（本地未在删除后动过）→ 正常 to_delete_local 跟随删除。
@@ -833,7 +833,7 @@ pub fn diff_manifests(local: &SyncManifestV1, remote: &SyncManifestV1) -> Manife
             if le.content_hash == re.content_hash {
                 // 内容一致，但元数据可能需要对齐（拉一次，pull.rs 顺带补标记，正文不变）：
                 // - is_daily / is_hidden：单向恢复 —— 远端有标记、本地没有 → 拉一次补上
-                //   （修历史"伪日记" / 避免隐藏笔记在新端变可见）。反方向不动。
+                //   （修历史"伪日记" / 避免隐藏文档在新端变可见）。反方向不动。
                 // - tags：方案 C —— 加 / 删标签已冒泡 updated_at（database::tags），按
                 //   updated_at 做 last-write-wins：仅当远端不旧于本地时才拉（远端标签较新 /
                 //   持平）。本地标签较新则不拉 —— 靠 push 的 merge_manifests 把本地标签写进
@@ -1164,8 +1164,8 @@ mod tests {
         assert!(m.entries[0].tombstone, "本地 tombstone 较新 → 取本地");
     }
 
-    /// P0-2：两边都有同一笔记、远端 updated_at 较新 → merge 必须取远端版本。
-    /// 早期"两边都有一律取 local"会把远端较新的笔记在 manifest 里回滚成本地旧版本。
+    /// P0-2：两边都有同一文档、远端 updated_at 较新 → merge 必须取远端版本。
+    /// 早期"两边都有一律取 local"会把远端较新的文档在 manifest 里回滚成本地旧版本。
     #[test]
     fn merge_takes_remote_when_remote_newer() {
         let local = manifest(vec![entry("1", "旧标题", "h_old", "2026-01-01", false)]);
@@ -1179,8 +1179,8 @@ mod tests {
         assert_eq!(m.entries[0].title, "新标题");
     }
 
-    /// P0-2：远端把笔记删成 tombstone（deleted_at 较新）而本地还 alive
-    /// → merge 必须保留远端 tombstone，否则 push 会把已删笔记复活。
+    /// P0-2：远端把文档删成 tombstone（deleted_at 较新）而本地还 alive
+    /// → merge 必须保留远端 tombstone，否则 push 会把已删文档复活。
     #[test]
     fn merge_keeps_remote_tombstone_when_newer() {
         let local = manifest(vec![entry("1", "a", "h_alive", "2026-01-01", false)]);
@@ -1189,11 +1189,11 @@ mod tests {
         assert_eq!(m.entries.len(), 1);
         assert!(
             m.entries[0].tombstone,
-            "远端 tombstone 较新 → 不能复活已删笔记"
+            "远端 tombstone 较新 → 不能复活已删文档"
         );
     }
 
-    /// P0-2：本地较新（push 刚上传的笔记）→ merge 取本地，不被远端旧版本覆盖。
+    /// P0-2：本地较新（push 刚上传的文档）→ merge 取本地，不被远端旧版本覆盖。
     #[test]
     fn merge_takes_local_when_local_newer() {
         let local = manifest(vec![entry("1", "本地新", "h_local", "2026-03-01", false)]);
@@ -1246,7 +1246,7 @@ mod tests {
         assert!(d.to_push[0].tombstone);
     }
 
-    /// T-S012：compute_local_manifest 包含 30 天内软删的笔记，超过 30 天的被 GC
+    /// T-S012：compute_local_manifest 包含 30 天内软删的文档，超过 30 天的被 GC
     #[test]
     fn compute_local_manifest_includes_recent_tombstones_excludes_old() {
         use crate::models::NoteInput;
@@ -1291,8 +1291,8 @@ mod tests {
 
         let m = compute_local_manifest(&db, "test", "host").unwrap();
         let titles: Vec<&str> = m.entries.iter().map(|e| e.title.as_str()).collect();
-        assert!(titles.contains(&"活的"), "活笔记必须在");
-        assert!(titles.contains(&"最近删的"), "30 天内软删笔记必须以 tombstone 进入");
+        assert!(titles.contains(&"活的"), "活文档必须在");
+        assert!(titles.contains(&"最近删的"), "30 天内软删文档必须以 tombstone 进入");
         assert!(!titles.contains(&"很久以前删的"), "超过 30 天的 tombstone 应被 GC");
 
         let recent_entry = m.entries.iter().find(|e| e.title == "最近删的").unwrap();
@@ -1365,7 +1365,7 @@ mod tests {
         let db = Database::init(":memory:").expect("init :memory: 应成功");
         let n = db
             .create_note(&NoteInput {
-                title: "测试笔记".into(),
+                title: "测试文档".into(),
                 content: "正文".into(),
                 folder_id: None,
             })
@@ -1395,7 +1395,7 @@ mod tests {
             format!("notes/{}.md", expected_uuid),
             "远端路径必须用 UUID"
         );
-        assert_eq!(entry.title, "测试笔记");
+        assert_eq!(entry.title, "测试文档");
         // hash_algo v2 公式：sha256(title + "\n" + content_hash_hex)
         // content_hash_hex 是 notes.content_hash 列值（sha256("正文") 的 hex）
         let content_sha = crate::services::hash::sha256_hex("正文");
@@ -1403,14 +1403,14 @@ mod tests {
         assert_eq!(entry.content_hash, expected_hash);
     }
 
-    /// 缺 stable_uuid 的笔记 / 任务（kb-core v64 之前的产物）只能被跳过：
+    /// 缺 stable_uuid 的文档 / 任务（kb-core v64 之前的产物）只能被跳过：
     /// 不进 manifest，但也绝不能让整次 manifest 计算失败（告警查询不得影响同步）。
     #[test]
     fn compute_local_manifest_skips_rows_without_stable_uuid() {
         use crate::models::NoteInput;
         let db = Database::init(":memory:").expect("init :memory: 应成功");
         db.create_note(&NoteInput {
-            title: "正常笔记".into(),
+            title: "正常文档".into(),
             content: "正文".into(),
             folder_id: None,
         })
@@ -1419,7 +1419,7 @@ mod tests {
             let conn = db.conn_lock().unwrap();
             conn.execute(
                 "INSERT INTO notes (title, content, title_normalized, content_hash)
-                 VALUES ('MCP 旧笔记', '正文', 'mcp 旧笔记', 'h')",
+                 VALUES ('MCP 旧文档', '正文', 'mcp 旧文档', 'h')",
                 [],
             )
             .unwrap();
@@ -1427,15 +1427,15 @@ mod tests {
         }
 
         let m = compute_local_manifest(&db, "t", "h").expect("NULL 行不能让 manifest 计算失败");
-        assert_eq!(m.entries.len(), 1, "只有带 stable_uuid 的笔记进 manifest");
-        assert_eq!(m.entries[0].title, "正常笔记");
+        assert_eq!(m.entries.len(), 1, "只有带 stable_uuid 的文档进 manifest");
+        assert_eq!(m.entries[0].title, "正常文档");
         assert!(
             build_task_entries(&db).expect("NULL 任务不能让任务 manifest 失败").is_empty(),
             "缺 stable_uuid 的任务应被跳过"
         );
     }
 
-    /// T-S014：upsert_encrypted_note_with_uuid 端到端：远端 UUID + blob → 本地加密笔记
+    /// T-S014：upsert_encrypted_note_with_uuid 端到端：远端 UUID + blob → 本地加密文档
     #[test]
     fn upsert_encrypted_note_with_uuid_roundtrip() {
         let db = Database::init(":memory:").unwrap();
@@ -1493,13 +1493,13 @@ mod tests {
         assert_eq!(m.vault, None);
     }
 
-    /// T-S014：加密笔记进 manifest，entry.encrypted=true + content_hash 用 blob hex
+    /// T-S014：加密文档进 manifest，entry.encrypted=true + content_hash 用 blob hex
     #[test]
     fn compute_local_manifest_marks_encrypted_notes() {
         use crate::models::NoteInput;
         let db = Database::init(":memory:").unwrap();
 
-        // 创建一条普通笔记
+        // 创建一条普通文档
         let n_normal = db
             .create_note(&NoteInput {
                 title: "明文".into(),
@@ -1508,7 +1508,7 @@ mod tests {
             })
             .unwrap();
 
-        // 创建一条空笔记，手动改成加密态（模拟 T-007 启用加密路径）
+        // 创建一条空文档，手动改成加密态（模拟 T-007 启用加密路径）
         let n_enc = db
             .create_note(&NoteInput {
                 title: "密文".into(),
@@ -1552,13 +1552,13 @@ mod tests {
             .iter()
             .find(|e| e.title == "密文")
             .expect("missing encrypted entry");
-        assert!(e_enc.encrypted, "is_encrypted=1 笔记 entry.encrypted 必须 true");
+        assert!(e_enc.encrypted, "is_encrypted=1 文档 entry.encrypted 必须 true");
         // content_hash 应基于 blob hex 而非占位字符串
         let expected_blob_hex = "01020304";
         let expected_hash = content_hash("密文", &sha256_hex(expected_blob_hex));
         assert_eq!(
             e_enc.content_hash, expected_hash,
-            "加密笔记 content_hash 必须用 blob hex 算"
+            "加密文档 content_hash 必须用 blob hex 算"
         );
     }
 
@@ -1594,7 +1594,7 @@ mod tests {
         let db = Database::init(":memory:").unwrap();
         let n = db
             .create_note(&NoteInput {
-                title: "笔记".into(),
+                title: "文档".into(),
                 content: "x".into(),
                 folder_id: None,
             })
@@ -1716,7 +1716,7 @@ mod tests {
 
     // ───────── 日记重复 bug 修复：is_daily / daily_date 进 manifest ─────────
 
-    /// compute_local_manifest 把笔记的 is_daily / daily_date 填进 entry
+    /// compute_local_manifest 把文档的 is_daily / daily_date 填进 entry
     #[test]
     fn compute_local_manifest_carries_daily_flag() {
         use crate::models::NoteInput;
@@ -1724,7 +1724,7 @@ mod tests {
 
         let _plain = db
             .create_note(&NoteInput {
-                title: "普通笔记".into(),
+                title: "普通文档".into(),
                 content: "x".into(),
                 folder_id: None,
             })
@@ -1733,9 +1733,9 @@ mod tests {
 
         let m = compute_local_manifest(&db, "test", "host").unwrap();
 
-        let plain_entry = m.entries.iter().find(|e| e.title == "普通笔记").unwrap();
-        assert!(!plain_entry.is_daily, "普通笔记 entry.is_daily 必须 false");
-        assert!(plain_entry.daily_date.is_none(), "普通笔记不带 daily_date");
+        let plain_entry = m.entries.iter().find(|e| e.title == "普通文档").unwrap();
+        assert!(!plain_entry.is_daily, "普通文档 entry.is_daily 必须 false");
+        assert!(plain_entry.daily_date.is_none(), "普通文档不带 daily_date");
 
         let daily_uuid: String = {
             let conn = db.conn_lock().unwrap();
@@ -1795,7 +1795,7 @@ mod tests {
         )]);
         let remote = manifest(vec![entry("1", "2026-05-12 的日记", "h1", "2026-05-12", false)]);
         let d = diff_manifests(&local, &remote);
-        assert_eq!(d.to_pull.len(), 0, "不能把本地刚标记的日记又改回普通笔记");
+        assert_eq!(d.to_pull.len(), 0, "不能把本地刚标记的日记又改回普通文档");
         assert_eq!(d.to_push.len(), 0);
     }
 
@@ -1836,9 +1836,9 @@ mod tests {
         assert!(!json2.contains("dailyDate"), "非日记不应输出 dailyDate; got = {}", json2);
     }
 
-    // ───────── 修 Bug：隐藏笔记 is_hidden 进同步协议 ─────────
+    // ───────── 修 Bug：隐藏文档 is_hidden 进同步协议 ─────────
 
-    /// compute_local_manifest 把笔记的 is_hidden 填进 entry
+    /// compute_local_manifest 把文档的 is_hidden 填进 entry
     #[test]
     fn compute_local_manifest_carries_is_hidden() {
         use crate::models::NoteInput;
@@ -1888,11 +1888,11 @@ mod tests {
         let m = compute_local_manifest(&db, "test", "host").unwrap();
         assert!(
             !m.entries.iter().find(|e| e.stable_id == uv).unwrap().is_hidden,
-            "可见笔记 entry.is_hidden 必须 false"
+            "可见文档 entry.is_hidden 必须 false"
         );
         assert!(
             m.entries.iter().find(|e| e.stable_id == uh).unwrap().is_hidden,
-            "隐藏笔记 entry.is_hidden 必须 true"
+            "隐藏文档 entry.is_hidden 必须 true"
         );
     }
 
@@ -1914,7 +1914,7 @@ mod tests {
         let local = manifest(vec![hidden_entry("1", "a", "h1", "2026-05-12")]);
         let remote = manifest(vec![entry("1", "a", "h1", "2026-05-12", false)]);
         let d = diff_manifests(&local, &remote);
-        assert_eq!(d.to_pull.len(), 0, "不能把本地刚隐藏的笔记又改回可见");
+        assert_eq!(d.to_pull.len(), 0, "不能把本地刚隐藏的文档又改回可见");
         assert_eq!(d.to_push.len(), 0);
     }
 
@@ -1933,7 +1933,7 @@ mod tests {
 
     // ───────── Bug 12a：标签跨端同步 ─────────
 
-    /// compute_local_manifest 把每条笔记的标签名列表填进 entry.tags
+    /// compute_local_manifest 把每条文档的标签名列表填进 entry.tags
     #[test]
     fn compute_local_manifest_carries_tags() {
         use crate::models::NoteInput;
@@ -1968,7 +1968,7 @@ mod tests {
         assert_eq!(
             without_tag.tags.as_ref().map(|v| v.is_empty()),
             Some(true),
-            "无标签笔记 tags 应是 Some(vec![])（让 pull 端能把对端清空）"
+            "无标签文档 tags 应是 Some(vec![])（让 pull 端能把对端清空）"
         );
         let _ = no_tag;
     }
@@ -2056,7 +2056,7 @@ mod tests {
         assert!(!json2.contains("\"tags\""), "tags=None 时不应序列化; got = {}", json2);
     }
 
-    /// 加密笔记 tags 设 None（不在 manifest 里明文携带标签）
+    /// 加密文档 tags 设 None（不在 manifest 里明文携带标签）
     #[test]
     fn compute_manifest_encrypted_note_has_no_tags() {
         use crate::models::NoteInput;
@@ -2083,7 +2083,7 @@ mod tests {
         let m = compute_local_manifest(&db, "t", "h").unwrap();
         let e = m.entries.iter().find(|e| e.title == "密").unwrap();
         assert!(e.encrypted);
-        assert!(e.tags.is_none(), "加密笔记 tags 应 None（不明文同步）");
+        assert!(e.tags.is_none(), "加密文档 tags 应 None（不明文同步）");
     }
 
     // ───────── Bug 12b：projects / tasks / task_categories diff 测试 ─────────

@@ -1,12 +1,12 @@
 /**
- * 笔记创建 / 导入统一入口 —— 从旧 CreateNoteModal 拆出来的公共函数，
- * 让"+ 新建笔记"按钮能直接调用，不必再走 Tab 选择的 Modal 流程。
+ * 文档创建 / 导入统一入口 —— 从旧 CreateNoteModal 拆出来的公共函数，
+ * 让"+ 新建文档"按钮能直接调用，不必再走 Tab 选择的 Modal 流程。
  */
 import { List, Modal, Typography, message } from "antd";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { NavigateFunction } from "react-router-dom";
 
-import { noteApi, importApi, pdfApi, sourceFileApi, tagApi, folderApi } from "./api";
+import { noteApi, whiteboardApi, importApi, pdfApi, sourceFileApi, tagApi, folderApi } from "./api";
 import { importWordFiles } from "./wordImport";
 import { useAppStore } from "@/store";
 
@@ -14,7 +14,7 @@ import { useAppStore } from "@/store";
  * 导入完成后的统一跳转规则（业界 Bear / Apple Notes / VS Code 路线）：
  *   · 1 篇新建            → 直开编辑器
  *   · 0 新建 + 1 命中已有 → 跳那篇已有的（"我导入是为了打开它"）
- *   · ≥ 2 篇              → 跳笔记列表（默认时间倒序，新导入在顶部）
+ *   · ≥ 2 篇              → 跳文档列表（默认时间倒序，新导入在顶部）
  *   · 全失败/全跳过       → 留在原地，让 message/Modal 提示就够
  *
  * navigate 可选：调用方不传就静默不跳，兼容旧用法（少数地方还没接 router）。
@@ -35,7 +35,7 @@ function navigateAfterImport(
   navigate("/notes");
 }
 
-/** 未命名笔记标题，带时间戳避免同名堆叠时难区分 */
+/** 未命名文档标题，带时间戳避免同名堆叠时难区分 */
 function untitledTitle(): string {
   const d = new Date();
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -45,10 +45,10 @@ function untitledTitle(): string {
 }
 
 /**
- * 创建一篇空白笔记并跳转到编辑器。用户想写就写，不想保留可直接删除。
+ * 创建一篇空白文档并跳转到编辑器。用户想写就写，不想保留可直接删除。
  *
  * `opts.useDefaults`：true 时套用全局"默认文件夹/默认标签"偏好——仅在
- * 调用方完全没有文件夹上下文时（顶部新建按钮、Ctrl+N、托盘"新建笔记"等）
+ * 调用方完全没有文件夹上下文时（顶部新建按钮、Ctrl+N、托盘"新建文档"等）
  * 才传 true。文件夹右键 / ?folder=X 等已声明 folderId 的入口保持 false，
  * 不被默认覆盖。套用后给 toast 提示，方便用户感知"是否吃到默认"。
  */
@@ -123,6 +123,25 @@ export async function createBlankAndOpen(
   }
 }
 
+/**
+ * 创建一块空白整页白板并跳转画布。
+ *
+ * 白板本质是 `note_type='whiteboard'` 的文档，创建后走 `/whiteboard/:id`；
+ * 与新建空白文档共用"刷新列表 + 直达目标"的行为。
+ */
+export async function createWhiteboardAndOpen(
+  folderId: number | null,
+  navigate: NavigateFunction,
+): Promise<void> {
+  try {
+    const note = await whiteboardApi.create(undefined, folderId);
+    useAppStore.getState().bumpNotesRefresh();
+    navigate(`/whiteboard/${note.id}`);
+  } catch (e) {
+    message.error(`创建白板失败：${e}`);
+  }
+}
+
 /** 在文件夹树里按 id 找名字（深度优先） */
 function findFolderName(
   folders: { id: number; name: string; children?: typeof folders }[],
@@ -139,7 +158,7 @@ function findFolderName(
 }
 
 /**
- * 文本笔记导入流程（同质合并版）：md / markdown / txt 共用一条通路。
+ * 文本文档导入流程（同质合并版）：md / markdown / txt 共用一条通路。
  *
  * 后端 `import_selected_files` 已能识别这三种扩展名，并自动嗅探编码
  * （UTF-8 / GBK / GB18030 / Big5 等老 .txt 也能正确读出中文）。

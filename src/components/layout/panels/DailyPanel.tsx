@@ -166,7 +166,7 @@ export function DailyPanel() {
             message.success("已移到回收站");
             // 触发 DailyPanel 自身的 useEffect 重拉本月日期 + pages/daily 列表刷新
             useAppStore.getState().bumpNotesRefresh();
-            // 如果当前选中的就是被删的日期，跳到今天避免主区显示已删笔记
+            // 如果当前选中的就是被删的日期，跳到今天避免主区显示已删文档
             if (selectedDate === p.date) {
               goToDate(today);
             }

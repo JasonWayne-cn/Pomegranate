@@ -1,7 +1,7 @@
 //! LLM 文档图谱抽取服务（P1）。
 //!
 //! 复用现有 AI 模型配置与 `AiService::complete_once`：按 6000 字符分块，
-//! 逐块让模型输出实体/关系 JSON，合并后按笔记写入 SQLite。
+//! 逐块让模型输出实体/关系 JSON，合并后按文档写入 SQLite。
 //!
 //! 设计约束：
 //! - 只使用显式原文信息，Prompt 禁止推测；
@@ -125,7 +125,7 @@ struct RawRelation {
 
 /// 规范化实体名：拆分 camelCase / 分隔符、折叠空白、去首尾标点、统一小写。
 ///
-/// 作为跨笔记聚合键，使 `PipeSequenceService`、`pipe_sequence_service`、
+/// 作为跨文档聚合键，使 `PipeSequenceService`、`pipe_sequence_service`、
 /// `pipe sequence service` 落到同一个实体上。
 pub fn normalize_entity_name(name: &str) -> String {
     let chars: Vec<char> = name.chars().collect();
@@ -201,7 +201,7 @@ pub fn scope_status(
     folder_id: Option<i64>,
 ) -> Result<LlmGraphScopeStatus, AppError> {
     let rows = db.list_llm_graph_scope_notes(folder_id)?;
-    // 空笔记没有可抽取内容，不计入“需要建图”的总数，
+    // 空文档没有可抽取内容，不计入“需要建图”的总数，
     // 否则永远无法达到“全建图”。
     let total = rows.iter().filter(|r| r.content_len > 0).count() as i64;
     let mut built = 0i64;
@@ -302,7 +302,7 @@ fn keywords_to_string(value: &Value) -> String {
     }
 }
 
-/// 抽取单篇笔记并落库。
+/// 抽取单篇文档并落库。
 pub async fn extract_note(
     db: &Database,
     note_id: i64,
@@ -310,7 +310,7 @@ pub async fn extract_note(
 ) -> Result<LlmExtractResult, AppError> {
     let note = db
         .get_note(note_id)?
-        .ok_or_else(|| AppError::NotFound("笔记不存在".into()))?;
+        .ok_or_else(|| AppError::NotFound("文档不存在".into()))?;
 
     let model = db.get_default_ai_model()?;
     let model_id = model.model_id.clone();
@@ -401,14 +401,14 @@ pub async fn extract_note(
                 None => {
                     last_error = Some("模型输出不是有效 JSON".into());
                     log::warn!(
-                        "[llm-graph] 笔记 {} 的某个分块解析失败，已跳过",
+                        "[llm-graph] 文档 {} 的某个分块解析失败，已跳过",
                         note_id
                     );
                 }
             },
             Err(e) => {
                 last_error = Some(e.to_string());
-                log::warn!("[llm-graph] 笔记 {} 抽取失败: {}", note_id, e);
+                log::warn!("[llm-graph] 文档 {} 抽取失败: {}", note_id, e);
             }
         }
         progress.emit(

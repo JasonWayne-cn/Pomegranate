@@ -40,7 +40,7 @@ pub fn delete_tag(state: tauri::State<'_, AppState>, id: i64) -> Result<(), Stri
     TagService::delete(&state.db, id).map_err(|e| e.to_string())
 }
 
-/// 给笔记添加标签
+/// 给文档添加标签
 #[tauri::command]
 pub fn add_tag_to_note(
     state: tauri::State<'_, AppState>,
@@ -50,7 +50,7 @@ pub fn add_tag_to_note(
     TagService::add_to_note(&state.db, note_id, tag_id).map_err(|e| e.to_string())
 }
 
-/// 移除笔记的标签
+/// 移除文档的标签
 #[tauri::command]
 pub fn remove_tag_from_note(
     state: tauri::State<'_, AppState>,
@@ -60,13 +60,13 @@ pub fn remove_tag_from_note(
     TagService::remove_from_note(&state.db, note_id, tag_id).map_err(|e| e.to_string())
 }
 
-/// 获取笔记的所有标签
+/// 获取文档的所有标签
 #[tauri::command]
 pub fn get_note_tags(state: tauri::State<'_, AppState>, note_id: i64) -> Result<Vec<Tag>, String> {
     TagService::get_note_tags(&state.db, note_id).map_err(|e| e.to_string())
 }
 
-/// 获取标签下的笔记列表（分页）
+/// 获取标签下的文档列表（分页）
 #[tauri::command]
 pub fn list_notes_by_tag(
     state: tauri::State<'_, AppState>,

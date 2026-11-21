@@ -10,7 +10,7 @@ import type { AiConversation, AiMessage } from "@/types";
 const { TextArea } = Input;
 
 interface NoteAiDrawerProps {
-  /** 当前笔记 id */
+  /** 当前文档 id */
   noteId: number;
   /** 抽屉是否展开 */
   open: boolean;
@@ -27,8 +27,8 @@ interface NoteAiDrawerProps {
  * 编辑器右侧的迷你 AI 聊天抽屉（方案 A）。
  *
  * - 复用 backend 的 send_ai_message + ai:token/done/error 流式事件
- * - 每篇笔记懒建伴生对话（companion_conversation_id），保证笔记 ↔ 对话 1:1
- * - 切换笔记 / 关闭抽屉时取消未完成的流式请求，避免请求泄漏
+ * - 每篇文档懒建伴生对话（companion_conversation_id），保证文档 ↔ 对话 1:1
+ * - 切换文档 / 关闭抽屉时取消未完成的流式请求，避免请求泄漏
  * - 顶部「在 AI 页打开」按钮 → 跳到完整 AI 页继续聊（带 activeConvId state）
  */
 export function NoteAiDrawer({
@@ -163,7 +163,7 @@ export function NoteAiDrawer({
       },
     ]);
     try {
-      // 抽屉默认不启 RAG / Skills（附加笔记已是当前笔记，足够上下文了）
+      // 抽屉默认不启 RAG / Skills（附加文档已是当前文档，足够上下文了）
       await aiChatApi.sendMessage(conv.id, finalText, false, false);
     } catch (e) {
       setStreaming(false);

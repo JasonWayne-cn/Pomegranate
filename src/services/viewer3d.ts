@@ -93,7 +93,7 @@ function base64ToBytes(base64: string): Uint8Array {
 }
 
 /**
- * 把笔记里的 `kb-asset://<rel>` 解析为 File。
+ * 把文档里的 `kb-asset://<rel>` 解析为 File。
  *
  * - 用 File 而非 asset URL：引擎按 File.name 判断扩展名，且不依赖网络/CORS
  * - 加密附件（.enc）暂不支持：密文不能交给解析器
@@ -104,7 +104,7 @@ export async function readViewer3dFile(rel: string): Promise<File> {
     throw new Error("不支持的三维格式");
   }
   if (isEncryptedAsset(rel)) {
-    throw new Error("加密笔记中的三维附件暂不支持预览，请用系统应用打开");
+    throw new Error("加密文档中的三维附件暂不支持预览，请用系统应用打开");
   }
 
   const abs = await systemApi.resolveAssetAbsolute(rel);

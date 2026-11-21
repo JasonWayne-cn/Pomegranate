@@ -1,9 +1,9 @@
 /**
- * 笔记标题兜底：用户没填标题时，保存不该被拒（之前「标题不能为空」直接 return，
- * 自动保存也静默跳过 → 只写正文的笔记关 app 就丢）。
+ * 文档标题兜底：用户没填标题时，保存不该被拒（之前「标题不能为空」直接 return，
+ * 自动保存也静默跳过 → 只写正文的文档关 app 就丢）。
  *
  * 规则：取正文第一行有字的内容（去掉 markdown 标记、截 30 字）；正文也空则用
- * 「未命名笔记 YYYY-MM-DD HH:mm」。
+ * 「未命名文档 YYYY-MM-DD HH:mm」。
  */
 
 const MAX_LEN = 30;
@@ -26,7 +26,7 @@ function pad(n: number): string {
 }
 
 export function fallbackNoteTitle(now: Date = new Date()): string {
-  return `未命名笔记 ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(
+  return `未命名文档 ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(
     now.getDate(),
   )} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 }

@@ -74,8 +74,8 @@
     ],
     "copyright": "Copyright (c) 2026 AgileFR",
     "category": "Productivity",
-    "shortDescription": "智能桌面随手笔记应用（Windows 7 兼容版 · 需预装 WebView2 109+）",
-    "longDescription": "基于 Tauri 构建的本地笔记工具，支持 Markdown 编辑、全文搜索、双向链接、知识图谱、AI 问答等功能。\n\n本版本适用于已预装 WebView2 109+ 的 Windows 7 SP1 系统。",
+    "shortDescription": "智能桌面随手文档应用（Windows 7 兼容版 · 需预装 WebView2 109+）",
+    "longDescription": "基于 Tauri 构建的本地文档工具，支持 Markdown 编辑、全文搜索、双向链接、知识图谱、AI 问答等功能。\n\n本版本适用于已预装 WebView2 109+ 的 Windows 7 SP1 系统。",
     "windows": {
       "webviewInstallMode": {
         "type": "skip"

@@ -11,7 +11,7 @@ use crate::models::{
 use crate::services::llm_graph;
 use crate::state::AppState;
 
-/// 抽取单篇笔记的实体/关系，结果写入本地数据库。
+/// 抽取单篇文档的实体/关系，结果写入本地数据库。
 #[tauri::command]
 pub async fn extract_note_llm_graph(
     app: AppHandle,
@@ -46,7 +46,7 @@ pub async fn extract_folder_llm_graph(
     Ok(llm_graph::extract_notes(state.db.as_ref(), &ids, Some(&app)).await)
 }
 
-/// 读取聚合后的 LLM 图谱（按规范化实体名跨笔记合并）。
+/// 读取聚合后的 LLM 图谱（按规范化实体名跨文档合并）。
 #[tauri::command]
 pub fn get_llm_graph_data(
     state: State<'_, AppState>,
@@ -85,7 +85,7 @@ pub fn get_llm_graph_scope_status(
     llm_graph::scope_status(state.db.as_ref(), folder_id).map_err(|e| e.to_string())
 }
 
-/// 查询单篇笔记的抽取状态。
+/// 查询单篇文档的抽取状态。
 #[tauri::command]
 pub fn get_llm_extraction_status(
     state: State<'_, AppState>,
@@ -97,7 +97,7 @@ pub fn get_llm_extraction_status(
         .map_err(|e| e.to_string())
 }
 
-/// 删除单篇笔记的 LLM 图谱数据。
+/// 删除单篇文档的 LLM 图谱数据。
 #[tauri::command]
 pub fn delete_note_llm_graph(
     state: State<'_, AppState>,

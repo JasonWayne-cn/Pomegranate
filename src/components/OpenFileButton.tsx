@@ -86,7 +86,7 @@ export function OpenFileButton({
     try {
       const result = await importApi.openMarkdownFile(pendingPath);
       if (result.wasSynced) {
-        message.info("已根据最新 md 文件同步笔记内容");
+        message.info("已根据最新 md 文件同步文档内容");
       }
       useAppStore.getState().bumpNotesRefresh();
       navigate(`/notes/${result.noteId}`);
@@ -115,7 +115,7 @@ export function OpenFileButton({
       if (!path) return;
       const result = await importApi.openMarkdownFile(path);
       if (result.wasSynced) {
-        message.info("已根据最新 md 文件同步笔记内容");
+        message.info("已根据最新 md 文件同步文档内容");
       }
       useAppStore.getState().bumpNotesRefresh();
       navigate(`/notes/${result.noteId}`);

@@ -25,7 +25,7 @@ import { MicButton } from "@/components/MicButton";
 interface DraftNoteModalProps {
   open: boolean;
   onClose: () => void;
-  /** 保存成功后回调；参数是新笔记 id */
+  /** 保存成功后回调；参数是新文档 id */
   onSaved?: (noteId: number) => void;
 }
 
@@ -43,7 +43,7 @@ const LENGTH_OPTIONS: Array<{ value: TargetLength; label: string }> = [
 ];
 
 /**
- * T-006 AI 写笔记并归档 Modal
+ * T-006 AI 写文档并归档 Modal
  *
  * 三阶段：
  * 1. idle     用户填主题 / 参考材料 / 目标长度 → 生成
@@ -51,7 +51,7 @@ const LENGTH_OPTIONS: Array<{ value: TargetLength; label: string }> = [
  * 3. review   三栏：左原始输入；中 Markdown 预览；右 标题 + 目录路径编辑
  *
  * 保存时先调 `folderApi.ensurePath(folderPath)` 递归建目录（路径不存在则创建），
- * 再 `noteApi.create` 新建笔记，成功后跳转到编辑器。
+ * 再 `noteApi.create` 新建文档，成功后跳转到编辑器。
  */
 export function DraftNoteModal({ open, onClose, onSaved }: DraftNoteModalProps) {
   const { token } = antdTheme.useToken();

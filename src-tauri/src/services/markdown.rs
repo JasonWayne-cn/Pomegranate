@@ -34,7 +34,7 @@ use serde::Deserialize;
 /// 闭合的 `---`、或 yaml 解析失败，则返回 `(None, original_text)` —— 永远不丢内容。
 ///
 /// 主要用于 T-009 OB 整库导入：把 frontmatter 中的 `tags` 解析出来后剥离正文，
-/// 让导入的笔记内容保持纯净。
+/// 让导入的文档内容保持纯净。
 pub fn parse_frontmatter(text: &str) -> (Option<FrontMatter>, String) {
     // 必须以 ---\n（或 ---\r\n） 开头
     let rest = text

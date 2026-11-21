@@ -270,7 +270,7 @@ const BASIC_SLASH_ITEMS: SlashCommandItem[] = [
   {
     key: "whiteboard",
     title: "白板",
-    subtitle: "在笔记里插入一块可编辑的画布，平时显示为图片",
+    subtitle: "在文档里插入一块可编辑的画布，平时显示为图片",
     group: "插入",
     icon: PenTool,
     keywords: ["白板", "画板", "画布", "whiteboard", "draw", "excalidraw", "bb", "hb"],
@@ -282,11 +282,11 @@ const BASIC_SLASH_ITEMS: SlashCommandItem[] = [
   // ─── 数据视图（v1.12 引入） ───
   {
     key: "dataview-recent-notes",
-    title: "数据视图：最近笔记",
-    subtitle: "动态展示最近修改的笔记列表",
+    title: "数据视图：最近文档",
+    subtitle: "动态展示最近修改的文档列表",
     group: "数据视图",
     icon: Database,
-    keywords: ["数据视图", "dataview", "最近", "笔记", "sjsq", "zjbj"],
+    keywords: ["数据视图", "dataview", "最近", "文档", "sjsq", "zjbj"],
     command: ({ editor, range }) => {
       editor
         .chain()
@@ -314,7 +314,7 @@ const BASIC_SLASH_ITEMS: SlashCommandItem[] = [
   },
   {
     key: "dataview-notes-by-tag",
-    title: "数据视图：按标签筛选笔记",
+    title: "数据视图：按标签筛选文档",
     subtitle: "插入后点齿轮选标签",
     group: "数据视图",
     icon: Database,
@@ -453,11 +453,11 @@ const BASIC_SLASH_ITEMS: SlashCommandItem[] = [
   // ─── 知识库 ───
   {
     key: "wikiLink",
-    title: "双链笔记引用",
-    subtitle: "插入 [[ 触发笔记选择",
+    title: "双链文档引用",
+    subtitle: "插入 [[ 触发文档选择",
     group: "知识库",
     icon: Link2,
-    keywords: ["双链", "引用", "wiki", "link", "笔记", "sl", "yy", "bj"],
+    keywords: ["双链", "引用", "wiki", "link", "文档", "sl", "yy", "bj"],
     command: ({ editor, range }) => {
       // 先删 / 触发字符，再插入 [[，让 WikiLinkSuggestion 接管后续
       editor.chain().focus().deleteRange(range).insertContent("[[").run();
@@ -595,7 +595,7 @@ async function resolveNoteId(
     }
   }
   if (!id) {
-    message.warning("请先保存笔记后再插入媒体");
+    message.warning("请先保存文档后再插入媒体");
     return null;
   }
   return id;

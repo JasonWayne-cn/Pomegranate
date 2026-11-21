@@ -3,7 +3,7 @@
  *
  * V1 pull 遇到"本地/远端各改各的"时会把远端版本落到 sync_conflicts/ 目录、本地保持原样。
  * 这里把这些冲突列出来，每条用 本地 / 远端 双栏 diff 展示，
- * 用户选「用本地 / 用远端 / 保存合并结果」→ 写回笔记 + 删冲突文件。
+ * 用户选「用本地 / 用远端 / 保存合并结果」→ 写回文档 + 删冲突文件。
  */
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import {
@@ -207,8 +207,8 @@ function ConflictDetail({
         <Alert
           type="warning"
           showIcon
-          message="加密笔记冲突"
-          description="加密笔记的冲突内容是密文，无法在此对比 / 合并。请在笔记编辑器中解锁后手动处理；此处仅能「忽略」（删除冲突标记文件，下次推送时本地版本会上传覆盖远端）。"
+          message="加密文档冲突"
+          description="加密文档的冲突内容是密文，无法在此对比 / 合并。请在文档编辑器中解锁后手动处理；此处仅能「忽略」（删除冲突标记文件，下次推送时本地版本会上传覆盖远端）。"
           style={{ marginBottom: 12 }}
         />
         <Button danger loading={resolving} onClick={() => onResolve("keep_local")}>
@@ -224,8 +224,8 @@ function ConflictDetail({
         <Alert
           type="info"
           showIcon
-          message="本地已无此笔记"
-          description="你本地已删除这条笔记，但收到了来自远端的修改版本。可以「用远端版本」把它重建回来，或「忽略」丢弃远端版本。"
+          message="本地已无此文档"
+          description="你本地已删除这条文档，但收到了来自远端的修改版本。可以「用远端版本」把它重建回来，或「忽略」丢弃远端版本。"
           style={{ marginBottom: 12 }}
         />
         <div
@@ -244,7 +244,7 @@ function ConflictDetail({
         </div>
         <Space style={{ marginTop: 12 }}>
           <Button type="primary" loading={resolving} onClick={() => onResolve("use_remote")}>
-            用远端版本（重建笔记）
+            用远端版本（重建文档）
           </Button>
           <Button danger loading={resolving} onClick={() => onResolve("keep_local")}>
             忽略（丢弃远端版本）
@@ -289,7 +289,7 @@ function ConflictDetail({
       </div>
       <div style={{ marginTop: 12 }}>
         <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
-          合并结果（可编辑，初始为本地版本；保存后会写回这条笔记）
+          合并结果（可编辑，初始为本地版本；保存后会写回这条文档）
         </div>
         <Input.TextArea
           value={merged}
@@ -315,7 +315,7 @@ function ConflictDetail({
           marginTop: 6,
         }}
       >
-        处理后会写回本地笔记并刷新「最近更新」时间，下次推送时这条会同步到远端、覆盖冲突版本。
+        处理后会写回本地文档并刷新「最近更新」时间，下次推送时这条会同步到远端、覆盖冲突版本。
       </div>
     </div>
   );

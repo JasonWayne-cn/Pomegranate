@@ -68,8 +68,8 @@ export function ExportFolderModal({ target, onClose }: Props) {
     stats == null
       ? null
       : recursive
-        ? `子树内共 ${stats.notes} 篇笔记${stats.dailies > 0 ? ` + ${stats.dailies} 篇日记` : ""}`
-        : "仅导出该文件夹的直属笔记";
+        ? `子树内共 ${stats.notes} 篇文档${stats.dailies > 0 ? ` + ${stats.dailies} 篇日记` : ""}`
+        : "仅导出该文件夹的直属文档";
 
   return (
     <Modal
@@ -102,7 +102,7 @@ export function ExportFolderModal({ target, onClose }: Props) {
             <div className="flex flex-col gap-2">
               <Radio value="tree">
                 保留目录结构
-                <Hint>多个 .md 文件 + assets/，适合备份与迁移到其他笔记工具</Hint>
+                <Hint>多个 .md 文件 + assets/，适合备份与迁移到其他文档工具</Hint>
               </Radio>
               <Radio value="merged">
                 合并为单个文件

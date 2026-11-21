@@ -29,7 +29,7 @@ import type { PluginCommandDef } from "@/types";
 /** 快速导航页面 */
 const pages = [
   { path: "/", icon: <Home size={14} />, label: "首页" },
-  { path: "/notes", icon: <NotebookText size={14} />, label: "笔记列表" },
+  { path: "/notes", icon: <NotebookText size={14} />, label: "文档列表" },
   { path: "/tasks", icon: <CheckSquare size={14} />, label: "待办" },
   { path: "/search", icon: <Search size={14} />, label: "搜索" },
   { path: "/daily", icon: <Calendar size={14} />, label: "日记" },
@@ -55,7 +55,7 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
   const [selectedIndex, setSelectedIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // 搜索建议（防抖 + 并发笔记/待办）由 hook 统一处理
+  // 搜索建议（防抖 + 并发文档/待办）由 hook 统一处理
   const { notes: results, tasks: taskResults, loading } = useSearchSuggestions(
     open ? keyword : "",
     { taskLimit: 10 },
@@ -119,7 +119,7 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
     [pluginCommands, kw],
   );
 
-  // 总条目数（页面 → 插件命令 → 待办 → 笔记 顺序展示）
+  // 总条目数（页面 → 插件命令 → 待办 → 文档 顺序展示）
   const totalItems =
     filteredPages.length +
     filteredPluginCommands.length +
@@ -242,7 +242,7 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
               }
             />
           }
-          placeholder="搜索笔记 / 待办 / 跳转页面…"
+          placeholder="搜索文档 / 待办 / 跳转页面…"
           variant="borderless"
           size="large"
           value={keyword}
@@ -438,7 +438,7 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
           </>
         )}
 
-        {/* 笔记搜索结果 */}
+        {/* 文档搜索结果 */}
         {loading && (
           <div className="flex justify-center py-4">
             <Spin size="small" />
@@ -451,7 +451,7 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
               className="px-2 py-1 mt-1 text-xs font-medium"
               style={{ color: token.colorTextQuaternary }}
             >
-              笔记
+              文档
             </div>
             {results.map((note, i) => {
               const idx = noteOffset + i;

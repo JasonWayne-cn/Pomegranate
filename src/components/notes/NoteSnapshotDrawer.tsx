@@ -16,7 +16,7 @@ import { noteApi } from "@/lib/api";
 import type { NoteSnapshotMeta, SnapshotReason } from "@/types";
 
 /**
- * 普通笔记的历史版本抽屉。
+ * 普通文档的历史版本抽屉。
  *
  * 与白板那套（components/whiteboard/SnapshotDrawer）是两个组件：那边右侧要挂一整个
  * 只读画布，这边只需把正文原样摊开。共用的是后端同一张 note_snapshots 表。
@@ -88,7 +88,7 @@ export default function NoteSnapshotDrawer({
     }
   }, [noteId, message]);
 
-  // 每次打开都重拉：关着的这段时间里笔记还在保存，列表随时会变长
+  // 每次打开都重拉：关着的这段时间里文档还在保存，列表随时会变长
   useEffect(() => {
     if (!open) {
       setSelected(null);

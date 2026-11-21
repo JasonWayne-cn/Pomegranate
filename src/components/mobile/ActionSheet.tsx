@@ -21,7 +21,7 @@ export interface ActionSheetItem {
 
 interface ActionSheetProps {
   open: boolean;
-  /** 面板顶部说明（如笔记标题），可选 */
+  /** 面板顶部说明（如文档标题），可选 */
   title?: string;
   items: ActionSheetItem[];
   onClose: () => void;

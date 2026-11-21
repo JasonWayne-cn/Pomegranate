@@ -1,6 +1,6 @@
 //! 资产相对路径工具：在绝对路径与"相对 instance_dir 的 POSIX 路径"之间转换。
 //!
-//! 笔记 content 里的素材 src 永远存为 `kb-asset://<rel>`，`<rel>` 是这里输出的形式。
+//! 文档 content 里的素材 src 永远存为 `kb-asset://<rel>`，`<rel>` 是这里输出的形式。
 //! 数据目录可被用户在运行期更换（见 `services::data_dir`），所以绝对路径不能直接落 DB。
 
 use std::path::{Component, Path, PathBuf};
@@ -21,7 +21,7 @@ pub(crate) const KNOWN_ASSET_SEGMENTS: &[&str] = &[
 /// 把绝对路径转成相对 `data_dir` 的 POSIX 风格相对路径。
 ///
 /// 优先策略：纯 `strip_prefix(data_dir)` + 把 `\` 换成 `/`。
-/// 失败时（路径不在 data_dir 下，比如老笔记里写的是另一台机器/旧 data_dir 的绝对路径）
+/// 失败时（路径不在 data_dir 下，比如老文档里写的是另一台机器/旧 data_dir 的绝对路径）
 /// 走 fallback：扫已知资产段名，从该段开始截。
 ///
 /// 返回 `None` 表示既不在 data_dir 下，也找不到任何已知资产段（无法判定相对路径）。
@@ -58,11 +58,11 @@ pub fn abs_to_rel(absolute: &Path, data_dir: &Path) -> Option<String> {
     None
 }
 
-/// 把笔记 content / 渲染产物里出现的素材 URL 解析为本地绝对路径。
+/// 把文档 content / 渲染产物里出现的素材 URL 解析为本地绝对路径。
 ///
 /// 识别的形态（按优先级）：
 /// - `kb-asset://<rel>` —— 当前唯一会写进 content 的形态，`<rel>` 相对 `data_dir`
-/// - `file://<abs>` —— 老笔记拖入附件用过的协议（Windows 上是 `file:///E:/...`）
+/// - `file://<abs>` —— 老文档拖入附件用过的协议（Windows 上是 `file:///E:/...`）
 /// - `asset://localhost/<abs>` / `asset://<abs>` —— Tauri 运行期形态
 /// - `http://asset.localhost/<abs>` / `https://asset.localhost/<abs>` —— `convertFileSrc` 运行期输出
 /// - 裸绝对路径（`C:\...` / `/home/...`）—— 很早期写法
@@ -140,8 +140,8 @@ pub fn resolve_content_url(url: &str, data_dir: &Path) -> Option<PathBuf> {
 
 /// 跨机 / 跨平台兜底：把"另一台机器的绝对路径"重映射到**本机** data_dir 下的同名资产。
 ///
-/// 场景：笔记从 Windows 同步/拷贝到 macOS，content 里遗留
-/// `file:///E:/kb/kb_assets/images/1/x.png`（v54 迁移会清洗掉大部分，但外部导入的笔记、
+/// 场景：文档从 Windows 同步/拷贝到 macOS，content 里遗留
+/// `file:///E:/kb/kb_assets/images/1/x.png`（v54 迁移会清洗掉大部分，但外部导入的文档、
 /// 或迁移之后又从旧端拉回来的内容仍可能出现）。这个绝对路径在 macOS 上必然不存在，
 /// 而同一份文件其实已经随附件同步躺在本机 `<data_dir>/kb_assets/images/1/x.png`。
 ///

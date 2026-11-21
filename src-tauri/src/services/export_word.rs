@@ -1,4 +1,4 @@
-//! T-020 笔记导出为 Word（.docx）
+//! T-020 文档导出为 Word（.docx）
 //!
 //! 设计：
 //! - 用 `pulldown-cmark` 解析 markdown（项目已装），事件驱动地映射到 docx 元素
@@ -27,7 +27,7 @@ use crate::services::markdown::html_to_markdown;
 
 /// GFM 扩展开关（表格 / 删除线 / 任务列表）。
 ///
-/// 笔记内容是 tiptap-markdown 产出的「Markdown 夹 HTML」混合体——管道表格、删除线、
+/// 文档内容是 tiptap-markdown 产出的「Markdown 夹 HTML」混合体——管道表格、删除线、
 /// 任务列表都可能出现，必须开启这些扩展，否则会被当成普通段落文本。
 fn gfm_options(enable_math: bool) -> Options {
     let mut opts = Options::empty();
@@ -200,9 +200,9 @@ pub struct WordExportResult {
 pub struct WordExportService;
 
 impl WordExportService {
-    /// 导出单条笔记为 .docx —— 尽力而为（hybrid）策略：
+    /// 导出单条文档为 .docx —— 尽力而为（hybrid）策略：
     ///
-    /// 1. **优先走系统转换器**（LibreOffice / Word / WPS）：先用 `export_html` 把笔记渲染成
+    /// 1. **优先走系统转换器**（LibreOffice / Word / WPS）：先用 `export_html` 把文档渲染成
     ///    自包含 HTML（表格/分栏/Callout/图片/样式全保真），再交给转换器转成 docx。保真度最高。
     /// 2. **无转换器或转换失败时回退到原生 docx 生成**（`export_single`）：纯 Rust、零外部依赖、
     ///    离线可用，但复杂结构（嵌套分栏/自定义样式）会被简化。
@@ -285,7 +285,7 @@ impl WordExportService {
         }
     }
 
-    /// 转换器路径：笔记 → 自包含 HTML → 系统转换器 → docx → 拷到用户目标路径。
+    /// 转换器路径：文档 → 自包含 HTML → 系统转换器 → docx → 拷到用户目标路径。
     fn export_via_converter(
         title: &str,
         content: &str,
@@ -406,7 +406,7 @@ impl WordExportService {
         state.flush_paragraph(&mut docx);
 
         // ── 附件打包 ──
-        // docx 容器塞不进任意文件，所以走"旁挂"：把笔记里指向本地文件的链接对应的文件
+        // docx 容器塞不进任意文件，所以走"旁挂"：把文档里指向本地文件的链接对应的文件
         // 拷到 `<目标 docx 同名>.attachments/` 目录，并在文档末尾追加一个「📎 附件」清单
         // （写明每个附件在旁挂目录里的相对路径）。
         let attachments_copied = pack_attachments(markdown, target_path, assets_root, &mut docx)?;
@@ -1865,7 +1865,7 @@ mod tests {
     }
 
     /// 「裸机」场景（既无 LibreOffice 也无 Word/WPS COM）：`export_single_best_effort`
-    /// 会回退到本函数，且**只拿 markdown 重渲**——笔记正文里的图片是 `kb-asset://<rel>`，
+    /// 会回退到本函数，且**只拿 markdown 重渲**——文档正文里的图片是 `kb-asset://<rel>`，
     /// 必须能顺着 assets_root 解析到真实文件并嵌进 docx。
     ///
     /// 这条路是纯 Rust、零外部依赖，是裸机唯一能出 Word 的通道，图片不能丢。
@@ -1889,7 +1889,7 @@ mod tests {
         std::fs::create_dir_all(&img_dir).unwrap();
         std::fs::write(img_dir.join("x.png"), &png).unwrap();
 
-        // 笔记正文里图片的真实形态
+        // 文档正文里图片的真实形态
         let markdown = "正文一段\n\n![配图](kb-asset://kb_assets/images/1/x.png)\n";
 
         let target = tmp_docx("kb_asset_img");

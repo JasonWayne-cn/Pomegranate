@@ -204,7 +204,7 @@ mod tests {
             generated_at: "2026-04-25 12:00:00".into(),
             entries: vec![ManifestEntry {
                 stable_id: "1".into(),
-                title: "test 笔记".into(),
+                title: "test 文档".into(),
                 content_hash: "abcd".into(),
                 updated_at: "2026-04-25 12:00:00".into(),
                 remote_path: "notes/1.md".into(),
@@ -227,15 +227,15 @@ mod tests {
         backend.write_manifest(&m).unwrap();
         let got = backend.read_manifest().unwrap().expect("应能读回 manifest");
         assert_eq!(got.entries.len(), 1);
-        assert_eq!(got.entries[0].title, "test 笔记");
+        assert_eq!(got.entries[0].title, "test 文档");
         assert_eq!(got.entries[0].folder_path, "工作/周报");
 
-        // 笔记往返
+        // 文档往返
         backend.put_note("notes/1.md", "# Hello\n\nbody").unwrap();
         let body = backend.get_note("notes/1.md").unwrap();
         assert_eq!(body.as_deref(), Some("# Hello\n\nbody"));
 
-        // 不存在的笔记
+        // 不存在的文档
         assert!(backend.get_note("notes/missing.md").unwrap().is_none());
 
         // 删除

@@ -106,7 +106,7 @@ export function MountFileBrowser({
   );
 
   /**
-   * 二进制文档直接进 Office 工作台打开原文件；文本 / 旧格式仍打开影子笔记。
+   * 二进制文档直接进 Office 工作台打开原文件；文本 / 旧格式仍打开影子文档。
    */
   function openEntry(entry: ExternalEntry) {
     if (entry.typeCategory && entry.typeCategory !== "text" && entry.absPath) {
@@ -132,7 +132,7 @@ export function MountFileBrowser({
         message.info("该挂载点为只读：编辑内容不会写回原文件");
       }
       if (r.stale) {
-        message.warning("原文件已更新，影子笔记有本地编辑，已保留当前内容");
+        message.warning("原文件已更新，影子文档有本地编辑，已保留当前内容");
       }
       navigate(`/notes/${noteId}`);
     } catch (e) {

@@ -15,7 +15,7 @@ import {
   type UIEvent as ReactUIEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -55,12 +55,12 @@ import {
   OFFICE_OPEN_FILTERS,
   baseName,
   formatOf,
+  officePathForFile,
   stripExtension,
   type OfficeFormat,
 } from "@/lib/office/formats";
 import { useOfficeStore, type OfficeSessionMeta } from "@/store/office";
 import { OfficeTopBar } from "@/components/office/OfficeTopBar";
-import { OfficeTabStrip } from "@/components/office/OfficeTabStrip";
 import { OfficeEmptyState } from "@/components/office/OfficeEmptyState";
 import { OfficeStatusBar } from "@/components/office/OfficeStatusBar";
 import { SaveGuardDialog } from "@/components/office/SaveGuardDialog";
@@ -191,6 +191,7 @@ export default function OfficeWorkspacePage() {
   const clientRef = useRef<PptxWorkerClient | null>(null);
   // 外部挂载跳转：/office?path=<绝对路径>&readonly=<0|1>
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   useEffect(() => {
     activeSlideRef.current = activeSlide;
@@ -709,6 +710,13 @@ export default function OfficeWorkspacePage() {
 
   const closeSession = useCallback(
     (id: string) => {
+      const closingMeta = useOfficeStore
+        .getState()
+        .sessions.find((item) => item.id === id);
+      const viewing =
+        !!closingMeta &&
+        normalizeFsPath(searchParams.get("path") ?? "") === closingMeta.path;
+
       const rt = runtimesRef.current.get(id);
       rt?.client.terminate();
       runtimesRef.current.delete(id);
@@ -729,8 +737,21 @@ export default function OfficeWorkspacePage() {
         setRestorable(null);
         bump();
       }
+
+      // 标签栏与 URL 保持同步：关闭的是当前查看的文件时，切到相邻会话或文档列表
+      if (viewing) {
+        const state = useOfficeStore.getState();
+        const next = state.sessions.find((item) => item.id === state.activeId);
+        if (next) {
+          navigate(officePathForFile(next.path, !!next.readOnly), {
+            replace: true,
+          });
+        } else {
+          navigate("/notes", { replace: true });
+        }
+      }
     },
-    [activateSession, bump, editor, removeSession],
+    [activateSession, bump, editor, navigate, removeSession, searchParams],
   );
 
   const requestClose = useCallback(
@@ -742,6 +763,19 @@ export default function OfficeWorkspacePage() {
     },
     [closeSession],
   );
+
+  // 全局标签栏发来的关闭请求：走同一套未保存确认流程
+  useEffect(() => {
+    function onRequestClose(event: Event) {
+      const id = (event as CustomEvent<{ id?: string }>).detail?.id;
+      if (!id) return;
+      event.preventDefault();
+      requestClose(id);
+    }
+    window.addEventListener("office:request-close", onRequestClose);
+    return () =>
+      window.removeEventListener("office:request-close", onRequestClose);
+  }, [requestClose]);
 
   const activeMeta = activeSession;
 
@@ -1429,7 +1463,11 @@ export default function OfficeWorkspacePage() {
               : editor.canRedo
         }
         busy={editor.busy || docxBusy || xlsxBusy}
-        onOpen={() => void openDocument()}
+        onBack={() => {
+          // 与文档编辑器一致：有历史栈就回退，否则回文档列表
+          if (window.history.length > 1) navigate(-1);
+          else navigate("/notes");
+        }}
         onSave={() => activeMeta && void saveSession(activeMeta.id)}
         onSaveAs={() => activeMeta && void saveSession(activeMeta.id, true)}
         onUndo={() => {
@@ -1443,13 +1481,6 @@ export default function OfficeWorkspacePage() {
           else void editor.redo();
         }}
         onExternal={() => activeMeta && externalOpen(activeMeta)}
-      />
-
-      <OfficeTabStrip
-        sessions={sessions}
-        activeId={activeId}
-        onActivate={activateSession}
-        onClose={requestClose}
       />
 
       {activeMeta?.format === "pptx" && activeMeta.status === "ready" && (

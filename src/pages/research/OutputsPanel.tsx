@@ -34,7 +34,7 @@ const KIND_META: Record<string, { label: string; color: string }> = {
   polish: { label: "语言润色", color: "green" },
   format: { label: "规范检查", color: "orange" },
   analyze: { label: "数据分析", color: "cyan" },
-  note: { label: "笔记", color: "default" },
+  note: { label: "文档", color: "default" },
 };
 
 interface OutputsPanelProps {
@@ -70,7 +70,7 @@ export function OutputsPanel({
     setExportingId(item.id);
     try {
       const note = await researchApi.exportOutputToNote(item.id);
-      message.success(`已导出为笔记：${note.title}`);
+      message.success(`已导出为文档：${note.title}`);
     } catch (err) {
       message.error(String(err));
     } finally {
@@ -177,7 +177,7 @@ export function OutputsPanel({
             loading={exportingId === record.id}
             onClick={() => void handleExport(record)}
           >
-            导出笔记
+            导出文档
           </Button>
           <Popconfirm
             title="删除这份产出？"
@@ -244,7 +244,7 @@ export function OutputsPanel({
                 loading={exportingId === viewing.id}
                 onClick={() => void handleExport(viewing)}
               >
-                导出笔记
+                导出文档
               </Button>
               <Button size="small" icon={<Pencil size={13} />} onClick={() => openEdit(viewing)}>
                 编辑

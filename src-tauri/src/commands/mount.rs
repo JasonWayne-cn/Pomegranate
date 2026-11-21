@@ -39,7 +39,7 @@ pub fn mount_list(state: State<'_, AppState>) -> Result<Vec<ExternalMount>, Stri
     state.db.list_external_mounts().map_err(|e| e.to_string())
 }
 
-/// 删除挂载点。`detach=true` 保留影子笔记并转为本地笔记
+/// 删除挂载点。`detach=true` 保留影子文档并转为本地文档
 #[tauri::command]
 pub fn mount_remove(
     state: State<'_, AppState>,
@@ -94,7 +94,7 @@ pub fn mount_open_file(
     MountService::open_note(&state.db, note_id).map_err(|e| e.to_string())
 }
 
-/// 查询影子笔记是否落后于原文件
+/// 查询影子文档是否落后于原文件
 #[tauri::command(async)]
 pub fn mount_note_status(
     state: State<'_, AppState>,
@@ -103,7 +103,7 @@ pub fn mount_note_status(
     MountService::note_status(&state.db, note_id).map_err(|e| e.to_string())
 }
 
-/// 强制重新抽取（会覆盖影子笔记的本地编辑）
+/// 强制重新抽取（会覆盖影子文档的本地编辑）
 #[tauri::command(async)]
 pub fn mount_reextract(
     state: State<'_, AppState>,

@@ -7,7 +7,7 @@ import { needsLegacyPathResolve } from "./assetUrl";
  * 这个函数是编辑器 MutationObserver 的**死循环闸门**（见 TiptapEditor 的资产渲染拦截）：
  * 返回 true 的 src 会被送去后端兜底解析并回写 `src`；一旦把「运行期 asset URL」
  * 误判成 true，就会形成 解析→回写→再次触发 observer→再解析 的无限同步循环，
- * 主线程彻底冻结（v1.50.0 在 macOS 上的「打开笔记就卡死」事故）。
+ * 主线程彻底冻结（v1.50.0 在 macOS 上的「打开文档就卡死」事故）。
  *
  * 所以下面对**各平台 asset URL 形态**的断言是硬约束，改动前请先读懂事故成因。
  */

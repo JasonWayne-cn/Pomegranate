@@ -10,7 +10,7 @@ interface Props {
   open: boolean;
   /** 扫描到的所有文件（含分桶信息） */
   files: ScannedFile[];
-  /** 扫描根路径（仅用于标题展示，如 "D:/笔记归档"） */
+  /** 扫描根路径（仅用于标题展示，如 "D:/文档归档"） */
   rootPath: string;
   /** 默认是否勾选"保留原目录文件夹"。默认 false：直接导入子内容，不在目标下多包一层源根目录 */
   defaultPreserveRoot?: boolean;
@@ -103,7 +103,7 @@ export function ImportPreviewModal({
           <div className="opacity-75">
             跳过 <Text code style={{ fontSize: 11 }}>.obsidian</Text> /{" "}
             <Text code style={{ fontSize: 11 }}>.trash</Text> 等隐藏目录 · 解析
-            笔记头部 <Text code style={{ fontSize: 11 }}>tags:</Text> 字段 +
+            文档头部 <Text code style={{ fontSize: 11 }}>tags:</Text> 字段 +
             正文行内 <Text code style={{ fontSize: 11 }}>#标签</Text> 自动建标签
             （含嵌套 <Text code style={{ fontSize: 11 }}>#工作/周报</Text>）·
             复制 <Text code style={{ fontSize: 11 }}>attachments/</Text>{" "}
@@ -123,14 +123,14 @@ export function ImportPreviewModal({
           </div>
           <div className="flex items-center gap-2">
             <NotebookText size={14} className="text-sky-500" />
-            <Tooltip title="这些文件按原路径匹配到了已有笔记（上次导入过）">
+            <Tooltip title="这些文件按原路径匹配到了已有文档（上次导入过）">
               <span>已导入过</span>
             </Tooltip>
             <strong className="ml-auto">{stats.paths.length} 篇</strong>
           </div>
           <div className="flex items-center gap-2">
             <AlertTriangle size={14} className="text-amber-500" />
-            <Tooltip title="路径不同但标题+内容与已有笔记一致，可能是用户搬动过文件">
+            <Tooltip title="路径不同但标题+内容与已有文档一致，可能是用户搬动过文件">
               <span>可能重复</span>
             </Tooltip>
             <strong className="ml-auto">{stats.fuzzies.length} 篇</strong>
@@ -161,7 +161,7 @@ export function ImportPreviewModal({
               </div>
             </Radio.Group>
             <div className="mt-2 text-xs text-[var(--color-text-tertiary,#9ca3af)]">
-              需要覆盖现有笔记？请直接在应用内编辑 —— 避免误操作丢失数据。
+              需要覆盖现有文档？请直接在应用内编辑 —— 避免误操作丢失数据。
             </div>
           </div>
         )}
@@ -204,7 +204,7 @@ export function ImportPreviewModal({
             </Checkbox>
             {effectiveDaily && dailyStats.fileCount > dailyStats.dayCount && (
               <div className="mt-1 text-xs text-[var(--color-text-tertiary,#9ca3af)]">
-                有些天存在多个文件，导入时每天只认领第一篇；其余仍是普通笔记，
+                有些天存在多个文件，导入时每天只认领第一篇；其余仍是普通文档，
                 可事后在日记页用「整理历史日记」合并进当天。
               </div>
             )}

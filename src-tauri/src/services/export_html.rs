@@ -1,4 +1,4 @@
-//! T-020 笔记导出为 HTML
+//! T-020 文档导出为 HTML
 //!
 //! 单文件 HTML：完整可分享（self-contained），含基础样式 + 嵌入图片为 base64。
 //! 用 pulldown-cmark（项目已装）渲染 markdown → HTML，再包一层 minimal CSS 模板。
@@ -86,7 +86,7 @@ fn sanitize_font_family(v: &str) -> Option<String> {
 pub struct HtmlExportService;
 
 impl HtmlExportService {
-    /// 渲染笔记为单文件 HTML 字符串（图片内嵌 base64，可独立分享）。
+    /// 渲染文档为单文件 HTML 字符串（图片内嵌 base64，可独立分享）。
     ///
     /// 与 `export_single` 的区别：不写文件，直接返回 HTML 字符串。
     /// 用于 R-005 PDF 导出场景：前端拿字符串塞 iframe → window.print() → 用户另存为 PDF。
@@ -117,13 +117,13 @@ impl HtmlExportService {
         let (body, inlined, missing) = inline_images(&body, assets_root);
 
         // 标题通常不在 markdown 里（存在 notes 表），由模板补一个 <h1>；
-        // 但不少笔记会把标题手写成正文首个 `# 标题`，此时再补就会重复，需跳过。
+        // 但不少文档会把标题手写成正文首个 `# 标题`，此时再补就会重复，需跳过。
         let insert_title = !body_starts_with_title_h1(&body, title);
         let html = wrap_template(title, &body, fonts, layout, insert_title);
         Ok((html, inlined, missing))
     }
 
-    /// 导出单条笔记为单文件 HTML（图片内嵌 base64 + 非图片附件内嵌为 data: 下载链接，可独立分享）
+    /// 导出单条文档为单文件 HTML（图片内嵌 base64 + 非图片附件内嵌为 data: 下载链接，可独立分享）
     pub fn export_single(
         title: &str,
         markdown: &str,
@@ -564,11 +564,11 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// 判断渲染后的正文是否已经以「与笔记标题相同」的一级标题开头。
+/// 判断渲染后的正文是否已经以「与文档标题相同」的一级标题开头。
 ///
-/// 不少笔记把标题手写成正文第一行的 `# 标题`；模板此时再补一个 `<h1>` 就会
+/// 不少文档把标题手写成正文第一行的 `# 标题`；模板此时再补一个 `<h1>` 就会
 /// 出现两个大标题。只认「首个块就是 h1 且文本与标题一致」，保守匹配，
-/// 不影响标题与正文首标题不同的常规笔记。
+/// 不影响标题与正文首标题不同的常规文档。
 fn body_starts_with_title_h1(body: &str, title: &str) -> bool {
     let trimmed = body.trim_start();
     let Some(rest) = trimmed.strip_prefix("<h1") else {
@@ -757,7 +757,7 @@ mod tests {
         assert!(html.contains(r#"class="kb-callout""#), "callout 结构应保留");
         // 套了模板：有 <html> 骨架和标题
         assert!(html.contains("<html"), "应套上完整 HTML 模板");
-        assert!(html.contains("标题"), "模板应带上笔记标题");
+        assert!(html.contains("标题"), "模板应带上文档标题");
     }
 
     /// 对照组：走 markdown 重渲的老路径确实看不到编号（这就是 bug 的成因）。
@@ -1177,9 +1177,9 @@ mod tests {
     /// —— 用户反馈「导出的 Word 开头标题重复两遍」就是双重插入。
     #[test]
     fn body_path_does_not_duplicate_title() {
-        let body = r#"<div class="tiptap"><h1>我的笔记</h1><p>正文</p></div>"#;
+        let body = r#"<div class="tiptap"><h1>我的文档</h1><p>正文</p></div>"#;
         let (html, _i, _m) = HtmlExportService::render_html_from_body(
-            "我的笔记",
+            "我的文档",
             body,
             Path::new("/nonexistent"),
             None,
@@ -1201,8 +1201,8 @@ mod tests {
     #[test]
     fn markdown_path_skips_duplicate_title_h1() {
         let (html, _i, _m) = HtmlExportService::render_html(
-            "我的笔记",
-            "# 我的笔记\n\n正文段落",
+            "我的文档",
+            "# 我的文档\n\n正文段落",
             Path::new("/nonexistent"),
             None,
             TemplateLayout::Web,
@@ -1220,11 +1220,11 @@ mod tests {
         );
     }
 
-    /// 对照组：markdown 路径的 body 里没有笔记标题，模板必须补上
+    /// 对照组：markdown 路径的 body 里没有文档标题，模板必须补上
     #[test]
     fn markdown_path_still_inserts_title() {
         let (html, _i, _m) = HtmlExportService::render_html(
-            "我的笔记",
+            "我的文档",
             "正文段落",
             Path::new("/nonexistent"),
             None,
@@ -1232,7 +1232,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            html.contains(r#"<h1 class="kb-doc-first">我的笔记</h1>"#),
+            html.contains(r#"<h1 class="kb-doc-first">我的文档</h1>"#),
             "markdown 路径的标题只能由模板补，实际：{html}"
         );
     }

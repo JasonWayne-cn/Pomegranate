@@ -9,9 +9,9 @@ import ImageResize from "tiptap-extension-resize-image";
  *      Modal）提供，比侵入 NodeView 风险低得多。
  *   2. **存储兼容**：无 caption 的图片走标准 markdown `![alt](url)`；只有当 caption
  *      非空时才落 raw HTML `<figure><img.../><figcaption>...</figcaption></figure>`。
- *      这样旧笔记不破坏，导出成 .md 也兼容（CommonMark 允许 raw HTML，主流 markdown
+ *      这样旧文档不破坏，导出成 .md 也兼容（CommonMark 允许 raw HTML，主流 markdown
  *      渲染器能识别 figure）。
- *   3. **解析回填**：粘贴含 `<figure>` 的 HTML 或加载历史 figure 笔记时，能把
+ *   3. **解析回填**：粘贴含 `<figure>` 的 HTML 或加载历史 figure 文档时，能把
  *      caption / alt 还原到 attrs。
  *
  * 与"表格自定义列宽 → HTML 兜底"采用同一思路（见 TiptapEditor.tsx 的
@@ -120,7 +120,7 @@ export const FigureImage = ImageResize.extend({
 
           // 普通 markdown ![alt](url) 无法表达 width/height，所以只要存在 caption
           // 或自定义尺寸（用户拖拽 ImageResize 调整过），都退成 raw HTML 兜底；
-          // 否则尺寸 / 图注会在下次打开笔记时丢失。
+          // 否则尺寸 / 图注会在下次打开文档时丢失。
           const hasSize =
             (width !== undefined && width !== null && width !== "") ||
             (height !== undefined && height !== null && height !== "");

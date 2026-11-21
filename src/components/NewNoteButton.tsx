@@ -8,6 +8,7 @@ import {
   ChevronDown,
   LayoutTemplate,
   FolderOpen,
+  PenTool,
 } from "lucide-react";
 
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -18,6 +19,7 @@ import { useAppStore } from "@/store";
 import type { ScannedFile } from "@/types";
 import {
   createBlankAndOpen,
+  createWhiteboardAndOpen,
   importPdfsFlow,
   importTextFlow,
   importWordFlow,
@@ -30,9 +32,9 @@ interface Props {
   collapsed?: boolean;
   /** 图标按钮 + 下拉菜单：单图标入口，菜单里包含新建空白/模板/导入等全部方式 */
   iconOnly?: boolean;
-  /** 块级占满父容器宽度（首页/笔记页大按钮用） */
+  /** 块级占满父容器宽度（首页/文档页大按钮用） */
   block?: boolean;
-  /** 主按钮文字，默认"新建笔记" */
+  /** 主按钮文字，默认"新建文档" */
   label?: string;
   /** 外层样式扩展 */
   style?: React.CSSProperties;
@@ -41,7 +43,7 @@ interface Props {
 }
 
 /**
- * "+ 新建笔记"分段按钮：主按钮直接创建空白笔记并跳转编辑器，
+ * "+ 新建文档"分段按钮：主按钮直接创建空白文档并跳转编辑器，
  * 右侧 ▼ 下拉承载"从模板 / 导入 MD / PDF / Word"的次要入口。
  *
  * 取代了旧的 CreateNoteModal（Tab 切换式）—— 常用路径 1 次点击可达，
@@ -68,6 +70,9 @@ export function NewNoteButton({
   // 有 folderId（NotesPanel 文件夹下嵌入）就遵循上下文
   const handleCreate = () =>
     createBlankAndOpen(folderId, navigate, { useDefaults: folderId == null });
+
+  const handleCreateWhiteboard = () =>
+    createWhiteboardAndOpen(folderId, navigate);
 
   // 选目录 → 扫描 → 弹 ImportPreviewModal。与 NotesPanel.handleImportMdFolder 同源。
   // Why: 文件夹导入要让用户选副本策略 + 是否保留根目录层级，所以单独走 Modal 流，
@@ -100,7 +105,8 @@ export function NewNoteButton({
     }
   }
 
-  const menuItems: MenuProps["items"] = [
+  // 模板 / 导入等次要入口；「新建白板」由外层菜单组合，避免重复项
+  const secondaryMenuItems: MenuProps["items"] = [
     {
       key: "template",
       label: "从模板…",
@@ -136,6 +142,20 @@ export function NewNoteButton({
     },
   ];
 
+  /** 主按钮旁 ▼ 下拉：新建白板 + 模板 / 导入 */
+  const menuItems: MenuProps["items"] = [
+    {
+      key: "whiteboard",
+      label: "新建白板",
+      icon: <PenTool size={14} />,
+      onClick: () => {
+        void handleCreateWhiteboard();
+      },
+    },
+    { type: "divider" },
+    ...(secondaryMenuItems ?? []),
+  ];
+
   /** 图标按钮模式：把"新建空白文档"和原有次要入口合并进一个下拉菜单 */
   const iconMenuItems: MenuProps["items"] = [
     {
@@ -144,8 +164,16 @@ export function NewNoteButton({
       icon: <Plus size={14} />,
       onClick: handleCreate,
     },
+    {
+      key: "whiteboard",
+      label: "新建白板",
+      icon: <PenTool size={14} />,
+      onClick: () => {
+        void handleCreateWhiteboard();
+      },
+    },
     { type: "divider" },
-    ...(menuItems ?? []),
+    ...(secondaryMenuItems ?? []),
   ];
 
   const templatePickerModal = (

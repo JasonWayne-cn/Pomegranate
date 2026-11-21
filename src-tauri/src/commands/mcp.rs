@@ -115,7 +115,7 @@ pub struct ClaudeCodeTemplate {
     pub claude_md: String,
     /// ~/.claude/settings.json 的 mcpServers 片段（只读模式），用户合并到自己的 settings.json
     pub settings_snippet_readonly: String,
-    /// 同上但 args 加了 --writable，让 LLM 能改笔记
+    /// 同上但 args 加了 --writable，让 LLM 能改文档
     pub settings_snippet_writable: String,
 }
 
@@ -152,31 +152,31 @@ fn build_claude_md_template() -> String {
 ## 可用工具
 
 **读工具（默认可用，15 个）**：
-- `search_notes(query, limit?)` — 全文搜索笔记
-- `get_note(id)` — 按 id 读笔记全文
-- `list_recent_notes(limit?)` — 按更新时间列最近笔记（无关键词时用）
-- `list_folders` — 所有文件夹结构 + 各自笔记数
-- `list_notes_by_folder(folder_id?, includeDescendants?, limit?)` — 按文件夹列笔记（folder_id=null 表示未分类）
-- `list_tags` — 所有标签 + 笔记数
+- `search_notes(query, limit?)` — 全文搜索文档
+- `get_note(id)` — 按 id 读文档全文
+- `list_recent_notes(limit?)` — 按更新时间列最近文档（无关键词时用）
+- `list_folders` — 所有文件夹结构 + 各自文档数
+- `list_notes_by_folder(folder_id?, includeDescendants?, limit?)` — 按文件夹列文档（folder_id=null 表示未分类）
+- `list_tags` — 所有标签 + 文档数
 - `search_by_tag(tag, limit?)` — 按标签筛选
-- `get_backlinks(id)` — 反向链接（哪些笔记引用了它）
+- `get_backlinks(id)` — 反向链接（哪些文档引用了它）
 - `list_daily_notes(days?, limit?)` — 最近 N 天日记
 - `list_tasks(status?, keyword?, limit?)` — 主任务列表
 - `list_subtasks(parent_task_id, limit?)` — 某主任务下的子任务
 - `get_prompt(id?, builtin_code?)` — 取一条 Prompt 模板的完整内容
 - `list_prompts` — Prompt 模板索引（不含内容，按需 get_prompt 取）
-- `list_templates` — 笔记模板（会议记录/读书笔记/周报 等）
-- `list_trash(limit?)` — 回收站里的笔记（可恢复）
+- `list_templates` — 文档模板（会议记录/读书文档/周报 等）
+- `list_trash(limit?)` — 回收站里的文档（可恢复）
 
 **写工具（需 `--writable` 启动开关，需用户授权，14 个）**：
 
-*笔记类*：
-- `create_note(title, content, folder_id?)` — 创建空白笔记
-- `create_note_from_template(template_id, title?, folder_id?)` — 按模板建笔记（先 list_templates 取 id）
-- `update_note(id, title?, content?, folder_id?)` — 修改笔记
+*文档类*：
+- `create_note(title, content, folder_id?)` — 创建空白文档
+- `create_note_from_template(template_id, title?, folder_id?)` — 按模板建文档（先 list_templates 取 id）
+- `update_note(id, title?, content?, folder_id?)` — 修改文档
 - `delete_note(id)` — 软删到回收站（可恢复，**LLM 撤销创建错误用这个**）
-- `restore_note_from_trash(id)` — 把回收站里的笔记还原
-- `move_notes_batch(ids, folder_id?)` — 批量移动笔记到指定文件夹
+- `restore_note_from_trash(id)` — 把回收站里的文档还原
+- `move_notes_batch(ids, folder_id?)` — 批量移动文档到指定文件夹
 
 *文件夹类*：
 - `create_folder(name, parent_id?)` — 建归档桶（parent_id=null 顶级）
@@ -185,7 +185,7 @@ fn build_claude_md_template() -> String {
 - `reorder_folders(ordered_ids)` — 调整同一父文件夹下兄弟文件夹的顺序（先 list_folders 看 parent_id）
 
 *标签类*：
-- `add_tag_to_note(note_id, tag)` — 给笔记加标签（标签不存在自动建）
+- `add_tag_to_note(note_id, tag)` — 给文档加标签（标签不存在自动建）
 - `remove_tag_from_note(note_id, tag)` — 撤回错误添加的标签
 
 *任务类*：
@@ -194,13 +194,13 @@ fn build_claude_md_template() -> String {
 
 ## 行为准则
 
-1. **任何关于"我的笔记 / 想法 / 任务"的问题，先调 `search_notes` 搜索**，不要凭印象编造。
+1. **任何关于"我的文档 / 想法 / 任务"的问题，先调 `search_notes` 搜索**，不要凭印象编造。
 2. `search_notes` 返回 snippet 后，按需调 `get_note(id)` 读全文。
-3. 决定笔记归属前，先 `list_folders` 看现有文件夹结构，复用而不是建议建新的。
-4. 创建新笔记前，先 `list_tags` 看现有标签，优先复用而不是制造新标签。
+3. 决定文档归属前，先 `list_folders` 看现有文件夹结构，复用而不是建议建新的。
+4. 创建新文档前，先 `list_tags` 看现有标签，优先复用而不是制造新标签。
 5. 用户说"帮我记下…"/"整理…"等写动作时，先确认 `--writable` 已启用，再调写工具。
 6. 反链查询用 `get_backlinks(id)`，不是 `search_notes`。
-7. 加密笔记的 content 自动脱敏（占位符），不要追问、不要尝试绕过。
+7. 加密文档的 content 自动脱敏（占位符），不要追问、不要尝试绕过。
 8. 回答用中文，简洁准确。
 
 ## 整理工作流（多步骤场景的标准范式）
@@ -216,21 +216,21 @@ fn build_claude_md_template() -> String {
 
 ### 「批量分类到文件夹」
 1. `list_folders` 看现有文件夹（拿到 id）
-2. `search_notes` / `list_notes_by_folder(folder_id=null)` 找待分类笔记
+2. `search_notes` / `list_notes_by_folder(folder_id=null)` 找待分类文档
 3. 每条 `get_note(id)` 判断归属
 4. **先把计划列给用户看**：「打算把 [id1, id2, id3] 移到 #X 文件夹，确认吗？」
 5. 用户确认后 `move_notes_batch(ids=[...], folder_id=X)` 一次搞定
 
-### 「拆分长笔记成多篇」
+### 「拆分长文档成多篇」
 1. `get_note(id)` 拿全文
 2. 与用户确认拆分点（按章节 / 主题）
 3. 每段 `create_note`，标题加 "原 #<id> · 第 N 部分"
-4. 原笔记 `update_note` 改成索引页（链向新 id）
+4. 原文档 `update_note` 改成索引页（链向新 id）
 
-### 「合并相似笔记」
+### 「合并相似文档」
 1. `search` + `get_note` 找候选 → 列给用户确认
 2. `create_note` 写合并版，正文带「来源：[id1][id2]…」追溯
-3. 每条旧笔记 `update_note` 把 content 改为 "已并入 #<新id>"
+3. 每条旧文档 `update_note` 把 content 改为 "已并入 #<新id>"
    （保留可追溯链；删除请走主应用 UI）
 
 ### 「补全缺失标签」
@@ -242,12 +242,12 @@ fn build_claude_md_template() -> String {
 ### 「撤销 / 修正错误」
 > 用户说"删了"/"不要这个了"/"改错了"时，按下面回退。
 
-- 创建笔记后用户反悔 → `delete_note(id)`（软删到回收站，可恢复）
-- 加错标签 → `remove_tag_from_note(note_id, tag)`（不影响其他笔记的同名标签）
-- 改错笔记内容 → 没有 undo，告诉用户「内容已写入，要恢复请去主应用回收站找老版本」
+- 创建文档后用户反悔 → `delete_note(id)`（软删到回收站，可恢复）
+- 加错标签 → `remove_tag_from_note(note_id, tag)`（不影响其他文档的同名标签）
+- 改错文档内容 → 没有 undo，告诉用户「内容已写入，要恢复请去主应用回收站找老版本」
 - 任务建错 → 没有 delete_task；引导用户主应用 UI 删，或者 `update_task(mark_done=true)` 标完结归档
 
-### 「按模板建结构化笔记」
+### 「按模板建结构化文档」
 > 用户说"建个会议记录"/"开始本周周报"等，优先用模板而不是 create_note 空白创建。
 
 1. `list_templates` 看可用模板（id / name / description / preview）
@@ -256,7 +256,7 @@ fn build_claude_md_template() -> String {
 4. 报告："已按 X 模板创建 #ID，去打开吧"
 
 ### 「从回收站恢复」
-> 用户说"找回某条笔记"/"上次删的那个"。
+> 用户说"找回某条文档"/"上次删的那个"。
 
 1. `list_trash(limit=20)` 看最近删的
 2. 与用户确认要恢复的 id
@@ -274,9 +274,9 @@ fn build_claude_md_template() -> String {
 ## 安全边界（重要）
 
 - **批量改 5 条以上**：先列计划报给用户，等"确认"字样再执行（move_notes_batch / 多个 delete_note / 多个 add_tag 都要先确认）
-- **加密笔记**：content 已脱敏，不要追问、不要绕过
-- **隐藏笔记**：search 自动过滤掉了，找不到属于预期
-- **删除是软删**：`delete_note` 把笔记移到回收站（is_deleted=1），用户可在主应用 UI 恢复；不存在硬删
+- **加密文档**：content 已脱敏，不要追问、不要绕过
+- **隐藏文档**：search 自动过滤掉了，找不到属于预期
+- **删除是软删**：`delete_note` 把文档移到回收站（is_deleted=1），用户可在主应用 UI 恢复；不存在硬删
 - **没有的工具**：硬删 / 清空 / 重置 / delete_task / delete_folder — 工具集里就没有，遇到要求请引导回主应用 UI
 - **写权限**：调用写工具失败显示"未启用 --writable"时，告诉用户去设置页或客户端配置加这个 flag，不要硬试
 - **撤销链**：创建/修改后用户反悔，优先用 `delete_note` / `remove_tag_from_note` 撤回，而不是再 update_note 覆盖
@@ -284,7 +284,7 @@ fn build_claude_md_template() -> String {
 ## 个人偏好
 
 - 默认回复语言：中文
-- 新笔记默认 `folder_id`：null（未分类）
+- 新文档默认 `folder_id`：null（未分类）
 - 时间格式：`YYYY-MM-DD`
 
 > 上面的偏好可以按你的实际习惯改。

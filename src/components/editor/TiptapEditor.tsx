@@ -366,7 +366,7 @@ function migrateOpenMathStrings(editor: import("@tiptap/react").Editor): void {
  * 给老文档里没有 id 的 video 节点 backfill 一个稳定 ID。
  *
  * Why: VideoTimestamp 节点通过 [data-video-id="<id>"] 选择器定位视频跳转。
- *      之前插入的 video 节点没有 id attr，老笔记打开后无法做时间戳关联。
+ *      之前插入的 video 节点没有 id attr，老文档打开后无法做时间戳关联。
  *      此处遍历 doc，对所有 video.attrs.id == null 的节点 setNodeAttribute 补齐。
  *
  * 不写入 history（迁移不应被撤销到原始状态）。
@@ -620,12 +620,12 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 interface TiptapEditorProps {
-  /** 笔记内容（Markdown 字符串） */
+  /** 文档内容（Markdown 字符串） */
   content: string;
   /** 保存回调，参数为 Markdown 字符串 */
   onChange: (markdown: string) => void;
   placeholder?: string;
-  /** 当前笔记 ID，用于图片保存 */
+  /** 当前文档 ID，用于图片保存 */
   noteId?: number;
   /**
    * 当 noteId 缺失时，图片插入前调用此回调拉出一个 noteId（例如每日笔记
@@ -649,8 +649,8 @@ interface TiptapEditorProps {
   onEditorReady?: (editor: any | null) => void;
   /**
    * 是否显示编辑器底部的简版统计（字数 / 字符 / 阅读时长）。
-   * 默认 true。笔记编辑器把字数挪到了顶部 MetaBar，且容器有 40vh padding-bottom，
-   * 底部 stats 会被推得离视觉底部很远 → 笔记页面应传 false 关闭它。
+   * 默认 true。文档编辑器把字数挪到了顶部 MetaBar，且容器有 40vh padding-bottom，
+   * 底部 stats 会被推得离视觉底部很远 → 文档页面应传 false 关闭它。
    */
   showFooterStats?: boolean;
 }
@@ -677,7 +677,7 @@ export function TiptapEditor({
     wikiClickRef.current = onWikiLinkClick;
   }, [onWikiLinkClick]);
 
-  // onUpdate 防抖：每次按键都序列化整篇文档（O(doc size)）代价不低，长笔记在 WKWebView 上肉眼可感。
+  // onUpdate 防抖：每次按键都序列化整篇文档（O(doc size)）代价不低，长文档在 WKWebView 上肉眼可感。
   // 用 ref 承载最新 onChange，避免依赖变化重建 editor；用 timer ref 做 300ms 尾触发，
   // unmount / editor blur 时强制 flush，保证保存按钮永远能拿到最新 markdown。
   const onChangeRef = useRef(onChange);
@@ -714,7 +714,7 @@ export function TiptapEditor({
         }
       }
       if (!effectiveNoteId) {
-        message.warning("请先保存笔记后再插入图片");
+        message.warning("请先保存文档后再插入图片");
         return;
       }
 
@@ -786,7 +786,7 @@ export function TiptapEditor({
         }
       }
       if (!effectiveNoteId) {
-        throw new Error("请先保存笔记后再粘贴图文");
+        throw new Error("请先保存文档后再粘贴图文");
       }
 
       const doc = new DOMParser().parseFromString(html, "text/html");
@@ -880,7 +880,7 @@ export function TiptapEditor({
         }
       }
       if (!effectiveNoteId) {
-        message.warning("请先保存笔记后再插入视频");
+        message.warning("请先保存文档后再插入视频");
         return;
       }
 
@@ -959,7 +959,7 @@ export function TiptapEditor({
         }
       }
       if (!effectiveNoteId) {
-        message.warning("请先保存笔记后再拖入附件");
+        message.warning("请先保存文档后再拖入附件");
         return;
       }
 
@@ -1053,7 +1053,7 @@ export function TiptapEditor({
       }),
       Placeholder.configure({ placeholder }),
       Highlight.configure({ multicolor: true }),
-      // 批注：选中文字加补充说明，data-comment 直接存在 mark 里，跟着笔记走
+      // 批注：选中文字加补充说明，data-comment 直接存在 mark 里，跟着文档走
       Annotation,
       TaskList,
       TaskItem.configure({ nested: true }),
@@ -1308,7 +1308,7 @@ export function TiptapEditor({
     },
   });
 
-  // 资产渲染拦截：笔记 content 里的 <img>/<video> src 是 `kb-asset://<rel>`，
+  // 资产渲染拦截：文档 content 里的 <img>/<video> src 是 `kb-asset://<rel>`，
   // 浏览器看不懂这种协议，需要在 DOM 阶段替换为可显示 URL。
   //
   // 三条分支：
@@ -1326,7 +1326,7 @@ export function TiptapEditor({
     // 单 editor 实例内复用 Blob URL，避免重复 invoke + 重复创建
     const blobCache = new Map<string, string>();
 
-    /** 历史 asset URL → .enc 文件本地绝对路径（兼容未跑 Step 4 迁移的存量笔记） */
+    /** 历史 asset URL → .enc 文件本地绝对路径（兼容未跑 Step 4 迁移的存量文档） */
     const extractLegacyEncPath = (src: string): string | null => {
       if (!src) return null;
       let encoded = src;
@@ -1380,7 +1380,7 @@ export function TiptapEditor({
         return;
       }
 
-      // 兼容老格式：未跑迁移的笔记 src 仍是 asset://...xxx.enc
+      // 兼容老格式：未跑迁移的文档 src 仍是 asset://...xxx.enc
       const legacy = extractLegacyEncPath(src);
       if (legacy) void applyBlob(el, legacy);
     };
@@ -1465,7 +1465,7 @@ export function TiptapEditor({
             message.error(`打开附件失败: ${e}`);
           });
       } else if (href.startsWith("file://")) {
-        // 旧格式：迁移 SQL 跑完后历史链接已被替换；这里保留兜底兼容未迁移的笔记
+        // 旧格式：迁移 SQL 跑完后历史链接已被替换；这里保留兜底兼容未迁移的文档
         const path = fileUrlToPath(href);
         void openPath(path).catch((e) => {
           message.error(`打开附件失败: ${e}`);

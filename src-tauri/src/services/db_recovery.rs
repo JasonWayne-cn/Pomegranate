@@ -179,7 +179,7 @@ pub(crate) fn probe_sqlite(path: &Path) -> Result<i32, AppError> {
     // 实读一遍 notes 表，触碰真实数据页
     let _: i64 = conn
         .query_row("SELECT count(*) FROM notes", [], |r| r.get(0))
-        .map_err(|e| AppError::Custom(format!("读取笔记数据失败（文件可能已损坏）: {}", e)))?;
+        .map_err(|e| AppError::Custom(format!("读取文档数据失败（文件可能已损坏）: {}", e)))?;
 
     let version: i32 = conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
@@ -258,7 +258,7 @@ mod tests {
     /// 恢复闸门：只有"真打不开/坏了"才该救；"应用比库旧"必须放行给调用方原样退出。
     ///
     /// 这是本模块最危险的一条分支 —— 判错方向的代价是把用户完好的库改名留档、
-    /// 起个空库，界面上笔记归零。
+    /// 起个空库，界面上文档归零。
     #[test]
     fn schema_too_new_must_not_trigger_recovery() {
         assert!(!should_attempt_recovery(&AppError::SchemaTooNew {
@@ -343,7 +343,7 @@ mod tests {
         d
     }
 
-    /// 建一个含指定标题笔记的真实库文件，然后释放句柄
+    /// 建一个含指定标题文档的真实库文件，然后释放句柄
     fn make_db_with_note(path: &Path, title: &str) {
         let db = Database::init(&path.to_string_lossy()).unwrap();
         db.create_note(&NoteInput {
@@ -402,7 +402,7 @@ mod tests {
 
         // 造一个备份（内容可辨识）
         let backup = dir.join("app.db.bak-20260101-000000");
-        make_db_with_note(&backup, "来自备份的笔记");
+        make_db_with_note(&backup, "来自备份的文档");
 
         // 主库写成损坏文件
         std::fs::write(&db_path, b"corrupted-not-a-db").unwrap();
@@ -411,7 +411,7 @@ mod tests {
         let db = recover_or_fresh(&db_path, &AppError::Custom("test".into())).unwrap();
         assert_eq!(
             note_titles(&db),
-            vec!["来自备份的笔记".to_string()],
+            vec!["来自备份的文档".to_string()],
             "应恢复出备份中的数据"
         );
 

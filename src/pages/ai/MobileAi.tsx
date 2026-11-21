@@ -57,7 +57,7 @@ const QUICK_ENTRIES: QuickEntry[] = [
     key: "read",
     icon: <BookOpenText size={20} className="text-[#1677FF]" />,
     bg: "bg-blue-50",
-    label: "解读笔记",
+    label: "解读文档",
   },
   {
     key: "tasks",

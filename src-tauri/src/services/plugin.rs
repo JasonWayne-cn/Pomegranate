@@ -212,7 +212,7 @@ fn readme_template(name: &str) -> String {
 
 ## 想读写知识库内容？
 
-插件读写笔记有两条路：
+插件读写文档有两条路：
 - 让插件**调用 `kb-mcp` CLI**（`kb-mcp --db-path <app.db> search "关键词"` 等）拿 JSON；
 - 或在插件里直接打开 app.db（只读）查询（注意并发与 schema 兼容）。
 

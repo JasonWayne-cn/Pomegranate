@@ -39,7 +39,7 @@ export function WhiteboardBlockNodeView({
   /**
    * kb-asset:// → 可直接喂 `<img>` 的 URL。
    *
-   * 加密笔记里的白板预览图落盘时也是加密的（`.enc`），asset 协议直接读会是一坨密文，
+   * 加密文档里的白板预览图落盘时也是加密的（`.enc`），asset 协议直接读会是一坨密文，
    * 必须走 `imageApi.getBlob` 解密后转 Blob URL —— 与编辑器里加密图片、
    * AI 溯源缩略图同一套路子。Blob URL 在依赖变化/卸载时记得 revoke，否则内存泄漏。
    */
@@ -49,7 +49,7 @@ export function WhiteboardBlockNodeView({
    *
    * 🔴 **不能省**：白板改完存的是**同一个文件**（配对覆盖，见后端 save_embedded_scene），
    * 所以 `preview` 路径压根不变 —— `<img src>` 一样，浏览器直接吃缓存，
-   * 用户改了半天回到笔记看到的还是旧图，会以为没保存成功。
+   * 用户改了半天回到文档看到的还是旧图，会以为没保存成功。
    * 版本号既进 effect 依赖（加密图重新 getBlob），又拼进明文 URL（绕过 HTTP 缓存）。
    */
   const [previewVersion, setPreviewVersion] = useState(() => Date.now());
@@ -61,7 +61,7 @@ export function WhiteboardBlockNodeView({
     const rel = parseKbAsset(preview);
     if (!rel || !isEncryptedAsset(rel)) {
       const base = resolveAssetSrc(preview, dataDir);
-      // 初值就是挂载时的时间戳，所以**每次打开笔记都会重新取图**。
+      // 初值就是挂载时的时间戳，所以**每次打开文档都会重新取图**。
       // 不能只在保存后才加参数：白板改完路径不变，浏览器那份旧图能一直缓存到
       // 下次重启，用户会看到一张过时的预览。同一次挂载内 re-render 时间戳不变，
       // 缓存该复用的地方仍然复用。
@@ -101,7 +101,7 @@ export function WhiteboardBlockNodeView({
   useEffect(() => {
     if (scene || autoOpenedRef.current) return;
     if (!isEditable) return;
-    if (!extension.options.getNoteId?.()) return; // 笔记还没 id，留占位块并在点击时提示
+    if (!extension.options.getNoteId?.()) return; // 文档还没 id，留占位块并在点击时提示
     autoOpenedRef.current = true;
     setEditing(true);
   }, [scene, isEditable, extension.options]);
@@ -110,7 +110,7 @@ export function WhiteboardBlockNodeView({
     if (!isEditable) return; // 只读模式（预览 / 导出）不给编辑
     const noteId = extension.options.getNoteId?.();
     if (!noteId) {
-      message.warning("笔记还没保存，无法创建白板");
+      message.warning("文档还没保存，无法创建白板");
       return;
     }
     setEditing(true);
@@ -133,7 +133,7 @@ export function WhiteboardBlockNodeView({
             src={previewSrc}
             alt="白板"
             // 用存下来的原始尺寸占位，避免图片加载完成前块高度为 0、
-            // 加载完又把下方正文顶下去（每次打开笔记都抖一下）
+            // 加载完又把下方正文顶下去（每次打开文档都抖一下）
             width={width ?? undefined}
             height={height ?? undefined}
             // 尺寸策略（三种画法都得看得下去）：
@@ -141,7 +141,7 @@ export function WhiteboardBlockNodeView({
             //   就得到 320×220，拉满容器只会放大成一张糊图
             // - 宽图受 max-width 限制，缩回容器宽度
             // - **高图受 max-height 限制** —— 竖着画的流程图能导出上千像素高，
-            //   不设上限会把笔记撑成一条看不到头的长廊，想看细节点开编辑即可
+            //   不设上限会把文档撑成一条看不到头的长廊，想看细节点开编辑即可
             // width/height 属性仍然写着：浏览器据此算宽高比预留空间，
             // 图片加载完不会把下方正文顶一下
             className="block"
@@ -210,7 +210,7 @@ export function WhiteboardBlockNodeView({
           scenePath={scene}
           onCancel={() => {
             setEditing(false);
-            // 空白板取消 = 用户压根没想插这个块，笔记里不该留下任何痕迹。
+            // 空白板取消 = 用户压根没想插这个块，文档里不该留下任何痕迹。
             // 已有内容的白板取消只是「不改了」，块要留着。
             if (!scene) deleteNode();
           }}

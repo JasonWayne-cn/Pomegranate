@@ -4,7 +4,7 @@ use crate::models::{GraphData, NoteLink};
 use crate::services::links::LinkService;
 use crate::state::AppState;
 
-/// 同步笔记的出链
+/// 同步文档的出链
 #[tauri::command]
 pub fn sync_note_links(
     state: State<'_, AppState>,
@@ -20,7 +20,7 @@ pub fn get_backlinks(state: State<'_, AppState>, note_id: i64) -> Result<Vec<Not
     LinkService::get_backlinks(&state.db, note_id).map_err(|e| e.to_string())
 }
 
-/// 搜索笔记标题（用于 [[ 自动补全）
+/// 搜索文档标题（用于 [[ 自动补全）
 #[tauri::command]
 pub fn search_link_targets(
     state: State<'_, AppState>,
@@ -31,7 +31,7 @@ pub fn search_link_targets(
         .map_err(|e| e.to_string())
 }
 
-/// 按"规范化精确匹配"查找笔记 ID（用于 wiki 链接保存时解析 `[[标题]]`）
+/// 按"规范化精确匹配"查找文档 ID（用于 wiki 链接保存时解析 `[[标题]]`）
 #[tauri::command]
 pub fn find_note_id_by_title_loose(
     state: State<'_, AppState>,
@@ -42,8 +42,8 @@ pub fn find_note_id_by_title_loose(
 
 /// 获取知识图谱数据
 ///
-/// `folder_id` 为空 = 全库；否则只返回该文件夹及其子文件夹内的笔记，
-/// 范围外但与范围内笔记有链接的笔记以 `is_boundary=true` 保留。
+/// `folder_id` 为空 = 全库；否则只返回该文件夹及其子文件夹内的文档，
+/// 范围外但与范围内文档有链接的文档以 `is_boundary=true` 保留。
 #[tauri::command]
 pub fn get_graph_data(
     state: State<'_, AppState>,

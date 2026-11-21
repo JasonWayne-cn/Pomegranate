@@ -12,7 +12,7 @@ use crate::models::SyncScope;
 use crate::services::sync::SyncService;
 use crate::state::AppState;
 
-/// 上次整包推送成功时的笔记数（由 `SyncService::webdav_push` 成功后写入）
+/// 上次整包推送成功时的文档数（由 `SyncService::webdav_push` 成功后写入）
 pub const LAST_PUSH_NOTES_KEY: &str = "sync.v0_last_push_notes";
 
 /// 少于这么多篇时不做"减半"判断：小库删几篇就过半很正常，不该拦
@@ -24,14 +24,14 @@ const SHRINK_GUARD_MIN: usize = 10;
 pub fn check_push_safety(local_notes: usize, last_pushed: Option<usize>) -> Result<(), String> {
     if local_notes == 0 {
         return Err(
-            "本机没有任何笔记，为防止覆盖云端备份已跳过推送；确需推送请到「设置 → 同步」手动操作"
+            "本机没有任何文档，为防止覆盖云端备份已跳过推送；确需推送请到「设置 → 同步」手动操作"
                 .into(),
         );
     }
     if let Some(last) = last_pushed {
         if last >= SHRINK_GUARD_MIN && local_notes * 2 < last {
             return Err(format!(
-                "本机笔记数（{}）比上次推送（{}）少了一半以上，为防止覆盖云端备份已跳过推送；\
+                "本机文档数（{}）比上次推送（{}）少了一半以上，为防止覆盖云端备份已跳过推送；\
                  确认无误请到「设置 → 同步」手动推送",
                 local_notes, last
             ));
@@ -169,7 +169,7 @@ pub async fn push_once(app: &AppHandle, origin: &str) {
 
     // 无人值守的推送会**覆盖**云端 kb-sync-<host>.zip —— 那往往是用户唯一的整包备份。
     // 本机库刚被清空 / 误删大半时（换电脑没恢复、数据库损坏后重建）一键推上去，
-    // 云端好备份就没了。所以先比一下笔记数，明显异常就拒绝，让用户去设置页手动推。
+    // 云端好备份就没了。所以先比一下文档数，明显异常就拒绝，让用户去设置页手动推。
     let local_notes = db.count_notes_active().unwrap_or(0);
     let last_pushed = db
         .get_config(LAST_PUSH_NOTES_KEY)

@@ -146,7 +146,7 @@ function clampRadius(v: number): number {
 export interface WhiteboardExportApi {
   /** 导出当前画布为图片，返回 base64（不含 data URL 前缀），供 writeBinaryFile 落盘 */
   exportImage: (format: "png" | "svg") => Promise<string>;
-  /** 复制当前画布为 PNG 到系统剪贴板，可直接粘进笔记编辑器 */
+  /** 复制当前画布为 PNG 到系统剪贴板，可直接粘进文档编辑器 */
   copyImageToClipboard: () => Promise<void>;
   /**
    * 立刻拿到当前画布的场景 JSON。
@@ -179,7 +179,7 @@ interface Props {
   theme: "light" | "dark";
   /** 保存出错时通知外层（外层负责提示用户），避免本组件依赖 antd message */
   onError?: (e: unknown) => void;
-  /** 点击画布里的 [[双链]] 角标：参数是目标笔记 id，由外层负责路由跳转 */
+  /** 点击画布里的 [[双链]] 角标：参数是目标文档 id，由外层负责路由跳转 */
   onOpenNote?: (noteId: number) => void;
   /**
    * 外层用来接收导出能力的 ref 容器。挂载时填入，卸载时置 null ——
@@ -194,9 +194,9 @@ interface Props {
    */
   readOnly?: boolean;
   /**
-   * 外层用来接收「插入笔记卡片」能力的 ref。
+   * 外层用来接收「插入文档卡片」能力的 ref。
    *
-   * 与 exportRef / mermaidRef 同理：选笔记的弹窗画在页面里（静态 import），
+   * 与 exportRef / mermaidRef 同理：选文档的弹窗画在页面里（静态 import），
    * 但把卡片放进画布这件事只能由本组件（lazy 内）做。
    */
   insertCardRef?: React.MutableRefObject<((noteId: number) => Promise<void>) | null>;
@@ -438,9 +438,9 @@ export default function WhiteboardCanvas({
   }, [serializeCurrent]);
 
   /**
-   * 打开白板时把卡片刷成笔记的最新内容。
+   * 打开白板时把卡片刷成文档的最新内容。
    *
-   * 这是卡片区别于"贴一段死文字"的关键：笔记在别处改了，下次打开白板就能看到新的。
+   * 这是卡片区别于"贴一段死文字"的关键：文档在别处改了，下次打开白板就能看到新的。
    *
    * 🔴 **触发时机必须由 onChange 驱动，不能在 effect 里 setTimeout。**
    * 踩过的坑：`initialData.libraryItems` 是个 Promise，Excalidraw 会等它 resolve
@@ -450,7 +450,7 @@ export default function WhiteboardCanvas({
    */
   const cardsRefreshedRef = useRef(false);
   const refreshCards = useCallback(async () => {
-    // 只读（历史版本预览）要的是"那一版当时的样子"，拿今天的笔记内容刷新它是错的
+    // 只读（历史版本预览）要的是"那一版当时的样子"，拿今天的文档内容刷新它是错的
     if (readOnly || cardsRefreshedRef.current) return;
     const api = apiRef.current;
     if (!api) return;
@@ -474,13 +474,13 @@ export default function WhiteboardCanvas({
       if (!next) return;
       api.updateScene({
         elements: next,
-        // 不进撤销栈：这是"同步笔记最新内容"，不是用户的编辑动作，
-        // 撤销它没有意义反而会让画布和笔记对不上
+        // 不进撤销栈：这是"同步文档最新内容"，不是用户的编辑动作，
+        // 撤销它没有意义反而会让画布和文档对不上
         captureUpdate: CaptureUpdateAction.NEVER,
       });
     } catch (e) {
       // 刷新失败就让卡片保持上次的内容 —— 比让整个白板打不开好
-      console.warn("[whiteboard] 刷新笔记卡片失败:", e);
+      console.warn("[whiteboard] 刷新文档卡片失败:", e);
     }
   }, [readOnly]);
 
@@ -632,7 +632,7 @@ export default function WhiteboardCanvas({
   }, []);
 
 
-  /** 把「插入笔记卡片」交给外层 */
+  /** 把「插入文档卡片」交给外层 */
   useEffect(() => {
     if (!insertCardRef) return;
     insertCardRef.current = async (noteId: number) => {

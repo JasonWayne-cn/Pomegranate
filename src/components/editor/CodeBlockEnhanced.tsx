@@ -321,7 +321,7 @@ export function codeFenceInfoToDataAttrs(info: string): string {
  * info 交出来，language 永远是干净的首词 → 下面的 /\s/ 判断恒为假，函数从未真正生效，
  * title 等属性也就一直丢失。现保留作兜底（成本极低），覆盖直接灌入脏 language 的场景。
  *
- * 调用时机：外部 setContent（载入笔记 / 拖入 .md）之后调一次即可，
+ * 调用时机：外部 setContent（载入文档 / 拖入 .md）之后调一次即可，
  * 用户在编辑器里手动改 attrs 走的是 updateAttributes，不会引入混合 language。
  */
 export function normalizeCodeBlockFenceAttrs(editor: Editor): void {

@@ -112,7 +112,7 @@ export function ExitConfirmListener() {
     }
     if (failed.length > 0) {
       setExiting(false);
-      message.error(`${failed.length} 条笔记保存失败，已取消退出：${failed.join("；")}`);
+      message.error(`${failed.length} 条文档保存失败，已取消退出：${failed.join("；")}`);
       // 重新查一次 dirty 列表（有些可能保存成功了）
       setDirtyTabs(useTabsStore.getState().getDirtyTabs());
       return;
@@ -126,7 +126,7 @@ export function ExitConfirmListener() {
   async function handleDiscardAndExit() {
     setExiting(true);
     setDirtyTabs([]);
-    // 放弃修改也要 push DB 已有数据（用户可能在别的设备已经改过这些笔记的更老版本）
+    // 放弃修改也要 push DB 已有数据（用户可能在别的设备已经改过这些文档的更老版本）
     await syncThenExit();
     setExiting(false);
   }
@@ -141,7 +141,7 @@ export function ExitConfirmListener() {
       {/* 主弹窗：脏数据保存确认（保存/放弃/取消） */}
       <Modal
         open={open}
-        title={`有 ${dirtyTabs.length} 条笔记尚未保存`}
+        title={`有 ${dirtyTabs.length} 条文档尚未保存`}
         onCancel={handleCancel}
         mask={{ closable: !exiting }}
         closable={!exiting}

@@ -16,7 +16,7 @@ import { MicButton } from "@/components/MicButton";
 interface Props {
   value: string;
   onChange: (v: string) => void;
-  /** 回车行为：通常跳到 /search?q= 看完整结果 */
+  /** 回车行为：由调用方决定（首页会打开搜索模态窗看完整结果） */
   onPressEnter: () => void;
   placeholder?: string;
 }
@@ -25,9 +25,9 @@ interface Props {
  * 首页搜索输入框 + 内联建议下拉
  *
  * 行为约定：
- * - 输入即触发建议（200ms 防抖，并发拉笔记 + 待办）
- * - 点击建议项 → 直接跳详情（笔记 → /notes/N；待办 → /tasks?taskId=N）
- * - 回车 → 调用 onPressEnter（通常跳 /search?q= 看完整结果，与下拉互不冲突）
+ * - 输入即触发建议（200ms 防抖，并发拉文档 + 待办）
+ * - 点击建议项 → 直接跳详情（文档 → /notes/N；待办 → /tasks?taskId=N）
+ * - 回车 → 调用 onPressEnter（首页会打开搜索模态窗看完整结果，与下拉互不冲突）
  * - Esc / 点外部 / 选中项后 → 关闭下拉
  *
  * 不接管键盘 ↑↓ 选择：避免和 onPressEnter "回车去搜索页"语义冲突。
@@ -69,7 +69,7 @@ export function HomeSearchInput({
 
   function selectNote(id: number) {
     setFocused(false);
-    // 带上当前关键词 → 进笔记后自动定位到首个命中
+    // 带上当前关键词 → 进文档后自动定位到首个命中
     const kw = value.trim();
     navigate(kw ? `/notes/${id}?q=${encodeURIComponent(kw)}` : `/notes/${id}`);
   }
@@ -86,14 +86,14 @@ export function HomeSearchInput({
     }
   }
 
-  // 显示前 5 条笔记预览（再多就让用户回车去 /search 看全量）
+  // 显示前 5 条文档预览（再多就让用户回车去 /search 看全量）
   const notesPreview = notes.slice(0, 5);
 
   return (
     <div ref={wrapRef} style={{ position: "relative", flex: 1 }}>
       <Input
         size="large"
-        placeholder={placeholder ?? "搜索笔记 / 待办…   (Ctrl+K 快速跳转)"}
+        placeholder={placeholder ?? "搜索文档 / 待办…   (Ctrl+K 快速跳转)"}
         prefix={<Search size={16} style={{ color: token.colorTextQuaternary }} />}
         suffix={
           <MicButton
@@ -144,7 +144,7 @@ export function HomeSearchInput({
               className="px-3 py-3 text-xs"
               style={{ color: token.colorTextTertiary }}
             >
-              没有匹配的笔记或待办，按 <kbd>Enter</kbd> 试试完整搜索
+              没有匹配的文档或待办，按 <kbd>Enter</kbd> 试试完整搜索
             </div>
           )}
 
@@ -165,7 +165,7 @@ export function HomeSearchInput({
 
           {!loading && notesPreview.length > 0 && (
             <>
-              <GroupLabel token={token}>笔记</GroupLabel>
+              <GroupLabel token={token}>文档</GroupLabel>
               {notesPreview.map((n) => (
                 <NoteRow
                   key={`note-${n.id}`}

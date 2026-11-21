@@ -59,10 +59,10 @@ export interface EditorCore {
  * 传递给编辑器扩展和插件的上下文信息
  */
 export interface EditorContext {
-  /** 当前笔记 ID（如果有） */
+  /** 当前文档 ID（如果有） */
   noteId: number | null;
 
-  /** 当前笔记内容（只读） */
+  /** 当前文档内容（只读） */
   content: string;
 
   /** 编辑器核心实例 */
@@ -318,7 +318,7 @@ export interface EditorProviderProps {
   /** 子组件 */
   children: React.ReactNode;
 
-  /** 笔记 ID（可选） */
+  /** 文档 ID（可选） */
   noteId?: number;
 
   /** 是否只读（默认 false） */

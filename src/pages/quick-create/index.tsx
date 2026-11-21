@@ -22,12 +22,12 @@ import { useAppStore } from "@/store";
  * 移动端「新建」抽屉式落地页（设计稿：14-quick-create.html）
  *
  * 路由 /quick-create —— 仅移动端用，桌面端不会到这个路径。
- * 入口：MobileLayout 全局蓝色 + FAB 在「主页 / 笔记 / 待办 / 我的」 4 个 tab 下都点击此页
+ * 入口：MobileLayout 全局蓝色 + FAB 在「主页 / 文档 / 待办 / 我的」 4 个 tab 下都点击此页
  *
  * 提供 2 大块主操作 + 6 个来源入口 + 2 个其他类型，命中即跳到对应编辑器或弹提示。
  *
  * 当前实现：
- * - 空白笔记 / 今日笔记：直接 createNote / getOrCreate 后跳编辑器
+ * - 空白文档 / 当天日记：直接 createNote / getOrCreate 后跳编辑器
  * - 闪念捕获：跳 /quick-capture（待实现，先占位）
  * - 网页剪藏 / 模板 / 语音 / 拍照 / 导入文件：暂提示「待开发」
  * - 新建任务：跳 /tasks?new=1（待办页落地即弹出 TaskCreateSheet 新建面板）
@@ -44,7 +44,7 @@ export default function QuickCreatePage() {
   /**
    * 移动端单文件导入：用 HTML5 <input type=file> 打开系统文件选择器
    * （Tauri Mobile 的 WebView 直接支持，不需要走 tauri-plugin-dialog）
-   * 读 .md/.txt 文本 → 创建笔记 → 跳编辑器
+   * 读 .md/.txt 文本 → 创建文档 → 跳编辑器
    */
   function pickFile() {
     fileInputRef.current?.click();
@@ -58,7 +58,7 @@ export default function QuickCreatePage() {
       // 文件名去后缀做标题
       const title = file.name.replace(/\.(md|markdown|txt)$/i, "");
       const note = await noteApi.create({
-        title: title || "导入的笔记",
+        title: title || "导入的文档",
         content: text,
       });
       useAppStore.getState().bumpNotesRefresh();
@@ -111,7 +111,7 @@ export default function QuickCreatePage() {
 
   async function createBlank() {
     try {
-      const note = await noteApi.create({ title: "无标题笔记", content: "" });
+      const note = await noteApi.create({ title: "无标题文档", content: "" });
       useAppStore.getState().bumpNotesRefresh();
       navigate(`/notes/${note.id}`, { replace: true });
     } catch (e) {
@@ -157,7 +157,7 @@ export default function QuickCreatePage() {
           <BigCard
             gradient="from-blue-500 to-blue-700"
             icon={<PenLine size={26} />}
-            title="空白笔记"
+            title="空白文档"
             sub="直接开始写"
             onClick={createBlank}
           />
@@ -170,20 +170,20 @@ export default function QuickCreatePage() {
           />
         </div>
 
-        {/* 从来源创建笔记 */}
-        <SectionLabel text="从来源创建笔记" />
+        {/* 从来源创建文档 */}
+        <SectionLabel text="从来源创建文档" />
         <ListGroup>
           <Row
             icon={<LayoutTemplate size={20} className="text-purple-600" />}
             iconBg="bg-purple-100"
             title="从模板"
-            sub="读书笔记 / 会议纪要 / 周报…"
+            sub="读书文档 / 会议纪要 / 周报…"
             onClick={() => message.info("移动端模板功能待开发")}
           />
           <Row
             icon={<CalendarDays size={20} className="text-green-600" />}
             iconBg="bg-green-100"
-            title="今日笔记"
+            title="当天日记"
             sub="追加到当天日记"
             onClick={openTodayDaily}
           />
@@ -198,7 +198,7 @@ export default function QuickCreatePage() {
           <Row
             icon={<Mic size={20} className="text-red-600" />}
             iconBg="bg-red-100"
-            title="语音笔记"
+            title="语音文档"
             sub="说话即转文字（需 ASR）"
             onClick={() => message.info("移动端语音录入待开发")}
           />
@@ -213,7 +213,7 @@ export default function QuickCreatePage() {
             icon={<Upload size={20} className="text-slate-600" />}
             iconBg="bg-slate-100"
             title="导入文件"
-            sub="选 .md / .markdown / .txt 文件转为笔记"
+            sub="选 .md / .markdown / .txt 文件转为文档"
             onClick={pickFile}
           />
         </ListGroup>

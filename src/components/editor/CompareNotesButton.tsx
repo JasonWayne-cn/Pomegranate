@@ -1,9 +1,9 @@
 /**
- * 编辑器工具栏「与其他笔记对比」按钮。
+ * 编辑器工具栏「与其他文档对比」按钮。
  *
- * 流程：点按钮 → 弹笔记选择器（搜索）→ 选中某篇 → 打开合并视图：
- *   左 = 选中的那篇笔记（可编辑，content 本就是 markdown），右 = 当前笔记 markdown（可编辑，= 最终结果）。
- * 中缝 ▶ 把另一篇的变更块拉进当前笔记。「保存更改」分别写回两侧（只有真改了才写）。
+ * 流程：点按钮 → 弹文档选择器（搜索）→ 选中某篇 → 打开合并视图：
+ *   左 = 选中的那篇文档（可编辑，content 本就是 markdown），右 = 当前文档 markdown（可编辑，= 最终结果）。
+ * 中缝 ▶ 把另一篇的变更块拉进当前文档。「保存更改」分别写回两侧（只有真改了才写）。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Modal, Select, Tooltip, message } from "antd";
@@ -15,7 +15,7 @@ import { DiffMergeModal, type DiffSide } from "./DiffMergeModal.tsx";
 
 interface Props {
   editor: Editor;
-  /** 当前笔记 id；用于排除自身、保存时写回 */
+  /** 当前文档 id；用于排除自身、保存时写回 */
   noteId?: number;
 }
 
@@ -81,7 +81,7 @@ export function CompareNotesButton({ editor, noteId }: Props) {
   async function handleSave({ left: editedLeft, right: editedRight }: { left: string; right: string }) {
     const other = otherNoteRef.current;
     let touched = false;
-    // 另一篇笔记：content 本就是 markdown，直接保存
+    // 另一篇文档：content 本就是 markdown，直接保存
     if (other && editedLeft !== other.content) {
       await noteApi.update(other.id, {
         title: other.title,
@@ -90,7 +90,7 @@ export function CompareNotesButton({ editor, noteId }: Props) {
       });
       touched = true;
     }
-    // 当前笔记：用 markdown 重新渲染编辑器（autosave 会持久化）
+    // 当前文档：用 markdown 重新渲染编辑器（autosave 会持久化）
     if (editedRight !== baseRightRef.current) {
       editor.commands.setContent(editedRight, { emitUpdate: true });
       touched = true;

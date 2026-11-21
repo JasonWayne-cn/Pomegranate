@@ -35,9 +35,9 @@ describe("resolveNoteTitle", () => {
     expect(Array.from(resolveNoteTitle("", long, NOW))).toHaveLength(30);
   });
 
-  it("正文也空：未命名笔记 + 时间", () => {
-    expect(resolveNoteTitle("", "  \n", NOW)).toBe("未命名笔记 2026-10-19 09:05");
-    expect(fallbackNoteTitle(NOW)).toBe("未命名笔记 2026-10-19 09:05");
+  it("正文也空：未命名文档 + 时间", () => {
+    expect(resolveNoteTitle("", "  \n", NOW)).toBe("未命名文档 2026-10-19 09:05");
+    expect(fallbackNoteTitle(NOW)).toBe("未命名文档 2026-10-19 09:05");
   });
 
   it("表格首行取单元格文字", () => {

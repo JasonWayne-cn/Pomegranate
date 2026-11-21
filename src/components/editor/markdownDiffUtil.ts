@@ -1,5 +1,5 @@
 /**
- * 对比/合并视图里取笔记 markdown 的工具。
+ * 对比/合并视图里取文档 markdown 的工具。
  *
  * tiptap-markdown 把连续空段落序列化成 HTML 兜底（`<p><br></p>` / `<p></p>`）——纯 markdown 没法
  * 表达"多个连续空行"。这在 diff 视图里又丑又容易被误以为是坏的，所以统一 tidy 掉再展示。
@@ -35,7 +35,7 @@ export function getNotePlainText(editor: Editor): string {
  * 粗略判断一段文本"看起来像不像 Markdown 源码"。
  * 命中任一典型标记即认为是 markdown：ATX 标题 / 无序列表 / 有序列表 / 引用 / 围栏代码块 /
  * 行内强调（**x** / __x__）/ 链接 [..](..) / 图片 ![..](..) / 分隔线 / 表格分隔行。
- * 仅用于"剪贴板对比"时决定笔记侧给 markdown 源码还是纯文本，判错也只是 diff 噪声多一点。
+ * 仅用于"剪贴板对比"时决定文档侧给 markdown 源码还是纯文本，判错也只是 diff 噪声多一点。
  */
 export function looksLikeMarkdown(text: string): boolean {
   if (!text || !text.trim()) return false;

@@ -21,12 +21,12 @@ const IMAGES_DIR: &str = "images";
 /// 用后缀而非独立目录的好处：scan_orphans / delete_note_images 等扫盘逻辑零改动。
 const ENC_SUFFIX: &str = ".enc";
 
-/// 笔记加密态切换时的图片迁移方向
+/// 文档加密态切换时的图片迁移方向
 #[derive(Debug, Clone, Copy)]
 pub enum ImageMigration {
-    /// 普通笔记 → 加密笔记：把所有明文图片加密成 .enc，删原文件
+    /// 普通文档 → 加密文档：把所有明文图片加密成 .enc，删原文件
     Encrypt,
-    /// 加密笔记 → 普通笔记：把所有 .enc 解密回原后缀，删 .enc
+    /// 加密文档 → 普通文档：把所有 .enc 解密回原后缀，删 .enc
     Decrypt,
 }
 
@@ -54,9 +54,9 @@ impl ImageService {
         Ok(dir)
     }
 
-    /// 从 base64 数据保存图片（用于粘贴/拖放）。按笔记 is_encrypted 自动路由到加/明文分支。
+    /// 从 base64 数据保存图片（用于粘贴/拖放）。按文档 is_encrypted 自动路由到加/明文分支。
     ///
-    /// 返回保存后的绝对路径（加密笔记返回的路径以 `.enc` 结尾）
+    /// 返回保存后的绝对路径（加密文档返回的路径以 `.enc` 结尾）
     pub fn save_from_base64(
         db: &Database,
         vault: &RwLock<VaultState>,
@@ -72,9 +72,9 @@ impl ImageService {
         Self::save_bytes_routed(db, vault, app_data_dir, note_id, file_name, &data)
     }
 
-    /// 从本地文件路径复制图片（用于工具栏插入）。按笔记 is_encrypted 自动路由。
+    /// 从本地文件路径复制图片（用于工具栏插入）。按文档 is_encrypted 自动路由。
     ///
-    /// 返回保存后的绝对路径（加密笔记返回的路径以 `.enc` 结尾）
+    /// 返回保存后的绝对路径（加密文档返回的路径以 `.enc` 结尾）
     pub fn save_from_path(
         db: &Database,
         vault: &RwLock<VaultState>,
@@ -96,7 +96,7 @@ impl ImageService {
         Self::save_bytes_routed(db, vault, app_data_dir, note_id, file_name, &data)
     }
 
-    /// 反查笔记 is_encrypted，加密笔记走 AEAD + `.enc`，否则走明文。
+    /// 反查文档 is_encrypted，加密文档走 AEAD + `.enc`，否则走明文。
     /// 用户交互入口（粘贴/拖放/工具栏）应优先用这个。
     pub fn save_bytes_routed(
         db: &Database,
@@ -116,9 +116,9 @@ impl ImageService {
         }
     }
 
-    /// 保存字节数据到文件（明文模式；导入流程用，新建笔记 is_encrypted 默认 false）
+    /// 保存字节数据到文件（明文模式；导入流程用，新建文档 is_encrypted 默认 false）
     ///
-    /// 调用方若不能保证笔记非加密态，请改用 `save_bytes_routed`。
+    /// 调用方若不能保证文档非加密态，请改用 `save_bytes_routed`。
     pub fn save_bytes(
         app_data_dir: &Path,
         note_id: i64,
@@ -186,7 +186,7 @@ impl ImageService {
         }
     }
 
-    /// 笔记加密态切换时的图片立即迁移：扫 `images/{note_id}/` 把所有图片做相反操作。
+    /// 文档加密态切换时的图片立即迁移：扫 `images/{note_id}/` 把所有图片做相反操作。
     ///
     /// - `Encrypt`：跳过已带 `.enc` 后缀的；其它文件 read → aead_encrypt → 写 `*.enc` → 删原文件
     /// - `Decrypt`：跳过不带 `.enc` 的；其它 read → aead_decrypt → 写去除 `.enc` 后缀名 → 删 `.enc`
@@ -245,7 +245,7 @@ impl ImageService {
         }
 
         log::info!(
-            "笔记 {} 图片迁移完成（{:?}）：{} 个",
+            "文档 {} 图片迁移完成（{:?}）：{} 个",
             note_id,
             action,
             migrated
@@ -253,16 +253,16 @@ impl ImageService {
         Ok(migrated)
     }
 
-    /// 删除笔记的所有图片
+    /// 删除文档的所有图片
     pub fn delete_note_images(app_data_dir: &Path, note_id: i64) -> Result<(), AppError> {
         let note_dir = Self::images_dir(app_data_dir).join(note_id.to_string());
         if note_dir.exists() {
             std::fs::remove_dir_all(&note_dir)?;
-            log::info!("已删除笔记 {} 的所有图片", note_id);
+            log::info!("已删除文档 {} 的所有图片", note_id);
         }
         Ok(())
     }
 
     // 孤儿扫描已迁移到 services::orphan_scan（统一扫 5 类素材，
-    // 并修复 trash 笔记 content / 加密笔记 content 的引用判定 BUG）
+    // 并修复 trash 文档 content / 加密文档 content 的引用判定 BUG）
 }

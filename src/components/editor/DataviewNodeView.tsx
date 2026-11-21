@@ -3,8 +3,8 @@
  *
  * - 渲染头部（标题 + 编辑/刷新按钮）+ 数据行（紧凑列表）
  * - 行点击：note 跳 `/notes/<id>`，task 触发全局事件让 tasks 页打开详情
- *   （编辑器里点 task 不便直接跳路由 — 用户多半就在某笔记里看 dataview，
- *    打开 task 详情比离开笔记跳走更顺手）
+ *   （编辑器里点 task 不便直接跳路由 — 用户多半就在某文档里看 dataview，
+ *    打开 task 详情比离开文档跳走更顺手）
  * - 编辑：点齿轮弹 DataviewBlockModal，修改 config 后 updateAttributes
  *
  * NodeView 配置成 atom，整个区域不接受光标进入；点击/拖拽行为靠
@@ -37,9 +37,9 @@ import { DataviewBlockModal } from "./DataviewBlockModal";
 
 import { useEditorEditable } from "./useEditorEditable";
 const KIND_LABEL: Record<DataviewKind, string> = {
-  "recent-notes": "最近修改的笔记",
-  "notes-by-tag": "按标签筛选笔记",
-  "notes-by-folder": "文件夹下的笔记",
+  "recent-notes": "最近修改的文档",
+  "notes-by-tag": "按标签筛选文档",
+  "notes-by-folder": "文件夹下的文档",
   "pending-tasks": "未完成任务",
   "tasks-by-project": "项目下的任务",
 };
@@ -118,7 +118,7 @@ export function DataviewNodeView({
     } else if (row.linkKind === "task") {
       // 任务详情通过全局事件唤起（tasks 页 / 编辑器都能监听）
       // v0.1 简化：直接跳 /tasks，把 id 放 URL 参数让 tasks 页自打开详情
-      // 编辑器场景：避免离开当前笔记，仅 message 提示
+      // 编辑器场景：避免离开当前文档，仅 message 提示
       message.info(`任务 #${row.linkId}：${row.title}`);
     }
   }

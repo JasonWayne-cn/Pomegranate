@@ -27,7 +27,7 @@ declare module "@tiptap/core" {
   }
 }
 
-/** 8 位短 ID（base36），冲突概率 ~1/2.8e12，对单笔记内的视频数量足够 */
+/** 8 位短 ID（base36），冲突概率 ~1/2.8e12，对单文档内的视频数量足够 */
 export function generateVideoId(): string {
   return Math.random().toString(36).slice(2, 10);
 }

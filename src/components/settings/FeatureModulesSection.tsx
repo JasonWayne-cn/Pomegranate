@@ -2,10 +2,7 @@ import { Card, Switch, Typography, theme as antdTheme } from "antd";
 import {
   Calendar,
   CheckSquare,
-  Layers,
-  GitBranch,
   Bot,
-  Bell,
   EyeOff,
   Boxes,
 } from "lucide-react";
@@ -39,41 +36,31 @@ const MODULES: ModuleMeta[] = [
     icon: <CheckSquare size={16} />,
   },
   {
-    view: "cards",
-    label: "卡片复习",
-    desc: "FSRS 间隔重复 / 闪卡 / 从批注一键转卡",
-    icon: <Layers size={16} />,
-  },
-  {
-    view: "graph",
-    label: "文档关系",
-    desc: "可视化文档之间的双向链接关系",
-    icon: <GitBranch size={16} />,
-  },
-  {
     view: "ai",
     label: "AI 问答",
-    desc: "和 AI 对话，让它读你的笔记给出建议",
+    desc: "和 AI 对话，让它读你的文档给出建议",
     icon: <Bot size={16} />,
   },
   {
-    view: "push",
-    label: "定时推送",
-    desc: "按计划让 AI 生成内容，并通过系统通知或弹窗推送",
-    icon: <Bell size={16} />,
-  },
-  {
     view: "hidden",
-    label: "隐藏笔记",
-    desc: "PIN 锁保护的私密笔记空间",
+    label: "隐藏文档",
+    desc: "PIN 锁保护的私密文档空间",
     icon: <EyeOff size={16} />,
   },
 ];
 
+/**
+ * 已移出侧边栏的可选模块：入口收进首页设置抽屉的页签，
+ * 仍保留在 OPTIONAL_VIEWS（enabledViews 还被编辑器菜单等逻辑使用）。
+ */
+const NON_SIDEBAR_VIEWS: ActiveView[] = ["cards", "push"];
+
 // 开发期对齐检查：MODULES 与 store.OPTIONAL_VIEWS 字段同步
 if (import.meta.env.DEV) {
   const moduleViews = new Set(MODULES.map((m) => m.view));
-  const missing = OPTIONAL_VIEWS.filter((v) => !moduleViews.has(v));
+  const missing = OPTIONAL_VIEWS.filter(
+    (v) => !moduleViews.has(v) && !NON_SIDEBAR_VIEWS.includes(v),
+  );
   const extra = MODULES.filter((m) => !OPTIONAL_VIEWS.includes(m.view)).map(
     (m) => m.view,
   );

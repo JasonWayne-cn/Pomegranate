@@ -4,7 +4,7 @@ import { VIEWER3D_EXTS } from "@/lib/viewer3d";
 /**
  * 附件预览全局 store。
  *
- * 设计：单例 Modal 挂在 AppLayout 根部，任何地方（编辑器点击 / 笔记列表悬浮卡片等）
+ * 设计：单例 Modal 挂在 AppLayout 根部，任何地方（编辑器点击 / 文档列表悬浮卡片等）
  * 都可以通过 `useAttachmentPreviewStore.getState().open(...)` 调出预览。
  *
  * 为什么不混进主 useAppStore：
@@ -15,7 +15,7 @@ import { VIEWER3D_EXTS } from "@/lib/viewer3d";
 /**
  * 附件预览输入参数。
  *
- * `rel` 是相对 data_dir 的 POSIX 路径（笔记 content 里 kb-asset:// 后那段），
+ * `rel` 是相对 data_dir 的 POSIX 路径（文档 content 里 kb-asset:// 后那段），
  * 同时也是 Excel/Text 后端 Command 的入参。`fileName` 仅用于 Modal 标题与导出文件名。
  */
 export interface AttachmentPreviewTarget {

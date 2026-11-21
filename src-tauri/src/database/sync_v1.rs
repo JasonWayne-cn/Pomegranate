@@ -184,7 +184,7 @@ impl Database {
 
     // ─── sync_remote_state ─────────────────────
 
-    /// 拿某 backend 下所有笔记的同步状态，hash map 返回（按 note_id 索引）
+    /// 拿某 backend 下所有文档的同步状态，hash map 返回（按 note_id 索引）
     pub fn list_remote_state(
         &self,
         backend_id: i64,
@@ -250,7 +250,7 @@ impl Database {
     /// 清空某 backend 下所有 sync_remote_state 行
     ///
     /// 用于 hash 算法升级（v1 → v2）：远端 manifest 是旧算法时调本方法，
-    /// 本机失去与该远端的同步状态映射 → 下次 push 会把本地全部笔记当作新增上传，
+    /// 本机失去与该远端的同步状态映射 → 下次 push 会把本地全部文档当作新增上传，
     /// 下次 pull 跳过（避免按旧 hash 误 diff）。
     pub fn clear_remote_state_for_backend(&self, backend_id: i64) -> Result<usize, AppError> {
         let conn = self
@@ -281,13 +281,13 @@ impl Database {
     /// P2-c：清理 `sync_remote_state` 里的死数据行。
     ///
     /// 删除条件：state 行的 `note_id` 已不在 `compute_local_manifest` 的范围内 ——
-    /// 即笔记被硬删（不在 `notes` 表）、或软删且 `deleted_at` 早于 `tombstone_cutoff`
-    /// （超 tombstone 保留期）。这类笔记永不再进 manifest、diff 不会处理它们，
+    /// 即文档被硬删（不在 `notes` 表）、或软删且 `deleted_at` 早于 `tombstone_cutoff`
+    /// （超 tombstone 保留期）。这类文档永不再进 manifest、diff 不会处理它们，
     /// 对应的 state 行是纯死数据。
     ///
     /// `tombstone_cutoff` 由调用方传 `compute_local_manifest` 同款的 30 天前阈值。
-    /// 笔记若被 restore（`is_deleted` 1→0）会重回 manifest 范围 → 不被本方法删。
-    /// 一条 SQL 清所有 backend（某笔记超期 → 所有 backend 的 manifest 都不带它）。
+    /// 文档若被 restore（`is_deleted` 1→0）会重回 manifest 范围 → 不被本方法删。
+    /// 一条 SQL 清所有 backend（某文档超期 → 所有 backend 的 manifest 都不带它）。
     ///
     /// 返回删除的行数。
     pub fn gc_sync_remote_state(&self, tombstone_cutoff: &str) -> Result<usize, AppError> {
@@ -314,7 +314,7 @@ mod tests {
     use crate::models::{NoteInput, SyncBackendInput, SyncBackendKind};
 
     /// P2-c：gc_sync_remote_state 删孤儿行 + 超期 tombstone 行，
-    /// 保留活笔记 / 30 天内软删的 state 行
+    /// 保留活文档 / 30 天内软删的 state 行
     #[test]
     fn gc_sync_remote_state_removes_dead_rows() {
         let db = Database::init(":memory:").unwrap();
@@ -352,7 +352,7 @@ mod tests {
             })
             .unwrap();
 
-        // 三条真笔记 + 一条孤儿（note_id 不存在，模拟硬删）都登记 sync_remote_state
+        // 三条真文档 + 一条孤儿（note_id 不存在，模拟硬删）都登记 sync_remote_state
         for nid in [n_alive.id, n_recent.id, n_old.id, 999_999] {
             db.upsert_remote_state(backend_id, nid, "notes/x.md", "h", "2026-01-01", false)
                 .unwrap();
@@ -380,13 +380,13 @@ mod tests {
         assert_eq!(removed, 2, "应删：n_old（超 30 天软删）+ 999999（孤儿）");
 
         let states = db.list_remote_state(backend_id).unwrap();
-        assert!(states.contains_key(&n_alive.id), "活笔记 state 必须保留");
+        assert!(states.contains_key(&n_alive.id), "活文档 state 必须保留");
         assert!(states.contains_key(&n_recent.id), "30 天内软删 state 必须保留");
         assert!(!states.contains_key(&n_old.id), "超 30 天软删 state 应删除");
         assert!(!states.contains_key(&999_999), "孤儿 state 应删除");
     }
 
-    /// 笔记被 restore（is_deleted 1→0）→ 重回 manifest 范围 → GC 不应删它的 state
+    /// 文档被 restore（is_deleted 1→0）→ 重回 manifest 范围 → GC 不应删它的 state
     #[test]
     fn gc_keeps_state_of_restored_note() {
         let db = Database::init(":memory:").unwrap();
@@ -428,7 +428,7 @@ mod tests {
             .format("%Y-%m-%d %H:%M:%S")
             .to_string();
         let removed = db.gc_sync_remote_state(&cutoff).unwrap();
-        assert_eq!(removed, 0, "已 restore 的笔记重回 manifest 范围 → 不删 state");
+        assert_eq!(removed, 0, "已 restore 的文档重回 manifest 范围 → 不删 state");
         assert!(db.list_remote_state(backend_id).unwrap().contains_key(&n.id));
     }
 }

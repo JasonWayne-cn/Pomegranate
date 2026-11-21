@@ -3,7 +3,7 @@
  *
  * 设计：
  * - 按需动态加载 `public/viewer3d/o3dv.min.js`，不进入主 bundle
- * - 通过 `readViewer3dFile` 把笔记附件读成 File 交给引擎，绕开 asset 协议 CORS
+ * - 通过 `readViewer3dFile` 把文档附件读成 File 交给引擎，绕开 asset 协议 CORS
  * - 单实例挂载：Modal 关闭即 Destroy，释放 WebGL 上下文
  * - 引擎内部会注册 window resize 监听且不注销，这里在销毁后把 Resize 置空，
  *   避免后续窗口缩放访问已销毁的 renderer

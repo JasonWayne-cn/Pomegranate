@@ -97,7 +97,7 @@ export function TurnCard({
       message.success({
         content: (
           <span>
-            已存为笔记「{title}」
+            已存为文档「{title}」
             <a className="ml-2" onClick={() => navigate(`/notes/${note.id}`)}>
               打开
             </a>
@@ -162,9 +162,9 @@ export function TurnCard({
         <div className="px-4 pb-3 flex flex-col gap-1.5">
           <div className="text-xs flex items-center gap-1" style={{ color: token.colorTextTertiary }}>
             <BookOpen size={11} />
-            参考了 {view.refs.length} 篇笔记
+            参考了 {view.refs.length} 篇文档
           </div>
-          {/* 溯源图片：把引用笔记里的图片挂出来，点击可放大 */}
+          {/* 溯源图片：把引用文档里的图片挂出来，点击可放大 */}
           <NoteImageRefs noteIds={view.refs} />
         </div>
       )}
@@ -186,8 +186,8 @@ export function TurnCard({
           )}
           <ActionButton
             icon={<FileText size={13} />}
-            label="存为笔记"
-            title="把这条回答单独存成一篇笔记"
+            label="存为文档"
+            title="把这条回答单独存成一篇文档"
             disabled={!view.answer || savingNote}
             onClick={saveAsNote}
           />

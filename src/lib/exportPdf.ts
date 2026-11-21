@@ -3,7 +3,7 @@
  *
  * 为什么用 iframe 而不是 window.open / 新窗口：
  *   - window.open 会弹一个新的 webview 窗口，体验突兀且 Tauri 多窗口管理麻烦
- *   - 主窗口 window.print() 会打整个 React 应用 DOM，不是笔记 HTML
+ *   - 主窗口 window.print() 会打整个 React 应用 DOM，不是文档 HTML
  *   - hidden iframe 是浏览器原生支持的打印目标（contentWindow.print），
  *     用户只看到打印对话框，不会看到 iframe 本身
  *
@@ -89,7 +89,7 @@ export function printHtmlAsPdf(html: string, title: string): Promise<void> {
         return;
       }
 
-      // 设置 iframe document.title 让打印对话框默认文件名跟随笔记标题
+      // 设置 iframe document.title 让打印对话框默认文件名跟随文档标题
       try {
         if (iframe.contentDocument) {
           iframe.contentDocument.title = title;

@@ -17,10 +17,10 @@ fn to_relative(state: &AppState, abs: &str) -> Result<String, String> {
     })
 }
 
-/// 保存图片（base64 数据，用于粘贴/拖放）。按笔记 is_encrypted 自动加密。
+/// 保存图片（base64 数据，用于粘贴/拖放）。按文档 is_encrypted 自动加密。
 ///
 /// 返回**相对 data_dir 的 POSIX 路径**（例如 `kb_assets/images/1/x.png` 或加密版 `*.png.enc`）。
-/// 前端拼成 `kb-asset://<rel>` 写入笔记 content；渲染层再解析为可显示 URL。
+/// 前端拼成 `kb-asset://<rel>` 写入文档 content；渲染层再解析为可显示 URL。
 #[tauri::command]
 pub fn save_note_image(
     state: State<'_, AppState>,
@@ -40,7 +40,7 @@ pub fn save_note_image(
     to_relative(&state, &abs)
 }
 
-/// 从本地文件路径保存图片（用于工具栏文件选择）。按笔记 is_encrypted 自动加密。
+/// 从本地文件路径保存图片（用于工具栏文件选择）。按文档 is_encrypted 自动加密。
 #[tauri::command]
 pub fn save_note_image_from_path(
     state: State<'_, AppState>,
@@ -93,7 +93,7 @@ pub async fn download_image_to_assets(
     to_relative(&state, &abs)
 }
 
-/// 删除笔记的所有图片
+/// 删除文档的所有图片
 #[tauri::command]
 pub fn delete_note_images(state: State<'_, AppState>, note_id: i64) -> Result<(), String> {
     ImageService::delete_note_images(&state.data_dir, note_id).map_err(|e| e.to_string())

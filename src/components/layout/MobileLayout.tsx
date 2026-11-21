@@ -27,13 +27,13 @@ import { useAppStore } from "@/store";
  * 移动端主布局。设计稿位于 output/UI原型/2026-05-04_知识库移动端App/。
  *
  * - 顶部：让出 Android 状态栏（safe-area-inset-top），由系统控制状态栏样式
- * - 中间：全屏 Outlet 容器，可滚动；overflow-y-auto 让长页面（笔记列表）能滑
+ * - 中间：全屏 Outlet 容器，可滚动；overflow-y-auto 让长页面（文档列表）能滑
  * - 导航：随 useWindowSizeClass 切形态
  *   - compact（手机 < 600dp）：底部 5 格 Tab + 右下浮动 FAB
  *   - medium / expanded（平板 / 折叠屏展开 / DeX / WSA 大窗口）：左侧 NavigationRail
  *     + Rail 顶部 FAB。大屏上底部 Tab 会离拇指极远、且横向空间全浪费，Material 3
  *     的标准解法就是 ≥600dp 换 Rail。
- *   - Tab 高亮规则：当前路由匹配 Tab 路径前缀（笔记列表/编辑都高亮"笔记"）
+ *   - Tab 高亮规则：当前路由匹配 Tab 路径前缀（文档列表/编辑都高亮"文档"）
  *   - FAB 全局指向 /quick-create（暂未实现 → 跳到 /notes 让用户用右上 + 新建）
  *
  * 🔴 两种形态刻意共用同一棵 DOM 树（靠 order / flex-direction 切换，nav 始终排在 main
@@ -129,7 +129,7 @@ export function MobileLayout() {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  // 启动静默检查更新：延迟 8 秒避开首屏数据加载高峰（首屏要拉笔记/任务/统计，
+  // 启动静默检查更新：延迟 8 秒避开首屏数据加载高峰（首屏要拉文档/任务/统计，
   // 再插一个网络请求会拖慢冷启动观感）。失败完全静默，见 store 里的实现。
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -150,7 +150,7 @@ export function MobileLayout() {
       {/* 主内容：可滚动 */}
       <main className="relative flex-1 overflow-y-auto overflow-x-hidden">
         {/*
-          Rail 模式给内容一个 1100px 上限并居中：尚未做大屏适配的页面（笔记列表等）
+          Rail 模式给内容一个 1100px 上限并居中：尚未做大屏适配的页面（文档列表等）
           在 1900px 宽窗口里会被拉成一行几个字的长条，限宽后至少可读。
           compact 保持 pb-20 给底部 Tab + FAB 让位。
         */}

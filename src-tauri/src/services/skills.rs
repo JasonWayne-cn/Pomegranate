@@ -1,13 +1,13 @@
 //! AI Skills 框架 v1 — 让 AI 在对话里调用本地只读工具
 //!
 //! 设计要点（详见 docs/tasks/bilibili-feedback-tasks.md T-004）：
-//! - **只读**：v1 只暴露查询类接口（搜索/读笔记/列标签/查关联/看今日待办），
+//! - **只读**：v1 只暴露查询类接口（搜索/读文档/列标签/查关联/看今日待办），
 //!   避免 AI 误删/误改；写入类（创建/删除/移动）放 v2 + 二次确认
 //! - **OpenAI function-calling 兼容**：`tool_schemas()` 返回符合 OpenAI `tools` 字段
 //!   的 JSON，其他厂商（DeepSeek/智谱/Claude 代理）都能复用这套 schema
 //! - **dispatch 集中执行**：`dispatch(db, name, args_json, scope_ids, result_limit)` 按 skill name 路由到
 //!   具体实现；返回的 result 字符串会经由 AI 流式通道回注到模型作为 tool role 消息
-//! - **结果截断**：防 token 爆炸，笔记/列表类返回统一裁剪到 ~2000 字节
+//! - **结果截断**：防 token 爆炸，文档/列表类返回统一裁剪到 ~2000 字节
 //!
 //! 不在本模块做的事：
 //! - 不做 tool_calls 流式解析（在 `services::ai::chat_stream_with_skills` 里）
@@ -26,7 +26,7 @@ use tauri::{AppHandle, Manager};
 
 /// 工具结果的**兜底**字符上限（模型窗口未知时用）。
 ///
-/// 曾经这里是写死的 2000 —— 对 `get_note`（读整篇笔记）来说远远不够，
+/// 曾经这里是写死的 2000 —— 对 `get_note`（读整篇文档）来说远远不够，
 /// 智能模式下 AI 拿到的永远是开头一小段，然后基于残缺内容作答。
 /// 现在按模型上下文动态算，见 `result_limit_for`。
 const SKILL_RESULT_FALLBACK_CHARS: usize = 4_000;
@@ -36,8 +36,8 @@ const SKILL_RESULT_FALLBACK_CHARS: usize = 4_000;
 /// 智能模式一轮最多调用若干工具（MAX_TOOL_ROUNDS 轮），结果都要塞回对话，
 /// 所以不能让单个结果吃掉整个窗口 —— 取 max_context 的 15%（× 1.5 CJK 换算）。
 ///
-/// 128K 模型 → 约 28K 字符，一篇长笔记也能完整带回；
-/// 8K 小模型 → 兜底 4K 字符，够读一篇普通笔记。
+/// 128K 模型 → 约 28K 字符，一篇长文档也能完整带回；
+/// 8K 小模型 → 兜底 4K 字符，够读一篇普通文档。
 pub fn result_limit_for(max_context: i64) -> usize {
     const SHARE: f64 = 0.15;
     const CHARS_PER_TOKEN_CJK: f64 = 1.5;
@@ -55,7 +55,7 @@ pub fn tool_schemas() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "search_notes",
-                "description": "搜索用户的本地笔记，返回匹配的标题和摘要。用于找与用户问题相关的笔记内容。",
+                "description": "搜索用户的本地文档，返回匹配的标题和摘要。用于找与用户问题相关的文档内容。",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -70,11 +70,11 @@ pub fn tool_schemas() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "get_note",
-                "description": "按 ID 读取一篇笔记。长笔记会分页返回，若 next_offset 非空可继续按 offset 读取后续内容。",
+                "description": "按 ID 读取一篇文档。长文档会分页返回，若 next_offset 非空可继续按 offset 读取后续内容。",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "id": { "type": "integer", "description": "笔记 ID" },
+                        "id": { "type": "integer", "description": "文档 ID" },
                         "offset": { "type": "integer", "description": "起始字符偏移，默认 0；继续阅读时传上次返回的 next_offset" },
                         "max_chars": { "type": "integer", "description": "本次最多返回字符数，默认 8000，最大 30000" }
                     },
@@ -86,7 +86,7 @@ pub fn tool_schemas() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "list_tags",
-                "description": "列出所有标签及每个标签关联的笔记数。用于了解知识库的主题分布。",
+                "description": "列出所有标签及每个标签关联的文档数。用于了解知识库的主题分布。",
                 "parameters": { "type": "object", "properties": {} }
             }
         }),
@@ -94,11 +94,11 @@ pub fn tool_schemas() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "find_related",
-                "description": "查找与指定笔记相关的笔记（反向链接 [[wiki-link]]）。用于顺藤摸瓜。",
+                "description": "查找与指定文档相关的文档（反向链接 [[wiki-link]]）。用于顺藤摸瓜。",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "note_id": { "type": "integer", "description": "起始笔记 ID" }
+                        "note_id": { "type": "integer", "description": "起始文档 ID" }
                     },
                     "required": ["note_id"]
                 }
@@ -186,7 +186,7 @@ pub fn known_skill_names() -> &'static [&'static str] {
 /// 调用方（`services::ai`）把错误消息当作 tool result 回注给 AI，让 AI 有机会自我修正。
 ///
 /// `scope_ids`：文件夹范围会话（"对此文件夹问 AI"）展开后的「文件夹 + 所有子孙」id 列表。
-/// `Some(&[..])` 时，笔记检索/读取类工具只在这些文件夹内作答，范围外硬性拒绝；`None` = 全库。
+/// `Some(&[..])` 时，文档检索/读取类工具只在这些文件夹内作答，范围外硬性拒绝；`None` = 全库。
 pub fn dispatch(
     db: &Database,
     name: &str,
@@ -232,7 +232,7 @@ const KB_TOOL_PREFIX: &str = "kb__";
 ///
 /// 这种注册对 AI 问答是纯负收益：内置 `kb__*` 已覆盖同一套工具且带写权限，
 /// 外部这份多半没加 `--writable`，模型看到两套同名工具会随机挑，挑中只读那份就写失败
-/// （用户反馈「偶尔存不进笔记」的根因）。判定要求 exe 名以 `kb-mcp` 开头 **且**
+/// （用户反馈「偶尔存不进文档」的根因）。判定要求 exe 名以 `kb-mcp` 开头 **且**
 /// `--db-path` 指向本应用当前的库 —— 用 kb-mcp 挂别的库是正当用法，不能误伤。
 #[cfg(desktop)]
 fn is_self_kb_mcp(server: &crate::models::McpServer, own_db: &std::path::Path) -> bool {
@@ -434,7 +434,7 @@ pub async fn dispatch_with_mcp(
     result_limit: usize,
 ) -> Result<String, AppError> {
     // kb__ 前缀（内置 kb-core 工具）—— 写权限在 dispatch_kb_internal 里拦截；
-    // 文件夹范围会话下，kb-core 返回的笔记类结果在 dispatch_kb_internal 里按 scope 硬过滤
+    // 文件夹范围会话下，kb-core 返回的文档类结果在 dispatch_kb_internal 里按 scope 硬过滤
     if let Some(suffix) = name.strip_prefix(KB_TOOL_PREFIX) {
         return dispatch_kb_internal(app, suffix, args_json, scope_ids, result_limit).await;
     }
@@ -545,7 +545,7 @@ async fn dispatch_kb_internal(
     if result.is_error.unwrap_or(false) {
         return Err(AppError::Custom(format!("MCP 工具返回错误: {out}")));
     }
-    // 文件夹范围会话：对 kb-core 返回的笔记类结果按 scope 硬过滤（范围外的笔记剔除）
+    // 文件夹范围会话：对 kb-core 返回的文档类结果按 scope 硬过滤（范围外的文档剔除）
     let out = match scope_ids {
         Some(scope) => filter_kb_result_by_scope(&out, scope),
         None => out,
@@ -555,15 +555,15 @@ async fn dispatch_kb_internal(
 
 /// 文件夹范围会话下，对内置 kb-core 工具返回的 JSON 结果做"硬过滤"。
 ///
-/// 规则（只针对"笔记"类结果，不误伤标签/文件夹/任务/模板等非笔记结果）：
+/// 规则（只针对"文档"类结果，不误伤标签/文件夹/任务/模板等非文档结果）：
 /// - 结果是数组：逐个元素判断——对象若含 `folder_id` 字段，folder_id 必须 ∈ scope 才保留
-///   （`null` 即未分类笔记，不属于任何具体文件夹子树，剔除）；不含 `folder_id` 字段的对象
+///   （`null` 即未分类文档，不属于任何具体文件夹子树，剔除）；不含 `folder_id` 字段的对象
 ///   （TagInfo / FolderInfo / TaskRow 等）一律保留；非对象元素保留。
 /// - 结果是单对象（如 get_note 的 NoteDetail）：含 `folder_id` 且越界 → 替换为越界提示。
 /// - 非 JSON（纯文本）或其它形状：原样返回。
 ///
 /// 已知小缺口：get_backlinks（BacklinkRef 无 folder_id）/ list_trash（回收站项无 folder_id）
-/// 这类不含 folder_id 的笔记类结果无法在此层过滤，保持原样；高层 find_related 已单独按 scope 过滤。
+/// 这类不含 folder_id 的文档类结果无法在此层过滤，保持原样；高层 find_related 已单独按 scope 过滤。
 fn filter_kb_result_by_scope(raw: &str, scope_ids: &[i64]) -> String {
     let parsed: Value = match serde_json::from_str(raw) {
         Ok(v) => v,
@@ -574,7 +574,7 @@ fn filter_kb_result_by_scope(raw: &str, scope_ids: &[i64]) -> String {
         match obj.get("folder_id") {
             Some(Value::Number(n)) => n.as_i64().map_or(false, |f| scope_ids.contains(&f)),
             Some(_) => false, // null 或异常类型：未分类/越界，剔除
-            None => true,     // 非笔记类结果（无 folder_id 字段），保留
+            None => true,     // 非文档类结果（无 folder_id 字段），保留
         }
     };
     match parsed {
@@ -587,7 +587,7 @@ fn filter_kb_result_by_scope(raw: &str, scope_ids: &[i64]) -> String {
         }
         Value::Object(ref map) => {
             if map.contains_key("folder_id") && !obj_in_scope(&parsed) {
-                json!({ "error": "该笔记不在当前对话限定的文件夹范围内，无法访问。" }).to_string()
+                json!({ "error": "该文档不在当前对话限定的文件夹范围内，无法访问。" }).to_string()
             } else {
                 raw.to_string()
             }
@@ -708,7 +708,7 @@ fn run_search_notes(
     let _ = scope_ids;
     let notes = db.search_notes_for_rag(&a.query, limit)?;
     if notes.is_empty() {
-        return Ok("未找到相关笔记".to_string());
+        return Ok("未找到相关文档".to_string());
     }
     let hits: Vec<Value> = notes
         .into_iter()
@@ -739,18 +739,18 @@ fn run_get_note(
         .map_err(|e| AppError::Custom(format!("get_note 参数非法: {}", e)))?;
     let note = db
         .get_note(a.id)?
-        .ok_or_else(|| AppError::Custom(format!("笔记 #{} 不存在", a.id)))?;
-    // 文件夹范围会话：拒绝读取范围外的笔记（即使模型猜到了 id）。
+        .ok_or_else(|| AppError::Custom(format!("文档 #{} 不存在", a.id)))?;
+    // 文件夹范围会话：拒绝读取范围外的文档（即使模型猜到了 id）。
     if let Some(scope) = scope_ids {
         let in_scope = note.folder_id.map_or(false, |f| scope.contains(&f));
         if !in_scope {
             return Err(AppError::Custom(format!(
-                "笔记 #{} 不在当前对话限定的文件夹范围内，无法读取。",
+                "文档 #{} 不在当前对话限定的文件夹范围内，无法读取。",
                 a.id
             )));
         }
     }
-    // content 是 markdown；长笔记按字符分页，模型可用 next_offset 继续读
+    // content 是 markdown；长文档按字符分页，模型可用 next_offset 继续读
     let total_chars = note.content.chars().count();
     let offset = a.offset.min(total_chars);
     let chunk_size = if a.max_chars == 0 {
@@ -788,7 +788,7 @@ fn run_list_datasets(db: &Database) -> Result<String, AppError> {
     let schemas = db.list_all_dataset_schemas(50)?;
     if schemas.is_empty() {
         // 说清"怎么才会有"，否则模型只会回一句"没有数据集"，用户不知道下一步该干嘛
-        return Ok("当前没有已导入的二维表。用户需要先在笔记里打开一个 Excel/CSV 附件、切到「数据集」标签页，表格才会入库。"
+        return Ok("当前没有已导入的二维表。用户需要先在文档里打开一个 Excel/CSV 附件、切到「数据集」标签页，表格才会入库。"
             .to_string());
     }
     let arr: Vec<Value> = schemas
@@ -856,7 +856,7 @@ fn run_find_related(
     let a: FindRelatedArgs = serde_json::from_str(args)
         .map_err(|e| AppError::Custom(format!("find_related 参数非法: {}", e)))?;
     let links = db.get_backlinks(a.note_id)?;
-    // 文件夹范围会话：只保留来源笔记在范围内的反链（BacklinkRef 自身无 folder_id，按 source_id 批量查）。
+    // 文件夹范围会话：只保留来源文档在范围内的反链（BacklinkRef 自身无 folder_id，按 source_id 批量查）。
     let links = match scope_ids {
         Some(scope) => {
             let ids: Vec<i64> = links.iter().map(|l| l.source_id).collect();
@@ -1056,9 +1056,9 @@ mod tests {
 
     #[test]
     fn result_limit_scales_with_model_context() {
-        // 128K 模型：0.15 × 1.5 ≈ 28800 字符，一篇长笔记也能完整带回
+        // 128K 模型：0.15 × 1.5 ≈ 28800 字符，一篇长文档也能完整带回
         assert_eq!(result_limit_for(128_000), 28_800);
-        // 小窗口模型不至于算出个几百字符 —— 兜底 4000，够读一篇普通笔记
+        // 小窗口模型不至于算出个几百字符 —— 兜底 4000，够读一篇普通文档
         assert_eq!(result_limit_for(8_000), SKILL_RESULT_FALLBACK_CHARS);
         // 非法输入不 panic
         assert_eq!(result_limit_for(0), SKILL_RESULT_FALLBACK_CHARS);
@@ -1098,7 +1098,7 @@ mod tests {
 
     #[test]
     fn scope_filter_array_drops_out_of_folder_notes() {
-        // 笔记数组：folder_id ∈ scope 保留；越界 / null（未分类）剔除
+        // 文档数组：folder_id ∈ scope 保留；越界 / null（未分类）剔除
         let raw = r#"[
             {"id":1,"title":"in","folder_id":10},
             {"id":2,"title":"out","folder_id":99},

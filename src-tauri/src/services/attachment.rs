@@ -3,7 +3,7 @@
 //! 与 image/pdf/source_file 并列，纯文件系统存储（不建 DB 表）：
 //!   · 根目录：{app_data_dir}/{prefix}kb_assets/attachments/<note_id>/
 //!   · 元数据只存在 Tiptap 节点 attrs / Markdown 链接里
-//!   · 笔记永久删除时由 TrashService 统一清目录
+//!   · 文档永久删除时由 TrashService 统一清目录
 //!
 //! 设计上与 ImageService 完全对称，孤儿扫描后续再补（见 T-B 跟进项）。
 
@@ -26,7 +26,7 @@ const ATTACHMENTS_DIR: &str = "attachments";
 
 /// 安全黑名单：禁止保存的可执行 / 脚本 / 二进制系统文件
 /// Why: 附件走"任意 OS 文件拖放"入口，若允许 .exe/.bat/.dll 进入知识库，
-///      用户把笔记同步给别人时可能携带恶意载荷；显式 block 掉最常见的几类。
+///      用户把文档同步给别人时可能携带恶意载荷；显式 block 掉最常见的几类。
 pub(crate) const BLOCKED_EXTS: &[&str] = &[
     "exe", "msi", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "sh", "app", "dmg",
     "scr", "com", "pif", "dll", "sys", "drv", "cpl", "hta", "jar", "apk", "ipa", "deb", "rpm",
@@ -184,12 +184,12 @@ impl AttachmentService {
         })
     }
 
-    /// 删除笔记的所有附件目录
+    /// 删除文档的所有附件目录
     pub fn delete_note_attachments(app_data_dir: &Path, note_id: i64) -> Result<(), AppError> {
         let note_dir = Self::attachments_dir(app_data_dir).join(note_id.to_string());
         if note_dir.exists() {
             std::fs::remove_dir_all(&note_dir)?;
-            log::info!("已删除笔记 {} 的所有附件", note_id);
+            log::info!("已删除文档 {} 的所有附件", note_id);
         }
         Ok(())
     }

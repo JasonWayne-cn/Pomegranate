@@ -39,7 +39,7 @@ function flattenFolders(
 }
 
 /**
- * 导出 Markdown：按文件夹结构导出笔记与附件。
+ * 导出 Markdown：按文件夹结构导出文档与附件。
  * 供设置页与文档模块抽屉共用。
  */
 export function ExportSection({ compact }: Props) {
@@ -82,8 +82,8 @@ export function ExportSection({ compact }: Props) {
             >
 {`📁 Pomegranate导出_YYYYMMDD_HHmmss/
   ├─ <文件夹>/
-  │   ├─ <笔记>.md
-  │   └─ <笔记>.assets/   (图片+附件)
+  │   ├─ <文档>.md
+  │   └─ <文档>.assets/   (图片+附件)
   └─ ...`}
             </pre>
           </div>
@@ -114,7 +114,7 @@ export function ExportSection({ compact }: Props) {
       );
       setExportResult(result);
       if (result.exported > 0) {
-        message.success(`成功导出 ${result.exported} 篇笔记`);
+        message.success(`成功导出 ${result.exported} 篇文档`);
         try {
           await revealItemInDir(result.root_dir);
         } catch {
@@ -144,7 +144,7 @@ export function ExportSection({ compact }: Props) {
     >
       <div className="mb-3">
         <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
-          将笔记导出为 Markdown 文件，按文件夹结构组织。便于备份或迁移到其他笔记工具。
+          将文档导出为 Markdown 文件，按文件夹结构组织。便于备份或迁移到其他文档工具。
         </Typography.Paragraph>
         <Space wrap>
           <Select
@@ -185,7 +185,7 @@ export function ExportSection({ compact }: Props) {
         <Alert
           type={exportResult.errors.length > 0 ? "warning" : "success"}
           showIcon
-          message={`导出完成: ${exportResult.exported} 篇笔记，附带 ${exportResult.assets_copied} 个资产文件`}
+          message={`导出完成: ${exportResult.exported} 篇文档，附带 ${exportResult.assets_copied} 个资产文件`}
           description={
             <div className="space-y-2">
               <div

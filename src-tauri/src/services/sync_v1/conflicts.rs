@@ -5,11 +5,11 @@
 //! 2. 本地有未推送改动 + 远端也改了（pull.rs 的分歧检测兜底）
 //!
 //! 冲突文件路径：`<app_data>/sync_conflicts/backend_<id>/<stable_id>_<ts>.md`
-//! （`<stable_id>` 是笔记 UUID；`<ts>` 是远端 `updated_at` 把 `:` 和空格换成 `-`）
+//! （`<stable_id>` 是文档 UUID；`<ts>` 是远端 `updated_at` 把 `:` 和空格换成 `-`）
 //!
 //! 本模块提供：
-//! - `list_conflicts`：扫描所有 backend 的冲突文件，配上本地笔记内容，给 UI 做两栏 diff
-//! - `resolve_conflict`：按"用本地 / 用远端 / 合并结果"写回笔记（bump updated_at 让本地下次 push 胜出）+ 删冲突文件
+//! - `list_conflicts`：扫描所有 backend 的冲突文件，配上本地文档内容，给 UI 做两栏 diff
+//! - `resolve_conflict`：按"用本地 / 用远端 / 合并结果"写回文档（bump updated_at 让本地下次 push 胜出）+ 删冲突文件
 
 use std::path::{Path, PathBuf};
 
@@ -30,11 +30,11 @@ pub struct ConflictItem {
     pub backend_id: i64,
     /// 同步源名字（"我的坚果云"等），便于 UI 分组展示
     pub backend_name: String,
-    /// 笔记 stable_uuid（从冲突文件名解析）
+    /// 文档 stable_uuid（从冲突文件名解析）
     pub stable_id: String,
-    /// 本地笔记 id（本地已无此笔记 → None）
+    /// 本地文档 id（本地已无此文档 → None）
     pub note_id: Option<i64>,
-    /// 笔记标题（优先本地标题；本地无 → 用远端 .md 的 H1；再无 → stable_id）
+    /// 文档标题（优先本地标题；本地无 → 用远端 .md 的 H1；再无 → stable_id）
     pub title: String,
     /// 冲突文件绝对路径（resolve 时回传，用于定位 + 删除）
     pub conflict_file_path: String,
@@ -42,13 +42,13 @@ pub struct ConflictItem {
     pub conflict_file_name: String,
     /// 冲突文件创建时间（≈ 远端那个冲突版本被拉下来的时间），ISO 字符串，best-effort
     pub detected_at: Option<String>,
-    /// 本地笔记当前正文（加密笔记 / 本地已无 → 占位文案）
+    /// 本地文档当前正文（加密文档 / 本地已无 → 占位文案）
     pub local_content: String,
-    /// 远端冲突版本正文（已去掉 `# 标题` 前缀；加密笔记 → 空串）
+    /// 远端冲突版本正文（已去掉 `# 标题` 前缀；加密文档 → 空串）
     pub remote_content: String,
-    /// 是否加密笔记 —— 加密笔记不支持在此处合并，UI 只给"忽略"
+    /// 是否加密文档 —— 加密文档不支持在此处合并，UI 只给"忽略"
     pub encrypted: bool,
-    /// 本地是否已不存在此笔记（删了又收到冲突）—— 只能"用远端（重建）"或"忽略"
+    /// 本地是否已不存在此文档（删了又收到冲突）—— 只能"用远端（重建）"或"忽略"
     pub note_missing_locally: bool,
 }
 
@@ -58,7 +58,7 @@ pub struct ConflictItem {
 pub enum ConflictResolution {
     /// 保留本地版本（重写一遍本地内容以 bump updated_at，让下次 push 本地胜出）+ 删冲突文件
     KeepLocal,
-    /// 采用远端版本（远端正文写回本地笔记）+ 删冲突文件
+    /// 采用远端版本（远端正文写回本地文档）+ 删冲突文件
     UseRemote,
     /// 采用前端传回的手动合并结果 + 删冲突文件
     Merged,
@@ -86,7 +86,7 @@ pub fn list_conflicts(db: &Database, app_data_dir: &Path) -> Result<Vec<Conflict
                 None => continue,
             };
             // 文件名：<stable_id>_<ts>.md  → 取第一个 '_' 之前作为 stable_id
-            // （笔记 UUID 是 hex+dash，不含 '_'；ts 是 yyyy-mm-dd-HH-MM-SS，也不含 '_'）
+            // （文档 UUID 是 hex+dash，不含 '_'；ts 是 yyyy-mm-dd-HH-MM-SS，也不含 '_'）
             let stem = file_name.strip_suffix(".md").unwrap_or(&file_name);
             let stable_id = match stem.split_once('_') {
                 Some((sid, _ts)) => sid.to_string(),
@@ -95,14 +95,14 @@ pub fn list_conflicts(db: &Database, app_data_dir: &Path) -> Result<Vec<Conflict
 
             let remote_body = std::fs::read_to_string(&path).unwrap_or_default();
 
-            // 本地笔记？
+            // 本地文档？
             let note_id = db.get_note_id_by_stable_uuid(&stable_id)?;
             let (title, local_content, encrypted, note_missing_locally) = match note_id {
                 Some(id) => match db.get_note(id)? {
                     Some(n) if n.is_encrypted => (n.title, String::new(), true, false),
                     Some(n) => (n.title, n.content, false, false),
                     None => {
-                        // id 查到了但笔记读不出（被软删）→ 当作本地无
+                        // id 查到了但文档读不出（被软删）→ 当作本地无
                         let (t, _) = parse_remote_md(&remote_body, &stable_id);
                         (t, String::new(), false, true)
                     }
@@ -194,7 +194,7 @@ pub fn resolve_conflict(
     };
 
     if encrypted {
-        // 加密笔记不在此处合并：任何 resolution 都只是"忽略"——清掉这条笔记的冲突标记文件
+        // 加密文档不在此处合并：任何 resolution 都只是"忽略"——清掉这条文档的冲突标记文件
         if let Some(backend_dir) = canon_path.parent() {
             remove_conflict_files_for(backend_dir, &stable_id);
         }
@@ -216,7 +216,7 @@ pub fn resolve_conflict(
                     )?;
                 }
             }
-            // 本地已无此笔记 → 没什么可保留的，直接删冲突文件即可
+            // 本地已无此文档 → 没什么可保留的，直接删冲突文件即可
         }
         ConflictResolution::UseRemote => {
             let (title, content) = parse_remote_md(&remote_body, &stable_id);
@@ -234,7 +234,7 @@ pub fn resolve_conflict(
                 }
                 None => {
                     // 本地已删 → 用远端 UUID 重建（保持多端 ID 稳定）。
-                    // 冲突 .md 不携带 is_daily 信息 → 暂建为普通笔记；若它实为日记，下次
+                    // 冲突 .md 不携带 is_daily 信息 → 暂建为普通文档；若它实为日记，下次
                     // get_or_create_daily 会按标题兜底认领，不会重复新建。
                     db.create_note_with_uuid(
                         &NoteInput {
@@ -257,7 +257,7 @@ pub fn resolve_conflict(
                 Some(id) => {
                     let n = db
                         .get_note(id)?
-                        .ok_or_else(|| AppError::NotFound(format!("笔记 {} 不存在", id)))?;
+                        .ok_or_else(|| AppError::NotFound(format!("文档 {} 不存在", id)))?;
                     db.update_note(
                         id,
                         &NoteInput {
@@ -269,7 +269,7 @@ pub fn resolve_conflict(
                 }
                 None => {
                     // 本地已删，但用户手动合并了 → 用远端标题 + 合并正文重建
-                    // （同上：暂建为普通笔记，日记由 get_or_create_daily 兜底认领）
+                    // （同上：暂建为普通文档，日记由 get_or_create_daily 兜底认领）
                     let (title, _) = parse_remote_md(&remote_body, &stable_id);
                     db.create_note_with_uuid(
                         &NoteInput {
@@ -287,7 +287,7 @@ pub fn resolve_conflict(
         }
     }
 
-    // 删掉这条笔记的所有冲突文件（当前格式只有 <uuid>.md 一个，但早期版本会堆多个 <uuid>_<ts>.md）
+    // 删掉这条文档的所有冲突文件（当前格式只有 <uuid>.md 一个，但早期版本会堆多个 <uuid>_<ts>.md）
     if let Some(backend_dir) = canon_path.parent() {
         remove_conflict_files_for(backend_dir, &stable_id);
     }
@@ -296,10 +296,10 @@ pub fn resolve_conflict(
 
 // ─── 冲突文件读写工具 ──────────────────────────────────────────
 // 早期版本把分歧冲突写成 `<uuid>_<远端 updated_at>.md`，每次 pull 检测到分歧就生成一个新文件名
-// （ts 不同 → 不覆盖）→ 同一条笔记的冲突文件越积越多。现在改用固定名 `<uuid>.md`（覆盖写），
-// 并在写入 / 解决冲突时把该笔记历史堆积的旧文件一并清掉。
+// （ts 不同 → 不覆盖）→ 同一条文档的冲突文件越积越多。现在改用固定名 `<uuid>.md`（覆盖写），
+// 并在写入 / 解决冲突时把该文档历史堆积的旧文件一并清掉。
 
-/// 某 `.md` 文件（stem，不含扩展名）是否属于笔记 `safe_id`：
+/// 某 `.md` 文件（stem，不含扩展名）是否属于文档 `safe_id`：
 /// 匹配 `<safe_id>`（当前固定名）或 `<safe_id>_<...>`（早期带远端时间戳的）。
 fn is_conflict_file_of(file_stem: &str, safe_id: &str) -> bool {
     file_stem == safe_id
@@ -329,8 +329,8 @@ fn remove_conflict_files_for(backend_conflicts_dir: &Path, stable_id: &str) {
     }
 }
 
-/// 写一条笔记的冲突文件到 `<backend_conflicts_dir>/<stable_id>.md`（固定名，覆盖写）；
-/// 写前先清掉该笔记历史堆积的旧冲突文件。
+/// 写一条文档的冲突文件到 `<backend_conflicts_dir>/<stable_id>.md`（固定名，覆盖写）；
+/// 写前先清掉该文档历史堆积的旧冲突文件。
 /// `backend_conflicts_dir` = `<app_data>/sync_conflicts/backend_<id>/`。
 pub fn write_conflict_file(
     backend_conflicts_dir: &Path,
@@ -392,7 +392,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let sid = "11111111-1111-1111-1111-111111111111";
 
-        // 模拟早期堆积的带时间戳冲突文件 + 另一条笔记的冲突文件（不该被动到）
+        // 模拟早期堆积的带时间戳冲突文件 + 另一条文档的冲突文件（不该被动到）
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(format!("{}_2026-05-10-08-00-00.md", sid)), "old1").unwrap();
         std::fs::write(dir.join(format!("{}_2026-05-11-09-00-00.md", sid)), "old2").unwrap();
@@ -413,7 +413,7 @@ mod tests {
         );
         assert!(
             names.contains(&"22222222-2222-2222-2222-222222222222.md".to_string()),
-            "别的笔记的冲突文件不受影响"
+            "别的文档的冲突文件不受影响"
         );
         assert_eq!(
             std::fs::read_to_string(dir.join(format!("{}.md", sid))).unwrap(),
@@ -427,7 +427,7 @@ mod tests {
             .flatten()
             .filter(|e| e.file_name().to_string_lossy().starts_with(sid))
             .count();
-        assert_eq!(mine, 1, "同一笔记最多一个冲突文件");
+        assert_eq!(mine, 1, "同一文档最多一个冲突文件");
         assert_eq!(
             std::fs::read_to_string(dir.join(format!("{}.md", sid))).unwrap(),
             "newest2"

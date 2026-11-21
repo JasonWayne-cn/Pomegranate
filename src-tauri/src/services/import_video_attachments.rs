@@ -177,7 +177,7 @@ pub fn rewrite_video_paths(
                     }
                     Err(e) => {
                         log::warn!(
-                            "[import-video] 笔记 {} 视频复制失败 ({}): {}",
+                            "[import-video] 文档 {} 视频复制失败 ({}): {}",
                             note_id,
                             src.display(),
                             e
@@ -214,7 +214,7 @@ pub fn rewrite_video_paths(
                     }
                     Err(e) => {
                         log::warn!(
-                            "[import-video] 笔记 {} OB-wiki 视频复制失败 ({}): {}",
+                            "[import-video] 文档 {} OB-wiki 视频复制失败 ({}): {}",
                             note_id,
                             src.display(),
                             e
@@ -252,7 +252,7 @@ pub fn rewrite_video_paths(
                     }
                     Err(e) => {
                         log::warn!(
-                            "[import-video] 笔记 {} HTML 视频复制失败 ({}): {}",
+                            "[import-video] 文档 {} HTML 视频复制失败 ({}): {}",
                             note_id,
                             src.display(),
                             e
@@ -290,7 +290,7 @@ pub fn rewrite_video_paths(
                     }
                     Err(e) => {
                         log::warn!(
-                            "[import-video] 笔记 {} HTML <source> 视频复制失败 ({}): {}",
+                            "[import-video] 文档 {} HTML <source> 视频复制失败 ({}): {}",
                             note_id,
                             src.display(),
                             e
@@ -435,7 +435,7 @@ pub async fn rewrite_external_videos(
             }
             Err(e) => {
                 log::warn!(
-                    "[import-video-ext] 笔记 {} 外链下载失败 ({}): {}",
+                    "[import-video-ext] 文档 {} 外链下载失败 ({}): {}",
                     note_id,
                     url,
                     e

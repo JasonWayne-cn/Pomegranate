@@ -241,7 +241,7 @@ impl PdfLayoutService {
         })
     }
 
-    /// 把文本块与图片块按顺序渲染成笔记 HTML。
+    /// 把文本块与图片块按顺序渲染成文档 HTML。
     ///
     /// `image_paths` 的 key 是 `PdfImage` 在 `layout.images` 中的下标，
     /// value 是相对 `data_dir` 的 POSIX 路径（不含 `kb-asset://`）。

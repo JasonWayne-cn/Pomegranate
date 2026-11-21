@@ -1,4 +1,4 @@
-//! Embedding 配置与笔记向量的数据访问层。
+//! Embedding 配置与文档向量的数据访问层。
 //!
 //! 向量以 float32 小端序 BLOB 存储，检索用 sqlite-vec 的 `vec_distance_cosine`
 //! 标量函数（维度不固定，切换 embedding 模型时按 model/dim 过滤即可）。
@@ -78,7 +78,7 @@ impl Database {
         Ok(())
     }
 
-    /// 保存/更新一篇笔记某个 chunk 的向量。
+    /// 保存/更新一篇文档某个 chunk 的向量。
     pub fn upsert_note_embedding(
         &self,
         note_id: i64,
@@ -103,7 +103,7 @@ impl Database {
         Ok(())
     }
 
-    /// 删除一篇笔记的全部向量。
+    /// 删除一篇文档的全部向量。
     pub fn delete_note_embeddings(&self, note_id: i64) -> Result<(), AppError> {
         let conn = self.conn_lock()?;
         conn.execute(
@@ -113,7 +113,7 @@ impl Database {
         Ok(())
     }
 
-    /// 清空所有笔记向量（全量重建前调用，避免残留旧的 chunk）。
+    /// 清空所有文档向量（全量重建前调用，避免残留旧的 chunk）。
     pub fn clear_all_note_embeddings(&self) -> Result<(), AppError> {
         let conn = self.conn_lock()?;
         conn.execute("DELETE FROM note_embeddings", [])?;
@@ -154,9 +154,9 @@ impl Database {
         Ok(rows)
     }
 
-    /// 列出所有可检索笔记的 `(id, content)`，用于全量重建向量。
+    /// 列出所有可检索文档的 `(id, content)`，用于全量重建向量。
     ///
-    /// 回收站（is_deleted）与隐藏（is_hidden）笔记不参与索引，避免被 RAG 召回。
+    /// 回收站（is_deleted）与隐藏（is_hidden）文档不参与索引，避免被 RAG 召回。
     pub fn list_notes_for_embedding(&self) -> Result<Vec<(i64, String)>, AppError> {
         let conn = self.conn_lock()?;
         let mut stmt = conn.prepare(
@@ -170,7 +170,7 @@ impl Database {
         Ok(rows)
     }
 
-    /// 列出所有可检索笔记的 id（增量索引 `All` 任务用，不加载正文）。
+    /// 列出所有可检索文档的 id（增量索引 `All` 任务用，不加载正文）。
     pub fn list_note_ids_for_embedding(&self) -> Result<Vec<i64>, AppError> {
         let conn = self.conn_lock()?;
         let mut stmt = conn.prepare(
@@ -184,7 +184,7 @@ impl Database {
         Ok(rows)
     }
 
-    /// 读取单篇笔记正文用于增量索引。
+    /// 读取单篇文档正文用于增量索引。
     ///
     /// 已删除 / 隐藏 / 空正文返回 `None`，调用方据此删除旧向量。
     pub fn get_note_content_for_embedding(

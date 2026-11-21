@@ -1,6 +1,6 @@
 //! 白板相关 IPC 入口。
 //!
-//! 白板复用了绝大部分笔记命令（重命名 / 移动文件夹 / 删除 / 打标签走既有的
+//! 白板复用了绝大部分文档命令（重命名 / 移动文件夹 / 删除 / 打标签走既有的
 //! `update_note` / `delete_note` …）。这里只放白板独有的两条：
 //! 建一块空白板、保存画布。
 
@@ -33,7 +33,7 @@ pub fn get_whiteboard_scene(
         .map_err(|e| e.to_string())
 }
 
-/// 保存**笔记内嵌**的白板画布，返回相对 data_dir 的路径。
+/// 保存**文档内嵌**的白板画布，返回相对 data_dir 的路径。
 ///
 /// `relPath` 传已有路径 = 覆盖原文件（继续编辑同一块白板）；传 null = 新建。
 /// 前端拿返回值拼成 `kb-asset://` 写进 Tiptap 节点属性。
@@ -57,7 +57,7 @@ pub fn save_embedded_whiteboard(
     .map_err(|e| e.to_string())
 }
 
-/// 读取笔记内嵌白板的画布（图片已内联回 base64）。
+/// 读取文档内嵌白板的画布（图片已内联回 base64）。
 #[tauri::command(async)]
 pub fn load_embedded_whiteboard(
     state: tauri::State<'_, AppState>,
@@ -69,7 +69,7 @@ pub fn load_embedded_whiteboard(
 
 /// 保存白板画布。
 ///
-/// 与 `update_note` 一样广播 `note:updated`，让别的窗口（弹出窗 / 笔记列表）跟着刷新；
+/// 与 `update_note` 一样广播 `note:updated`，让别的窗口（弹出窗 / 文档列表）跟着刷新；
 /// `sourceLabel` 让发起方忽略自己刚发出的这条，避免把用户正在画的画布覆盖回去。
 #[tauri::command]
 pub fn save_whiteboard_scene(
@@ -122,8 +122,8 @@ pub fn create_whiteboard_snapshot(
 
 /// 把白板回滚到某一份历史版本（回滚前会自动把当前版本另存一份）。
 ///
-/// 与 `save_whiteboard_scene` 一样广播 `note:updated` —— 回滚改的是笔记内容，
-/// 别的窗口（笔记列表 / 弹出窗）得跟着刷新。这里**不带** sourceLabel：
+/// 与 `save_whiteboard_scene` 一样广播 `note:updated` —— 回滚改的是文档内容，
+/// 别的窗口（文档列表 / 弹出窗）得跟着刷新。这里**不带** sourceLabel：
 /// 发起方自己也需要重新加载画布，不能像常规保存那样忽略自己发出的事件。
 #[tauri::command]
 pub fn restore_whiteboard_snapshot(
@@ -163,11 +163,11 @@ pub fn save_whiteboard_library(
     whiteboard::save_library(&state.data_dir, &content).map_err(|e| e.to_string())
 }
 
-// ─── 笔记卡片 ────────────────────────────────────────────────
+// ─── 文档卡片 ────────────────────────────────────────────────
 
-/// 批量取笔记摘要，供白板上的「笔记卡片」显示。
+/// 批量取文档摘要，供白板上的「文档卡片」显示。
 ///
-/// 每次打开白板都会调一次：卡片显示的是笔记**当前**内容，而不是插入那一刻的快照。
+/// 每次打开白板都会调一次：卡片显示的是文档**当前**内容，而不是插入那一刻的快照。
 #[tauri::command(async)]
 pub fn get_note_excerpts(
     state: tauri::State<'_, AppState>,
@@ -200,7 +200,7 @@ pub fn get_embedded_whiteboard_snapshot_scene(
 
 /// 把内嵌白板回滚到某一份历史版本，返回回滚后的画布。
 ///
-/// 不广播 `note:updated`：改的是笔记正文引用的那个场景文件，笔记本身没变；
+/// 不广播 `note:updated`：改的是文档正文引用的那个场景文件，文档本身没变；
 /// 发起方拿返回值自己重载画布即可。
 #[tauri::command]
 pub fn restore_embedded_whiteboard_snapshot(

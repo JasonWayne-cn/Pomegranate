@@ -1,8 +1,8 @@
 /**
- * 笔记内嵌白板块：在正文里嵌一块可编辑的画布，平时显示成预览图。
+ * 文档内嵌白板块：在正文里嵌一块可编辑的画布，平时显示成预览图。
  *
- * 形态对齐飞书文档的「画板」：块在笔记里是一张图，点开进画布编辑，
- * 存完回到笔记还是一张图 —— 但数据是活的，随时能再改。
+ * 形态对齐飞书文档的「画板」：块在文档里是一张图，点开进画布编辑，
+ * 存完回到文档还是一张图 —— 但数据是活的，随时能再改。
  *
  * 设计（与同目录的 DataviewBlock 一脉相承）：
  * - **叶子节点**（atom=true）：内部没有可编辑子内容，整块交给 NodeView 渲染
@@ -22,10 +22,10 @@ import { WhiteboardBlockNodeView } from "./WhiteboardBlockNodeView";
 export interface WhiteboardBlockOptions {
   HTMLAttributes: Record<string, unknown>;
   /**
-   * 取当前笔记 id —— 保存场景文件和预览图都要按笔记归目录。
+   * 取当前文档 id —— 保存场景文件和预览图都要按文档归目录。
    *
    * 必须是函数而不是值：`useEditor` 只在挂载时执行一次，闭包捕获的 noteId
-   * 会永远停在第一次的值，切到别的笔记后白板资源就存错目录了。
+   * 会永远停在第一次的值，切到别的文档后白板资源就存错目录了。
    * 与 SlashCommand 的 `getNoteId` 同一约定。
    */
   getNoteId: () => number | undefined;
@@ -72,7 +72,7 @@ export const WhiteboardBlock = Node.create<WhiteboardBlockOptions>({
       },
       /**
        * 预览图的真实像素尺寸。存下来是为了让块在图片**加载完成前**就占住正确高度，
-       * 否则每次打开笔记，白板块都会从 0 高度撑开，把下方内容顶得跳一下。
+       * 否则每次打开文档，白板块都会从 0 高度撑开，把下方内容顶得跳一下。
        */
       width: {
         default: null as number | null,

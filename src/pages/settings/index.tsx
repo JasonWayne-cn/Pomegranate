@@ -336,7 +336,7 @@ function DesktopSettingsPage() {
   }, [location.state]);
 
   useEffect(() => {
-    // 把 6 个并发 invoke 推迟到 idle：从笔记页切过来时主线程要先吃掉一帧的
+    // 把 6 个并发 invoke 推迟到 idle：从文档页切过来时主线程要先吃掉一帧的
     // 路由 commit + Tiptap destroy，立即并发 IPC 会让首屏明显卡顿。
     // idle 后再跑，用户视觉上"先看到 UI、再陆续填充数据"。
     const handle = scheduleIdle(() => {
@@ -425,8 +425,7 @@ function DesktopSettingsPage() {
   return (
     <div className="settings-tabs-page">
       <div style={{ marginBottom: 16 }}>
-        {/* /about 与 /settings 共用本页：从「关于」入口进入时标题显示为「关于」 */}
-        <Title level={3}>{location.pathname.startsWith("/about") ? "关于" : "设置"}</Title>
+        <Title level={3}>设置</Title>
       </div>
 
       <Tabs
@@ -537,7 +536,7 @@ function DesktopSettingsPage() {
                   title={
                     <span className="flex items-center gap-2">
                       <LayoutTemplate size={16} />
-                      笔记模板
+                      文档模板
                     </span>
                   }
                   extra={
@@ -748,7 +747,7 @@ function DesktopSettingsPage() {
             initialValue=""
             valuePropName="content"
           >
-            <TiptapEditor content="" onChange={() => {}} placeholder="输入模板内容（支持富文本），创建笔记时将自动填充" />
+            <TiptapEditor content="" onChange={() => {}} placeholder="输入模板内容（支持富文本），创建文档时将自动填充" />
           </Form.Item>
         </Form>
       </Modal>

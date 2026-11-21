@@ -1,9 +1,9 @@
 /**
  * AI 回答下方的"溯源图片"组件。
  *
- * 场景：RAG 问答 / 笔记内问 AI 时，AI 引用了哪几篇笔记记录在 message.references 里。
- * 本组件拿这批 note_id 调 `notesApi.getImages` 取回每篇笔记 content 内的图片，
- * 渲染成可点击放大的缩略图条，让用户直接看到"答案来自笔记里的哪张图"。
+ * 场景：RAG 问答 / 文档内问 AI 时，AI 引用了哪几篇文档记录在 message.references 里。
+ * 本组件拿这批 note_id 调 `notesApi.getImages` 取回每篇文档 content 内的图片，
+ * 渲染成可点击放大的缩略图条，让用户直接看到"答案来自文档里的哪张图"。
  *
  * 图片解析复用编辑器同一套（src/lib/assetUrl + imageApi.getBlob）：
  * - 明文图（kb-asset://...png）→ resolveAssetSrc → asset 协议 URL
@@ -23,12 +23,12 @@ interface ResolvedImage {
   key: string;
   /** 可直接喂 <img> 的 URL（asset 协议 或 blob:）*/
   url: string;
-  /** 来源笔记标题，作为缩略图 tooltip */
+  /** 来源文档标题，作为缩略图 tooltip */
   title: string;
 }
 
 interface Props {
-  /** 引用的笔记 id 列表（一般来自 message.references 解析）*/
+  /** 引用的文档 id 列表（一般来自 message.references 解析）*/
   noteIds: number[];
 }
 

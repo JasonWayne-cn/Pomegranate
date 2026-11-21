@@ -20,7 +20,7 @@ import type { Note } from "@/types";
  * - 月份切换：上/下个月，标题"YYYY 年 M 月"
  * - 7×N 日历网格：周日开头；当月有日记的日期高亮蓝色；今天用粗框
  * - 点击格子：getOrCreate 当日日记 → 跳 /notes/:id 编辑
- * - 选中日期下方显示该日笔记预览 + "继续编辑"按钮
+ * - 选中日期下方显示该日文档预览 + "继续编辑"按钮
  *
  * MVP 不做：
  * - 30 天写作热力图深浅四档（设计稿那个右下角图例）
@@ -225,7 +225,7 @@ export function MobileDaily() {
         </div>
       </div>
 
-      {/* 选中日的笔记预览 */}
+      {/* 选中日的文档预览 */}
       <div className="bg-slate-50 px-4 py-3 pb-24">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-800">
@@ -269,7 +269,7 @@ export function MobileDaily() {
           className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-[#1677FF] font-medium text-white active:scale-[0.98] transition-transform"
         >
           <Edit3 size={16} className="mr-1.5" />
-          {selectedNote ? "继续编辑" : "开始记录"}今日笔记
+          {selectedNote ? "继续编辑" : "开始记录"}当天日记
         </button>
       </div>
     </div>

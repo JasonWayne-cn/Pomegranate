@@ -1,8 +1,8 @@
-//! T-007 笔记加密 / Vault Commands（IPC 入口）
+//! T-007 文档加密 / Vault Commands（IPC 入口）
 //!
 //! 分两组：
 //! - Vault 管理：`vault_status` / `vault_setup` / `vault_unlock` / `vault_lock`
-//! - 笔记加密：`encrypt_note` / `decrypt_note` / `disable_note_encrypt`
+//! - 文档加密：`encrypt_note` / `decrypt_note` / `disable_note_encrypt`
 //!
 //! Vault 派生 key 耗时 50~200ms（Argon2id），因此 `vault_setup` / `vault_unlock`
 //! 声明为 async，避免在 IPC 主线程 block。
@@ -42,16 +42,16 @@ pub fn vault_lock(state: State<'_, AppState>) -> Result<(), String> {
     VaultService::lock(&state.vault).map_err(|e| e.to_string())
 }
 
-// ─── 笔记加密 ─────────────────────────────────
+// ─── 文档加密 ─────────────────────────────────
 
-/// 把一篇笔记切换到加密态：读明文 content → vault 加密 → 写 blob + 占位
+/// 把一篇文档切换到加密态：读明文 content → vault 加密 → 写 blob + 占位
 #[tauri::command]
 pub fn encrypt_note(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     NoteService::encrypt_note(&state.db, &state.vault, &state.data_dir, id)
         .map_err(|e| e.to_string())
 }
 
-/// 解密一篇加密笔记（不改库，仅读明文给前端展示）
+/// 解密一篇加密文档（不改库，仅读明文给前端展示）
 #[tauri::command]
 pub fn decrypt_note(state: State<'_, AppState>, id: i64) -> Result<String, String> {
     NoteService::decrypt_note(&state.db, &state.vault, id).map_err(|e| e.to_string())

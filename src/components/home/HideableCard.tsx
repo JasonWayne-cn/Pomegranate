@@ -76,6 +76,9 @@ export function HideableCard({ widgetKey, extra, children, ...cardProps }: Props
       <div
         style={{
           position: "relative",
+          // 首页 widget 内容依赖父级高度铺满（待办卡内部还要滚动），
+          // 多包这两层必须在高度上透传，否则卡片内容会塌掉。
+          height: "100%",
           // blur 半径会让内容边缘往外洇，只在遮住时裁掉。
           // 常态绝不能加：待办卡内部还有滚动区，别给它多一层裁剪语义。
           overflow: blurred ? "hidden" : undefined,
@@ -83,17 +86,18 @@ export function HideableCard({ widgetKey, extra, children, ...cardProps }: Props
       >
         <div
           aria-hidden={blurred}
-          style={
-            blurred
+          style={{
+            height: "100%",
+            ...(blurred
               ? {
                   filter: "blur(6px)",
                   opacity: 0.55,
-                  // 必须屏蔽交互：否则会点中模糊层下面的笔记，直接跳走
+                  // 必须屏蔽交互：否则会点中模糊层下面的文档，直接跳走
                   pointerEvents: "none",
                   userSelect: "none",
                 }
-              : undefined
-          }
+              : {}),
+          }}
         >
           {children}
         </div>

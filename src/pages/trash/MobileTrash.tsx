@@ -84,7 +84,7 @@ export function MobileTrash() {
 
   async function handlePermanentDelete(note: Note) {
     Modal.confirm({
-      title: `永久删除「${note.title || "未命名笔记"}」？`,
+      title: `永久删除「${note.title || "未命名文档"}」？`,
       content: "此操作不可撤销。",
       okText: "永久删除",
       okType: "danger",
@@ -105,7 +105,7 @@ export function MobileTrash() {
     if (items.length === 0) return;
     Modal.confirm({
       title: `清空回收站（${total} 项）？`,
-      content: "所有已删除笔记将被永久清除，无法恢复。",
+      content: "所有已删除文档将被永久清除，无法恢复。",
       okText: "清空",
       okType: "danger",
       cancelText: "取消",
@@ -163,7 +163,7 @@ export function MobileTrash() {
       <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2.5">
         <Info size={16} className="mt-0.5 shrink-0 text-amber-600" />
         <p className="text-xs leading-relaxed text-amber-800">
-          已删除笔记保留 {RETENTION_DAYS} 天，到期后自动清理。当前共{" "}
+          已删除文档保留 {RETENTION_DAYS} 天，到期后自动清理。当前共{" "}
           <strong>{total} 项</strong>。
         </p>
       </div>
@@ -179,7 +179,7 @@ export function MobileTrash() {
             <Trash2 size={40} className="text-slate-300" />
             <span className="text-sm">回收站为空</span>
             <span className="text-xs text-slate-300">
-              删除的笔记会暂存在这里 {RETENTION_DAYS} 天
+              删除的文档会暂存在这里 {RETENTION_DAYS} 天
             </span>
           </div>
         ) : (
@@ -241,7 +241,7 @@ export function MobileTrash() {
       {/* 长按回收站条目唤起的底部操作面板 */}
       <ActionSheet
         open={sheetNote !== null}
-        title={sheetNote?.title || "未命名笔记"}
+        title={sheetNote?.title || "未命名文档"}
         items={sheetItems}
         onClose={() => setSheetNote(null)}
       />
@@ -286,7 +286,7 @@ function ExpiringCard({
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-medium text-slate-900">
-            {note.title || "未命名笔记"}
+            {note.title || "未命名文档"}
           </h3>
           {note.content && (
             <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
@@ -343,7 +343,7 @@ function RegularRow({
           style={{ WebkitTouchCallout: "none" }}
         >
           <h3 className="truncate text-sm font-medium text-slate-900">
-            {note.title || "未命名笔记"}
+            {note.title || "未命名文档"}
           </h3>
           <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
             <span>{new Date(note.updated_at).toLocaleDateString("zh-CN")} 删除</span>

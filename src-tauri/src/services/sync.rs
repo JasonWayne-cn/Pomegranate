@@ -259,7 +259,7 @@ impl SyncService {
         // overwrite 模式要整目录替换的资产目录。
         //
         // 旧实现在解压前就 `remove_dir_all` 这些目录：之后只要包损坏 / 库校验失败 / 磁盘满，
-        // 数据库虽然因为原子替换保住了，图片 / PDF / 源文件却已经被删光，笔记里全是裂图。
+        // 数据库虽然因为原子替换保住了，图片 / PDF / 源文件却已经被删光，文档里全是裂图。
         // 现在改成：资产先解到暂存目录，数据库校验通过后再把暂存目录换进来，
         // 旧目录改名为 `<目录>.bak-<时间戳>` 留作后悔药（见 swap_in_staged_dirs）。
         let replaced_dirs: Vec<&'static str> = if matches!(mode, SyncImportMode::Overwrite) {
@@ -842,9 +842,9 @@ impl SyncService {
         let _ = fs::remove_file(&tmp_zip); // 兜底（明文路径已删过，加密路径也删过，这里 noop）
         upload_result?;
 
-        // 记下这次推上去的笔记数，托盘 / 定时推送据此判断"本机是不是突然少了一大半"
+        // 记下这次推上去的文档数，托盘 / 定时推送据此判断"本机是不是突然少了一大半"
         // （见 sync_scheduler::check_push_safety）。只是保护用的参考值，写失败不影响推送结果。
-        // 范围没勾笔记时 notes_count 恒为 0，记下来反而会让保护失效，跳过
+        // 范围没勾文档时 notes_count 恒为 0，记下来反而会让保护失效，跳过
         if scope.notes {
             let _ = db.set_config(
                 crate::services::sync_scheduler::LAST_PUSH_NOTES_KEY,
@@ -1633,7 +1633,7 @@ mod tests {
 
         let dir = mk_tmp_dir("live");
         let src = dir.join("src.db");
-        mk_db(&src, "备份包里的笔记");
+        mk_db(&src, "备份包里的文档");
         let zip = mk_snapshot_zip(&src, Some(crate::database::schema::SCHEMA_VERSION));
 
         let dest = dir.join("app.db");
@@ -1675,7 +1675,7 @@ mod tests {
         };
         assert_eq!(
             titles,
-            vec!["备份包里的笔记".to_string()],
+            vec!["备份包里的文档".to_string()],
             "reopen 后应读到导入的新数据"
         );
 
@@ -1768,7 +1768,7 @@ mod tests {
         let src_db_path = tmp.join("src-app.db");
         let db = Database::init(src_db_path.to_str().unwrap()).unwrap();
         db.create_note(&NoteInput {
-            title: "加密备份测试笔记".into(),
+            title: "加密备份测试文档".into(),
             content: "secret content xyz".into(),
             folder_id: None,
         })
@@ -1839,18 +1839,18 @@ mod tests {
             Some("my-pw"),
         )
         .unwrap();
-        // 验证 dest db 里有那条笔记
+        // 验证 dest db 里有那条文档
         let dest = Database::init(dest_db_path.to_str().unwrap()).unwrap();
         let n = {
             let conn = dest.conn_lock().unwrap();
             conn.query_row(
-                "SELECT title FROM notes WHERE title = '加密备份测试笔记'",
+                "SELECT title FROM notes WHERE title = '加密备份测试文档'",
                 [],
                 |r| r.get::<_, String>(0),
             )
             .ok()
         };
-        assert_eq!(n.as_deref(), Some("加密备份测试笔记"), "导入的笔记应存在");
+        assert_eq!(n.as_deref(), Some("加密备份测试文档"), "导入的文档应存在");
 
         let _ = fs::remove_dir_all(&tmp);
     }

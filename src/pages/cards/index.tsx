@@ -269,20 +269,20 @@ function ReviewTab({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="max-w-2xl mx-auto">
-      {/* 进度 + 笔记跳转 */}
+      {/* 进度 + 文档跳转 */}
       <div className="flex items-center justify-between mb-2 px-1">
         <span className="text-xs text-gray-500">
           {idx + 1} / {queue.length}
         </span>
         {current.note_id != null && (
-          <Tooltip title="打开原笔记">
+          <Tooltip title="打开原文档">
             <Button
               size="small"
               type="text"
               icon={<FileText size={13} />}
               onClick={() => navigate(`/notes/${current.note_id}`)}
             >
-              <span className="text-xs">原笔记</span>
+              <span className="text-xs">原文档</span>
             </Button>
           </Tooltip>
         )}
@@ -461,7 +461,7 @@ function ListTab({ onChanged }: { onChanged: () => void }) {
             render: (_, c) => (
               <Space size="small">
                 {c.note_id != null && (
-                  <Tooltip title="打开原笔记">
+                  <Tooltip title="打开原文档">
                     <Button
                       type="text"
                       size="small"

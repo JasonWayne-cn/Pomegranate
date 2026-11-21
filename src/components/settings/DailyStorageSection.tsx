@@ -27,7 +27,7 @@ interface Props {
 /**
  * 日记 Markdown 存储路径。
  *
- * 仅保存一个输出目录配置，不改变当前笔记正文写入数据库的实现。
+ * 仅保存一个输出目录配置，不改变当前文档正文写入数据库的实现。
  * 供设置页与日记模块抽屉共用。
  */
 export function DailyStorageSection({ compact }: Props) {
@@ -102,8 +102,8 @@ export function DailyStorageSection({ compact }: Props) {
         type="info"
         showIcon
         className="mb-3"
-        message="当前笔记仍按现有数据库方式保存"
-        description="这里仅保存一个用于日记 Markdown 文件输出的目录配置，不会改变当前笔记正文写入数据库的实现。"
+        message="当前文档仍按现有数据库方式保存"
+        description="这里仅保存一个用于日记 Markdown 文件输出的目录配置，不会改变当前文档正文写入数据库的实现。"
       />
       <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 13 }}>
         后续生成或同步日记 .md 文件时，可读取此路径作为保存目录。

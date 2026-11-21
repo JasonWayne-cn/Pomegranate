@@ -23,7 +23,7 @@ describe("stripPseudoToolCalls — 引用标记", () => {
   });
 
   it("不误删普通 HTML 注释", () => {
-    // 用户笔记里可能就有 HTML 注释，模型复述出来不能被吞掉
+    // 用户文档里可能就有 HTML 注释，模型复述出来不能被吞掉
     const text = "正文 <!-- 这是一段普通注释 -->";
     expect(stripPseudoToolCalls(text)).toBe(text);
   });

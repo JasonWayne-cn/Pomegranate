@@ -87,7 +87,7 @@ impl Database {
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         // 负数表示 KB，-64000 = 64MB 内存页缓存，减少磁盘读取（默认 2MB 远远不够）
         conn.pragma_update(None, "cache_size", -64000)?;
-        // 32MB 内存映射，加速大范围顺序读（例如笔记列表、图谱）
+        // 32MB 内存映射，加速大范围顺序读（例如文档列表、图谱）
         conn.pragma_update(None, "mmap_size", 33_554_432_i64)?;
         // 排序/临时表走内存，避免磁盘 I/O
         conn.pragma_update(None, "temp_store", "MEMORY")?;

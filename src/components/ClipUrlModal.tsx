@@ -10,7 +10,7 @@ const { Text } = Typography;
 
 interface Props {
   open: boolean;
-  /** 把笔记落到哪个文件夹（不传 = 根目录） */
+  /** 把文档落到哪个文件夹（不传 = 根目录） */
   folderId?: number | null;
   onClose: () => void;
 }
@@ -18,7 +18,7 @@ interface Props {
 /**
  * T-014 网页剪藏 Modal
  *
- * 输入 URL → 后端直连原网页、readability 提正文转 markdown → 创建笔记 → 跳转到编辑器。
+ * 输入 URL → 后端直连原网页、readability 提正文转 markdown → 创建文档 → 跳转到编辑器。
  * 失败时保留输入框，提示用户重试或换 URL。
  */
 export function ClipUrlModal({ open, folderId, onClose }: Props) {
@@ -68,7 +68,7 @@ export function ClipUrlModal({ open, folderId, onClose }: Props) {
       title={
         <span className="inline-flex items-center gap-2">
           <Globe size={16} />
-          剪藏网页到笔记
+          剪藏网页到文档
         </span>
       }
       open={open}

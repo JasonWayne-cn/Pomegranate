@@ -12,7 +12,7 @@ use crate::services::export_merge::{MergeExportResult, MergeFormat};
 use crate::services::export_word::WordExportResult;
 use crate::state::AppState;
 
-/// 批量导出笔记为 Markdown 文件
+/// 批量导出文档为 Markdown 文件
 ///
 /// 入参 `output_dir` 是用户选择的父目录；服务会在其下自动创建一层
 /// `知识库导出_YYYYMMDD_HHmmss/` 作为实际导出根（结果中的 `root_dir`）。
@@ -68,13 +68,13 @@ pub fn export_folder_merged(
     .map_err(|e| e.to_string())
 }
 
-/// 导出单篇笔记为 Markdown 文件
+/// 导出单篇文档为 Markdown 文件
 ///
 /// 入参 `parent_dir` 是用户选择的父目录。
 /// - `single_file = false`/缺省：在其下建一层 `{标题}/` 子目录，放 `{标题}.md` + `assets/`。
 /// - `single_file = true`：不建目录，图片/附件 base64 内嵌，直接在 `parent_dir` 下写单个 `{标题}.md`。
 ///
-/// - `id`: 笔记 ID
+/// - `id`: 文档 ID
 /// - `parent_dir`: 用户选择的父目录路径
 /// - `single_file`: 是否导出为单文件（不生成文件夹），缺省 false 保持原行为
 #[tauri::command(async)]
@@ -94,7 +94,7 @@ pub fn export_single_note(
     .map_err(|e| e.to_string())
 }
 
-/// T-020 导出单条笔记为 Word（.docx）
+/// T-020 导出单条文档为 Word（.docx）
 ///
 /// `target_path` 是用户在 save dialog 选定的最终 .docx 路径
 /// 仅桌面端：docx_rs 移动端编译失败
@@ -119,7 +119,7 @@ pub fn export_single_note_to_word(
         .db
         .get_note(id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("笔记 {} 不存在", id))?;
+        .ok_or_else(|| format!("文档 {} 不存在", id))?;
 
     let assets_root = state.data_dir.clone();
     let target = PathBuf::from(&target_path);
@@ -137,7 +137,7 @@ pub fn export_single_note_to_word(
     .map_err(|e| e.to_string())
 }
 
-/// T-020 导出单条笔记为 HTML（单文件，图片内嵌 base64，可独立分享）
+/// T-020 导出单条文档为 HTML（单文件，图片内嵌 base64，可独立分享）
 #[tauri::command(async)]
 pub fn export_single_note_to_html(
     state: tauri::State<'_, AppState>,
@@ -152,7 +152,7 @@ pub fn export_single_note_to_html(
         .db
         .get_note(id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("笔记 {} 不存在", id))?;
+        .ok_or_else(|| format!("文档 {} 不存在", id))?;
 
     let assets_root = state.data_dir.clone();
     let target = PathBuf::from(&target_path);
@@ -197,7 +197,7 @@ pub fn export_png_to_file(target_path: String, base64_data: String) -> Result<()
     Ok(())
 }
 
-/// R-005 渲染笔记为 HTML 字符串供前端 iframe 打印为 PDF。
+/// R-005 渲染文档为 HTML 字符串供前端 iframe 打印为 PDF。
 ///
 /// 不写文件，前端拿到字符串后塞 hidden iframe → contentWindow.print() →
 /// 用户在原生打印对话框选 "Microsoft Print to PDF" / "另存为 PDF"。
@@ -215,7 +215,7 @@ pub fn render_note_html_for_pdf(
         .db
         .get_note(id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("笔记 {} 不存在", id))?;
+        .ok_or_else(|| format!("文档 {} 不存在", id))?;
 
     let assets_root = state.data_dir.clone();
 
@@ -254,7 +254,7 @@ pub fn inline_note_html_assets(
 /// 批量把本地资源 URL 解析成 data: URL（打印 / 复制为 Word 的附件内嵌走这条）。
 ///
 /// 与 `inline_note_html_assets` 的区别是**只搬需要的东西**：那条要求整篇 HTML 进出，
-/// 一篇带图的笔记内嵌后动辄几十 MB，两次 JSON 序列化就能把 WebView 卡住；这条只收
+/// 一篇带图的文档内嵌后动辄几十 MB，两次 JSON 序列化就能把 WebView 卡住；这条只收
 /// URL 清单、只回 data: URL，前端自己在 DOM 上回填。
 ///
 /// `max_bytes` 缺省 32 MiB：单个文件超过就返回 data_url = null，前端保留原 URL

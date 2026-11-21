@@ -56,7 +56,7 @@ function DesktopTrashPage() {
   });
   const [loading, setLoading] = useState(false);
   const [pageSize, setPageSize] = useState(12);
-  /** 选中的笔记 id（仅当前页生效；翻页/批量操作后清空） */
+  /** 选中的文档 id（仅当前页生效；翻页/批量操作后清空） */
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   /** 文件夹 id → 完整路径，用于「所在目录」列 */
   const [folderPaths, setFolderPaths] = useState<Map<number, string>>(new Map());
@@ -76,7 +76,7 @@ function DesktopTrashPage() {
 
   useEffect(() => {
     void loadTrash(1, pageSize);
-    // 回收站只展示已删除笔记，文件夹本身不会出现在回收站；拉一次树建路径映射即可
+    // 回收站只展示已删除文档，文件夹本身不会出现在回收站；拉一次树建路径映射即可
     folderApi
       .list()
       .then((list) => setFolderPaths(buildFolderPathMap(list)))
@@ -118,7 +118,7 @@ function DesktopTrashPage() {
     return [
       {
         key: "restore",
-        label: "恢复笔记",
+        label: "恢复文档",
         icon: <RotateCcw size={13} />,
         onClick: () => {
           ctx.close();
@@ -168,7 +168,7 @@ function DesktopTrashPage() {
   async function handlePermanentDeleteBatch() {
     if (selectedIds.length === 0) return;
     try {
-      // 关闭对应 tab，避免编辑器残留指向已删笔记
+      // 关闭对应 tab，避免编辑器残留指向已删文档
       useTabsStore.getState().closeTabsByIds(selectedIds);
       const n = await trashApi.permanentDeleteBatch(selectedIds);
       message.success(`已永久删除 ${n} 条`);
@@ -184,7 +184,7 @@ function DesktopTrashPage() {
     Modal.confirm({
       title: "清空回收站",
       icon: <AlertTriangle size={20} style={{ color: "#ff4d4f", marginRight: 8 }} />,
-      content: "此操作将永久删除回收站中的所有笔记，且不可恢复。确定继续？",
+      content: "此操作将永久删除回收站中的所有文档，且不可恢复。确定继续？",
       okText: "确认清空",
       okType: "danger",
       cancelText: "取消",
@@ -196,7 +196,7 @@ function DesktopTrashPage() {
           if (visibleIds.length > 0) {
             useTabsStore.getState().closeTabsByIds(visibleIds);
           }
-          message.success(`已清空 ${count} 篇笔记`);
+          message.success(`已清空 ${count} 篇文档`);
           loadTrash(1, pageSize);
         } catch (e) {
           message.error(String(e));
@@ -319,7 +319,7 @@ function DesktopTrashPage() {
 
       <div className="flex-shrink-0" style={{ marginBottom: 12, lineHeight: 1.6 }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          提示：回收站中的笔记将在 30 天后自动永久删除。
+          提示：回收站中的文档将在 30 天后自动永久删除。
         </Text>
       </div>
 
@@ -338,7 +338,7 @@ function DesktopTrashPage() {
           <span style={{ fontSize: 13 }}>已选 {selectedIds.length} 条</span>
           <Divider orientation="vertical" />
           <Popconfirm
-            title={`确认恢复 ${selectedIds.length} 条笔记？`}
+            title={`确认恢复 ${selectedIds.length} 条文档？`}
             okText="恢复"
             onConfirm={handleRestoreBatch}
           >
@@ -347,7 +347,7 @@ function DesktopTrashPage() {
             </Button>
           </Popconfirm>
           <Popconfirm
-            title={`确认永久删除 ${selectedIds.length} 条笔记？`}
+            title={`确认永久删除 ${selectedIds.length} 条文档？`}
             description="此操作不可恢复"
             okText="永久删除"
             okButtonProps={{ danger: true }}

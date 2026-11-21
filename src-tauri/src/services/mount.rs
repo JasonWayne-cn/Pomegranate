@@ -223,7 +223,7 @@ fn ext_lower(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// 跳过点目录 / node_modules，避免把 .git / .obsidian / 依赖目录当笔记
+/// 跳过点目录 / node_modules，避免把 .git / .obsidian / 依赖目录当文档
 fn should_skip_dir(entry: &walkdir::DirEntry) -> bool {
     if entry.depth() == 0 || !entry.file_type().is_dir() {
         return false;
@@ -355,7 +355,7 @@ impl MountService {
 
         db.update_external_mount_settings(id, &normalized)?;
 
-        // 类型开关变化：关闭时把已索引笔记标记 paused；重新开启时清空状态等待重抽
+        // 类型开关变化：关闭时把已索引文档标记 paused；重新开启时清空状态等待重抽
         if let Some(new_types) = normalized.sync_types.as_ref() {
             for category in ["text", "pdf", "word", "slide", "sheet"] {
                 let was = old.sync_types.enabled_category(category);
@@ -371,7 +371,7 @@ impl MountService {
             .ok_or_else(|| AppError::NotFound(format!("挂载点 {} 不存在", id)))
     }
 
-    /// 删除挂载点。`detach=true` 时保留影子笔记，转成普通本地笔记。
+    /// 删除挂载点。`detach=true` 时保留影子文档，转成普通本地文档。
     pub fn remove_mount(db: &Database, id: i64, detach: bool) -> Result<(), AppError> {
         if detach {
             db.detach_external_mount(id)
@@ -384,7 +384,7 @@ impl MountService {
         db.list_external_entries(mount_id)
     }
 
-    /// 扫描一个挂载点，增量更新影子笔记
+    /// 扫描一个挂载点，增量更新影子文档
     pub fn scan_mount<R: Runtime, E: Emitter<R>>(
         db: &Database,
         mount: &ExternalMount,
@@ -424,7 +424,7 @@ impl MountService {
         let mut seen_ids: Vec<i64> = Vec::with_capacity(total);
 
         // 本轮磁盘上仍然存在的相对路径（含被类型开关暂停的文件）。
-        // 用于判断某条影子笔记的旧路径是否已经消失，从而参与"移动匹配"。
+        // 用于判断某条影子文档的旧路径是否已经消失，从而参与"移动匹配"。
         let disk_rels: HashSet<String> = files
             .iter()
             .filter_map(|f| {
@@ -437,8 +437,8 @@ impl MountService {
             })
             .collect();
 
-        // 外部移动/归档识别：按 (mtime, size) 给"磁盘上已不存在的旧路径笔记"建索引。
-        // 同指纹只对应一条笔记时才认定为移动，避免把同大小同时间的多份文件配错。
+        // 外部移动/归档识别：按 (mtime, size) 给"磁盘上已不存在的旧路径文档"建索引。
+        // 同指纹只对应一条文档时才认定为移动，避免把同大小同时间的多份文件配错。
         let path_index = db.list_external_path_index(mount.id).unwrap_or_default();
         let mut movable_by_fingerprint: HashMap<(i64, i64), Vec<_>> = HashMap::new();
         for row in path_index {
@@ -459,7 +459,7 @@ impl MountService {
                 Some(k) => k,
                 None => continue,
             };
-            // 类型被关闭：跳过索引；已索引的 paused 笔记不会被 mark_missing 标记缺失
+            // 类型被关闭：跳过索引；已索引的 paused 文档不会被 mark_missing 标记缺失
             if !type_enabled(&mount.sync_types, kind) {
                 continue;
             }
@@ -507,8 +507,8 @@ impl MountService {
                 }
             };
 
-            // 外部归档/改名：新路径查不到影子笔记时，用 (size, mtime) 匹配
-            // 磁盘上已不存在的旧路径笔记。命中即沿用原 note id，并把镜像文件夹
+            // 外部归档/改名：新路径查不到影子文档时，用 (size, mtime) 匹配
+            // 磁盘上已不存在的旧路径文档。命中即沿用原 note id，并把镜像文件夹
             // 挪到新位置；内容没变，不需要重新抽取。
             if existing.is_none() {
                 if let Some(candidate) = movable_by_fingerprint
@@ -564,11 +564,11 @@ impl MountService {
                     result.unchanged += 1;
                     continue;
                 }
-                // 二进制文档：影子笔记被用户编辑过 + 原文件变了 → 不覆盖，标记陈旧
+                // 二进制文档：影子文档被用户编辑过 + 原文件变了 → 不覆盖，标记陈旧
                 if kind.is_binary() && row.user_edited() {
                     let _ = db.mark_external_stale(
                         row.id,
-                        Some("原文件已更新，但影子笔记有本地编辑，未自动覆盖"),
+                        Some("原文件已更新，但影子文档有本地编辑，未自动覆盖"),
                     );
                     seen_ids.push(row.id);
                     result.stale += 1;
@@ -731,7 +731,7 @@ impl MountService {
         }
 
         // 文件被移动/归档后，旧目录会变成空壳；清掉它们让文档目录树与磁盘一致。
-        // 仍挂着缺失笔记或暂停笔记的文件夹不会被删除，内容可恢复。
+        // 仍挂着缺失文档或暂停文档的文件夹不会被删除，内容可恢复。
         match db.prune_empty_external_folders(mount.id) {
             Ok(n) if n > 0 => {
                 log::info!("[mount] {}: 清理空镜像文件夹 {} 个", mount.name, n);
@@ -814,15 +814,15 @@ impl MountService {
     /// 打开外部文件：读磁盘最新内容并同步影子缓存。
     ///
     /// - 原文件未变：直接返回缓存
-    /// - 原文件变了 + 影子笔记未编辑：自动重新抽取
-    /// - 原文件变了 + 影子笔记已编辑：标记 stale，保留本地编辑
+    /// - 原文件变了 + 影子文档未编辑：自动重新抽取
+    /// - 原文件变了 + 影子文档已编辑：标记 stale，保留本地编辑
     pub fn open_note(db: &Database, note_id: i64) -> Result<MountOpenResult, AppError> {
         let meta = db
             .get_external_note_meta(note_id)?
-            .ok_or_else(|| AppError::NotFound(format!("外部笔记 {} 不存在", note_id)))?;
+            .ok_or_else(|| AppError::NotFound(format!("外部文档 {} 不存在", note_id)))?;
         let cached = db
             .get_note(note_id)?
-            .ok_or_else(|| AppError::NotFound(format!("笔记 {} 不存在", note_id)))?
+            .ok_or_else(|| AppError::NotFound(format!("文档 {} 不存在", note_id)))?
             .content;
         let user_edited = match (&meta.content_hash, &meta.indexed_hash) {
             (Some(cur), Some(base)) => cur != base,
@@ -876,7 +876,7 @@ impl MountService {
         if is_binary && user_edited {
             let _ = db.mark_external_stale(
                 note_id,
-                Some("原文件已更新，但影子笔记有本地编辑，未自动覆盖"),
+                Some("原文件已更新，但影子文档有本地编辑，未自动覆盖"),
             );
             return Ok(MountOpenResult {
                 note_id,
@@ -887,7 +887,7 @@ impl MountService {
                 stale: true,
                 user_edited: true,
                 status: Some("stale".into()),
-                error: Some("原文件已更新，但影子笔记有本地编辑".into()),
+                error: Some("原文件已更新，但影子文档有本地编辑".into()),
                 source_type: meta.source_type,
             });
         }
@@ -924,7 +924,7 @@ impl MountService {
         }
     }
 
-    /// 查询影子笔记是否落后于原文件
+    /// 查询影子文档是否落后于原文件
     pub fn note_status(db: &Database, note_id: i64) -> Result<MountNoteStatus, AppError> {
         let Some(meta) = db.get_external_note_meta(note_id)? else {
             return Ok(MountNoteStatus {
@@ -979,11 +979,11 @@ impl MountService {
         })
     }
 
-    /// 强制重新抽取（会覆盖影子笔记的本地编辑）
+    /// 强制重新抽取（会覆盖影子文档的本地编辑）
     pub fn reextract(db: &Database, note_id: i64) -> Result<MountOpenResult, AppError> {
         let meta = db
             .get_external_note_meta(note_id)?
-            .ok_or_else(|| AppError::NotFound(format!("外部笔记 {} 不存在", note_id)))?;
+            .ok_or_else(|| AppError::NotFound(format!("外部文档 {} 不存在", note_id)))?;
         let path = Path::new(&meta.abs_path);
         if !path.is_file() {
             return Err(AppError::NotFound(format!(
@@ -1016,7 +1016,7 @@ impl MountService {
     ) -> Result<MountSaveResult, AppError> {
         let meta = db
             .get_external_note_meta(note_id)?
-            .ok_or_else(|| AppError::NotFound(format!("外部笔记 {} 不存在", note_id)))?;
+            .ok_or_else(|| AppError::NotFound(format!("外部文档 {} 不存在", note_id)))?;
         let ext = meta
             .source_type
             .clone()
@@ -1024,7 +1024,7 @@ impl MountService {
         let is_binary = classify_ext(&ext).map(|k| k.is_binary()).unwrap_or(false);
         if is_binary {
             return Err(AppError::InvalidInput(
-                "PDF / Word / Excel 影子笔记不能写回原文件；编辑仅保存在数据库".into(),
+                "PDF / Word / Excel 影子文档不能写回原文件；编辑仅保存在数据库".into(),
             ));
         }
         if meta.read_only {
@@ -1077,7 +1077,7 @@ impl MountService {
 
     /// 把标签写回挂载 Markdown 源文件的 frontmatter。
     ///
-    /// - 内部笔记（非挂载）直接返回 `Ok`，调用方继续写 DB 即可。
+    /// - 内部文档（非挂载）直接返回 `Ok`，调用方继续写 DB 即可。
     /// - 只有 `.md` / `.markdown` 支持写回；PDF / Word / Excel 的标签来自源文件解析，返回错误。
     /// - 只读挂载点 / 源文件缺失 / 外部已修改（mtime 冲突）均返回错误，避免覆盖用户文件。
     ///
@@ -1154,8 +1154,8 @@ impl MountService {
 
     /// Office 工作台保存原文件后按绝对路径立即刷新索引。
     ///
-    /// 背景扫描是轮询制（默认 10 秒），保存后立刻搜索会暂时命中旧正文。
-    /// 这里按「挂载根 + 相对路径」定位影子笔记并强制重抽；路径不在任何挂载内时返回 `Ok(None)`。
+    /// 背景扫描是轮询制（默认 10 分钟），保存后立刻搜索会暂时命中旧正文。
+    /// 这里按「挂载根 + 相对路径」定位影子文档并强制重抽；路径不在任何挂载内时返回 `Ok(None)`。
     pub fn refresh_path(db: &Database, path: &str) -> Result<Option<i64>, AppError> {
         let target = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
         for mount in db.list_external_mounts()? {
@@ -1180,7 +1180,7 @@ impl MountService {
         Ok(None)
     }
 
-    /// 打开笔记前刷新外部内容（供 NoteService::get 调用）。
+    /// 打开文档前刷新外部内容（供 NoteService::get 调用）。
     pub fn refresh_if_external(db: &Database, note_id: i64) {
         let _ = Self::open_note(db, note_id);
     }

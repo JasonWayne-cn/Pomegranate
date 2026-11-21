@@ -5,7 +5,7 @@ use crate::services::asset_path;
 use crate::services::image::ImageService;
 use crate::state::AppState;
 
-/// 把笔记里的相对资产路径（kb-asset:// 后那段）还原成绝对路径。
+/// 把文档里的相对资产路径（kb-asset:// 后那段）还原成绝对路径。
 ///
 /// 用途：附件链接需要走 OS opener 打开（必须传绝对路径）；其它素材渲染走 asset 协议
 /// 不需要这个 Command，前端 `convertFileSrc` 自己拼即可。

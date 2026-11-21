@@ -1,6 +1,6 @@
 //! T-S021 资产引用扫描器
 //!
-//! 扫描笔记 content 中的本地资产引用（markdown 图片/链接 + Obsidian wiki 嵌入），
+//! 扫描文档 content 中的本地资产引用（markdown 图片/链接 + Obsidian wiki 嵌入），
 //! 计算 sha256，upsert 到 `note_attachments` 表。同步流程靠这张表算"哪些 hash 该上传"。
 //!
 //! ## 引用模式
@@ -110,14 +110,14 @@ fn looks_like_local_asset(rel: &str) -> bool {
     KNOWN_PREFIXES.iter().any(|p| rel.starts_with(p))
 }
 
-/// URL-decode 简化版：把 `%20` 等还原为字符（笔记里的图片路径可能带 URL 转义）
+/// URL-decode 简化版：把 `%20` 等还原为字符（文档里的图片路径可能带 URL 转义）
 fn url_decode(s: &str) -> String {
     urlencoding::decode(s)
         .map(|c| c.into_owned())
         .unwrap_or_else(|_| s.to_string())
 }
 
-/// 从笔记 content 中提取所有"本地资产相对路径"（去重，保持稳定顺序）
+/// 从文档 content 中提取所有"本地资产相对路径"（去重，保持稳定顺序）
 pub fn extract_local_refs(content: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -134,7 +134,7 @@ pub fn extract_local_refs(content: &str) -> Vec<String> {
         }
     }
 
-    // markdown 图片（[2] 是 path）—— 兼容旧 / 导入笔记里的纯 markdown 写法 `![](kb_assets/...)`
+    // markdown 图片（[2] 是 path）—— 兼容旧 / 导入文档里的纯 markdown 写法 `![](kb_assets/...)`
     for cap in re_md_image().captures_iter(content) {
         if let Some(p) = cap.get(2) {
             let decoded = url_decode(p.as_str());
@@ -238,7 +238,7 @@ fn mime_from_ext(rel: &str) -> Option<String> {
     Some(m.to_string())
 }
 
-/// 扫描一条笔记的 content，识别本地资产引用，计算 hash 并 upsert 到 note_attachments。
+/// 扫描一条文档的 content，识别本地资产引用，计算 hash 并 upsert 到 note_attachments。
 ///
 /// 返回成功 upsert 的引用数（不存在的文件被跳过且不计入）。
 pub fn scan_note(
@@ -250,7 +250,7 @@ pub fn scan_note(
     let refs = extract_local_refs(content);
     // 先把文件 IO + hash 全做完（**不持锁**），再一次性写库。
     // 逐条 upsert 会在全库扫描时产生近万次 Mutex 加解锁，与主线程上的同步 Command
-    // 争锁 → 扫描期间点笔记转圈。见 `Database::upsert_attachment_refs_batch` 的文档。
+    // 争锁 → 扫描期间点文档转圈。见 `Database::upsert_attachment_refs_batch` 的文档。
     let resolved: Vec<(String, String, i64, Option<String>)> = refs
         .into_iter()
         .filter_map(|rel| try_resolve(data_dir, &rel))
@@ -261,10 +261,10 @@ pub fn scan_note(
     Ok(count)
 }
 
-/// 全库扫描：遍历所有活跃笔记（is_deleted=0），对每条调 scan_note。
+/// 全库扫描：遍历所有活跃文档（is_deleted=0），对每条调 scan_note。
 ///
-/// **增量**：只处理 `attachment_scan_at IS NULL OR attachment_scan_at <> updated_at` 的笔记
-/// （v38 起新增的标记列）—— 上次扫过且笔记没动 = 跳过。Push 前自动跑也只重扫真正变更的笔记。
+/// **增量**：只处理 `attachment_scan_at IS NULL OR attachment_scan_at <> updated_at` 的文档
+/// （v38 起新增的标记列）—— 上次扫过且文档没动 = 跳过。Push 前自动跑也只重扫真正变更的文档。
 /// 首次升级：`attachment_scan_at` 是 NULL → 第一次 push 仍全库扫一遍，之后稳态只扫变更。
 ///
 /// `force_full=true` 时退化为全库扫，给设置页"重建附件索引"按钮用（用户能强制重建）。
@@ -287,7 +287,7 @@ fn scan_active_notes_inner(
         let conn = db.conn_lock()?;
         // P2-b：判据用 `<>`（不等）而非 `<`（落后）。pull 的 update_note_synced 会把
         // updated_at 设成远端 entry 的值，可能比本地原值旧（如 is_daily / is_hidden 元数据
-        // 对齐场景）→ updated_at "回退" → 用 `<` 时 scan_at 恒 >= updated_at → 该笔记永久
+        // 对齐场景）→ updated_at "回退" → 用 `<` 时 scan_at 恒 >= updated_at → 该文档永久
         // 跳过增量扫描、附件引用变更再也扫不到。改 `<>` 后任何 updated_at 变动（变新或
         // 变旧）都触发一次重扫，扫完 mark_scanned 把 scan_at 对齐 → 下次正常跳过。
         let sql = if force_full {
@@ -310,7 +310,7 @@ fn scan_active_notes_inner(
         return Ok(0);
     }
     log::debug!(
-        "[attachment-scan] {} 条笔记待扫描（force_full={}）",
+        "[attachment-scan] {} 条文档待扫描（force_full={}）",
         note_ids.len(),
         force_full
     );
@@ -331,20 +331,20 @@ fn scan_active_notes_inner(
             match scan_note(db, data_dir, id, &content) {
                 Ok(n) => {
                     total += n;
-                    // 标记本笔记已扫描到 updated_at 这个时刻；下次 update_note 把
+                    // 标记本文档已扫描到 updated_at 这个时刻；下次 update_note 把
                     // updated_at 推到更新值时，scan_at < updated_at 自动重新进入扫描集
                     if let Err(e) = mark_scanned(db, id, &updated_at) {
                         log::warn!("[attachment-scan] 标记 note#{} 扫描时间失败: {}", id, e);
                     }
                 }
-                Err(e) => log::warn!("[attachment-scan] 笔记 {} 扫描失败: {}", id, e),
+                Err(e) => log::warn!("[attachment-scan] 文档 {} 扫描失败: {}", id, e),
             }
         }
     }
     Ok(total)
 }
 
-/// 把笔记的 `attachment_scan_at` 标记到 `scanned_to`（一般是该笔记当前的 `updated_at`）。
+/// 把文档的 `attachment_scan_at` 标记到 `scanned_to`（一般是该文档当前的 `updated_at`）。
 /// 不动 `updated_at`，单纯写元数据。
 fn mark_scanned(db: &Database, note_id: i64, scanned_to: &str) -> Result<(), AppError> {
     let conn = db.conn_lock()?;
@@ -512,7 +512,7 @@ mod tests {
         let db = Database::init(":memory:").unwrap();
         let note = db
             .create_note(&NoteInput {
-                title: "笔记".into(),
+                title: "文档".into(),
                 content: "![hello](kb_assets/images/hello.png)".into(),
                 folder_id: None,
             })
@@ -608,7 +608,7 @@ mod tests {
             "scan 完应把 scan_at 标到当前 updated_at"
         );
 
-        // 第二次同样调用 → 没有变更 → scan_at 不变（笔记本身没动）
+        // 第二次同样调用 → 没有变更 → scan_at 不变（文档本身没动）
         scan_all_active_notes(&db, &tmp).unwrap();
         assert_eq!(note_scan_at(&db, n.id).as_deref(), Some(updated.as_str()));
 
@@ -657,7 +657,7 @@ mod tests {
     /// P2-b：updated_at "回退"（被 pull 的 update_note_synced 设成更早的远端值，
     /// 如 is_daily / is_hidden 元数据对齐场景）也必须重新进入增量扫描集 ——
     /// 判据是 `<>` 而非 `<`。旧代码（`<`）下本测试会失败：scan_at 恒 >= 回退后的
-    /// updated_at → 该笔记永久跳过增量扫描。
+    /// updated_at → 该文档永久跳过增量扫描。
     #[test]
     fn updated_at_rolled_back_re_enters_scan_set() {
         let tmp = std::env::temp_dir().join("kb_incr_scan_test_rollback");
@@ -713,7 +713,7 @@ mod tests {
         scan_all_active_notes(&db, &tmp).unwrap();
         let scan1 = note_scan_at(&db, n.id);
 
-        // 强制重扫——笔记没动，scan_at 仍被重写但值不变（侧证全量路径走过了 mark_scanned）
+        // 强制重扫——文档没动，scan_at 仍被重写但值不变（侧证全量路径走过了 mark_scanned）
         scan_all_active_notes_force(&db, &tmp).unwrap();
         let scan2 = note_scan_at(&db, n.id);
         assert_eq!(scan1, scan2);

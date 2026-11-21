@@ -1,8 +1,8 @@
-//! 外部 .md 双向同步——内 → 外（笔记保存 → 写回原文件）
+//! 外部 .md 双向同步——内 → 外（文档保存 → 写回原文件）
 //!
 //! 流程概要：
 //! 1. 入口: `WriteBackService::write_back(db, note_id, force)`
-//! 2. 前置：笔记必须 `source_file_type = "md"` 且 `source_file_path` 非空，否则跳过（Skipped）
+//! 2. 前置：文档必须 `source_file_type = "md"` 且 `source_file_path` 非空，否则跳过（Skipped）
 //! 3. 冲突检测：读 `last_writeback_mtime` 与原文件当前 mtime 比对；不一致且未 force → Conflict
 //! 4. URL 反向替换：
 //!    - 命中 `note_url_mapping`（internal_url → original_url）→ 写回原始 URL
@@ -27,7 +27,7 @@ pub enum WriteBackResult {
         assets_copied: usize,
         file_path: String,
     },
-    /// 笔记不是从外部 .md 打开来的，没什么可写回的
+    /// 文档不是从外部 .md 打开来的，没什么可写回的
     Skipped { reason: String },
     /// 原文件 mtime 与上次写回时不一致 = 外部改过，让用户选策略
     Conflict {
@@ -42,7 +42,7 @@ pub enum WriteBackResult {
 pub struct WriteBackService;
 
 impl WriteBackService {
-    /// 把笔记当前内容写回原 .md 文件
+    /// 把文档当前内容写回原 .md 文件
     ///
     /// - `force = true`：跳过 mtime 冲突检测，强制覆盖（冲突 Modal 选"覆盖外部"后调用）
     /// - 默认 `force = false`：检测到冲突就返回 `WriteBackResult::Conflict` 让前端弹 Modal
@@ -51,7 +51,7 @@ impl WriteBackService {
         note_id: i64,
         force: bool,
     ) -> Result<WriteBackResult, AppError> {
-        // 1. 拉笔记 content + source_file_path/type
+        // 1. 拉文档 content + source_file_path/type
         let (content, source_path, source_type) = {
             let conn = db.conn_lock()?;
             let mut stmt = conn.prepare(
@@ -65,15 +65,15 @@ impl WriteBackService {
                     row.get::<_, Option<String>>(2)?,
                 ))
             })
-            .map_err(|_| AppError::NotFound(format!("笔记 {} 不存在", note_id)))?
+            .map_err(|_| AppError::NotFound(format!("文档 {} 不存在", note_id)))?
         };
 
-        // 2. 仅对外部 .md 笔记写回
+        // 2. 仅对外部 .md 文档写回
         let path_str = match (source_type.as_deref(), source_path) {
             (Some("md"), Some(p)) => p,
             _ => {
                 return Ok(WriteBackResult::Skipped {
-                    reason: "笔记不是从外部 .md 打开来的".into(),
+                    reason: "文档不是从外部 .md 打开来的".into(),
                 })
             }
         };
@@ -124,7 +124,7 @@ impl WriteBackService {
         let (mut rewritten, assets_copied) =
             rewrite_for_writeback(&content, &mappings, parent, &assets_subdir);
 
-        // 挂载笔记：标签由标签 UI 独立管理并写回磁盘 frontmatter。
+        // 挂载文档：标签由标签 UI 独立管理并写回磁盘 frontmatter。
         // 编辑器持有的正文可能是标签变更之前的旧版本，保存时若直接覆盖会丢标签，
         // 因此以磁盘上最新的 tags 为准合并回待写内容。
         if db.get_external_note_meta(note_id)?.is_some() {
@@ -147,7 +147,7 @@ impl WriteBackService {
         }
 
         log::info!(
-            "[writeback] 笔记 #{} 已写回 {} (mappings={}, copied={})",
+            "[writeback] 文档 #{} 已写回 {} (mappings={}, copied={})",
             note_id,
             path.display(),
             mappings.len(),

@@ -27,7 +27,7 @@ import type { Card } from "@/types";
  *
  * MVP 不做：
  * - 卡片新建（桌面端有；移动端先看现有卡片）
- * - 卡片元信息（deck/笔记反链）显示
+ * - 卡片元信息（deck/文档反链）显示
  * - 滑动跳过手势
  * - 长按标记
  */
@@ -362,7 +362,7 @@ function DoneState({
         {completed > 0 ? `今日已复习 ${completed} 张 🎉` : "今天没有待复习的闪卡"}
       </div>
       <div className="text-xs text-slate-500">
-        {completed > 0 ? "明天见，FSRS 会自动安排下一轮" : "去笔记里把段落转成卡片吧"}
+        {completed > 0 ? "明天见，FSRS 会自动安排下一轮" : "去文档里把段落转成卡片吧"}
       </div>
       <button
         onClick={onAgain}

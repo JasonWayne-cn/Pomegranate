@@ -207,14 +207,14 @@ pub struct GitInfo {
     pub behind: i32,
 }
 
-// ─── 笔记 ─────────────────────────────────────
+// ─── 文档 ─────────────────────────────────────
 
-/// 笔记（返回给前端）
+/// 文档（返回给前端）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Note {
     pub id: i64,
     pub title: String,
-    /// 明文 content。加密笔记这里是"🔒 已加密"占位符；真实内容需调 decrypt_note 拿
+    /// 明文 content。加密文档这里是"🔒 已加密"占位符；真实内容需调 decrypt_note 拿
     pub content: String,
     pub folder_id: Option<i64>,
     pub is_daily: bool,
@@ -230,14 +230,14 @@ pub struct Note {
     pub word_count: i64,
     pub created_at: String,
     pub updated_at: String,
-    /// 关联的原始文件相对路径（相对 app_data_dir），为 None 表示纯笔记
+    /// 关联的原始文件相对路径（相对 app_data_dir），为 None 表示纯文档
     pub source_file_path: Option<String>,
     /// 原始文件类型："pdf" / "docx" / "doc" / null
     pub source_file_type: Option<String>,
     /// 同一 folder 内的自定义排序值，越小越靠前（间隔 1000 留空隙）
     /// 默认按 updated_at DESC 初始化；只有用户在"自定义排序"模式下拖拽过才与时间序偏离
     pub sort_order: i64,
-    /// 笔记类型："markdown"（默认）/ "whiteboard"
+    /// 文档类型："markdown"（默认）/ "whiteboard"
     #[serde(default = "default_note_type")]
     pub note_type: String,
 }
@@ -246,7 +246,7 @@ fn default_note_type() -> String {
     "markdown".to_string()
 }
 
-// ─── T-007 笔记加密保险库 ──────────────────────
+// ─── T-007 文档加密保险库 ──────────────────────
 
 /// Vault 整体状态
 ///
@@ -262,7 +262,7 @@ pub enum VaultStatus {
     Unlocked,
 }
 
-/// 创建/更新笔记的入参
+/// 创建/更新文档的入参
 #[derive(Debug, Clone, Deserialize)]
 pub struct NoteInput {
     pub title: String,
@@ -270,17 +270,17 @@ pub struct NoteInput {
     pub folder_id: Option<i64>,
 }
 
-/// 笔记列表查询参数
+/// 文档列表查询参数
 #[derive(Debug, Clone, Deserialize)]
 pub struct NoteQuery {
     pub folder_id: Option<i64>,
     pub keyword: Option<String>,
     pub page: Option<usize>,
     pub page_size: Option<usize>,
-    /// true 时只返回 folder_id IS NULL 的笔记（"未分类"虚拟文件夹）。
+    /// true 时只返回 folder_id IS NULL 的文档（"未分类"虚拟文件夹）。
     /// 与 folder_id 互斥（同时传 folder_id 优先生效）。
     pub uncategorized: Option<bool>,
-    /// true 时点父文件夹连同所有子孙文件夹的笔记一起返回。
+    /// true 时点父文件夹连同所有子孙文件夹的文档一起返回。
     /// 仅当传了 folder_id 时生效；未传时无意义。前端默认 true，符合用户直觉。
     pub include_descendants: Option<bool>,
     /// 排序模式（默认 None=按 is_pinned DESC, updated_at DESC）
@@ -317,7 +317,7 @@ pub struct Folder {
 
 // ─── 标签 ─────────────────────────────────────
 
-/// 标签（返回给前端，含关联笔记数）
+/// 标签（返回给前端，含关联文档数）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tag {
     pub id: i64,
@@ -328,7 +328,7 @@ pub struct Tag {
     pub parent_id: Option<i64>,
 }
 
-/// 笔记列表「标签」列用的轻量标签。
+/// 文档列表「标签」列用的轻量标签。
 #[derive(Debug, Clone, Serialize)]
 pub struct NoteTagBrief {
     pub id: i64,
@@ -355,9 +355,9 @@ pub struct SearchResult {
     pub updated_at: String,
     pub folder_id: Option<i64>,
     pub note_type: String,
-    /// 外部挂载文件的磁盘绝对路径；普通笔记为 None。
+    /// 外部挂载文件的磁盘绝对路径；普通文档为 None。
     pub abs_path: Option<String>,
-    /// 外部二进制文档仅作索引（点击应进 Office 工作台而非影子笔记）。
+    /// 外部二进制文档仅作索引（点击应进 Office 工作台而非影子文档）。
     pub ext_index_only: bool,
     /// 所在挂载点是否只读（供 Office 打开时禁用保存）。
     pub read_only: bool,
@@ -365,7 +365,7 @@ pub struct SearchResult {
 
 // ─── 回收站 ───────────────────────────────────
 
-/// 回收站笔记查询参数
+/// 回收站文档查询参数
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct TrashQuery {
@@ -373,9 +373,9 @@ pub struct TrashQuery {
     pub page_size: Option<usize>,
 }
 
-// ─── 笔记链接 ─────────────────────────────────
+// ─── 文档链接 ─────────────────────────────────
 
-/// 笔记链接（反向链接信息）
+/// 文档链接（反向链接信息）
 #[derive(Debug, Clone, Serialize)]
 pub struct NoteLink {
     pub source_id: i64,
@@ -386,20 +386,20 @@ pub struct NoteLink {
 
 // ─── 知识图谱 ─────────────────────────────────
 
-/// 图谱节点（笔记或文件夹）
+/// 图谱节点（文档或文件夹）
 #[derive(Debug, Clone, Serialize)]
 pub struct GraphNode {
     pub id: i64,
     pub title: String,
-    /// "note" = 笔记，"folder" = 文件夹
+    /// "note" = 文档，"folder" = 文件夹
     pub node_type: String,
     pub is_daily: bool,
     pub is_pinned: bool,
     pub tag_count: usize,
     pub link_count: usize,
-    /// 文件夹自定义颜色（笔记恒为 None）
+    /// 文件夹自定义颜色（文档恒为 None）
     pub color: Option<String>,
-    /// 仅按文件夹限定范围时出现：范围外但与范围内笔记有链接的"边界节点"
+    /// 仅按文件夹限定范围时出现：范围外但与范围内文档有链接的"边界节点"
     #[serde(default)]
     pub is_boundary: bool,
 }
@@ -440,7 +440,7 @@ pub struct AiModel {
     /// 是否为默认模型
     pub is_default: bool,
     /// 模型支持的最大上下文 token 数（用户填，默认 32000）
-    /// 用于在 send_message 拼附加笔记时动态算每篇截断阈值
+    /// 用于在 send_message 拼附加文档时动态算每篇截断阈值
     pub max_context: i64,
     /// 是否支持工具调用/Function Calling
     pub supports_tools: bool,
@@ -521,7 +521,7 @@ pub struct AiConversation {
     pub id: i64,
     pub title: String,
     pub model_id: i64,
-    /// 附加给本对话的笔记 ID 列表（JSON 数组反序列化后）
+    /// 附加给本对话的文档 ID 列表（JSON 数组反序列化后）
     /// 整个对话共享，类比 ChatGPT 项目里的 attached files
     pub attached_note_ids: Vec<i64>,
     /// Agent 工具调用轮数上限（1-30）
@@ -542,7 +542,7 @@ pub struct AiMessage {
     /// 角色: user / assistant
     pub role: String,
     pub content: String,
-    /// 引用的笔记 ID 列表 (JSON 数组)
+    /// 引用的文档 ID 列表 (JSON 数组)
     pub references: Option<String>,
     /// 本条 assistant 消息里 AI 调用了哪些 skill（JSON 序列化的 SkillCall 数组）
     ///
@@ -583,7 +583,7 @@ pub struct TurnMeta {
 pub struct AiChatRequest {
     pub conversation_id: i64,
     pub message: String,
-    /// 是否启用 RAG（检索笔记作为上下文）
+    /// 是否启用 RAG（检索文档作为上下文）
     pub use_rag: Option<bool>,
 }
 
@@ -618,11 +618,11 @@ pub struct ScannedFile {
     /// 文件大小（字节）
     pub size: u64,
     /// 去重匹配结果：
-    /// - "new"   全新文件，未找到任何已有笔记
+    /// - "new"   全新文件，未找到任何已有文档
     /// - "path"  按 canonical source_file_path 命中（最精确）
     /// - "fuzzy" 按 (title, content_hash) 兜底命中（用户可能搬动过源文件）
     pub match_kind: String,
-    /// match_kind 非 "new" 时，指向已存在笔记的 id
+    /// match_kind 非 "new" 时，指向已存在文档的 id
     pub existing_note_id: Option<i64>,
     /// 从文件夹名/文件名识别出的日期 YYYY-MM-DD
     pub detected_date: Option<String>,
@@ -637,9 +637,9 @@ pub struct ScannedFile {
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImportConflictPolicy {
-    /// 跳过（默认，最安全）：扫描标记为 path/fuzzy 的文件不重新创建笔记
+    /// 跳过（默认，最安全）：扫描标记为 path/fuzzy 的文件不重新创建文档
     Skip,
-    /// 创建副本：标题加 " (2)" 后缀新建独立笔记，原笔记保持不变
+    /// 创建副本：标题加 " (2)" 后缀新建独立文档，原文档保持不变
     Duplicate,
 }
 
@@ -652,30 +652,30 @@ impl Default for ImportConflictPolicy {
 /// 导入结果
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ImportResult {
-    /// 新建的笔记数
+    /// 新建的文档数
     pub imported: usize,
     /// 跳过的数量（空文件 / 去重时按 Skip 策略跳过）
     pub skipped: usize,
     /// 按 Duplicate 策略新建的副本数
     pub duplicated: usize,
     pub errors: Vec<String>,
-    /// T-009: 从 frontmatter 解析并自动关联的标签条数（每个笔记 × 每个标签计 1）
+    /// T-009: 从 frontmatter 解析并自动关联的标签条数（每个文档 × 每个标签计 1）
     #[serde(default)]
     pub tags_attached: usize,
-    /// T-009: 成功解析到 frontmatter 的笔记数
+    /// T-009: 成功解析到 frontmatter 的文档数
     #[serde(default)]
     pub frontmatter_parsed: usize,
     /// T-009 Commit 2: 复制到 kb_assets/images 的图片张数
     #[serde(default)]
     pub attachments_copied: usize,
-    /// T-009 Commit 2: 缺失的图片清单（"笔记标题: 原始引用"格式，已去重）
+    /// T-009 Commit 2: 缺失的图片清单（"文档标题: 原始引用"格式，已去重）
     #[serde(default)]
     pub attachments_missing: Vec<String>,
-    /// 本次新建的笔记 ID（按文件参数顺序，含 Duplicate 副本）。
+    /// 本次新建的文档 ID（按文件参数顺序，含 Duplicate 副本）。
     /// 前端用它做"导入后跳转"：1 篇直接打开编辑器，多篇跳列表。
     #[serde(default, rename = "noteIds")]
     pub note_ids: Vec<i64>,
-    /// 命中已有笔记并按 Skip 策略跳过时记录的现有笔记 ID。
+    /// 命中已有文档并按 Skip 策略跳过时记录的现有文档 ID。
     /// 前端"重复命中也跳"逻辑用：用户拖个旧文件想打开它，能直达。
     #[serde(default, rename = "existingNoteIds")]
     pub existing_note_ids: Vec<i64>,
@@ -700,9 +700,9 @@ pub struct ImportProgress {
 #[serde(rename_all = "camelCase")]
 pub struct OpenMarkdownResult {
     pub note_id: i64,
-    /// true = 检测到源文件内容有变化，已覆盖回笔记（前端可据此提示）
+    /// true = 检测到源文件内容有变化，已覆盖回文档（前端可据此提示）
     pub was_synced: bool,
-    /// 这条笔记当前是否为「临时编辑」状态
+    /// 这条文档当前是否为「临时编辑」状态
     pub is_scratch: bool,
 }
 
@@ -793,7 +793,7 @@ pub struct ExportResult {
 /// 单篇导出结果
 #[derive(Debug, Clone, Serialize)]
 pub struct SingleExportResult {
-    /// 实际创建的笔记根目录（含 .md 和 assets/）
+    /// 实际创建的文档根目录（含 .md 和 assets/）
     pub root_dir: String,
     /// .md 文件绝对路径
     pub file_path: String,
@@ -816,15 +816,15 @@ pub struct ExportProgress {
 pub struct DailyWritingStat {
     /// 日期 (YYYY-MM-DD)
     pub date: String,
-    /// 当日更新的笔记数
+    /// 当日更新的文档数
     pub note_count: usize,
-    /// 当日总字数（更新过的笔记的字数之和）
+    /// 当日总字数（更新过的文档的字数之和）
     pub word_count: usize,
 }
 
-// ─── 笔记模板 ─────────────────────────────────
+// ─── 文档模板 ─────────────────────────────────
 
-/// 笔记模板
+/// 文档模板
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteTemplate {
     pub id: i64,
@@ -853,7 +853,7 @@ pub struct PageResult<T: Serialize> {
     pub page_size: usize,
 }
 
-/// 批量恢复笔记的结果
+/// 批量恢复文档的结果
 ///
 /// `to_root` = 其中有多少条因原文件夹已不存在而落到了根目录。
 /// 用于前端在 message 里给"X 条恢复到根目录"的提示。
@@ -870,7 +870,7 @@ pub struct RestoreBatchResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncScope {
-    /// 笔记元数据（app.db 的 notes 及关联表）
+    /// 文档元数据（app.db 的 notes 及关联表）
     pub notes: bool,
     /// 图片资产（kb_assets/images/）
     pub images: bool,
@@ -983,7 +983,7 @@ pub struct SyncHistoryItem {
 
 // ─── 待办任务 ───────────────────────────────────
 
-/// 任务关联：挂到笔记 / 本地路径 / URL
+/// 任务关联：挂到文档 / 本地路径 / URL
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskLink {
     pub id: i64,
@@ -992,7 +992,7 @@ pub struct TaskLink {
     pub kind: String,
     /// note → note_id 字符串；path → 绝对路径；url → 完整 URL
     pub target: String,
-    /// 显示文案（如笔记标题）
+    /// 显示文案（如文档标题）
     pub label: Option<String>,
 }
 
@@ -1517,9 +1517,9 @@ pub enum MessageAttachment {
     },
 }
 
-// ─── AI 写笔记并归档（T-006） ──────────────
+// ─── AI 写文档并归档（T-006） ──────────────
 
-/// 笔记目标长度
+/// 文档目标长度
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TargetLength {
@@ -1548,7 +1548,7 @@ impl TargetLength {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftNoteRequest {
-    /// 笔记主题（必填）
+    /// 文档主题（必填）
     pub topic: String,
     /// 参考材料（可选；用户提供的背景/要点/链接等）
     pub reference: Option<String>,
@@ -1557,7 +1557,7 @@ pub struct DraftNoteRequest {
     pub target_length: TargetLength,
 }
 
-/// AI 生成的笔记草稿（未写入 DB；前端 Modal 展示后用户确认才真正保存）
+/// AI 生成的文档草稿（未写入 DB；前端 Modal 展示后用户确认才真正保存）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftNoteResponse {
@@ -1651,17 +1651,17 @@ pub struct SyncRemoteState {
 /// V1 同步 manifest 中的单条记录
 ///
 /// 序列化为 manifest.json 上传到远端。设计要点：
-/// 1. **note_id 不直接用本地自增 id**：用 stable_uuid（笔记表加列存）防止多端 id 冲突
+/// 1. **note_id 不直接用本地自增 id**：用 stable_uuid（文档表加列存）防止多端 id 冲突
 ///    - **本会话先用本地 id 当 stable_uuid**，T-024 后续阶段再加 uuid 列做严格去重
 /// 2. **content_hash 是 SHA-256(title + "\n" + body)**：标题改动也算变更
-/// 3. **tombstone**：删除的笔记保留一条 manifest 项让其他端知道要删
+/// 3. **tombstone**：删除的文档保留一条 manifest 项让其他端知道要删
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManifestEntry {
-    /// 稳定 ID（v1 临时 = 本地笔记 id 的字符串形式）
+    /// 稳定 ID（v1 临时 = 本地文档 id 的字符串形式）
     pub stable_id: String,
     pub title: String,
-    /// 笔记内容指纹，hex 小写
+    /// 文档内容指纹，hex 小写
     pub content_hash: String,
     /// ISO-8601 / 本地时间字符串（来自 notes.updated_at）
     pub updated_at: String,
@@ -1673,7 +1673,7 @@ pub struct ManifestEntry {
     /// 文件夹路径（如 "工作/周报"）；根层为空串。
     #[serde(default)]
     pub folder_path: String,
-    /// 是否加密笔记
+    /// 是否加密文档
     #[serde(default)]
     pub encrypted: bool,
     /// 是否每日笔记
@@ -1682,13 +1682,13 @@ pub struct ManifestEntry {
     /// 每日笔记日期
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub daily_date: Option<String>,
-    /// 是否隐藏笔记
+    /// 是否隐藏文档
     #[serde(default)]
     pub is_hidden: bool,
     /// 标签名列表；None = 旧客户端（不动本地关联）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
-    /// 笔记类型："markdown" / "whiteboard"
+    /// 文档类型："markdown" / "whiteboard"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note_type: Option<String>,
 }
@@ -1713,7 +1713,7 @@ pub struct SyncManifestV1 {
     pub device: String,
     /// 生成时间
     pub generated_at: String,
-    /// 全部笔记条目（含 tombstone）
+    /// 全部文档条目（含 tombstone）
     pub entries: Vec<ManifestEntry>,
     /// hash 算法标识："v2" = SHA-256(title + "\n" + notes.content_hash)
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1744,9 +1744,9 @@ impl SyncManifestV1 {
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncPushResult {
-    /// 上传新增 / 修改的笔记数
+    /// 上传新增 / 修改的文档数
     pub uploaded: usize,
-    /// 推送删除（tombstone）笔记数
+    /// 推送删除（tombstone）文档数
     pub deleted_remote: usize,
     /// 跳过（无变更）数
     pub skipped: usize,
@@ -1764,16 +1764,16 @@ pub struct SyncPushResult {
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncPullResult {
-    /// 拉取新增 / 更新的笔记数
+    /// 拉取新增 / 更新的文档数
     pub downloaded: usize,
-    /// 应用远端删除标记到本地的笔记数
+    /// 应用远端删除标记到本地的文档数
     pub deleted_local: usize,
     /// 冲突数（远端有变更 + 本地也有变更 → 走 last-write-wins，落败方进 .conflicts/）
     pub conflicts: usize,
     /// 下载的附件数
     #[serde(default)]
     pub attachments_downloaded: usize,
-    /// 因 vault meta 不匹配而跳过的加密笔记数
+    /// 因 vault meta 不匹配而跳过的加密文档数
     #[serde(default)]
     pub encrypted_skipped: usize,
     /// 错误清单
@@ -1926,7 +1926,7 @@ pub struct AsrTestResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Card {
     pub id: i64,
-    /// 关联的笔记 ID（从笔记中提炼时设置；笔记删除后变 NULL，卡片仍可保留）
+    /// 关联的文档 ID（从文档中提炼时设置；文档删除后变 NULL，卡片仍可保留）
     pub note_id: Option<i64>,
     pub front: String,
     pub back: String,
@@ -1957,7 +1957,7 @@ pub struct CreateCardInput {
     pub back: String,
     /// 缺省时使用 "default"
     pub deck: Option<String>,
-    /// 缺省时不关联笔记
+    /// 缺省时不关联文档
     pub note_id: Option<i64>,
 }
 
@@ -2171,21 +2171,21 @@ pub struct AppLockStatus {
 // KB 2.0 合并：白板 / 快照 / 定时推送模型
 // ═══════════════════════════════════════════════════════════════
 
-/// 笔记类型常量。值直接进 SQL、front-matter 与前端 JSON，保持字符串。
+/// 文档类型常量。值直接进 SQL、front-matter 与前端 JSON，保持字符串。
 pub mod note_type {
-    /// 普通 Markdown 笔记（存量默认值）。
+    /// 普通 Markdown 文档（存量默认值）。
     #[allow(dead_code)]
     pub const MARKDOWN: &str = "markdown";
-    /// 白板笔记：`notes.content` 存 Excalidraw 场景 JSON。
+    /// 白板文档：`notes.content` 存 Excalidraw 场景 JSON。
     pub const WHITEBOARD: &str = "whiteboard";
 }
 
-/// 笔记内嵌白板保存后的资源路径（相对 data_dir 的 POSIX 路径）。
+/// 文档内嵌白板保存后的资源路径（相对 data_dir 的 POSIX 路径）。
 #[derive(Debug, Clone, Serialize)]
 pub struct EmbeddedWhiteboardSaved {
     /// Excalidraw 场景 JSON 文件
     pub scene_path: String,
-    /// 供笔记里直接显示的 PNG 预览图
+    /// 供文档里直接显示的 PNG 预览图
     pub preview_path: String,
 }
 
@@ -2210,7 +2210,7 @@ pub struct NoteSnapshot {
     pub created_at: String,
 }
 
-/// 单条笔记的快照占用。
+/// 单条文档的快照占用。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotNoteUsage {
     pub note_id: i64,
@@ -2228,7 +2228,7 @@ pub struct SnapshotUsage {
     pub top_notes: Vec<SnapshotNoteUsage>,
 }
 
-/// 白板「笔记卡片」展示的笔记摘要。
+/// 白板「文档卡片」展示的文档摘要。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteExcerpt {
     pub note_id: i64,
@@ -2472,7 +2472,7 @@ pub struct DatasetSuggestion {
     pub values: Vec<String>,
 }
 
-/// 数据视图的一行（笔记 / 任务统一成可点击条目）。
+/// 数据视图的一行（文档 / 任务统一成可点击条目）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DataviewRow {
@@ -2590,7 +2590,7 @@ impl SearchFilters {
     }
 }
 
-/// AI 引用笔记里抽出的图片清单。
+/// AI 引用文档里抽出的图片清单。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NoteImageRef {
     pub note_id: i64,
@@ -2777,9 +2777,9 @@ pub struct ExternalMount {
     pub sync_types: SyncTypeSettings,
     pub created_at: String,
     pub last_scan_at: Option<String>,
-    /// 已索引的笔记数（不含缺失）
+    /// 已索引的文档数（不含缺失）
     pub note_count: usize,
-    /// 源文件已消失的笔记数
+    /// 源文件已消失的文档数
     pub missing_count: usize,
     /// 根目录当前是否可访问
     pub available: bool,
@@ -2856,7 +2856,7 @@ pub struct ExternalEntry {
     pub title: String,
     pub missing: bool,
     pub mtime: i64,
-    /// 原文件已更新，但影子笔记有本地编辑，未自动覆盖
+    /// 原文件已更新，但影子文档有本地编辑，未自动覆盖
     pub stale: bool,
     /// 抽取状态：ok / failed / scanned / encrypted / unsupported
     pub status: Option<String>,
@@ -2865,7 +2865,7 @@ pub struct ExternalEntry {
     pub source_type: Option<String>,
     /// 原文件大小（字节）
     pub size: i64,
-    /// 影子笔记是否被本地编辑过
+    /// 影子文档是否被本地编辑过
     pub user_edited: bool,
     /// 上次抽取时间
     pub last_synced_at: Option<String>,
@@ -2886,9 +2886,9 @@ pub struct MountOpenResult {
     pub rel_path: String,
     pub read_only: bool,
     pub missing: bool,
-    /// 原文件已更新，但影子笔记有本地编辑，未自动覆盖
+    /// 原文件已更新，但影子文档有本地编辑，未自动覆盖
     pub stale: bool,
-    /// 影子笔记是否被用户编辑过（content_hash != ext_indexed_hash）
+    /// 影子文档是否被用户编辑过（content_hash != ext_indexed_hash）
     pub user_edited: bool,
     /// 抽取状态：ok / failed / scanned / encrypted / unsupported
     pub status: Option<String>,
@@ -2906,12 +2906,12 @@ pub struct MountSaveResult {
     pub hash: String,
 }
 
-/// 外部影子笔记的陈旧状态（编辑器/挂载页查询用）
+/// 外部影子文档的陈旧状态（编辑器/挂载页查询用）
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MountNoteStatus {
     pub note_id: i64,
-    /// 是否外部挂载笔记
+    /// 是否外部挂载文档
     pub external: bool,
     /// 挂载点是否只读（只读时不能写回标签 / 内容）
     pub read_only: bool,
@@ -2931,7 +2931,7 @@ pub struct MountNoteStatus {
 
 // ─── LLM 文档图谱（P1） ───────────────────────
 
-/// 聚合后的 LLM 图谱节点（按规范化名称跨笔记合并）
+/// 聚合后的 LLM 图谱节点（按规范化名称跨文档合并）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmGraphNode {
     /// 前端展示用自增 id（仅本次查询内有效）
@@ -2939,7 +2939,7 @@ pub struct LlmGraphNode {
     pub name: String,
     pub entity_type: String,
     pub description: String,
-    /// 该实体来源笔记 id（去重）
+    /// 该实体来源文档 id（去重）
     pub note_ids: Vec<i64>,
     /// 在本次结果中的连接数
     pub degree: i64,
@@ -2960,13 +2960,13 @@ pub struct LlmGraphEdge {
 pub struct LlmGraphData {
     pub nodes: Vec<LlmGraphNode>,
     pub edges: Vec<LlmGraphEdge>,
-    /// 本次结果覆盖的笔记数
+    /// 本次结果覆盖的文档数
     pub note_count: i64,
-    /// 来源笔记标题（去重，最多 20 条，用于 UI 显示作用域）
+    /// 来源文档标题（去重，最多 20 条，用于 UI 显示作用域）
     pub note_titles: Vec<String>,
 }
 
-/// 单篇笔记抽取结果
+/// 单篇文档抽取结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmExtractResult {
     pub note_id: i64,
@@ -2977,7 +2977,7 @@ pub struct LlmExtractResult {
     pub prompt_version: i32,
 }
 
-/// 单篇笔记抽取状态
+/// 单篇文档抽取状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmExtractionStatus {
     pub note_id: i64,
@@ -2993,22 +2993,22 @@ pub struct LlmExtractionStatus {
 /// 文献图谱作用域状态（文件夹 / 全库）
 ///
 /// `state` 取值：
-/// - `full`：范围内所有笔记都已建图且内容未变
-/// - `partial`：已建图但未覆盖全部笔记，或部分长文档只抽取了采样块
+/// - `full`：范围内所有文档都已建图且内容未变
+/// - `partial`：已建图但未覆盖全部文档，或部分长文档只抽取了采样块
 /// - `none`：范围内尚未建图
-/// - `stale`：已建图但部分笔记内容在抽取后发生了更新
+/// - `stale`：已建图但部分文档内容在抽取后发生了更新
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmGraphScopeStatus {
     pub state: String,
-    /// 范围内可建图的笔记总数（不含回收站 / 隐藏）
+    /// 范围内可建图的文档总数（不含回收站 / 隐藏）
     pub total: i64,
-    /// 已建图且内容未变、覆盖完整的笔记数
+    /// 已建图且内容未变、覆盖完整的文档数
     pub built: i64,
-    /// 已建图且内容未变，但长文档仅抽取了采样块的笔记数
+    /// 已建图且内容未变，但长文档仅抽取了采样块的文档数
     pub partial: i64,
-    /// 已建图但内容已更新的笔记数
+    /// 已建图但内容已更新的文档数
     pub stale: i64,
-    /// 最近一次抽取失败的笔记数
+    /// 最近一次抽取失败的文档数
     pub failed: i64,
 }
 

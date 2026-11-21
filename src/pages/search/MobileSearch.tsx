@@ -96,7 +96,7 @@ export function MobileSearch() {
             autoFocus
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="搜索笔记 / 标题 / 正文"
+            placeholder="搜索文档 / 标题 / 正文"
             className="flex-1 bg-transparent text-sm outline-none"
           />
           {keyword && (
@@ -116,7 +116,7 @@ export function MobileSearch() {
         {!keyword.trim() ? (
           <EmptyHint
             icon={<SearchIcon size={32} className="text-slate-300" />}
-            text="搜索笔记标题 / 正文"
+            text="搜索文档标题 / 正文"
             sub="支持中文分词，输入即时搜索"
           />
         ) : loading && results.length === 0 ? (
@@ -171,7 +171,7 @@ function ResultCard({
     >
       <div className="rounded-2xl bg-white p-4">
         <h3 className="text-base font-semibold text-slate-900 line-clamp-1">
-          <Highlight text={result.title || "未命名笔记"} keyword={keyword} />
+          <Highlight text={result.title || "未命名文档"} keyword={keyword} />
         </h3>
         {result.snippet && (
           <p className="mt-1 line-clamp-2 text-sm text-slate-500">

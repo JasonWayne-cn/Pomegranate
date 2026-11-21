@@ -157,7 +157,7 @@ pub fn export_single_from_json(
         ))
         .numberings(build_numberings());
 
-    // 笔记标题是编辑器外字段，JSON 里没有；正文若已手写同名 H1 则不重复插。
+    // 文档标题是编辑器外字段，JSON 里没有；正文若已手写同名 H1 则不重复插。
     if !title.trim().is_empty() && !first_heading_matches(doc, title) {
         let mut run = Run::new().add_text(title.trim()).size(48).bold();
         if let Some(font) = &heading_font {

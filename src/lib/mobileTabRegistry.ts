@@ -42,7 +42,7 @@ export const MOBILE_TAB_REGISTRY: Record<MobileTabKey, MobileTabMeta> = {
   notes: {
     key: "notes",
     icon: "notes",
-    label: "笔记",
+    label: "文档",
     path: "/notes",
     matchPrefixes: ["/notes"],
   },

@@ -2,15 +2,15 @@
  * 「导入日记」弹窗 —— 两个 Tab，覆盖历史日记搬家的两种处境：
  *
  *   ① 从文件夹导入：日记还在磁盘上（别的软件刚导出来），一步到位落成日记
- *   ② 整理已有笔记：日记已经按普通 Markdown 导进库了，把它们认回日记
+ *   ② 整理已有文档：日记已经按普通 Markdown 导进库了，把它们认回日记
  *
  * 两者共用同一套日期识别（services/daily_import.rs），行为一致：
- * 「日期文件夹 / 笔记.md」结构 → 文件夹名优先、文件名兜底，识别成 YYYY-MM-DD。
+ * 「日期文件夹 / 文档.md」结构 → 文件夹名优先、文件名兜底，识别成 YYYY-MM-DD。
  *
  * ⚠️ 一律**先看后做**：
  *   · 导入 Tab 选完文件夹先扫描预览，显示识别到多少天，确认才导
  *   · 整理 Tab 扫描是只读的，展示计划（含哪些要合并、哪些冲突）后才动数据
- *   · 合并有损（改主笔记正文 + 被并入的进回收站），界面上写死不让用户猜
+ *   · 合并有损（改主文档正文 + 被并入的进回收站），界面上写死不让用户猜
  */
 import { useState, useMemo, useEffect } from "react";
 import {
@@ -58,7 +58,7 @@ export function DailyImportModal({ open, onClose, onDone }: Props) {
   //
   // 本组件被父页面**常驻挂载**（只切 open），`tab` 又是外层组件的 state ——
   // Modal 的 destroyOnClose 只销毁子节点（Tabs 及两个面板），管不到它。
-  // 不重置的话：用户上次切到「整理已有笔记」，下次打开还停在那一页。
+  // 不重置的话：用户上次切到「整理已有文档」，下次打开还停在那一页。
   useEffect(() => {
     if (open) setTab("import");
   }, [open]);
@@ -96,7 +96,7 @@ export function DailyImportModal({ open, onClose, onDone }: Props) {
             label: (
               <span className="flex items-center gap-1.5">
                 <CalendarCheck size={14} />
-                整理已有笔记
+                整理已有文档
               </span>
             ),
             children: <ConvertPane onClose={onClose} onDone={onDone} />,
@@ -149,7 +149,7 @@ function ImportPane({
       const picked = await openDialog({
         directory: true,
         multiple: false,
-        title: "选择日记文件夹（内含「日期文件夹 / 笔记.md」）",
+        title: "选择日记文件夹（内含「日期文件夹 / 文档.md」）",
       });
       if (typeof picked !== "string") return;
       setRootPath(picked);
@@ -195,7 +195,7 @@ function ImportPane({
       <div>
         <Row gutter={16} className="mb-3">
           <Col span={8}>
-            <Statistic title="导入笔记" value={done.imported} suffix="篇" />
+            <Statistic title="导入文档" value={done.imported} suffix="篇" />
           </Col>
           <Col span={8}>
             <Statistic title="其中日记" value={done.daily} suffix="天" />
@@ -209,8 +209,8 @@ function ImportPane({
             type="info"
             showIcon
             className="mb-3"
-            message={`有 ${done.extra} 篇与当天日记同一天，仍是普通笔记`}
-            description="日记是一天一篇，导入时每天只认领第一篇。想把它们合并进当天，切到「整理已有笔记」再跑一次即可。"
+            message={`有 ${done.extra} 篇与当天日记同一天，仍是普通文档`}
+            description="日记是一天一篇，导入时每天只认领第一篇。想把它们合并进当天，切到「整理已有文档」再跑一次即可。"
           />
         )}
         <div className="text-right">
@@ -225,7 +225,7 @@ function ImportPane({
   return (
     <Spin spinning={scanning} tip="正在扫描…">
       <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        选一个日记文件夹（里面是「<Text code>日期文件夹 / 笔记.md</Text>
+        选一个日记文件夹（里面是「<Text code>日期文件夹 / 文档.md</Text>
         」这种结构），导入时自动按日期落成日记。
       </Paragraph>
 
@@ -266,7 +266,7 @@ function ImportPane({
               >
                 按日期文件夹识别为日记
                 <Text type="secondary" style={{ marginLeft: 4, fontSize: 12 }}>
-                  不勾选则全部按普通笔记导入
+                  不勾选则全部按普通文档导入
                 </Text>
               </Checkbox>
               {dailyMode && multiDays > 0 && (
@@ -275,7 +275,7 @@ function ImportPane({
                   showIcon
                   className="mt-2"
                   message={`有 ${multiDays} 天存在多篇，每天只认领第一篇为日记`}
-                  description="其余仍是普通笔记；导完切到「整理已有笔记」可把它们合并进当天。"
+                  description="其余仍是普通文档；导完切到「整理已有文档」可把它们合并进当天。"
                 />
               )}
             </div>
@@ -285,7 +285,7 @@ function ImportPane({
               showIcon
               className="mb-3"
               message="没有识别到日期文件夹"
-              description="支持 2020-05-15 / 20200515 / 2020年5月15日 / 2020/05/15 等写法。仍可继续导入，但会作为普通笔记。"
+              description="支持 2020-05-15 / 20200515 / 2020年5月15日 / 2020/05/15 等写法。仍可继续导入，但会作为普通文档。"
             />
           )}
 
@@ -336,7 +336,7 @@ function ImportPane({
   );
 }
 
-// ─── Tab ②：整理已有笔记 ────────────────────────────────────────
+// ─── Tab ②：整理已有文档 ────────────────────────────────────────
 
 function ConvertPane({
   onClose,
@@ -371,7 +371,7 @@ function ConvertPane({
       const r = await dailyApi.applyConvert(plan, { multiFile, conflict });
       setResult(r);
       setPlan(null); // 转换后 plan 已过期，清掉避免重复点
-      // 日记侧栏 / 笔记树都靠 notesRefreshTick 重拉；不 bump 就得切页才看得到
+      // 日记侧栏 / 文档树都靠 notesRefreshTick 重拉；不 bump 就得切页才看得到
       useAppStore.getState().bumpNotesRefresh();
       onDone?.();
       if (r.errors.length === 0) {
@@ -402,7 +402,7 @@ function ConvertPane({
             <Statistic title="追加到已有" value={result.appendedDays} suffix="天" />
           </Col>
           <Col span={6}>
-            <Statistic title="合并的笔记" value={result.mergedNotes} suffix="篇" />
+            <Statistic title="合并的文档" value={result.mergedNotes} suffix="篇" />
           </Col>
           <Col span={6}>
             <Statistic title="跳过" value={result.skippedDays} suffix="天" />
@@ -413,10 +413,10 @@ function ConvertPane({
             type="info"
             showIcon
             className="mb-3"
-            message={`${result.mergedNotes} 篇笔记已并入当天日记，原笔记在回收站里，需要时可以还原。`}
+            message={`${result.mergedNotes} 篇文档已并入当天日记，原文档在回收站里，需要时可以还原。`}
           />
         )}
-        {/* 日记已从日期文件夹里摘走 —— 不说明的话，用户会奇怪笔记树里的日期文件夹怎么没了 */}
+        {/* 日记已从日期文件夹里摘走 —— 不说明的话，用户会奇怪文档树里的日期文件夹怎么没了 */}
         {result.foldersRemoved > 0 && (
           <Alert
             type="info"
@@ -458,7 +458,7 @@ function ConvertPane({
       <Spin spinning={scanning} tip="正在扫描…">
         <Paragraph type="secondary" style={{ marginBottom: 12 }}>
           日记已经按普通 Markdown 导进来了、日记页看不到？这里扫一遍库里「
-          <Text code>日期文件夹</Text>」下的笔记，把它们认回日记。
+          <Text code>日期文件夹</Text>」下的文档，把它们认回日记。
         </Paragraph>
         <Alert
           type="info"
@@ -524,14 +524,14 @@ function ConvertPane({
           {plan.multi.length > 0 && (
             <div className="mb-3">
               <div className="mb-1">
-                有 <b>{plan.multi.length}</b> 天存在多篇笔记，怎么处理？
+                有 <b>{plan.multi.length}</b> 天存在多篇文档，怎么处理？
               </div>
               <Radio.Group
                 value={multiFile}
                 onChange={(e) => setMultiFile(e.target.value)}
               >
                 <Radio value="merge">合并成一篇（每段前加原标题）</Radio>
-                <Radio value="keepFirst">只转一篇，其余保持普通笔记</Radio>
+                <Radio value="keepFirst">只转一篇，其余保持普通文档</Radio>
                 <Radio value="skip">跳过这些天</Radio>
               </Radio.Group>
               {multiFile === "merge" && (
@@ -539,7 +539,7 @@ function ConvertPane({
                   type="warning"
                   showIcon
                   className="mt-2"
-                  message="合并会改动笔记正文，被并入的笔记将移入回收站（可还原）"
+                  message="合并会改动文档正文，被并入的文档将移入回收站（可还原）"
                 />
               )}
             </div>

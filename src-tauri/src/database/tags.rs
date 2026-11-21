@@ -7,10 +7,10 @@ use crate::models::{Note, NoteTagBrief, Tag};
 
 use super::Database;
 
-/// 方案 C：把某笔记的 `updated_at` 冒泡到当前时刻（标签关联变更后调用）。
+/// 方案 C：把某文档的 `updated_at` 冒泡到当前时刻（标签关联变更后调用）。
 ///
 /// 为什么标签变更要动 `updated_at`：同步 V1 的 manifest diff 靠 `updated_at` 判定
-/// 笔记是哪一端改的。加 / 删标签只动 `note_tags` 关联表，不改 `content` 也不改
+/// 文档是哪一端改的。加 / 删标签只动 `note_tags` 关联表，不改 `content` 也不改
 /// `updated_at` → 同步时无法区分"本端刚改了标签"和"对端改了标签"，pull 会无条件
 /// 用远端标签覆盖本地 → 本端的标签改动被静默回滚（P0-1）。冒泡 `updated_at` 后，
 /// diff / pull 可按 last-write-wins 正确判向。
@@ -19,7 +19,7 @@ use super::Database;
 /// 不会被本更新触发（不引发索引级联）。
 ///
 /// 注意：`sync_note_tags`（pull 端对齐远端标签的"同步接收"方向）**不**调用本函数 ——
-/// 否则 pull 完笔记就被判成"本地较新" → 又推回远端 → 推拉震荡。
+/// 否则 pull 完文档就被判成"本地较新" → 又推回远端 → 推拉震荡。
 fn bump_note_updated_at(conn: &rusqlite::Connection, note_id: i64) -> Result<(), AppError> {
     conn.execute(
         "UPDATE notes SET updated_at = datetime('now', 'localtime') WHERE id = ?1",
@@ -31,7 +31,7 @@ fn bump_note_updated_at(conn: &rusqlite::Connection, note_id: i64) -> Result<(),
 /// 🔴 标签名在整个库内**全局唯一**（表上 `name UNIQUE`），不是「同一父级内唯一」。
 ///
 /// 这是有意保留的约束：跨设备同步（`sync_note_tags`）与按标签筛选（dataview）都**只按名字**
-/// 识别标签，同步协议里没有层级路径。允许「工作/周报」「学习/周报」并存，同步会把笔记挂到
+/// 识别标签，同步协议里没有层级路径。允许「工作/周报」「学习/周报」并存，同步会把文档挂到
 /// 任意一个「周报」上且不报错 —— 所以宁可在写入前拦下，给出能看懂的提示，而不是让它撞约束
 /// 报一句 `UNIQUE constraint failed: tags.name`。
 ///
@@ -118,7 +118,7 @@ impl Database {
         })
     }
 
-    /// 获取所有标签（带笔记计数 + parent_id）
+    /// 获取所有标签（带文档计数 + parent_id）
     ///
     /// 排序：先按 parent_id（让同级相邻便于前端组树），再按 sort_order 自定义顺序，
     /// 最后 name 字母序兜底（sort_order 全 0 的旧库 / 同 sort_order 时稳定输出）。
@@ -286,7 +286,7 @@ impl Database {
         Ok(())
     }
 
-    /// 删除标签（同时删除笔记关联；子标签提升为顶层而非递归删除）
+    /// 删除标签（同时删除文档关联；子标签提升为顶层而非递归删除）
     ///
     /// 选择"孩子提升为顶层"而不是"递归删除"：
     /// - 删除一个父标签语义上是"折叠层级"，不该误删用户精心创建的子标签
@@ -303,7 +303,7 @@ impl Database {
             "UPDATE tags SET parent_id = NULL WHERE parent_id = ?1",
             params![id],
         )?;
-        // 2) 删笔记关联
+        // 2) 删文档关联
         tx.execute("DELETE FROM note_tags WHERE tag_id = ?1", params![id])?;
         // 3) 删标签本身
         let affected = tx.execute("DELETE FROM tags WHERE id = ?1", params![id])?;
@@ -404,7 +404,7 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
-    /// Bug 12a 同步 V1 用：把笔记的标签关联**整体替换**成给定 name 列表（按 name 跨端）。
+    /// Bug 12a 同步 V1 用：把文档的标签关联**整体替换**成给定 name 列表（按 name 跨端）。
     ///
     /// - 空白 / 重复名字自动去掉（先 trim、再去重）
     /// - 按 name find-or-create 本地 tag id（颜色不动 — color 是本地偏好不该被远端覆盖）
@@ -425,7 +425,7 @@ impl Database {
             .map_err(|e| AppError::Custom(e.to_string()))?;
         let tx = conn.transaction()?;
 
-        // 1) 清掉本笔记现有关联（不删 tag 本身 — 别的笔记可能还在用）
+        // 1) 清掉本文档现有关联（不删 tag 本身 — 别的文档可能还在用）
         tx.execute("DELETE FROM note_tags WHERE note_id = ?1", params![note_id])?;
 
         // 2) 按 name find-or-create + 新增关联
@@ -476,7 +476,7 @@ impl Database {
         let rows: Vec<(i64, String)> = stmt
             .query_map([], |row| {
                 // 降级读标签名：此前 `filter_map(ok)` 会把含非法 UTF-8 的标签**静默丢掉**，
-                // 表现为"某些笔记的标签跨端同步后消失"。降级读保住标签本身。
+                // 表现为"某些文档的标签跨端同步后消失"。降级读保住标签本身。
                 Ok((
                     row.get::<_, i64>(0)?,
                     crate::database::text_health::get_text_lossy(row, 1, "tags.name")?,
@@ -507,7 +507,7 @@ impl Database {
         Ok(name)
     }
 
-    /// 给笔记添加标签
+    /// 给文档添加标签
     ///
     /// 方案 C：真插入了新关联时冒泡 `notes.updated_at`（见 [`bump_note_updated_at`]），
     /// 让同步能判定"标签是本端改的"；命中已存在关联（INSERT OR IGNORE 未插入）则不动。
@@ -528,7 +528,7 @@ impl Database {
         Ok(())
     }
 
-    /// 批量关联：给多篇笔记 × 多个标签 一次性打上关联；返回新增的关联条数
+    /// 批量关联：给多篇文档 × 多个标签 一次性打上关联；返回新增的关联条数
     ///
     /// - 使用 `INSERT OR IGNORE` 自然去重：已存在的 (note_id, tag_id) 对不重复插入
     /// - 事务内一次性 batch，避免多次 IPC / 多次锁
@@ -546,7 +546,7 @@ impl Database {
             .map_err(|e| AppError::Custom(e.to_string()))?;
         let tx = conn.transaction()?;
         let mut inserted = 0usize;
-        // 方案 C：记录真新增了关联的笔记，事务提交前冒泡其 updated_at（同 add_tag_to_note）
+        // 方案 C：记录真新增了关联的文档，事务提交前冒泡其 updated_at（同 add_tag_to_note）
         let mut touched: std::collections::HashSet<i64> = std::collections::HashSet::new();
         {
             let mut stmt =
@@ -568,7 +568,7 @@ impl Database {
         Ok(inserted)
     }
 
-    /// 移除笔记的标签
+    /// 移除文档的标签
     ///
     /// 方案 C：真删除了关联时冒泡 `notes.updated_at`（见 [`bump_note_updated_at`]）。
     pub fn remove_tag_from_note(&self, note_id: i64, tag_id: i64) -> Result<bool, AppError> {
@@ -588,7 +588,7 @@ impl Database {
         Ok(affected > 0)
     }
 
-    /// 获取笔记的所有标签
+    /// 获取文档的所有标签
     pub fn get_note_tags(&self, note_id: i64) -> Result<Vec<Tag>, AppError> {
         let conn = self
             .conn
@@ -620,11 +620,11 @@ impl Database {
         Ok(tags)
     }
 
-    /// 批量取一组笔记各自的标签（笔记列表「标签」列用）。
+    /// 批量取一组文档各自的标签（文档列表「标签」列用）。
     ///
     /// 一条 SQL 取完，而不是前端对每行调一次 [`Self::get_note_tags`]：一页最多 100 条，
-    /// 逐条调就是 100 次 IPC 加 100 次聚合查询。没有标签的笔记不会出现在返回表里。
-    /// 笔记 id 是整数，直接内联进 IN 列表（无注入风险），也避开绑定参数个数的上限。
+    /// 逐条调就是 100 次 IPC 加 100 次聚合查询。没有标签的文档不会出现在返回表里。
+    /// 文档 id 是整数，直接内联进 IN 列表（无注入风险），也避开绑定参数个数的上限。
     pub fn get_tags_for_notes(
         &self,
         note_ids: &[i64],
@@ -670,7 +670,7 @@ impl Database {
         Ok(map)
     }
 
-    /// 获取标签下的笔记列表（分页）
+    /// 获取标签下的文档列表（分页）
     pub fn list_notes_by_tag(
         &self,
         tag_id: i64,
@@ -682,7 +682,7 @@ impl Database {
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
 
-        // 查询总数（T-003: 排除隐藏笔记）
+        // 查询总数（T-003: 排除隐藏文档）
         let total: usize = conn.query_row(
             "SELECT COUNT(*) FROM note_tags nt
              INNER JOIN notes n ON nt.note_id = n.id AND n.is_deleted = 0 AND n.is_hidden = 0 AND n.is_scratch = 0
@@ -734,7 +734,7 @@ impl Database {
 
 #[cfg(test)]
 mod batch_tags_tests {
-    //! get_tags_for_notes：笔记列表「标签」列的批量取数
+    //! get_tags_for_notes：文档列表「标签」列的批量取数
 
     use crate::database::Database;
     use crate::models::NoteInput;
@@ -763,11 +763,11 @@ mod batch_tags_tests {
         let map = db.get_tags_for_notes(&[n1, n2, n3]).unwrap();
 
         let n1_names: Vec<&str> = map[&n1].iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(n1_names, vec!["工作", "灵感"], "同一笔记的标签按名称排序");
+        assert_eq!(n1_names, vec!["工作", "灵感"], "同一文档的标签按名称排序");
         assert_eq!(map[&n1][0].color.as_deref(), Some("#ff0000"));
         assert_eq!(map[&n1][1].color, None);
         assert_eq!(map[&n2].len(), 1);
-        assert!(!map.contains_key(&n3), "没有标签的笔记不该出现在返回表里");
+        assert!(!map.contains_key(&n3), "没有标签的文档不该出现在返回表里");
     }
 
     #[test]
@@ -808,7 +808,7 @@ mod sync_tag_tests {
         names
     }
 
-    /// 读某笔记当前的 updated_at（方案 C 的 bump 测试用）
+    /// 读某文档当前的 updated_at（方案 C 的 bump 测试用）
     fn note_updated_at(db: &Database, note_id: i64) -> String {
         let conn = db.conn_lock().unwrap();
         conn.query_row("SELECT updated_at FROM notes WHERE id = ?1", [note_id], |r| {
@@ -817,7 +817,7 @@ mod sync_tag_tests {
         .unwrap()
     }
 
-    /// 把某笔记的 updated_at 强制设成指定值（bump 测试的基准）
+    /// 把某文档的 updated_at 强制设成指定值（bump 测试的基准）
     fn set_updated_at(db: &Database, note_id: i64, ts: &str) {
         let conn = db.conn_lock().unwrap();
         conn.execute(
@@ -891,7 +891,7 @@ mod sync_tag_tests {
     }
 
     /// 方案 C：sync_note_tags（同步「接收」方向）故意不冒泡 updated_at ——
-    /// 否则 pull 完笔记就被判成"本地较新" → 推回远端 → 推拉震荡
+    /// 否则 pull 完文档就被判成"本地较新" → 推回远端 → 推拉震荡
     #[test]
     fn sync_note_tags_does_not_bump_updated_at() {
         let db = fresh();

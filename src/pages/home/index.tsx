@@ -15,7 +15,7 @@ import {
   ArrowRight,
   Pin,
   Bot,
-  GitBranch,
+  Search,
   CheckSquare,
   AlertTriangle,
   PencilLine,
@@ -89,6 +89,7 @@ import type {
 import { SubtaskList } from "@/components/tasks/SubtaskList";
 import { TaskDetailModal } from "@/components/tasks/TaskDetailModal";
 import { CreateTaskModal } from "@/components/tasks/CreateTaskModal";
+import { SearchModal } from "@/components/search/SearchModal";
 
 const { Text } = Typography;
 
@@ -96,12 +97,12 @@ const { Text } = Typography;
  * 首页 v2(工作台模式)
  *
  * 结构(从上到下):
- *   ① 搜索 + 新建笔记拆分按钮(全局入口)
- *   ② 4 个紧凑快速操作按钮(添加待办/今日笔记/AI/文档关系)
+ *   ① 搜索 + 新建文档拆分按钮(全局入口)
+ *   ② 4 个紧凑快速操作按钮(添加待办/当天日记/AI/搜索记录)
  *   ③ 快速记一笔(textarea, ⌘↩ 追加到今日 daily)
- *   ④ 今日待办速览(左) + 最近笔记(右),都带 inline 创建按钮
- *   ⑤ 写作活力(笔记/连续天数/距上次/本周字数 + 14 天迷你图)
- *   ⑥ 置顶笔记(左) + 问 AI 输入(右,直接输入新建对话)
+ *   ④ 今日待办速览(左) + 最近文档(右),都带 inline 创建按钮
+ *   ⑤ 写作活力(文档/连续天数/距上次/本周字数 + 14 天迷你图)
+ *   ⑥ 置顶文档(左) + 问 AI 输入(右,直接输入新建对话)
  */
 /**
  * 桌面端原版主页（保留所有原有 hook + 1300+ 行实现）。
@@ -117,7 +118,6 @@ function DesktopHomePage() {
   const tasksEnabled = useFeatureEnabled("tasks");
   const dailyEnabled = useFeatureEnabled("daily");
   const aiEnabled = useFeatureEnabled("ai");
-  const graphEnabled = useFeatureEnabled("graph");
 
   // ─── 数据状态 ─────────────────────────────────────
   const [recentNotes, setRecentNotes] = useState<Note[]>([]);
@@ -173,6 +173,8 @@ function DesktopHomePage() {
     [visibleWidgets],
   );
   const [searchKeyword, setSearchKeyword] = useState("");
+  /** 搜索模态窗：回车 / 点「搜索记录」在首页就地展开，不再跳搜索页 */
+  const [searchOpen, setSearchOpen] = useState(false);
   const [quickNote, setQuickNote] = useState("");
   const [quickNoteSaving, setQuickNoteSaving] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("");
@@ -263,19 +265,17 @@ function DesktopHomePage() {
 
   // ─── 搜索 ─────────────────────────────────────────
   const handleSearch = useCallback(() => {
-    if (searchKeyword.trim()) {
-      navigate(`/search?q=${encodeURIComponent(searchKeyword.trim())}`);
-    }
-  }, [searchKeyword, navigate]);
+    if (searchKeyword.trim()) setSearchOpen(true);
+  }, [searchKeyword]);
 
-  // ─── 今日笔记跳转 ──────────────────────────────────
+  // ─── 当天日记跳转 ──────────────────────────────────
   const handleTodayNote = useCallback(async () => {
     try {
       const today = new Date().toISOString().slice(0, 10);
       await dailyApi.getOrCreate(today);
       navigate(`/daily?date=${today}`);
     } catch (e) {
-      message.error(`打开今日笔记失败: ${e}`);
+      message.error(`打开当天日记失败: ${e}`);
     }
   }, [navigate, message]);
 
@@ -297,9 +297,9 @@ function DesktopHomePage() {
         content: newContent,
         folder_id: daily.folder_id,
       });
-      message.success("已写入今日笔记");
+      message.success("已写入当天日记");
       setQuickNote("");
-      // 也刷新最近笔记列表(daily 会出现在最近)
+      // 也刷新最近文档列表(daily 会出现在最近)
       loadDashboard();
     } catch (e) {
       message.error(`保存失败: ${e}`);
@@ -332,7 +332,7 @@ function DesktopHomePage() {
     );
   }, []);
 
-  // ─── 右键菜单（最近笔记 + 今日待办两个 widget） ─────
+  // ─── 右键菜单（最近文档 + 今日待办两个 widget） ─────
   const noteCtx = useContextMenu<Note>();
   const taskCtx = useContextMenu<Task>();
 
@@ -342,7 +342,7 @@ function DesktopHomePage() {
     return [
       {
         key: "open",
-        label: "打开笔记",
+        label: "打开文档",
         icon: <ExternalLink size={13} />,
         onClick: () => {
           noteCtx.close();
@@ -463,7 +463,7 @@ function DesktopHomePage() {
 
   // ─── 派生指标(纯前端从 trend 计算) ────────────────
   const vitalityMetrics = useMemo(() => {
-    // trend 是按日期升序,只含有笔记的日期
+    // trend 是按日期升序,只含有文档的日期
     const todayStr = new Date().toISOString().slice(0, 10);
     const trendByDate = new Map(trend.map((d) => [d.date, d]));
 
@@ -486,7 +486,7 @@ function DesktopHomePage() {
       }
     }
 
-    // 距上次写作:用最近笔记 updated_at
+    // 距上次写作:用最近文档 updated_at
     const lastWritingAt = recentNotes[0]?.updated_at ?? pinnedNotes[0]?.updated_at;
     const lastSinceLabel = lastWritingAt ? relativeTime(lastWritingAt) : "—";
 
@@ -576,22 +576,34 @@ function DesktopHomePage() {
       style={{ display: "flex", flexDirection: "column", gap: 12 }}
     >
 
-      {/* ① 顶部搜索 + 新建笔记
-          搜索：输入即下拉建议（笔记 + 待办，点击跳详情），回车去 /search 全量结果 */}
+      {/* ① 顶部搜索 + 搜索记录
+          搜索：输入即下拉建议（文档 + 待办，点击跳详情），回车在模态窗里看全量结果 */}
       <div className="flex gap-3" data-tour="home-search">
         <HomeSearchInput
           value={searchKeyword}
           onChange={setSearchKeyword}
           onPressEnter={handleSearch}
         />
-        <NewNoteButton size="large" style={{ borderRadius: 8 }} />
+        <Button
+          size="large"
+          icon={<Search size={14} style={{ color: "#2563eb" }} />}
+          onClick={() => setSearchOpen(true)}
+          style={{ borderRadius: 8 }}
+        >
+          搜索记录
+        </Button>
       </div>
 
       {/* ② 快速操作工具条 — 按启用模块动态分列
-          添加待办用 NewTodoButton 分段按钮(主按钮弹 Modal + ▼ 下拉 AI 规划)
+          新建文档在最前，添加待办用 NewTodoButton 分段按钮(主按钮弹 Modal + ▼ 下拉 AI 规划)
           某模块在设置里关闭时，对应按钮自动消失，剩余按钮等宽分布 */}
       {(() => {
         const quickActions: { key: string; show: boolean; node: React.ReactNode }[] = [
+          {
+            key: "new-note",
+            show: true,
+            node: <NewNoteButton block />,
+          },
           {
             key: "todo",
             show: tasksEnabled,
@@ -615,7 +627,7 @@ function DesktopHomePage() {
                 block
                 style={{ borderRadius: 8 }}
               >
-                今日笔记
+                当天日记
               </Button>
             ),
           },
@@ -630,20 +642,6 @@ function DesktopHomePage() {
                 style={{ borderRadius: 8 }}
               >
                 AI 问答
-              </Button>
-            ),
-          },
-          {
-            key: "graph",
-            show: graphEnabled,
-            node: (
-              <Button
-                icon={<GitBranch size={14} style={{ color: "#2563eb" }} />}
-                onClick={() => navigate("/graph")}
-                block
-                style={{ borderRadius: 8 }}
-              >
-                文档关系
               </Button>
             ),
           },
@@ -1250,9 +1248,15 @@ function DesktopHomePage() {
                   title: "快速记一笔",
                   icon: <PencilLine size={14} style={{ color: token.colorPrimary }} />,
                   extra: (
-                    <Text type="secondary" style={{ fontSize: 11 }}>
+                    <Button
+                      type="link"
+                      size="small"
+                      onClick={() => void handleTodayNote()}
+                      title="打开今天的日记"
+                      style={{ padding: 0, fontSize: 11 }}
+                    >
                       追加到「日记」
-                    </Text>
+                    </Button>
                   ),
                 },
                 todo: {
@@ -1358,6 +1362,13 @@ function DesktopHomePage() {
       </DndContext>
 
 
+      {/* 搜索模态窗：所有首页搜索入口都落到这里 */}
+      <SearchModal
+        open={searchOpen}
+        initialQuery={searchKeyword}
+        onClose={() => setSearchOpen(false)}
+      />
+
       {/* 待办详情弹窗 — 点击今日待办列表项触发；只读视图 + 标记完成 + 子任务 + 编辑入口 */}
       <TaskDetailModal
         task={taskDetail}
@@ -1387,7 +1398,7 @@ function DesktopHomePage() {
         }}
       />
 
-      {/* 最近笔记右键菜单 */}
+      {/* 最近文档右键菜单 */}
       <ContextMenuOverlay
         open={!!noteCtx.state.payload}
         x={noteCtx.state.x}

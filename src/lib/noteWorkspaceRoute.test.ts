@@ -1,21 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { isNoteWorkspacePath, isFullBleedPath } from "./noteWorkspaceRoute";
 
-describe("笔记工作区路由判定：标签栏该不该出现", () => {
-  it("笔记列表与编辑器 → 显示", () => {
+describe("文档工作区路由判定：标签栏该不该出现", () => {
+  it("文档列表与编辑器 → 显示", () => {
     expect(isNoteWorkspacePath("/notes")).toBe(true);
     expect(isNoteWorkspacePath("/notes/1")).toBe(true);
     expect(isNoteWorkspacePath("/notes/12345")).toBe(true);
   });
 
   it("白板 → 显示（本次修复最容易被后人改错的一条）", () => {
-    // 白板本质是 note_type='whiteboard' 的笔记：从 /notes/:id 进去会被
+    // 白板本质是 note_type='whiteboard' 的文档：从 /notes/:id 进去会被
     // editor 的入口重定向 replace 到 /whiteboard/:id。若这里判 false，
-    // 用户从笔记点进白板就会丢掉切回其他已开笔记的入口。
+    // 用户从文档点进白板就会丢掉切回其他已开文档的入口。
     expect(isNoteWorkspacePath("/whiteboard/7")).toBe(true);
   });
 
-  it("其他模块 → 不显示（原 BUG：这些页面顶着笔记标签栏）", () => {
+  it("其他模块 → 不显示（原 BUG：这些页面顶着文档标签栏）", () => {
     for (const p of [
       "/",
       "/daily",
@@ -49,7 +49,7 @@ describe("笔记工作区路由判定：标签栏该不该出现", () => {
 });
 
 describe("撑满型页面判定：Content 要不要留 scrollbar-gutter", () => {
-  it("日记与笔记编辑器 → 撑满型，关掉 gutter", () => {
+  it("日记与文档编辑器 → 撑满型，关掉 gutter", () => {
     // 这两处的根节点是 .editor-page（absolute inset:0），自己在 .editor-body 里滚动
     expect(isFullBleedPath("/daily")).toBe(true);
     expect(isFullBleedPath("/notes/1")).toBe(true);

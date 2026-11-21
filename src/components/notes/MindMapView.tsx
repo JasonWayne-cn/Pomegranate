@@ -12,9 +12,9 @@ interface Props {
   /** 是否显示——父级控制；隐藏时不挂载 svg、销毁 markmap 实例 */
   open: boolean;
   onClose: () => void;
-  /** 笔记 markdown 原文（编辑时实时刷新视图） */
+  /** 文档 markdown 原文（编辑时实时刷新视图） */
   markdown: string;
-  /** 笔记标题（用作根节点 fallback / 导出文件名） */
+  /** 文档标题（用作根节点 fallback / 导出文件名） */
   title: string;
   /** standalone = 独立窗口模式（当前仅作兼容） */
   variant?: string;
@@ -122,7 +122,7 @@ export function MindMapView({ open, onClose, markdown, title, variant: _variant 
       void openPath(path).catch((err) => message.error(`打开文件失败：${err}`));
       return;
     }
-    // 相对路径在导图组件里没有笔记目录上下文，既不解析也不让 WebView 导航
+    // 相对路径在导图组件里没有文档目录上下文，既不解析也不让 WebView 导航
     message.info("思维导图中暂不支持打开相对路径链接");
   }
 

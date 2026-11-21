@@ -45,9 +45,9 @@ impl TagService {
         Ok(())
     }
 
-    /// 给笔记添加标签
+    /// 给文档添加标签
     ///
-    /// 挂载的 Markdown 笔记会先把「现有标签 + 新标签」写回源文件 frontmatter，
+    /// 挂载的 Markdown 文档会先把「现有标签 + 新标签」写回源文件 frontmatter，
     /// 再更新 DB 关联。写回失败（只读挂载 / mtime 冲突等）时 DB 不变，避免两边不一致。
     pub fn add_to_note(db: &Database, note_id: i64, tag_id: i64) -> Result<(), AppError> {
         let tag_name = db
@@ -67,9 +67,9 @@ impl TagService {
         db.add_tag_to_note(note_id, tag_id)
     }
 
-    /// 移除笔记的标签
+    /// 移除文档的标签
     ///
-    /// 挂载的 Markdown 笔记会先把「剩余标签」写回源文件 frontmatter，再更新 DB 关联。
+    /// 挂载的 Markdown 文档会先把「剩余标签」写回源文件 frontmatter，再更新 DB 关联。
     pub fn remove_from_note(db: &Database, note_id: i64, tag_id: i64) -> Result<(), AppError> {
         let current = db.get_note_tags(note_id)?;
         if !current.iter().any(|t| t.id == tag_id) {
@@ -86,12 +86,12 @@ impl TagService {
         Ok(())
     }
 
-    /// 获取笔记的所有标签
+    /// 获取文档的所有标签
     pub fn get_note_tags(db: &Database, note_id: i64) -> Result<Vec<Tag>, AppError> {
         db.get_note_tags(note_id)
     }
 
-    /// 获取标签下的笔记列表（分页）
+    /// 获取标签下的文档列表（分页）
     pub fn list_notes_by_tag(
         db: &Database,
         tag_id: i64,

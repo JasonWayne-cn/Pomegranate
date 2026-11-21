@@ -128,7 +128,7 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
       }
     }
     if (!effectiveNoteId) {
-      message.warning("请先保存笔记后再插入图片");
+      message.warning("请先保存文档后再插入图片");
       return;
     }
     const selected = await open({
@@ -169,7 +169,7 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
       }
     }
     if (!effectiveNoteId) {
-      message.warning("请先保存笔记后再插入视频");
+      message.warning("请先保存文档后再插入视频");
       return;
     }
     const selected = await open({
@@ -239,7 +239,7 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
       }
     }
     if (!effectiveNoteId) {
-      message.warning("请先保存笔记后再插入附件");
+      message.warning("请先保存文档后再插入附件");
       return;
     }
     const selected = await open({
@@ -283,7 +283,7 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
   }
 
   /**
-   * 插入三维模型：选中文件 → 零拷贝保存到笔记附件目录 → 插入 viewer3d 节点。
+   * 插入三维模型：选中文件 → 零拷贝保存到文档附件目录 → 插入 viewer3d 节点。
    *
    * 节点只存 `kb-asset://<rel>`；真正的引擎在点击卡片后由预览 Modal 按需加载。
    * 当前内置引擎支持 core 格式；CAD（step/iges/3dm/ifc）待扩展包接入。
@@ -299,7 +299,7 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
       }
     }
     if (!effectiveNoteId) {
-      message.warning("请先保存笔记后再插入三维模型");
+      message.warning("请先保存文档后再插入三维模型");
       return;
     }
 
@@ -348,12 +348,12 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
   function openTimestampModal() {
     const videos = collectVideosInDoc();
     if (videos.length === 0) {
-      message.warning("当前笔记还没有视频，请先插入视频");
+      message.warning("当前文档还没有视频，请先插入视频");
       return;
     }
     const valid = videos.filter((v) => v.id);
     if (valid.length === 0) {
-      message.warning("视频缺少 ID。请重新打开此笔记触发自动补 ID 后再试");
+      message.warning("视频缺少 ID。请重新打开此文档触发自动补 ID 后再试");
       return;
     }
     setTsVideoId(valid[0].id);
@@ -1034,15 +1034,15 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
         },
       },
       {
-        // 与剪贴板对比 / 合并（左=剪贴板，右=当前笔记 markdown，可编辑）
+        // 与剪贴板对比 / 合并（左=剪贴板，右=当前文档 markdown，可编辑）
         icon: null,
         title: "对比剪贴板",
         customRender: () => <CompareClipboardButton editor={editor} />,
       },
       {
-        // 与其他笔记对比 / 合并
+        // 与其他文档对比 / 合并
         icon: null,
-        title: "对比其他笔记",
+        title: "对比其他文档",
         customRender: () => <CompareNotesButton editor={editor} noteId={noteId} />,
       },
     ],
@@ -1265,7 +1265,7 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
             style={{ color: "var(--ant-color-text-quaternary)", lineHeight: 1.5 }}
           >
             提示：只有"图注"非空时，导出 markdown 才会落 HTML &lt;figure&gt; 块；
-            否则保持标准 ![alt](url) 写法，与其他笔记工具兼容。
+            否则保持标准 ![alt](url) 写法，与其他文档工具兼容。
           </div>
         </div>
       </Modal>

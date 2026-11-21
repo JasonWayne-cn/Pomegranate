@@ -3,7 +3,7 @@
 //! 职责：
 //! 1. 课题 / 文献 / 产出的 CRUD（校验 + 转调 Database 层）
 //! 2. 组织科研场景提示词，调用统一的 AI 非流式补全接口
-//! 3. 把产出导出为普通笔记，复用现有的笔记索引与保存链路
+//! 3. 把产出导出为普通文档，复用现有的文档索引与保存链路
 
 use std::time::Duration;
 
@@ -128,7 +128,7 @@ impl ResearchService {
         db.delete_research_output(id)
     }
 
-    /// 把一份产出导出为普通笔记，返回新建的笔记。
+    /// 把一份产出导出为普通文档，返回新建的文档。
     pub fn export_output_to_note(
         db: &Database,
         output_id: i64,
@@ -264,7 +264,7 @@ fn literature_block(items: &[ResearchLiterature]) -> String {
     let mut out = String::new();
     for (idx, item) in items.iter().take(MAX_REVIEW_LITERATURE).enumerate() {
         out.push_str(&format!(
-            "[{}] {}\n作者：{}\n年份：{}\n来源：{}\n摘要：{}\n阅读笔记：{}\n\n",
+            "[{}] {}\n作者：{}\n年份：{}\n来源：{}\n摘要：{}\n阅读文档：{}\n\n",
             idx + 1,
             item.title,
             blank_as(&item.authors, "未填写"),

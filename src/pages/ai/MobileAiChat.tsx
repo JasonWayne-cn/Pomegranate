@@ -31,7 +31,7 @@ import { compactTurnText } from "@/components/ai/turnModel";
  *
  * 暂不实现：
  * - 工具调用 chip（ai:tool_call 事件）
- * - 引用笔记 chip（attached_note_ids）
+ * - 引用文档 chip（attached_note_ids）
  * - 重新生成 / 点赞 / 复制（占位按钮，下迭代）
  */
 

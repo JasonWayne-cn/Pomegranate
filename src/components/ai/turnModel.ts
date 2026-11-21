@@ -39,7 +39,7 @@ export interface TurnView {
   durationMs?: number;
   /** 流式中：开始时间，卡片头据此跑计时 */
   startedAt?: number;
-  /** 回答参考了哪些笔记 */
+  /** 回答参考了哪些文档 */
   refs: number[];
   /** 已存回复对应的消息；流式卡片为空 */
   message?: AiMessage;
@@ -186,39 +186,39 @@ export function turnFromLive(t: LiveTurn): TurnView {
 
 /** 内置工具的中文名。kb-core（`kb__` 前缀）与内置 skills 同名的共用一条 */
 const TOOL_LABELS: Record<string, string> = {
-  search_notes: "检索笔记",
-  get_note: "读取笔记",
+  search_notes: "检索文档",
+  get_note: "读取文档",
   list_tags: "列出标签",
-  find_related: "查找相关笔记",
+  find_related: "查找相关文档",
   get_today_tasks: "查看今日待办",
   list_datasets: "列出数据表",
   query_dataset: "查询数据表",
-  search_by_tag: "按标签找笔记",
+  search_by_tag: "按标签找文档",
   get_backlinks: "查看反向链接",
   list_daily_notes: "列出日记",
   list_tasks: "列出任务",
   list_subtasks: "列出子任务",
   get_prompt: "读取提示词",
   list_prompts: "列出提示词",
-  list_templates: "列出笔记模板",
+  list_templates: "列出文档模板",
   list_trash: "查看回收站",
-  list_recent_notes: "最近更新的笔记",
+  list_recent_notes: "最近更新的文档",
   list_folders: "列出文件夹",
-  list_notes_by_folder: "列出文件夹内笔记",
-  move_notes_batch: "批量移动笔记",
+  list_notes_by_folder: "列出文件夹内文档",
+  move_notes_batch: "批量移动文档",
   create_folder: "新建文件夹",
   rename_folder: "重命名文件夹",
   move_folder: "移动文件夹",
   reorder_folders: "调整文件夹顺序",
-  create_note_from_template: "按模板建笔记",
+  create_note_from_template: "按模板建文档",
   restore_note_from_trash: "从回收站还原",
-  delete_note: "删除笔记",
+  delete_note: "删除文档",
   remove_tag_from_note: "移除标签",
   add_tag_to_note: "添加标签",
   create_task: "新建任务",
   update_task: "更新任务",
-  create_note: "新建笔记",
-  update_note: "修改笔记",
+  create_note: "新建文档",
+  update_note: "修改文档",
   ping: "连通性检查",
 };
 
@@ -239,7 +239,7 @@ function clip(s: string, max: number): string {
   return one.length > max ? `${one.slice(0, max)}…` : one;
 }
 
-/** 参数里最能说明「这一步在干嘛」的那个值，如检索词、笔记 id */
+/** 参数里最能说明「这一步在干嘛」的那个值，如检索词、文档 id */
 export function summarizeArgs(argsJson: string): string {
   const args = parseJson<Record<string, unknown>>(argsJson);
   if (!args || typeof args !== "object") return "";
@@ -268,7 +268,7 @@ export function formatDuration(ms: number): string {
 }
 
 /**
- * 还没换成卡片的紧凑视图（移动端 / 笔记侧边抽屉）用的正文。
+ * 还没换成卡片的紧凑视图（移动端 / 文档侧边抽屉）用的正文。
  *
  * v63 起失败和停止也会存成一条 assistant 消息，失败那条正文是空的；
  * 这些视图只会画一个空气泡，所以把结局写成一句话补进正文。

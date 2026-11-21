@@ -6,7 +6,7 @@
  * 没有现成的全局入口。
  *
  * 方案：editor 组件 mount 时调 setActiveEditor 注册自己，unmount 时清空。
- * 同一时刻只允许一个 active editor（笔记应用本来就是单 active 编辑）。
+ * 同一时刻只允许一个 active editor（文档应用本来就是单 active 编辑）。
  *
  * 不放到 Zustand 是因为 editor 实例的引用变化非常频繁（每次内容变更都可能
  * 触发新引用），走 store 会让所有订阅者无谓重渲染。这里只暴露同步 getter，

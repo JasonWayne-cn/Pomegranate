@@ -16,16 +16,13 @@ import type { ActiveView } from "@/store";
  */
 
 // 各 panel 都是 named export，需要在 .then 里转成 default export 给 lazy 用
-// 笔记与标签合并为一个面板（顶部页签切换），故只需引这层薄壳；
+// 文档与标签合并为一个面板（顶部页签切换），故只需引这层薄壳；
 // NotesPanel / TagsPanel 由它内部按需 lazy 加载
 const NotesTagsPanel = lazy(() =>
   import("./panels/NotesTagsPanel").then((m) => ({ default: m.NotesTagsPanel })),
 );
 const DailyPanel = lazy(() =>
   import("./panels/DailyPanel").then((m) => ({ default: m.DailyPanel })),
-);
-const SearchPanel = lazy(() =>
-  import("./panels/SearchPanel").then((m) => ({ default: m.SearchPanel })),
 );
 const TasksPanel = lazy(() =>
   import("./panels/TasksPanel").then((m) => ({ default: m.TasksPanel })),
@@ -42,7 +39,6 @@ const VIEWS_WITH_PANEL = new Set<ActiveView>([
   "notes",
   "tags",
   "tasks",
-  "search",
   "daily",
   "hidden",
   "ai",
@@ -81,7 +77,7 @@ export function SidePanel() {
 
   let node: React.ReactNode = null;
   switch (activeView) {
-    // 笔记 / 标签共用同一个面板，内部页签决定显示哪棵树。
+    // 文档 / 标签共用同一个面板，内部页签决定显示哪棵树。
     // Activity Bar 的「标签」图标仍然可用：点它进来直接停在标签页签
     case "notes":
     case "tags":
@@ -89,9 +85,6 @@ export function SidePanel() {
       break;
     case "daily":
       node = <DailyPanel />;
-      break;
-    case "search":
-      node = <SearchPanel />;
       break;
     case "tasks":
       node = <TasksPanel />;

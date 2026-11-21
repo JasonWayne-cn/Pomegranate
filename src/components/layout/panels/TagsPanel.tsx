@@ -457,7 +457,7 @@ export function TagsPanel() {
           ctx.close();
           Modal.confirm({
             title: `删除标签「${p.name}」？`,
-            content: "子标签会自动提升为顶层（不会跟着删除）。已关联的笔记保留。",
+            content: "子标签会自动提升为顶层（不会跟着删除）。已关联的文档保留。",
             okText: "删除",
             okButtonProps: { danger: true },
             async onOk() {

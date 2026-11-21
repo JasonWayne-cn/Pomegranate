@@ -166,7 +166,7 @@ export default function MountsPage() {
         readOnly: false,
         indexEnabled: true,
         dailyMode: false,
-        scanInterval: 10,
+        scanInterval: 600,
       });
       setAddOpen(true);
     } catch (e) {
@@ -266,17 +266,17 @@ export default function MountsPage() {
 
   async function removeMount(mount: ExternalMount, detach: boolean) {
     Modal.confirm({
-      title: detach ? "转为本地笔记？" : "移除挂载点？",
+      title: detach ? "转为本地文档？" : "移除挂载点？",
       content: detach
-        ? "影子笔记会转换成本地笔记保留在数据库中，原磁盘文件不会被删除。"
-        : "只删除索引和影子笔记，磁盘上的原始文件不受影响。",
+        ? "影子文档会转换成本地文档保留在数据库中，原磁盘文件不会被删除。"
+        : "只删除索引和影子文档，磁盘上的原始文件不受影响。",
       okText: detach ? "转为本地" : "移除索引",
       okButtonProps: { danger: !detach },
       cancelText: "取消",
       async onOk() {
         try {
           await mountApi.remove(mount.id, detach);
-          message.success(detach ? "已转为本地笔记" : "已移除挂载点");
+          message.success(detach ? "已转为本地文档" : "已移除挂载点");
           await loadMounts();
         } catch (e) {
           message.error(`操作失败: ${e}`);
@@ -288,7 +288,7 @@ export default function MountsPage() {
   /**
    * 点击文件：
    * - 二进制文档（PDF / Word / Excel）直接进 Office 工作台打开磁盘原文件
-   * - 文本文件 / Office 不支持的旧格式仍打开影子笔记
+   * - 文本文件 / Office 不支持的旧格式仍打开影子文档
    */
   function openEntry(entry: ExternalEntry) {
     if (entry.typeCategory && entry.typeCategory !== "text" && entry.absPath) {
@@ -317,7 +317,7 @@ export default function MountsPage() {
         message.info("该挂载点为只读：编辑内容不会写回原文件");
       }
       if (r.stale) {
-        message.warning("原文件已更新，影子笔记有本地编辑，已保留当前内容");
+        message.warning("原文件已更新，影子文档有本地编辑，已保留当前内容");
       }
       navigate(`/notes/${noteId}`);
     } catch (e) {
@@ -508,7 +508,7 @@ export default function MountsPage() {
                             {
                               key: "detach",
                               icon: <FolderInput size={13} />,
-                              label: "转为本地笔记",
+                              label: "转为本地文档",
                               onClick: () => removeMount(m, true),
                             },
                             {
@@ -593,8 +593,8 @@ export default function MountsPage() {
                 type="warning"
                 showIcon
                 style={{ marginBottom: 12 }}
-                message={`${entries.filter((e) => e.stale).length} 个影子笔记落后于原文件`}
-                description="这些文件的原文件已更新，但影子笔记有本地编辑。打开笔记后可选择「重新抽取」覆盖本地编辑，或保留当前内容。"
+                message={`${entries.filter((e) => e.stale).length} 个影子文档落后于原文件`}
+                description="这些文件的原文件已更新，但影子文档有本地编辑。打开文档后可选择「重新抽取」覆盖本地编辑，或保留当前内容。"
               />
             )}
             <div style={{ height: 420, overflow: "hidden" }}>
@@ -647,7 +647,7 @@ export default function MountsPage() {
             readOnly: false,
             indexEnabled: true,
             dailyMode: false,
-            scanInterval: 10,
+            scanInterval: 600,
             syncTypes: {
               text: true,
               pdf: true,
@@ -675,7 +675,7 @@ export default function MountsPage() {
           <Form.Item
             name="scanInterval"
             label="同步间隔（秒）"
-            tooltip="后台每隔多久检查一次原文件变化；默认 10 秒。后台调度器每 5 秒巡检一次，到期的挂载点才会扫描。"
+            tooltip="后台每隔多久检查一次原文件变化；默认 10 分钟（600 秒）。后台调度器每 5 秒巡检一次，到期的挂载点才会扫描。"
             rules={[{ required: true, message: "请输入同步间隔" }]}
           >
             <InputNumber min={2} max={3600} style={{ width: "100%" }} />

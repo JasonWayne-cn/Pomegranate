@@ -11,7 +11,7 @@
  * - 写 YAML front-matter（`---` 包起来的元数据）
  * - 手写 schema 不认的 HTML（`<kbd>` / `<audio>` / 自定义 class 的 div）
  * - 从别处粘一段 markdown 原文，想原样保留
- * - 单纯想看看这篇笔记的 markdown 到底长什么样
+ * - 单纯想看看这篇文档的 markdown 到底长什么样
  *
  * 源码模式下 content 字符串**原样进出、零解析**，上面这些全部不受影响。
  *

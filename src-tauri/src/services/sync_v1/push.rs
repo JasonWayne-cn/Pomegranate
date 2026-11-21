@@ -101,7 +101,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
     }
 
     // hash 算法兼容性检查（v1 → v2 升级）：
-    // 远端 manifest 是旧客户端写的（无 hash_algo 字段），diff 会把所有笔记误判为变更。
+    // 远端 manifest 是旧客户端写的（无 hash_algo 字段），diff 会把所有文档误判为变更。
     // 处理：清空本机 sync_remote_state，把远端视为"空 manifest" → 走全量首次推送路径，
     // 写出 v2 格式新 manifest 后下次 pull/push 即恢复增量。
     if let Some(ref m) = remote_opt {
@@ -138,7 +138,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
     // 拿当前同步状态（hash → 用于跳过已同步的）
     let state_map = db.list_remote_state(backend_id)?;
 
-    // 按需读取 to_push 的笔记内容（不再全库读 content）
+    // 按需读取 to_push 的文档内容（不再全库读 content）
     //
     // 历史：v1 早期版本一次性 `SELECT id, title, content, updated_at FROM notes`
     // 把整库塞进 HashMap，10000 条 × 平均 50KB content ≈ 500MB 内存峰值，大库爆内存。
@@ -169,7 +169,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
                 let rows = stmt
                     .query_map(rusqlite::params_from_iter(chunk.iter()), |row| {
                         // 降级读：db 文件被外部拷坏时某个 cell 可能是非法 UTF-8，
-                        // 严格读会让整次 push 失败（几千条好笔记被一行坏数据拖死）。
+                        // 严格读会让整次 push 失败（几千条好文档被一行坏数据拖死）。
                         // 见 database::text_health 模块文档。
                         Ok((
                             row.get::<_, i64>(0)?,
@@ -189,7 +189,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
     };
 
     // T-S012：tombstone 删除走原串行（数量少 + delete_note 不在 batch trait 中）
-    // T-S030/T-S031：非 tombstone 笔记收集后用 batch_put_notes 一次性并发上传
+    // T-S030/T-S031：非 tombstone 文档收集后用 batch_put_notes 一次性并发上传
     struct PendingUpload {
         note_id: i64,
         stable_id: String,
@@ -262,7 +262,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
             Some(v) => v.clone(),
             None => {
                 result.errors.push(format!(
-                    "笔记 stable_uuid={} 在 manifest 里但 DB 里找不到",
+                    "文档 stable_uuid={} 在 manifest 里但 DB 里找不到",
                     entry.stable_id
                 ));
                 continue;
@@ -277,7 +277,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
             }
         }
 
-        // T-S014：加密笔记走密文上传分支
+        // T-S014：加密文档走密文上传分支
         let body_to_upload: String = if entry.encrypted {
             match db.get_note_crypto_state_by_uuid(&entry.stable_id) {
                 Ok(Some((true, Some(blob)))) => {
@@ -286,7 +286,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
                 }
                 Ok(_) => {
                     result.errors.push(format!(
-                        "加密笔记 {} 缺 encrypted_blob，跳过上传",
+                        "加密文档 {} 缺 encrypted_blob，跳过上传",
                         entry.title
                     ));
                     continue;
@@ -318,13 +318,13 @@ pub fn push<R: Runtime, E: Emitter<R>>(
     // P1-1：标记批量上传是否因远端不可用 / 限流而硬中止；中止时下面会跳过 manifest 写入，
     // 避免 merge(local) 把未成功上传的 entry 也写进远端 manifest（宣告不存在的 .md）。
     let mut upload_aborted = false;
-    // Critical 修复：记录本轮"单条上传失败"的笔记 stable_id 与附件 hash。
+    // Critical 修复：记录本轮"单条上传失败"的文档 stable_id 与附件 hash。
     // 写 manifest 时把它们从 local 视图剔除 —— manifest 是「提交点」，只能宣告确已落到远端的内容。
     // 否则：失败的 .md/附件仍被写进远端 manifest，对端 pull 会报"文件丢失"；更糟的是
     // diff_manifests 只比 manifest 里的 content_hash（不看 sync_remote_state），远端 manifest 一旦
-    // 已含该 hash，本端下一轮 push 就不再把它列入 to_push → 该 .md 永远不会重传 → 笔记永久残缺
-    // （仅当用户日后又编辑该笔记、hash 变了才会触发重传）。剔除后本轮 manifest 保持诚实，
-    // 且失败笔记仍留在 to_push，下一轮自动重传，恢复自愈。
+    // 已含该 hash，本端下一轮 push 就不再把它列入 to_push → 该 .md 永远不会重传 → 文档永久残缺
+    // （仅当用户日后又编辑该文档、hash 变了才会触发重传）。剔除后本轮 manifest 保持诚实，
+    // 且失败文档仍留在 to_push，下一轮自动重传，恢复自愈。
     let mut failed_note_stable_ids: std::collections::HashSet<String> =
         std::collections::HashSet::new();
     let mut failed_attachment_hashes: std::collections::HashSet<String> =
@@ -338,7 +338,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
                 phase: "upload-batch".into(),
                 current: 0,
                 total,
-                message: format!("批量上传 {} 条笔记…", total),
+                message: format!("批量上传 {} 条文档…", total),
             },
         );
 
@@ -490,12 +490,12 @@ pub fn push<R: Runtime, E: Emitter<R>>(
     // 写新的远端 manifest = merge(local, remote_独有) —— 防 lost-update。
     //
     // T-S013（已修）：直接 `write_manifest(&local)` 会**吞掉远端独有项**——比如本机推送时另一台设备
-    // 刚好 push 了笔记 X，X 的 .md 已存在但本机 local 不含 X，写入时会把 X 从远端 manifest 抹掉。
+    // 刚好 push 了文档 X，X 的 .md 已存在但本机 local 不含 X，写入时会把 X 从远端 manifest 抹掉。
     // 解决：写前重新读远端 manifest 合并。
     //
     // **Bug 7（本次加固）**：上面的"读 → merge → 写"也有 race 窗口 —— 两台设备同时跑到这一步：
     // A 读到 rev N → 合并 → 写出 rev N+1A；B 同时读到 rev N → 合并 → 写出 rev N+1B（覆盖 A）。
-    // 一旦 A 那次新写的笔记 entry 是 local 独有的，rev N+1B 就会**丢掉 A 那条 entry** → 第三台设备
+    // 一旦 A 那次新写的文档 entry 是 local 独有的，rev N+1B 就会**丢掉 A 那条 entry** → 第三台设备
     // pull 不到。
     //
     // 务实方案（不做完整 If-Match CAS，因为坚果云等 WebDAV server 的 ETag 实现不可靠）：
@@ -530,14 +530,14 @@ pub fn push<R: Runtime, E: Emitter<R>>(
         task_categories: vec![],
     };
 
-    // Critical 修复：写 manifest 用的本地视图 —— 剔除本轮上传失败的笔记 / 附件。
+    // Critical 修复：写 manifest 用的本地视图 —— 剔除本轮上传失败的文档 / 附件。
     // 无失败时零拷贝直接借用 local；有失败时 clone 一份再 retain 过滤。
     let local_for_manifest: std::borrow::Cow<'_, SyncManifestV1> =
         if failed_note_stable_ids.is_empty() && failed_attachment_hashes.is_empty() {
             std::borrow::Cow::Borrowed(&local)
         } else {
             log::warn!(
-                "[sync_v1] push backend {}: {} 篇笔记 / {} 个附件上传失败，已从本轮远端 manifest 排除（下一轮 push 自动重传）",
+                "[sync_v1] push backend {}: {} 篇文档 / {} 个附件上传失败，已从本轮远端 manifest 排除（下一轮 push 自动重传）",
                 backend_id,
                 failed_note_stable_ids.len(),
                 failed_attachment_hashes.len()
@@ -556,7 +556,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
         // 否则 merge(local) 会把全部 entry（含没上传成功的）写进远端 manifest，
         // 宣告一批并不存在的 .md，其他端 pull 会拿不到内容 / 报 ".md 丢失"。
         last_err = Some(
-            "批量上传中止，已跳过远端 manifest 更新（避免宣告未上传的笔记）；远端恢复后重试即可".into(),
+            "批量上传中止，已跳过远端 manifest 更新（避免宣告未上传的文档）；远端恢复后重试即可".into(),
         );
     }
     for attempt in 1..=MANIFEST_WRITE_MAX_ATTEMPTS {
@@ -619,7 +619,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
     }
     // P1-2：manifest 是 push 的"提交点"。没写成（upload_aborted / 写入失败）→ 不刷新
     // last_push_ts，让自动调度器下个 tick（~60s）就重试，而不是干等满一个同步间隔。
-    // 个别笔记 / 附件失败但 manifest 写成了 → 仍 touch（属部分成功，下轮增量自然补齐）。
+    // 个别文档 / 附件失败但 manifest 写成了 → 仍 touch（属部分成功，下轮增量自然补齐）。
     let manifest_ok = last_err.is_none();
     if let Some(e) = last_err {
         result.errors.push(e);
@@ -627,7 +627,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
 
     if manifest_ok {
         db.touch_sync_backend_push(backend_id)?;
-        // P2-c：push 成功后顺带清理 sync_remote_state 死行（对应笔记已硬删 /
+        // P2-c：push 成功后顺带清理 sync_remote_state 死行（对应文档已硬删 /
         // 超 30 天 tombstone）。用与 compute_local_manifest 同款的 30 天阈值；
         // 失败仅 warn，不影响本次 push 结果。
         let gc_cutoff = (chrono::Local::now()
@@ -675,7 +675,7 @@ use super::short_hash;
 const _MARKER: () = ();
 
 /// Critical 修复辅助（纯函数，便于单测）：从本地 manifest 视图剔除本轮"上传失败"的
-/// 笔记（按 stable_id）与附件（按 hash），得到一份"只宣告已落远端内容"的 manifest。
+/// 文档（按 stable_id）与附件（按 hash），得到一份"只宣告已落远端内容"的 manifest。
 ///
 /// 之所以必须剔除：manifest 是同步的提交点，`diff_manifests` 只比 manifest 里的 content_hash、
 /// 不看 sync_remote_state。一旦把没上传成功的 .md/附件写进远端 manifest，对端 pull 会报文件丢失，
@@ -802,7 +802,7 @@ mod tests {
         items.iter().map(|s| s.to_string()).collect()
     }
 
-    /// 失败的笔记 stable_id 应从 manifest.entries 剔除，其余保留
+    /// 失败的文档 stable_id 应从 manifest.entries 剔除，其余保留
     #[test]
     fn excludes_failed_notes_from_manifest() {
         let local = manifest(
@@ -816,14 +816,14 @@ mod tests {
         assert_eq!(out.attachments.len(), 2);
     }
 
-    /// 失败的附件 hash 应从 manifest.attachments 剔除，笔记不受影响
+    /// 失败的附件 hash 应从 manifest.attachments 剔除，文档不受影响
     #[test]
     fn excludes_failed_attachments_from_manifest() {
         let local = manifest(vec![entry("a", "h1")], vec!["x", "y", "z"]);
         let out = manifest_excluding_failed(&local, &HashSet::new(), &set(&["y"]));
         let hashes: Vec<&str> = out.attachments.iter().map(|a| a.hash.as_str()).collect();
         assert_eq!(hashes, vec!["x", "z"], "附件 y 上传失败应被剔除");
-        assert_eq!(out.entries.len(), 1, "笔记不受附件失败影响");
+        assert_eq!(out.entries.len(), 1, "文档不受附件失败影响");
     }
 
     /// 无失败项 → 内容与输入完全一致（等价于零剔除）
@@ -840,7 +840,7 @@ mod tests {
         );
     }
 
-    /// 笔记 + 附件同时失败：两者都剔除
+    /// 文档 + 附件同时失败：两者都剔除
     #[test]
     fn excludes_failed_notes_and_attachments_together() {
         let local = manifest(

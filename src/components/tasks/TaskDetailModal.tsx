@@ -285,7 +285,7 @@ export function TaskDetailModal({
                 {task.subtask_total > 0 && (
                   <CopyButton
                     // 点击时才现拉一遍：子任务可在本弹窗内增删改，用最新数据才不会复制到旧内容。
-                    // 输出 Markdown 待办格式，粘到笔记 / 聊天窗里勾选状态一眼可见。
+                    // 输出 Markdown 待办格式，粘到文档 / 聊天窗里勾选状态一眼可见。
                     text={async () => {
                       const list = await taskApi.listSubtasks(task.id);
                       return list

@@ -156,7 +156,7 @@ function findFolderNode(list: Folder[], id: number): Folder | null {
   return null;
 }
 
-/** 将笔记按日期分组 */
+/** 将文档按日期分组 */
 function groupByDate(notes: Note[]): Map<string, Note[]> {
   const map = new Map<string, Note[]>();
   for (const note of notes) {
@@ -176,7 +176,7 @@ function formatDateLabel(dateStr: string): string {
   return dateStr;
 }
 
-/** 笔记标签装饰（React.memo 避免重渲染） */
+/** 文档标签装饰（React.memo 避免重渲染） */
 const NoteDecorators = ({ note, warningColor }: { note: Note; warningColor: string }) => (
   <span className="inline-flex items-center gap-1 ml-1">
     {note.is_pinned && <Pin size={11} style={{ color: warningColor }} />}
@@ -297,7 +297,7 @@ function BatchMoveButton({
   );
 }
 
-/** 批量打标签按钮：Popover 里多选标签，确认后追加到所有选中笔记（不清除原有）
+/** 批量打标签按钮：Popover 里多选标签，确认后追加到所有选中文档（不清除原有）
  *  onDone 由父组件注入：调 API + 清 selection + 刷新 */
 function BatchTagButton({
   noteIds,
@@ -431,7 +431,7 @@ function BatchTagButton({
   );
 }
 
-/** 笔记列表"目录"列的单元格：
+/** 文档列表"目录"列的单元格：
  *  - 展示当前文件夹名或"—"（无目录）
  *  - 点击 → Popover 里 Tree 选择新文件夹 → 调 moveToFolder → 刷新列表
  *  - 保留"筛选此文件夹"快捷入口（原表格里的跳转语义） */
@@ -468,7 +468,7 @@ function FolderChangeCell({
     try {
       await noteApi.moveToFolder(noteId, folderId);
       useAppStore.getState().bumpFoldersRefresh();
-      // 同时刷新侧边栏 NotesPanel 的「未分类」/ 目标文件夹笔记列表
+      // 同时刷新侧边栏 NotesPanel 的「未分类」/ 目标文件夹文档列表
       useAppStore.getState().bumpNotesRefresh();
       onChanged();
       setOpen(false);
@@ -582,7 +582,7 @@ function DesktopNoteListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { token } = antdTheme.useToken();
 
-  /** 外部 PDF/Word/Excel 进 Office 工作台；普通笔记进编辑器。 */
+  /** 外部 PDF/Word/Excel 进 Office 工作台；普通文档进编辑器。 */
   function openNoteOrOffice(note: Pick<Note, "id" | "source_file_path">) {
     navigate(officePathForSource(note.source_file_path) ?? `/notes/${note.id}`);
   }
@@ -618,7 +618,7 @@ function DesktopNoteListPage() {
       return false;
     }
   });
-  /** 列表视图下选中的笔记 id，切换到其他视图/翻页自动清空 */
+  /** 列表视图下选中的文档 id，切换到其他视图/翻页自动清空 */
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   /** 批量移动 Popover 的开关 */
   const [batchMoveOpen, setBatchMoveOpen] = useState(false);
@@ -860,7 +860,7 @@ function DesktopNoteListPage() {
     [data.page, loadNotes],
   );
 
-  /** 同步文档：按原文件强制重新抽取，覆盖影子笔记的本地编辑 */
+  /** 同步文档：按原文件强制重新抽取，覆盖影子文档的本地编辑 */
   const handleRefreshSynced = useCallback(
     async (record: Note) => {
       const hide = message.loading("正在按原文件刷新…", 0);
@@ -868,7 +868,7 @@ function DesktopNoteListPage() {
         const result = await mountApi.reextract(record.id);
         hide();
         if (result.missing) {
-          message.warning("原文件已不存在，保留了现有影子笔记");
+          message.warning("原文件已不存在，保留了现有影子文档");
         } else if (result.status === "failed") {
           message.warning(
             `已刷新索引，但内容抽取失败：${result.error ?? "未知错误"}`,
@@ -919,7 +919,7 @@ function DesktopNoteListPage() {
     }
   }, []);
 
-  /** 批量导出：循环调单条 export，每篇笔记会在父目录下生成 `{标题}/` 子目录 */
+  /** 批量导出：循环调单条 export，每篇文档会在父目录下生成 `{标题}/` 子目录 */
   const handleExportBatch = useCallback(async (ids: number[]) => {
     if (ids.length === 0) return;
     const parentDir = await openDialog({
@@ -938,7 +938,7 @@ function DesktopNoteListPage() {
         totalAssets += result.assets_copied;
       } catch (e) {
         failed.push(id);
-        console.warn(`[export] 笔记 ${id} 导出失败:`, e);
+        console.warn(`[export] 文档 ${id} 导出失败:`, e);
       }
     }
     hide();
@@ -1074,7 +1074,7 @@ function DesktopNoteListPage() {
           success += 1;
         } catch (e) {
           failed.push(id);
-          console.warn(`[export] 笔记 ${id} 导出 ${ext} 失败:`, e);
+          console.warn(`[export] 文档 ${id} 导出 ${ext} 失败:`, e);
         }
       }
       hide();
@@ -1319,8 +1319,8 @@ function DesktopNoteListPage() {
         // 标题文字（尤其是被 ellipsis 截断时）会贴到下一列，给单元格右侧留点呼吸空间
         onCell: () => ({ style: { paddingRight: 24 } }),
         render: (title: string, record: Note) => {
-          // 子文件夹笔记标记：当前选中是某文件夹，且这条笔记 folder_id 不等于该选中
-          // → 笔记其实在子孙文件夹下；前面加 ↳ 小箭头作为轻量视觉提示
+          // 子文件夹文档标记：当前选中是某文件夹，且这条文档 folder_id 不等于该选中
+          // → 文档其实在子孙文件夹下；前面加 ↳ 小箭头作为轻量视觉提示
           const numericFolderId =
             folderId && folderId !== "uncategorized" ? Number(folderId) : null;
           const isFromDescendant =
@@ -1397,7 +1397,7 @@ function DesktopNoteListPage() {
   // 时间线分组（缓存）
   const dateGroups = useMemo(() => groupByDate(data.items), [data.items]);
 
-  // 笔记纯文本预览（缓存：仅当 data.items 变化才重算 stripHtml，避免每次 render 都跑）
+  // 文档纯文本预览（缓存：仅当 data.items 变化才重算 stripHtml，避免每次 render 都跑）
   const notePreviews = useMemo(() => {
     const map = new Map<number, string>();
     for (const n of data.items) {
@@ -1407,7 +1407,7 @@ function DesktopNoteListPage() {
   }, [data.items]);
 
   // ─── 虚拟滚动（卡片视图） ────────────────────
-  // 将笔记按 3 列分行
+  // 将文档按 3 列分行
   const cardRows = useMemo(() => {
     const rows: Note[][] = [];
     for (let i = 0; i < data.items.length; i += 3) {
@@ -1715,7 +1715,7 @@ function DesktopNoteListPage() {
             size="small"
             icon={<Bot size={14} />}
             onClick={async () => {
-              // 找第一篇笔记的标题给新对话用作默认名
+              // 找第一篇文档的标题给新对话用作默认名
               const firstId = selectedIds[0];
               const firstTitle = data.items.find((n) => n.id === firstId)?.title;
               try {
@@ -2149,7 +2149,7 @@ function DesktopNoteListPage() {
         </>
       )}
 
-      {/* "新建笔记"入口已统一到 NewNoteButton 分段按钮 */}
+      {/* "新建文档"入口已统一到 NewNoteButton 分段按钮 */}
 
       {/* 列表行右键菜单（list 视图） */}
       <ContextMenuOverlay

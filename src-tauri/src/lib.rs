@@ -734,7 +734,7 @@ pub fn run() {
                 }
             }
 
-            // 启动笔记向量增量索引队列（后台防抖，不阻塞 IPC）
+            // 启动文档向量增量索引队列（后台防抖，不阻塞 IPC）
             services::index_queue::init(state.db.clone());
 
             app.manage(state);
@@ -1101,7 +1101,7 @@ pub fn run() {
             commands::research::research_delete_output,
             commands::research::research_export_output_to_note,
             commands::research::research_ai_generate,
-            // 笔记模块
+            // 文档模块
             commands::notes::create_note,
             commands::notes::update_note,
             commands::notes::delete_note,
@@ -1116,7 +1116,7 @@ pub fn run() {
             commands::notes::set_note_hidden,
             commands::notes::list_hidden_notes,
             commands::notes::list_hidden_folder_ids,
-            // 隐藏笔记 PIN（UX 门禁，非真加密）
+            // 隐藏文档 PIN（UX 门禁，非真加密）
             commands::hidden_pin::is_hidden_pin_set,
             commands::hidden_pin::set_hidden_pin,
             commands::hidden_pin::verify_hidden_pin,
@@ -1124,10 +1124,10 @@ pub fn run() {
             commands::hidden_pin::get_hidden_pin_hint,
             // T-014 网页剪藏
             commands::notes::clip_url_to_note,
-            // 多窗口 pop-out（笔记对照 / 双显示器分屏）
+            // 多窗口 pop-out（文档对照 / 双显示器分屏）
             #[cfg(desktop)]
             commands::notes::open_note_in_new_window,
-            // T-007 笔记加密 / Vault
+            // T-007 文档加密 / Vault
             commands::vault::vault_status,
             commands::vault::vault_setup,
             commands::vault::vault_unlock,
@@ -1298,7 +1298,7 @@ pub fn run() {
             commands::print::open_print_window,
             commands::print::print_page_html,
             commands::print::print_page_done,
-            // 笔记批量操作
+            // 文档批量操作
             commands::notes::trash_all_notes,
             // 图片模块
             commands::image::save_note_image,
@@ -1493,7 +1493,7 @@ pub fn run() {
             commands::whiteboard::list_embedded_whiteboard_snapshots,
             commands::whiteboard::get_embedded_whiteboard_snapshot_scene,
             commands::whiteboard::restore_embedded_whiteboard_snapshot,
-            // ─── KB 2.0 合并：笔记快照 ───
+            // ─── KB 2.0 合并：文档快照 ───
             commands::snapshot::list_note_snapshots,
             commands::snapshot::get_note_snapshot,
             commands::snapshot::create_note_snapshot,

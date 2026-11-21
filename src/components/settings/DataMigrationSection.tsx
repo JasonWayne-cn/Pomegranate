@@ -50,11 +50,11 @@ export function DataMigrationSection({ embedded }: { embedded?: boolean }) {
         数据目录下的核心文件 / 子目录：
       </Typography.Paragraph>
       <ul style={{ fontSize: 12, paddingLeft: 20, margin: "0 0 8px", color: "rgba(0,0,0,0.45)" }}>
-        <li style={{ marginBottom: 2 }}><code>app.db</code> — 笔记 / 文件夹 / 标签 / 链接 / AI 对话 / 待办 / 加密数据等全部元数据（SQLite）</li>
-        <li style={{ marginBottom: 2 }}><code>kb_assets/</code> — 笔记内嵌图片（含 <code>kb_assets/videos/</code> 子目录的视频）</li>
+        <li style={{ marginBottom: 2 }}><code>app.db</code> — 文档 / 文件夹 / 标签 / 链接 / AI 对话 / 待办 / 加密数据等全部元数据（SQLite）</li>
+        <li style={{ marginBottom: 2 }}><code>kb_assets/</code> — 文档内嵌图片（含 <code>kb_assets/videos/</code> 子目录的视频）</li>
         <li style={{ marginBottom: 2 }}><code>pdfs/</code> — 导入的 PDF 原始文件</li>
         <li style={{ marginBottom: 2 }}><code>sources/</code> — 导入的 Word（.docx/.doc）原始文件</li>
-        <li style={{ marginBottom: 2 }}><code>attachments/</code> — 笔记附件（zip / 音频等通用文件）</li>
+        <li style={{ marginBottom: 2 }}><code>attachments/</code> — 文档附件（zip / 音频等通用文件）</li>
         <li><code>settings.json</code> — 应用偏好（主题、窗口状态、字体等）</li>
       </ul>
       <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>

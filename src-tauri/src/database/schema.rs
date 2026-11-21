@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 88;
+pub const SCHEMA_VERSION: i32 = 89;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -121,6 +121,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             85 => migrate_v85_to_v86(conn)?,
             86 => migrate_v86_to_v87(conn)?,
             87 => migrate_v87_to_v88(conn)?,
+            88 => migrate_v88_to_v89(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -171,7 +172,7 @@ fn migrate_v1_to_v2(conn: &Connection) -> Result<(), AppError> {
             created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         );
 
-        -- 笔记表
+        -- 文档表
         CREATE TABLE IF NOT EXISTS notes (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             title       TEXT NOT NULL,
@@ -214,7 +215,7 @@ fn migrate_v2_to_v3(conn: &Connection) -> Result<(), AppError> {
             created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         );
 
-        -- 笔记-标签关联表
+        -- 文档-标签关联表
         CREATE TABLE IF NOT EXISTS note_tags (
             note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
             tag_id  INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
@@ -255,7 +256,7 @@ fn migrate_v2_to_v3(conn: &Connection) -> Result<(), AppError> {
         CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_id);
         CREATE INDEX IF NOT EXISTS idx_note_links_target ON note_links(target_id);
 
-        -- 将已有笔记数据同步到 FTS5
+        -- 将已有文档数据同步到 FTS5
         INSERT INTO notes_fts(rowid, title, content) SELECT id, title, content FROM notes;
         ",
     )?;
@@ -321,10 +322,10 @@ fn migrate_v4_to_v5(conn: &Connection) -> Result<(), AppError> {
 
     conn.execute_batch(
         "
-        -- 笔记标题索引（加速搜索）
+        -- 文档标题索引（加速搜索）
         CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title) WHERE is_deleted = 0;
 
-        -- 笔记创建时间索引
+        -- 文档创建时间索引
         CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at DESC) WHERE is_deleted = 0;
 
         -- 字数统计触发器：插入时自动计算
@@ -382,9 +383,9 @@ fn migrate_v5_to_v6(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-/// v6 -> v7: 笔记模板表
+/// v6 -> v7: 文档模板表
 fn migrate_v6_to_v7(conn: &Connection) -> Result<(), AppError> {
-    log::info!("数据库迁移: v6 -> v7 (笔记模板)");
+    log::info!("数据库迁移: v6 -> v7 (文档模板)");
 
     conn.execute_batch(
         "
@@ -399,7 +400,7 @@ fn migrate_v6_to_v7(conn: &Connection) -> Result<(), AppError> {
         -- 预置常用模板
         INSERT INTO note_templates (name, description, content) VALUES
         ('会议记录', '记录会议要点、决策和待办事项', '<h2>会议信息</h2><p><strong>日期：</strong></p><p><strong>参与人：</strong></p><p><strong>主题：</strong></p><h2>议题与讨论</h2><ol><li><p></p></li></ol><h2>决策事项</h2><ul><li><p></p></li></ul><h2>待办事项</h2><ul data-type=\"taskList\"><li data-type=\"taskItem\" data-checked=\"false\"><label><input type=\"checkbox\"><span></span></label><div><p></p></div></li></ul>'),
-        ('读书笔记', '记录书籍要点、摘抄和感想', '<h2>书籍信息</h2><p><strong>书名：</strong></p><p><strong>作者：</strong></p><p><strong>阅读日期：</strong></p><h2>核心观点</h2><ol><li><p></p></li></ol><h2>精彩摘录</h2><blockquote><p></p></blockquote><h2>我的思考</h2><p></p>'),
+        ('读书文档', '记录书籍要点、摘抄和感想', '<h2>书籍信息</h2><p><strong>书名：</strong></p><p><strong>作者：</strong></p><p><strong>阅读日期：</strong></p><h2>核心观点</h2><ol><li><p></p></li></ol><h2>精彩摘录</h2><blockquote><p></p></blockquote><h2>我的思考</h2><p></p>'),
         ('周报', '总结本周工作和下周计划', '<h2>本周完成</h2><ul data-type=\"taskList\"><li data-type=\"taskItem\" data-checked=\"true\"><label><input type=\"checkbox\"><span></span></label><div><p></p></div></li></ul><h2>进行中</h2><ul data-type=\"taskList\"><li data-type=\"taskItem\" data-checked=\"false\"><label><input type=\"checkbox\"><span></span></label><div><p></p></div></li></ul><h2>下周计划</h2><ol><li><p></p></li></ol><h2>问题与风险</h2><p></p>'),
         ('项目文档', '记录项目背景、方案和进展', '<h2>项目概述</h2><p></p><h2>背景与目标</h2><p></p><h2>技术方案</h2><p></p><h2>里程碑</h2><ul data-type=\"taskList\"><li data-type=\"taskItem\" data-checked=\"false\"><label><input type=\"checkbox\"><span></span></label><div><p></p></div></li></ul><h2>参考资料</h2><ul><li><p></p></li></ul>');
         ",
@@ -548,13 +549,13 @@ fn migrate_v11_to_v12(conn: &Connection) -> Result<(), AppError> {
         CREATE INDEX IF NOT EXISTS idx_tasks_due_date  ON tasks(due_date);
         CREATE INDEX IF NOT EXISTS idx_tasks_priority  ON tasks(priority);
 
-        -- 任务关联（多态）：一个任务可以挂多个笔记 / 路径 / URL
+        -- 任务关联（多态）：一个任务可以挂多个文档 / 路径 / URL
         CREATE TABLE IF NOT EXISTS task_links (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id    INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
             kind       TEXT NOT NULL,          -- 'note' / 'path' / 'url'
             target     TEXT NOT NULL,          -- note_id 字符串 / 绝对路径 / URL
-            label      TEXT,                   -- 展示文案（如笔记标题）
+            label      TEXT,                   -- 展示文案（如文档标题）
             created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
         );
         CREATE INDEX IF NOT EXISTS idx_task_links_task ON task_links(task_id);
@@ -567,7 +568,7 @@ fn migrate_v11_to_v12(conn: &Connection) -> Result<(), AppError> {
 
 /// v12 -> v13: 为 HTML → Markdown 迁移做准备
 ///
-/// 思路：笔记存储最终要切到 Markdown，但现存 content 全是 HTML。
+/// 思路：文档存储最终要切到 Markdown，但现存 content 全是 HTML。
 /// 本次迁移只做**一次性备份**，不动任何代码逻辑：
 ///   1. notes 表新增 content_html 字段（幂等）
 ///   2. 把现有 content（HTML）整段拷贝到 content_html 做兜底
@@ -607,7 +608,7 @@ fn migrate_v12_to_v13(conn: &Connection) -> Result<(), AppError> {
 fn migrate_v13_to_v14(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v13 -> v14 (notes.content HTML → Markdown)");
 
-    // 1) 取出所有待转换的笔记（content 非空且未被清空的）
+    // 1) 取出所有待转换的文档（content 非空且未被清空的）
     let mut stmt =
         conn.prepare("SELECT id, content FROM notes WHERE content IS NOT NULL AND content != ''")?;
     let rows: Vec<(i64, String)> = stmt
@@ -618,7 +619,7 @@ fn migrate_v13_to_v14(conn: &Connection) -> Result<(), AppError> {
         .collect();
     drop(stmt);
 
-    log::info!("[v14] 准备转换 {} 条笔记", rows.len());
+    log::info!("[v14] 准备转换 {} 条文档", rows.len());
 
     // 2) 一次事务内批量更新
     let tx = conn.unchecked_transaction()?;
@@ -662,8 +663,8 @@ fn migrate_v14_to_v15(conn: &Connection) -> Result<(), AppError> {
 /// v15 -> v16: 补 note_links.source_id 索引
 ///
 /// 原先只建了 idx_note_links_target（反向链接查询走这条），
-/// 但保存笔记时 `DELETE FROM note_links WHERE source_id = ?1` 没有 source_id 单列索引可用。
-/// 笔记数量大时该 DELETE 会退化为全表扫描，导致保存明显变慢。
+/// 但保存文档时 `DELETE FROM note_links WHERE source_id = ?1` 没有 source_id 单列索引可用。
+/// 文档数量大时该 DELETE 会退化为全表扫描，导致保存明显变慢。
 fn migrate_v15_to_v16(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v15 -> v16 (补 note_links.source_id 索引)");
 
@@ -680,7 +681,7 @@ fn migrate_v15_to_v16(conn: &Connection) -> Result<(), AppError> {
 /// 背景：`find_note_id_by_title_loose` 是 [[wiki-link]] 编辑器自动补全、保存时链接同步
 /// 的热路径。老实现 `SELECT id, title FROM notes WHERE is_deleted = 0` 全表拉回来，
 /// 再在 Rust 侧对每行 title 做 `normalize_title`（去转义 + 空白折叠 + lowercase）再比较。
-/// 10k 笔记时每次调用要几十毫秒，打字时卡顿肉眼可见。
+/// 10k 文档时每次调用要几十毫秒，打字时卡顿肉眼可见。
 ///
 /// 本迁移：
 /// 1) ALTER TABLE 新增 title_normalized 列（幂等）
@@ -707,7 +708,7 @@ fn migrate_v16_to_v17(conn: &Connection) -> Result<(), AppError> {
         .collect();
     drop(stmt);
 
-    log::info!("[v17] 准备回填 {} 条笔记的 title_normalized", rows.len());
+    log::info!("[v17] 准备回填 {} 条文档的 title_normalized", rows.len());
 
     let tx = conn.unchecked_transaction()?;
     for (id, title) in &rows {
@@ -719,7 +720,7 @@ fn migrate_v16_to_v17(conn: &Connection) -> Result<(), AppError> {
     }
     tx.commit()?;
 
-    // 部分索引：只对活跃笔记建索引，更紧凑
+    // 部分索引：只对活跃文档建索引，更紧凑
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_notes_title_normalized
          ON notes(title_normalized) WHERE is_deleted = 0;",
@@ -866,7 +867,7 @@ fn migrate_v18_to_v19(conn: &Connection) -> Result<(), AppError> {
 ///   2. 诊断问题（AI 为啥调了这个工具、返回啥）
 ///
 /// 为什么新增独立列而不是塞进 references_json：
-///   - references_json 是纯 note id 数组（给 UI 标"引用的笔记"用）
+///   - references_json 是纯 note id 数组（给 UI 标"引用的文档"用）
 ///   - skill_calls_json 结构复杂（包含 args/result/status），语义完全不同
 fn migrate_v19_to_v20(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v19 -> v20 (ai_messages.skill_calls_json)");
@@ -880,14 +881,14 @@ fn migrate_v19_to_v20(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-/// v20 -> v21: notes 新增 is_hidden 字段（T-003 笔记"隐藏"标记）
+/// v20 -> v21: notes 新增 is_hidden 字段（T-003 文档"隐藏"标记）
 ///
-/// 语义是"弱隐藏"：默认视图（笔记列表 / 搜索 / 反链 / 图谱 / RAG）完全看不见；
+/// 语义是"弱隐藏"：默认视图（文档列表 / 搜索 / 反链 / 图谱 / RAG）完全看不见；
 /// 但 wiki link [[...]] 点击跳转仍允许打开，保证链接不失效。
 ///
 /// 这不是加密——数据库文件打开还是能看到内容。加密放 T-007。
 ///
-/// 部分索引只建在"活跃笔记"上（is_deleted=0），避免回收站的 hidden 条目
+/// 部分索引只建在"活跃文档"上（is_deleted=0），避免回收站的 hidden 条目
 /// 干扰热路径查询。
 fn migrate_v20_to_v21(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v20 -> v21 (notes.is_hidden)");
@@ -898,7 +899,7 @@ fn migrate_v20_to_v21(conn: &Connection) -> Result<(), AppError> {
     }
 
     // is_hidden 出现在 WHERE 条件里很频繁（所有主路径查询都加 is_hidden=0），
-    // 建部分索引帮助过滤；索引只覆盖"活跃"笔记，和现有 idx_notes_pinned 的思路一致
+    // 建部分索引帮助过滤；索引只覆盖"活跃"文档，和现有 idx_notes_pinned 的思路一致
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_notes_hidden
          ON notes(is_hidden, updated_at DESC) WHERE is_deleted = 0;",
@@ -910,14 +911,14 @@ fn migrate_v20_to_v21(conn: &Connection) -> Result<(), AppError> {
 
 /// v21 -> v22: notes 新增 content_hash 字段 + 索引 + 存量回填
 ///
-/// 背景：导入 Markdown 文件夹时，原实现不做去重，同一批文件反复导入会产生重复笔记。
+/// 背景：导入 Markdown 文件夹时，原实现不做去重，同一批文件反复导入会产生重复文档。
 /// 本迁移把"内容指纹"持久化到 notes.content_hash（SHA-256 十六进制串），
 /// 后续扫描外部 md 时按 (title, content_hash) 做兜底匹配（source_file_path 为主判）。
 ///
 /// DAO 协议：`create_note` / `update_note` / `update_note_content` / `get_or_create_daily`
-/// 写入正文时必须同步维护 content_hash。存量笔记由本迁移一次性回填。
+/// 写入正文时必须同步维护 content_hash。存量文档由本迁移一次性回填。
 ///
-/// 部分索引只覆盖活跃笔记（is_deleted=0），和 idx_notes_pinned / idx_notes_hidden 的思路一致。
+/// 部分索引只覆盖活跃文档（is_deleted=0），和 idx_notes_pinned / idx_notes_hidden 的思路一致。
 fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v21 -> v22 (notes.content_hash)");
 
@@ -934,7 +935,7 @@ fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
         .collect();
     drop(stmt);
 
-    log::info!("[v22] 准备回填 {} 条笔记的 content_hash", rows.len());
+    log::info!("[v22] 准备回填 {} 条文档的 content_hash", rows.len());
 
     let tx = conn.unchecked_transaction()?;
     for (id, content) in &rows {
@@ -946,7 +947,7 @@ fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
     }
     tx.commit()?;
 
-    // 部分索引：只对活跃笔记建索引
+    // 部分索引：只对活跃文档建索引
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_notes_content_hash
          ON notes(content_hash) WHERE is_deleted = 0;",
@@ -956,7 +957,7 @@ fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-/// v22 -> v23: 笔记加密基础字段（T-007 笔记加密保险库）
+/// v22 -> v23: 文档加密基础字段（T-007 文档加密保险库）
 ///
 /// - `notes.is_encrypted` 0/1：是否处于加密态
 /// - `notes.encrypted_blob` BLOB：密文全量包（nonce ‖ ciphertext ‖ tag）
@@ -966,8 +967,8 @@ fn migrate_v21_to_v22(conn: &Connection) -> Result<(), AppError> {
 ///
 /// 设计取舍：
 /// 1. **App 层加密**（B1 方案）：密文存在现有 notes 表的新 BLOB 列里，不换 SQLCipher
-/// 2. **加密笔记的 content 列保留"🔒 已加密"占位**：这样老代码读取 content 时不会看到乱码；
-///    FTS5 索引到的也是这个占位，自然过滤掉加密笔记的搜索命中
+/// 2. **加密文档的 content 列保留"🔒 已加密"占位**：这样老代码读取 content 时不会看到乱码；
+///    FTS5 索引到的也是这个占位，自然过滤掉加密文档的搜索命中
 /// 3. 忘记主密码 = 数据丢失（T-007 决策 ④）：verifier 不是 key，靠解密校验密码
 fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v22 -> v23 (notes 加密字段 + vault 基础)");
@@ -982,7 +983,7 @@ fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
         conn.execute_batch("ALTER TABLE notes ADD COLUMN encrypted_blob BLOB;")?;
     }
 
-    // 部分索引，过滤/定位加密笔记的常用热路径
+    // 部分索引，过滤/定位加密文档的常用热路径
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_notes_encrypted
          ON notes(is_encrypted) WHERE is_deleted = 0;",
@@ -1003,9 +1004,9 @@ fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
 ///   - `config_json`：backend 专属配置（路径 / endpoint / bucket / 凭据等，凭据已用 vault 加密）
 ///   - `enabled` / `auto_sync` / `created_at`
 ///
-/// 新表 `sync_remote_state`：每条笔记 × 每个 backend 的同步状态
+/// 新表 `sync_remote_state`：每条文档 × 每个 backend 的同步状态
 ///   - 唯一键 (backend_id, note_id)
-///   - `last_synced_hash`：上次同步时的笔记内容 SHA-256（供 diff 用）
+///   - `last_synced_hash`：上次同步时的文档内容 SHA-256（供 diff 用）
 ///   - `last_synced_ts`：上次同步成功时间（last-write-wins 的依据之一）
 ///   - `remote_path`：在 backend 上的相对路径（如 "notes/<uuid>.md"）
 ///   - `tombstone`：本地已删除标记（同步后告诉远端也删，远端确认后才能从表里移除）
@@ -1013,7 +1014,7 @@ fn migrate_v22_to_v23(conn: &Connection) -> Result<(), AppError> {
 /// 设计要点：
 /// 1. **不动 notes 表本身**：所有同步元数据放独立表，未启用同步的用户零成本
 /// 2. **per-backend 状态独立**：用户可以同时配 LocalPath + WebDAV + S3，互不干扰
-/// 3. **soft delete 走 tombstone**：硬删笔记时同步表保留 tombstone 行，下次 sync 推出删除
+/// 3. **soft delete 走 tombstone**：硬删文档时同步表保留 tombstone 行，下次 sync 推出删除
 fn migrate_v23_to_v24(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v23 -> v24 (T-024 同步 V1: sync_backends + sync_remote_state)");
 
@@ -1056,12 +1057,12 @@ fn migrate_v23_to_v24(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-/// v24 -> v25: AI 双向打通笔记
+/// v24 -> v25: AI 双向打通文档
 ///   1. ai_models 加 max_context（用户可在设置页填模型上下文窗口大小，
-///      默认 32000，给前端动态计算附加笔记的截断阈值用）
+///      默认 32000，给前端动态计算附加文档的截断阈值用）
 ///   2. ai_conversations 加 attached_note_ids（JSON 数组字符串，挂在对话级，
-///      整个对话共享一组附加笔记，类比 ChatGPT 项目）
-///   3. notes 加 from_ai_conversation_id（归档来源追溯，给 B 方向"AI → 笔记"用）
+///      整个对话共享一组附加文档，类比 ChatGPT 项目）
+///   3. notes 加 from_ai_conversation_id（归档来源追溯，给 B 方向"AI → 文档"用）
 fn migrate_v24_to_v25(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v24 -> v25");
 
@@ -1086,11 +1087,11 @@ fn migrate_v24_to_v25(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-/// v25 -> v26: 笔记伴生 AI 对话
+/// v25 -> v26: 文档伴生 AI 对话
 ///
 /// `companion_conversation_id` 给"在编辑器右侧抽屉里问 AI"功能用：
-/// 每篇笔记懒创建一个独立 AI 对话，下次打开同笔记自动复用对话历史。
-/// 删除笔记时如果对话还在，对话不会被强制删（用户可能想保留聊天记录），
+/// 每篇文档懒创建一个独立 AI 对话，下次打开同文档自动复用对话历史。
+/// 删除文档时如果对话还在，对话不会被强制删（用户可能想保留聊天记录），
 /// 这里 ON DELETE SET NULL 让对话自由存在。
 fn migrate_v25_to_v26(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v25 -> v26");
@@ -1134,10 +1135,10 @@ fn migrate_v26_to_v27(conn: &Connection) -> Result<(), AppError> {
 
 /// v27 -> v28: 外部 .md 双向同步基础设施
 ///
-/// 1. 新表 `note_url_mapping`：记录笔记里每张图的"内部 URL ↔ 原始 URL"映射
+/// 1. 新表 `note_url_mapping`：记录文档里每张图的"内部 URL ↔ 原始 URL"映射
 ///    - 打开 .md 时：原始链接（./images/foo.png 或 https://...）→ 内部 asset.localhost URL
 ///      在收集替换的同时把这一对落库；
-///    - 写回 .md 时：扫笔记 content 的所有 URL，命中映射就反查替换回原始 URL
+///    - 写回 .md 时：扫文档 content 的所有 URL，命中映射就反查替换回原始 URL
 ///      → 原文件链接保持原样，不污染用户的图床/相对路径写法。
 ///    - 用户在编辑器里新插的图（不在映射表）按"复制到 <basename>.assets/"策略处理。
 ///    UNIQUE (note_id, internal_url) 保证同一张图不会被反复写多条。
@@ -1174,17 +1175,17 @@ fn migrate_v27_to_v28(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-/// v28 -> v29: 把笔记 content 里的素材绝对路径替换成相对协议 `kb-asset://`
+/// v28 -> v29: 把文档 content 里的素材绝对路径替换成相对协议 `kb-asset://`
 ///
 /// 历史背景：旧版前端用 `convertFileSrc(absolute)` 直接把 `http://asset.localhost/<URL编码的绝对路径>`
-/// 写进笔记 content。这导致一旦用户改变数据目录（指针文件 / KB_DATA_DIR），
-/// 笔记里 src 仍指向旧位置，文件读不到 → 全裂图。
+/// 写进文档 content。这导致一旦用户改变数据目录（指针文件 / KB_DATA_DIR），
+/// 文档里 src 仍指向旧位置，文件读不到 → 全裂图。
 ///
 /// 治本方案：content 里只存 `kb-asset://<相对 data_dir 的 POSIX 路径>`，
 /// 渲染时由前端 MutationObserver 实时拼当前 data_dir 解析。
 ///
 /// 本迁移 = 一次性数据清洗：
-/// 1. 正则扫每条笔记 content，匹配 `http://asset.localhost/<encoded>` 与 `asset://localhost/<encoded>`
+/// 1. 正则扫每条文档 content，匹配 `http://asset.localhost/<encoded>` 与 `asset://localhost/<encoded>`
 /// 2. URL-decode 拿到原始绝对路径
 /// 3. 用 `services::asset_path::abs_to_rel` 把绝对路径转相对（支持 fallback 找已知子目录段，
 ///    解决"绝对路径来自旧机器/旧 data_dir、当前 data_dir 不是其前缀"的场景）
@@ -1193,7 +1194,7 @@ fn migrate_v27_to_v28(conn: &Connection) -> Result<(), AppError> {
 /// 失败兜底：路径既不在 data_dir 下也找不到已知段名时保留原样（极少见，迁移日志会告警）。
 /// 跑完后 content 里出现的 `http://asset.localhost/...` 全部应为 0；遗留的视为外链。
 fn migrate_v28_to_v29(conn: &Connection) -> Result<(), AppError> {
-    log::info!("数据库迁移: v28 -> v29 (笔记 content 绝对资产路径 → kb-asset://)");
+    log::info!("数据库迁移: v28 -> v29 (文档 content 绝对资产路径 → kb-asset://)");
 
     use regex::Regex;
 
@@ -1211,7 +1212,7 @@ fn migrate_v28_to_v29(conn: &Connection) -> Result<(), AppError> {
         .collect();
     drop(stmt);
 
-    log::info!("[v29] 扫描 {} 条笔记里的 asset URL", rows.len());
+    log::info!("[v29] 扫描 {} 条文档里的 asset URL", rows.len());
 
     // 临时拿一个 dummy data_dir：abs_to_rel 在 fallback 路径里只用 known segments 切，
     // 不实际依赖 data_dir。准确 strip_prefix 走不通时 fallback 即可。
@@ -1240,7 +1241,7 @@ fn migrate_v28_to_v29(conn: &Connection) -> Result<(), AppError> {
                 None => {
                     unresolved += 1;
                     log::warn!(
-                        "[v29] 笔记 {} 中 asset 路径无法解析为相对路径，保留原样: {}",
+                        "[v29] 文档 {} 中 asset 路径无法解析为相对路径，保留原样: {}",
                         id,
                         decoded
                     );
@@ -1260,7 +1261,7 @@ fn migrate_v28_to_v29(conn: &Connection) -> Result<(), AppError> {
     tx.commit()?;
 
     log::info!(
-        "[v29] 迁移完成：触达 {} 条笔记，替换 {} 个 asset URL，{} 个无法解析（已保留）",
+        "[v29] 迁移完成：触达 {} 条文档，替换 {} 个 asset URL，{} 个无法解析（已保留）",
         replaced_notes,
         replaced_urls,
         unresolved
@@ -1310,13 +1311,13 @@ fn migrate_v29_to_v30(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
-/// v30 -> v31: notes 加 sort_order 字段（笔记自定义排序）
+/// v30 -> v31: notes 加 sort_order 字段（文档自定义排序）
 ///
 /// 设计：
 /// - INTEGER NOT NULL DEFAULT 0；越小越靠前；同 folder 内按 1000 间隔留空隙
 ///   留给未来插队（同 folders.sort_order 一致的模式）
 /// - 初始化：每个 folder_id 分组内按 (updated_at DESC, id ASC) 给序号 *1000
-///   未分类（folder_id IS NULL）的笔记按 -1 单独分组
+///   未分类（folder_id IS NULL）的文档按 -1 单独分组
 /// - 索引 idx_notes_folder_sort 覆盖 (folder_id, sort_order)，is_deleted=0
 ///   的部分索引，与 idx_notes_folder / idx_notes_pinned 思路一致
 fn migrate_v30_to_v31(conn: &Connection) -> Result<(), AppError> {
@@ -1756,7 +1757,7 @@ fn migrate_v43_to_v44(conn: &Connection) -> Result<(), AppError> {
         .collect();
     drop(stmt);
 
-    log::info!("[v36] 准备回填 {} 条笔记的 stable_uuid", ids.len());
+    log::info!("[v36] 准备回填 {} 条文档的 stable_uuid", ids.len());
     let tx = conn.unchecked_transaction()?;
     for id in &ids {
         let uuid = uuid::Uuid::new_v4().to_string();
@@ -2085,7 +2086,7 @@ fn migrate_v53_to_v54(conn: &Connection) -> Result<(), AppError> {
 
     // scope_folder_id：对话级 RAG 范围限定。
     // NULL = 全库检索（默认旧行为）；有值 = RAG 只在该文件夹及其所有子孙文件夹内检索。
-    // 存文件夹 id 而非展开后的 id 列表：文件夹结构/笔记归属变化后范围能自动跟上。
+    // 存文件夹 id 而非展开后的 id 列表：文件夹结构/文档归属变化后范围能自动跟上。
     let cols = list_columns(conn, "ai_conversations")?;
     if !cols.iter().any(|c| c == "scope_folder_id") {
         conn.execute_batch(
@@ -2163,7 +2164,7 @@ fn migrate_v56_to_v57(conn: &Connection) -> Result<(), AppError> {
         .collect();
     drop(stmt);
 
-    log::info!("[v49] 扫描 {} 条笔记里的 kb-asset:// URL", rows.len());
+    log::info!("[v49] 扫描 {} 条文档里的 kb-asset:// URL", rows.len());
 
     let mut touched = 0usize;
     let tx = conn.unchecked_transaction()?;
@@ -2179,7 +2180,7 @@ fn migrate_v56_to_v57(conn: &Connection) -> Result<(), AppError> {
     }
     tx.commit()?;
 
-    log::info!("[v49] 修复完成：{} 条笔记的附件链接 URL 空格已编码", touched);
+    log::info!("[v49] 修复完成：{} 条文档的附件链接 URL 空格已编码", touched);
 
     set_version(conn, 57)?;
     Ok(())
@@ -2215,15 +2216,15 @@ fn migrate_v58_to_v59(conn: &Connection) -> Result<(), AppError> {
 
 
 fn migrate_v59_to_v60(conn: &Connection) -> Result<(), AppError> {
-    log::info!("数据库迁移: v51 -> v52 (notes.note_type + search_text — 白板笔记)");
+    log::info!("数据库迁移: v51 -> v52 (notes.note_type + search_text — 白板文档)");
 
     conn.execute_batch(
         "ALTER TABLE notes ADD COLUMN note_type TEXT NOT NULL DEFAULT 'markdown';
 
-         -- 白板专用的「可搜索文本」；普通笔记恒为 NULL
+         -- 白板专用的「可搜索文本」；普通文档恒为 NULL
          ALTER TABLE notes ADD COLUMN search_text TEXT;
 
-         -- 列表页要按类型过滤/加图标，未删笔记量大时全表扫不划算
+         -- 列表页要按类型过滤/加图标，未删文档量大时全表扫不划算
          CREATE INDEX IF NOT EXISTS idx_notes_type ON notes(note_type);
 
          -- FTS 触发器改喂 COALESCE(search_text, content)。
@@ -2308,7 +2309,7 @@ fn migrate_v60_to_v61(conn: &Connection) -> Result<(), AppError> {
 
 
 fn migrate_v61_to_v62(conn: &Connection) -> Result<(), AppError> {
-    log::info!("数据库迁移: v53 -> v54 (笔记素材路径全量归一化 → kb-asset://<相对路径>)");
+    log::info!("数据库迁移: v53 -> v54 (文档素材路径全量归一化 → kb-asset://<相对路径>)");
 
     let mut stmt =
         conn.prepare("SELECT id, content FROM notes WHERE content IS NOT NULL AND content != ''")?;
@@ -2324,7 +2325,7 @@ fn migrate_v61_to_v62(conn: &Connection) -> Result<(), AppError> {
         .collect();
     drop(stmt);
 
-    log::info!("[v54] 扫描 {} 条笔记的素材路径", rows.len());
+    log::info!("[v54] 扫描 {} 条文档的素材路径", rows.len());
 
     let mut touched_notes = 0usize;
     let mut rewritten_urls = 0usize;
@@ -2353,15 +2354,15 @@ fn migrate_v61_to_v62(conn: &Connection) -> Result<(), AppError> {
     //
     // **必须做**，否则本次修复对存量数据无效：
     // - 同批修复给 `attachment_scan::KNOWN_PREFIXES` 补了 `attachments/`（此前整个目录
-    //   从未参与同步）。但增量扫描只挑 `attachment_scan_at <> updated_at` 的笔记，
-    //   老笔记的标记早已对齐 → 新前缀永远不会被应用到它们身上。
+    //   从未参与同步）。但增量扫描只挑 `attachment_scan_at <> updated_at` 的文档，
+    //   老文档的标记早已对齐 → 新前缀永远不会被应用到它们身上。
     // - 上面的 URL 归一化只改 `content`，不动 `updated_at`，同样不会触发重扫。
     //
-    // 代价：升级后第一次 push 会全库扫一遍附件（1 万条笔记约几秒），之后恢复增量。
+    // 代价：升级后第一次 push 会全库扫一遍附件（1 万条文档约几秒），之后恢复增量。
     let cleared = conn.execute("UPDATE notes SET attachment_scan_at = NULL", [])?;
 
     log::info!(
-        "[v54] 归一化完成：触达 {} 条笔记，改写 {} 个素材 URL；已清空 {} 条笔记的附件扫描标记（下次 push 全库重扫）",
+        "[v54] 归一化完成：触达 {} 条文档，改写 {} 个素材 URL；已清空 {} 条文档的附件扫描标记（下次 push 全库重扫）",
         touched_notes,
         rewritten_urls,
         cleared
@@ -2382,7 +2383,7 @@ fn migrate_v62_to_v63(conn: &Connection) -> Result<(), AppError> {
 
     if detached > 0 {
         log::info!(
-            "[v55] {} 篇日记已移出所在文件夹（内容与日期不变）；空掉的文件夹可在笔记侧栏「清理空文件夹」里批量删除",
+            "[v55] {} 篇日记已移出所在文件夹（内容与日期不变）；空掉的文件夹可在文档侧栏「清理空文件夹」里批量删除",
             detached
         );
     }
@@ -2441,7 +2442,7 @@ fn migrate_v65_to_v66(conn: &Connection) -> Result<(), AppError> {
         conn.execute_batch("ALTER TABLE note_snapshots ADD COLUMN target_path TEXT;")?;
     }
 
-    // 查询一律带 target_path 条件，索引跟着带上，否则一条笔记有多块白板时会全表扫
+    // 查询一律带 target_path 条件，索引跟着带上，否则一条文档有多块白板时会全表扫
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_note_snapshots_target
          ON note_snapshots(note_id, target_path, created_at DESC);",
@@ -2726,7 +2727,7 @@ fn migrate_v74_to_v75(conn: &Connection) -> Result<(), AppError> {
 }
 
 
-/// v75 -> v76: 外部目录挂载（多目录 + 影子笔记索引）
+/// v75 -> v76: 外部目录挂载（多目录 + 影子文档索引）
 ///
 /// 外部文件仍在磁盘上作为唯一数据源；这里只为它们建立 `notes` 影子行，
 /// 让 FTS / note_tags / note_links 等既有能力直接复用。
@@ -2742,7 +2743,7 @@ fn migrate_v75_to_v76(conn: &Connection) -> Result<(), AppError> {
             read_only       INTEGER NOT NULL DEFAULT 0,
             index_enabled   INTEGER NOT NULL DEFAULT 1,
             daily_mode      INTEGER NOT NULL DEFAULT 0,
-            scan_interval   INTEGER NOT NULL DEFAULT 10,
+            scan_interval   INTEGER NOT NULL DEFAULT 600,
             created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
             last_scan_at    TEXT
         );",
@@ -2803,10 +2804,10 @@ fn migrate_v75_to_v76(conn: &Connection) -> Result<(), AppError> {
 }
 
 
-/// v76 -> v77: 外部挂载影子笔记的抽取基线与陈旧状态
+/// v76 -> v77: 外部挂载影子文档的抽取基线与陈旧状态
 ///
 /// - `ext_hash`：原文件指纹（二进制文件是二进制哈希，文本文件是内容哈希）
-/// - `content_hash`：当前影子笔记正文哈希（用户编辑后会变）
+/// - `content_hash`：当前影子文档正文哈希（用户编辑后会变）
 /// - `ext_indexed_hash`：上次抽取写入正文时的哈希，用于判断“用户是否编辑过”
 fn migrate_v76_to_v77(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v76 -> v77 (外部挂载抽取基线与陈旧状态)");
@@ -2857,7 +2858,7 @@ fn migrate_v77_to_v78(conn: &Connection) -> Result<(), AppError> {
 
 /// v78 -> v79: 向量检索（note_embeddings + ai_embedding_config）
 ///
-/// - `note_embeddings`：笔记向量，float32 小端序 BLOB，检索用 sqlite-vec 的
+/// - `note_embeddings`：文档向量，float32 小端序 BLOB，检索用 sqlite-vec 的
 ///   `vec_distance_cosine` 标量函数（维度不固定，切换 embedding 模型只需按 model/dim 过滤）
 /// - `ai_embedding_config`：embedding 配置单行表（id 恒为 1）
 fn migrate_v78_to_v79(conn: &Connection) -> Result<(), AppError> {
@@ -3112,7 +3113,7 @@ fn migrate_v84_to_v85(conn: &Connection) -> Result<(), AppError> {
 
 /// v85 -> v86: 外部二进制文档降级为“仅索引行”
 ///
-/// PDF / Word / Excel 的影子笔记正文只是抽取结果，不应作为文档本体出现在列表里。
+/// PDF / Word / Excel 的影子文档正文只是抽取结果，不应作为文档本体出现在列表里。
 /// `ext_index_only = 1` 的行继续参与 FTS / RAG / 标签，但被主列表、文件夹计数和
 /// 仪表盘统计排除；打开入口改走 Office 工作台读取磁盘原文件。
 fn migrate_v85_to_v86(conn: &Connection) -> Result<(), AppError> {
@@ -3200,9 +3201,9 @@ fn migrate_v86_to_v87(conn: &Connection) -> Result<(), AppError> {
 
 /// v87 -> v88: LLM 文档图谱（抽取结果缓存）
 ///
-/// - `llm_graph_runs`：每篇笔记的抽取状态与内容 hash，用于跳过未变化笔记
-/// - `llm_graph_entities` / `llm_graph_relations`：按笔记存储的实体与关系，
-///   查询时按规范化名称跨笔记聚合；`norm_name` 为聚合键
+/// - `llm_graph_runs`：每篇文档的抽取状态与内容 hash，用于跳过未变化文档
+/// - `llm_graph_entities` / `llm_graph_relations`：按文档存储的实体与关系，
+///   查询时按规范化名称跨文档聚合；`norm_name` 为聚合键
 fn migrate_v87_to_v88(conn: &Connection) -> Result<(), AppError> {
     log::info!("数据库迁移: v87 -> v88 (LLM 文档图谱)");
 
@@ -3252,6 +3253,22 @@ fn migrate_v87_to_v88(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 88)?;
+    Ok(())
+}
+
+/// v88 -> v89：外部目录挂载的默认同步间隔从 10 秒提升到 10 分钟。
+///
+/// 轮询式扫描在文件量大、含二进制解析时开销明显，默认节奏改为 10 分钟。
+/// 只迁移仍为旧默认值 10 秒的挂载点，用户显式设置过的其他间隔保持不变。
+fn migrate_v88_to_v89(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v88 -> v89 (挂载同步默认间隔 10 秒 -> 10 分钟)");
+
+    conn.execute(
+        "UPDATE external_mounts SET scan_interval = 600 WHERE scan_interval = 10",
+        [],
+    )?;
+
+    set_version(conn, 89)?;
     Ok(())
 }
 

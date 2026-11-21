@@ -1,9 +1,9 @@
-//! T-009 OB 整库导入：附件目录扫描 + 笔记正文图片路径重写
+//! T-009 OB 整库导入：附件目录扫描 + 文档正文图片路径重写
 //!
 //! 流程概要：
 //! 1. 扫描 vault 根下的 OB 约定附件目录（`attachments/` `assets/` `images/` `_resources/`），
 //!    建一个"basename → 源文件绝对路径"的索引（仅图片扩展名）
-//! 2. 对每篇导入的 .md 笔记，解析其 body 中两类图片引用：
+//! 2. 对每篇导入的 .md 文档，解析其 body 中两类图片引用：
 //!    - 标准 markdown：`![alt](path)`（路径相对当前 .md / 相对 vault 根 / 绝对路径）
 //!    - OB wiki 嵌入：`![[name|alt|width]]`（按 basename 全局检索）
 //! 3. 找到本地源文件后，调 `ImageService::save_from_path` 复制到
@@ -185,10 +185,10 @@ impl AttachmentIndex {
     }
 }
 
-/// 单篇笔记 body 重写结果
+/// 单篇文档 body 重写结果
 pub struct RewriteResult {
     pub new_body: String,
-    /// 这条笔记里**新复制成功**的图片张数（每个引用都计 1，即使源文件相同）
+    /// 这条文档里**新复制成功**的图片张数（每个引用都计 1，即使源文件相同）
     pub copied: usize,
     /// 缺失的图片（用户原始引用文本，去重后展示给用户）
     pub missing: Vec<String>,
@@ -284,8 +284,8 @@ fn ob_wiki_embed_regex() -> &'static Regex {
 
 /// 导入流程专用的图片落盘 helper：读源字节 → 走 `ImageService::save_bytes` 明文版本。
 ///
-/// 不直接调 `save_from_path`，因为后者是 routed 版本（按笔记 is_encrypted 自动加密），
-/// 需要 db / vault 引用，而 import 流程上下文没有 vault；又因为 import 总是给新建笔记
+/// 不直接调 `save_from_path`，因为后者是 routed 版本（按文档 is_encrypted 自动加密），
+/// 需要 db / vault 引用，而 import 流程上下文没有 vault；又因为 import 总是给新建文档
 /// （is_encrypted = false 默认），明文落盘是正确语义。
 fn copy_to_image_store(
     app_data_dir: &Path,
@@ -364,7 +364,7 @@ pub fn rewrite_image_paths(
                     }
                     Err(e) => {
                         log::warn!(
-                            "[import-attach] 笔记 {} 内联 data URL 图片落盘失败: {}",
+                            "[import-attach] 文档 {} 内联 data URL 图片落盘失败: {}",
                             note_id,
                             e
                         );
@@ -387,7 +387,7 @@ pub fn rewrite_image_paths(
             let resolved = resolve_local_image(&decoded, note_file_dir, vault_root, index);
             match resolved {
                 Some(src) => {
-                    // 导入流程：笔记是当前 import 新建的，is_encrypted 默认 false，
+                    // 导入流程：文档是当前 import 新建的，is_encrypted 默认 false，
                     // 直接走明文 save_bytes，避开 routed 路径对 vault 的依赖
                     match copy_to_image_store(app_data_dir, note_id, &src) {
                         Ok(new_abs) => {
@@ -399,7 +399,7 @@ pub fn rewrite_image_paths(
                         }
                         Err(e) => {
                             log::warn!(
-                                "[import-attach] 笔记 {} 图片复制失败 ({}): {}",
+                                "[import-attach] 文档 {} 图片复制失败 ({}): {}",
                                 note_id,
                                 src.display(),
                                 e
@@ -425,7 +425,7 @@ pub fn rewrite_image_paths(
             let raw_name = caps.get(1).map(|m| m.as_str()).unwrap_or("").trim();
             let extra = caps.get(2).map(|m| m.as_str()).unwrap_or(""); // 含前导 |
 
-            // 仅处理图片扩展名；非图片（如 ![[some-note]] 嵌入笔记）保持原样
+            // 仅处理图片扩展名；非图片（如 ![[some-note]] 嵌入文档）保持原样
             if !is_image_filename(raw_name) {
                 return full_match;
             }
@@ -451,7 +451,7 @@ pub fn rewrite_image_paths(
                         }
                         Err(e) => {
                             log::warn!(
-                                "[import-attach] 笔记 {} OB-wiki 图片复制失败 ({}): {}",
+                                "[import-attach] 文档 {} OB-wiki 图片复制失败 ({}): {}",
                                 note_id,
                                 src.display(),
                                 e
@@ -499,7 +499,7 @@ pub fn rewrite_image_paths(
                     }
                     Err(e) => {
                         log::warn!(
-                            "[import-attach] 笔记 {} HTML img 内联 data URL 落盘失败: {}",
+                            "[import-attach] 文档 {} HTML img 内联 data URL 落盘失败: {}",
                             note_id,
                             e
                         );
@@ -528,7 +528,7 @@ pub fn rewrite_image_paths(
                     }
                     Err(e) => {
                         log::warn!(
-                            "[import-attach] 笔记 {} HTML img 复制失败 ({}): {}",
+                            "[import-attach] 文档 {} HTML img 复制失败 ({}): {}",
                             note_id,
                             src.display(),
                             e
@@ -794,7 +794,7 @@ pub async fn rewrite_external_images(
                     }
                     Err(e) => {
                         log::warn!(
-                            "[import-external] 笔记 {} 图片落盘失败 ({}): {}",
+                            "[import-external] 文档 {} 图片落盘失败 ({}): {}",
                             note_id,
                             url,
                             e
@@ -805,7 +805,7 @@ pub async fn rewrite_external_images(
             }
             Err(e) => {
                 log::warn!(
-                    "[import-external] 笔记 {} 外链下载失败 ({}): {}",
+                    "[import-external] 文档 {} 外链下载失败 ({}): {}",
                     note_id,
                     url,
                     e
@@ -1075,7 +1075,7 @@ mod tests {
     fn idempotent_when_already_asset_url() {
         let (vault, app_data) = make_vault();
         let idx = AttachmentIndex::build(&vault);
-        // 二次跑（用户重导入同一个被改写过的笔记）不会再次复制
+        // 二次跑（用户重导入同一个被改写过的文档）不会再次复制
         let body = "![](http://asset.localhost/some/path.png)";
         let r = rewrite_image_paths(body, 1, &vault, &vault, &idx, &app_data).unwrap();
         assert_eq!(r.copied, 0);

@@ -1,4 +1,4 @@
-//! 笔记内容快照 DAO（schema v57 的 `note_snapshots` 表）。
+//! 文档内容快照 DAO（schema v57 的 `note_snapshots` 表）。
 //!
 //! 快照解决的是"自动保存把内容覆盖没了"这一类事故 —— 白板尤其突出：
 //! 画布是 800ms 防抖自动落库的，用户误删一大片图形**什么都不用做**，改动就已经进库，
@@ -16,7 +16,7 @@ use super::Database;
 
 impl Database {
     /// 存一条快照，返回新行 id。调用方负责判断"该不该存"。
-    /// `target_path`：None = 笔记正文本身；Some(相对路径) = 笔记里内嵌的那块白板。
+    /// `target_path`：None = 文档正文本身；Some(相对路径) = 文档里内嵌的那块白板。
     pub fn insert_note_snapshot(
         &self,
         note_id: i64,
@@ -74,7 +74,7 @@ impl Database {
         Ok(row)
     }
 
-    /// 列出某条笔记的全部快照（**不含 content**）。
+    /// 列出某条文档的全部快照（**不含 content**）。
     ///
     /// 列表不带正文是刻意的：一块白板的快照动辄几十 KB，30 条一次性回传给前端
     /// 就是几 MB 的 IPC 负担，而列表界面只需要时间和体积。正文按需用
@@ -138,8 +138,8 @@ impl Database {
 
     /// 全库快照用量统计（设置页展示用）。
     ///
-    /// `top` 控制回传多少条"占用最大的笔记"—— 用户要清理时最想看的就是这几条，
-    /// 全量回传没有意义（几百条笔记的明细列表没人会逐条看）。
+    /// `top` 控制回传多少条"占用最大的文档"—— 用户要清理时最想看的就是这几条，
+    /// 全量回传没有意义（几百条文档的明细列表没人会逐条看）。
     pub fn note_snapshot_usage(&self, top: i64) -> Result<SnapshotUsage, AppError> {
         let conn = self
             .conn
@@ -153,7 +153,7 @@ impl Database {
             |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
         )?;
 
-        // JOIN notes 拿标题；已被 purge 的笔记其快照已随 CASCADE 删掉，不会出现在这里
+        // JOIN notes 拿标题；已被 purge 的文档其快照已随 CASCADE 删掉，不会出现在这里
         let mut stmt = conn.prepare(
             "SELECT s.note_id, n.title, n.note_type, COUNT(*), SUM(s.byte_size)
              FROM note_snapshots s
@@ -181,7 +181,7 @@ impl Database {
         })
     }
 
-    /// 删除某条笔记的全部快照，返回删除条数。
+    /// 删除某条文档的全部快照，返回删除条数。
     pub fn delete_note_snapshots(&self, note_id: i64) -> Result<usize, AppError> {
         let conn = self
             .conn
@@ -193,7 +193,7 @@ impl Database {
         )?)
     }
 
-    /// 删除所有笔记里超过 `days` 天的快照，返回删除条数。
+    /// 删除所有文档里超过 `days` 天的快照，返回删除条数。
     ///
     /// 刻意**不保底留最后一份**：用户选"只留最近 30 天"就是这个意思，
     /// 替他保留反而让清理结果对不上预期。要留底可以用手动存档。
@@ -326,7 +326,7 @@ mod tests {
         assert!(left_ids.contains(&ids[3]));
     }
 
-    /// 笔记永久删除后快照不能变成孤儿数据（靠 FOREIGN KEY ... ON DELETE CASCADE，
+    /// 文档永久删除后快照不能变成孤儿数据（靠 FOREIGN KEY ... ON DELETE CASCADE，
     /// 前提是 Database::init 里开了 PRAGMA foreign_keys=ON）。
     #[test]
     fn snapshots_cascade_on_note_delete() {
@@ -377,7 +377,7 @@ mod tests {
         assert!(u.top_notes.is_empty());
     }
 
-    /// 清某条笔记只影响它自己。
+    /// 清某条文档只影响它自己。
     #[test]
     fn delete_for_one_note_only() {
         let db = mem_db();
@@ -388,7 +388,7 @@ mod tests {
 
         assert_eq!(db.delete_note_snapshots(a).unwrap(), 1);
         assert!(db.list_note_snapshots(a, None).unwrap().is_empty());
-        assert_eq!(db.list_note_snapshots(b, None).unwrap().len(), 1, "不该动别的笔记");
+        assert_eq!(db.list_note_snapshots(b, None).unwrap().len(), 1, "不该动别的文档");
     }
 
     /// 按天数清理：只删超期的，新的留下。
@@ -417,7 +417,7 @@ mod tests {
 
     // ─── 内嵌白板（target_path）──────────────────────────
 
-    /// 同一条笔记里，正文与各块内嵌白板的历史必须互不干扰 ——
+    /// 同一条文档里，正文与各块内嵌白板的历史必须互不干扰 ——
     /// 靠 `target_path IS ?`（不是 `=`，SQLite 里 NULL = NULL 为假）。
     #[test]
     fn target_path_isolates_histories() {
@@ -443,7 +443,7 @@ mod tests {
         assert_eq!(b.len(), 1);
     }
 
-    /// 份数上限按 target 独立算：一条笔记插了几块白板，
+    /// 份数上限按 target 独立算：一条文档插了几块白板，
     /// 不该让它们互相挤掉对方的历史。
     #[test]
     fn prune_is_scoped_to_target() {

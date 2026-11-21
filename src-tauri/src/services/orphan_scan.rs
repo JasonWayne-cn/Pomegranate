@@ -6,17 +6,17 @@
 //!
 //! ## A. 平铺型（仅 images）
 //! - 文件名带时间戳前缀全局唯一（如 `20260101_xxx_seq.png` / `*.enc`）
-//! - 引用集 = 扫所有笔记 content 抓 token（含 trash；跳过加密笔记的密文 content）
-//! - 加密笔记 note_id 集 = 整个 `images/<id>/` 目录全部保留
+//! - 引用集 = 扫所有文档 content 抓 token（含 trash；跳过加密文档的密文 content）
+//! - 加密文档 note_id 集 = 整个 `images/<id>/` 目录全部保留
 //! - 对应 token 的判定从旧 ImageService::scan_orphans 复用
 //!
 //! ## B. 按 note_id 分目录型（videos / attachments / pdfs）
 //! - 目录结构：`<root>/<note_id>/<filename>`
-//! - 第一层判定：目录的 `<note_id>` 不在 DB 笔记 id 集合中 → 整个目录是孤儿
+//! - 第一层判定：目录的 `<note_id>` 不在 DB 文档 id 集合中 → 整个目录是孤儿
 //!   （reason = notePurged，对应 note 已被永久删除但素材残留）
 //! - 第二层判定：目录在 DB 中但目录里的文件未被 content / source_file_path 引用 → 文件级孤儿
 //!   （reason = unreferenced）
-//! - 加密笔记目录跳过第二层判定（content 是密文无法 token 提取）
+//! - 加密文档目录跳过第二层判定（content 是密文无法 token 提取）
 //!
 //! ## sources 特殊处理
 //! - 平铺存储：`<root>/<note_id>.<ext>`（与 PDF 不同，没有内层目录）
@@ -66,9 +66,9 @@ impl OrphanScanService {
 
         // 全部存在的 note_id 集合（含 trash，用于"目录孤儿"判定）
         let mut note_ids: HashSet<i64> = HashSet::with_capacity(contents.len());
-        // 加密笔记 note_id 集合（用于跳过 content 引用判定）
+        // 加密文档 note_id 集合（用于跳过 content 引用判定）
         let mut encrypted_ids: HashSet<i64> = HashSet::new();
-        // 笔记内嵌引用的文件名 token 集合（小写，仅来自非加密笔记的 content）
+        // 文档内嵌引用的文件名 token 集合（小写，仅来自非加密文档的 content）
         let mut referenced_tokens: HashSet<String> = HashSet::new();
 
         for (id, is_encrypted, content) in &contents {
@@ -234,7 +234,7 @@ fn scan_flat_images(
         if !entry.file_type().is_file() {
             continue;
         }
-        // 加密笔记：images/<note_id>/* 全部跳过（content 是密文，无法 token 比对）
+        // 加密文档：images/<note_id>/* 全部跳过（content 是密文，无法 token 比对）
         if let Some(parent_note_id) = parent_note_id_from(&root, entry.path()) {
             if encrypted_ids.contains(&parent_note_id) {
                 continue;
@@ -317,7 +317,7 @@ fn scan_per_note_dir(
                     },
                 );
             }
-            // 目录名是 note_id 但 DB 里没有 → 整目录孤儿（笔记已 purge）
+            // 目录名是 note_id 但 DB 里没有 → 整目录孤儿（文档已 purge）
             Some(id) if !note_ids.contains(&id) => {
                 let size = dir_total_size(&dir_path);
                 push_orphan(
@@ -334,7 +334,7 @@ fn scan_per_note_dir(
             // 目录在 DB → 进文件级判定
             Some(id) => {
                 if encrypted_ids.contains(&id) {
-                    // 加密笔记跳过文件级判定（content 是密文）
+                    // 加密文档跳过文件级判定（content 是密文）
                     continue;
                 }
                 scan_files_in_note_dir(
@@ -542,9 +542,9 @@ fn scan_flat_sources(
 
         let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
         let (note_id, reason) = match parsed_id {
-            // 文件名 stem 是 note_id 但 DB 中没有 → 笔记已 purge
+            // 文件名 stem 是 note_id 但 DB 中没有 → 文档已 purge
             Some(id) if !note_ids.contains(&id) => (Some(id), "notePurged"),
-            // 文件名 stem 是 note_id 且 DB 中有 → 笔记换了源文件，旧的没清
+            // 文件名 stem 是 note_id 且 DB 中有 → 文档换了源文件，旧的没清
             Some(id) => (Some(id), "unreferenced"),
             None => (None, "unreferenced"),
         };
@@ -590,7 +590,7 @@ fn normalize_path_for_compare(p: &Path) -> String {
     s.replace('\\', "/").to_lowercase()
 }
 
-/// 在 `images/<note_id>/file` 路径中提取 note_id（用于 images 加密笔记跳过）。
+/// 在 `images/<note_id>/file` 路径中提取 note_id（用于 images 加密文档跳过）。
 /// 不是 `<root>/<id>/...` 结构的返回 None。
 fn parent_note_id_from(root: &Path, file_path: &Path) -> Option<i64> {
     let rel = file_path.strip_prefix(root).ok()?;

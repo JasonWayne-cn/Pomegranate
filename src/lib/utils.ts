@@ -1,7 +1,7 @@
 /** 去除 HTML 标签，提取纯文本
  *
  * 用正则替代 DOMParser：DOMParser 对 50KB HTML 需 20-50ms，正则只需 1-5ms。
- * 笔记列表（50+ 条）+ PDF/Word 抽出的大 content 场景下显著优化。
+ * 文档列表（50+ 条）+ PDF/Word 抽出的大 content 场景下显著优化。
  */
 export function stripHtml(html: string): string {
   if (!html) return "";
@@ -20,9 +20,9 @@ export function stripHtml(html: string): string {
 }
 
 /**
- * 笔记正文（Markdown / HTML）→ 纯文本预览（卡片 / 时间线 / 标签页摘要）。
+ * 文档正文（Markdown / HTML）→ 纯文本预览（卡片 / 时间线 / 标签页摘要）。
  *
- * 为什么不能只用 {@link stripHtml}：笔记 content 以 Markdown 存储，`stripHtml` 只去 HTML 标签，
+ * 为什么不能只用 {@link stripHtml}：文档 content 以 Markdown 存储，`stripHtml` 只去 HTML 标签，
  * 于是图片语法 `![](kb-asset://…/x.webp)` 会把一长串图片地址原样留在预览里，挤占空间又毫无
  * 信息量（用户反馈：卡片模式全是图片地址）。这里先剥掉 Markdown 语法噪声（图片整段删除、
  * 链接只保留可读文字、wiki 双链取标题、去标题/列表/引用/强调符号），再交给 stripHtml 兜底
@@ -52,7 +52,7 @@ export function contentToPreview(content: string): string {
 }
 
 /**
- * 从笔记正文（Markdown / HTML）中提取第一张图片的原始 URL，找不到返回 null。
+ * 从文档正文（Markdown / HTML）中提取第一张图片的原始 URL，找不到返回 null。
  * 供卡片模式渲染缩略图用。支持 Markdown `![alt](url "title")` 与 HTML `<img src>`。
  */
 export function extractFirstImageSrc(content: string): string | null {

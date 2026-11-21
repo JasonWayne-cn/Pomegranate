@@ -82,7 +82,7 @@ const OUTPUT_MODE_OPTIONS: Array<{
 const VAR_HINTS = [
   { key: "{{selection}}", desc: "用户选中的文本" },
   { key: "{{context}}", desc: "选区前后的上下文（自动裁剪到 500 字）" },
-  { key: "{{title}}", desc: "当前笔记标题（v1 暂未接入）" },
+  { key: "{{title}}", desc: "当前文档标题（v1 暂未接入）" },
   { key: "{{language}}", desc: "用户语言，如 zh-CN" },
 ];
 
@@ -749,7 +749,7 @@ export function PromptsSection({ compact = false }: Props) {
             marginBottom: 12,
           }}
         >
-          在笔记编辑器选中文本后，快捷框会按分组渲染折叠下拉。
+          在文档编辑器选中文本后，快捷框会按分组渲染折叠下拉。
           拖动组标题左侧手柄可调整组顺序，组内用「顺序」列的上下箭头调整；
           改动后重新选中文字即可看到新顺序。
         </p>

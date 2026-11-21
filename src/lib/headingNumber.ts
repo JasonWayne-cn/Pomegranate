@@ -17,7 +17,7 @@
  *   - `computeHeadingNumbers(doc)`   扫 doc 收集 heading 后委托给上面那个
  *
  * ⚠️ 编号始终是**显示层**：不写进 markdown、不进 .md 文件、不参与同步，
- *    与旧 CSS 方案的语义保持一致（设置页那句"仅显示效果，不写入笔记内容"依然成立）。
+ *    与旧 CSS 方案的语义保持一致（设置页那句"仅显示效果，不写入文档内容"依然成立）。
  */
 import type { Node as PMNode } from "@tiptap/pm/model";
 

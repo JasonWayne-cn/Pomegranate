@@ -16,7 +16,7 @@ const IS_MAC =
 /**
  * 应用启动锁 —— 全屏锁屏页（软锁 / 全局进入密码）。
  *
- * 由 AppLockGate 在 appLocked 时整页替换主内容渲染，因此笔记内容根本不进 DOM，
+ * 由 AppLockGate 在 appLocked 时整页替换主内容渲染，因此文档内容根本不进 DOM，
  * 真正"挡顺手翻"。校验逻辑全在后端：错误次数限制、锁定冷却提示都来自 invoke 抛出的字符串。
  *
  * 窗口是无边框（decorations:false），所以这里必须自带：

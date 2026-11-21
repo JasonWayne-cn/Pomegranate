@@ -79,7 +79,7 @@ export function TableBubbleMenu({ editor }: Props) {
   useEffect(() => {
     if (!visible) return;
     const handler = () => update();
-    // capture 阶段抓内层滚动容器（笔记内容区往往有自己的 overflow:auto）
+    // capture 阶段抓内层滚动容器（文档内容区往往有自己的 overflow:auto）
     window.addEventListener("scroll", handler, true);
     window.addEventListener("resize", handler);
     return () => {

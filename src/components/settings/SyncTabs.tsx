@@ -2,10 +2,10 @@
  * 同步与备份合一面板（T-024 epic 收尾 + T-S040 角色区分）
  *
  * 把"多端同步 V1"和"快照归档 V0"两个语义完全不同的能力放在 Tabs 里：
- * - 默认 tab = 多端实时同步（V1，推荐）：单笔记粒度增量，附件 CAS 去重，加密笔记跨端
+ * - 默认 tab = 多端实时同步（V1，推荐）：单文档粒度增量，附件 CAS 去重，加密文档跨端
  * - 第二 tab = 快照归档（V0）：整库 ZIP 推到云端做时间点快照，灾备 / 迁移用
  *
- * Phase 1-4 重构后，V1 已修复多端 ID 撞车/删除复活/笔记被吞/附件不同步等历史缺陷，
+ * Phase 1-4 重构后，V1 已修复多端 ID 撞车/删除复活/文档被吞/附件不同步等历史缺陷，
  * 推荐用户首选 V1。V0 仅保留为"周期性完整快照"用途。两者数据存储互不冲突。
  */
 import { Card, Tabs, Typography, Tag, theme as antdTheme } from "antd";
@@ -36,8 +36,8 @@ export function SyncTabs() {
         <ul className="my-1 pl-5" style={{ fontSize: 12, lineHeight: 1.7, color: "var(--ant-color-text-secondary)" }}>
           <li>
             <Text strong style={{ fontSize: 12 }}>多端实时同步（推荐）</Text>
-            ：单笔记粒度增量，多台机器轮流改同一份笔记不会互相覆盖（last-write-wins + 冲突文件）。
-            附件按内容 hash 去重上传 / 加密笔记跨端 / 删除会同步到其它端。
+            ：单文档粒度增量，多台机器轮流改同一份文档不会互相覆盖（last-write-wins + 冲突文件）。
+            附件按内容 hash 去重上传 / 加密文档跨端 / 删除会同步到其它端。
             适合「办公电脑 ↔ 家用电脑」「多设备 ↔ 云盘」等日常协作场景。
           </li>
           <li>

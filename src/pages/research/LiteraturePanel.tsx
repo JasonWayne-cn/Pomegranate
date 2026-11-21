@@ -305,7 +305,7 @@ export function LiteraturePanel({
           <Form.Item name="abstractText" label="摘要">
             <Input.TextArea rows={4} placeholder="粘贴摘要，综述生成时会作为主要依据" />
           </Form.Item>
-          <Form.Item name="notes" label="阅读笔记">
+          <Form.Item name="notes" label="阅读文档">
             <Input.TextArea rows={3} placeholder="核心观点、方法、可借鉴之处、局限" />
           </Form.Item>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

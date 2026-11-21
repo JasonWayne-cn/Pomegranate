@@ -688,7 +688,7 @@ function DesktopTasksPage() {
                             : filter === "recurring"
                               ? "没有循环任务"
                               : filter === "linked"
-                                ? "没有关联笔记/文件的任务"
+                                ? "没有关联文档/文件的任务"
                                 : "还没有任务，点右上「新建任务」开始吧"
           }
         />

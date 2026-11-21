@@ -4,10 +4,10 @@ use crate::services::asset_path;
 use crate::services::pdf::{PdfImportResult, PdfService};
 use crate::state::AppState;
 
-/// 批量导入 PDF 为笔记
+/// 批量导入 PDF 为文档
 ///
-/// - 每个文件独立抽取文本、创建笔记、拷贝原文件
-/// - `keep_images` 默认 true：桌面端把 PDF 图片按页内位置写入笔记
+/// - 每个文件独立抽取文本、创建文档、拷贝原文件
+/// - `keep_images` 默认 true：桌面端把 PDF 图片按页内位置写入文档
 /// - `max_images` 默认 200，范围 1..=500
 /// - 单个失败不影响其他，错误信息回填到 `error` 字段
 #[tauri::command]
@@ -28,7 +28,7 @@ pub fn import_pdfs(
     ))
 }
 
-/// 获取笔记对应 PDF 的**相对 data_dir 的 POSIX 路径**（迁移前叫 get_pdf_absolute_path）。
+/// 获取文档对应 PDF 的**相对 data_dir 的 POSIX 路径**（迁移前叫 get_pdf_absolute_path）。
 ///
 /// 返回值前端拼 `kb-asset://<rel>` 喂给 iframe / 渲染层。
 /// 历史命名保留 `absolute` 字样仅为兼容 IPC 调用方，含义已变。
@@ -41,7 +41,7 @@ pub fn get_pdf_absolute_path(
         .db
         .get_note(note_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("笔记 {} 不存在", note_id))?;
+        .ok_or_else(|| format!("文档 {} 不存在", note_id))?;
 
     let Some(rel_legacy) = note.source_file_path else {
         return Ok(None);

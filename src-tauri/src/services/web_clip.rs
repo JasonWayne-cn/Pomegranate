@@ -81,7 +81,7 @@ const MIN_CONTENT_CHARS: usize = 32;
 /// 不会丢失正文。
 const MIN_TRUSTED_PRUNED_CHARS: usize = 600;
 
-/// 剪藏结果：标题 + 正文 markdown + 原 URL（供笔记 metadata 用）
+/// 剪藏结果：标题 + 正文 markdown + 原 URL（供文档 metadata 用）
 #[derive(Debug, Clone)]
 pub struct ClippedPage {
     pub title: String,
@@ -199,7 +199,7 @@ async fn fetch_html(url: &str) -> Result<(String, String), AppError> {
         .map(|s| s.to_ascii_lowercase());
 
     // 非 HTML（PDF / 图片 / JSON 等）提前拒掉：readability 对它们只会产出垃圾，
-    // 明确告诉用户"这不是网页"比给一篇乱码笔记强。
+    // 明确告诉用户"这不是网页"比给一篇乱码文档强。
     if let Some(ct) = &content_type {
         let is_html = ct.contains("text/html") || ct.contains("application/xhtml");
         if !is_html && !ct.contains("text/plain") {
@@ -340,8 +340,8 @@ fn extract_once(html: &str, source_url: &str) -> Result<ClippedPage, AppError> {
     let markdown = markdown.trim().to_string();
 
     // 只判空还不够：readability 对导航页 / 登录墙 / 空壳页会「尽力」抠出一两个链接，
-    // 结果是给用户建一篇正文只有 `[首页](/)` 的垃圾笔记。用长度阈值把这类残渣一并挡掉，
-    // 让用户拿到明确的失败提示，而不是一篇需要自己回头删的空笔记。
+    // 结果是给用户建一篇正文只有 `[首页](/)` 的垃圾文档。用长度阈值把这类残渣一并挡掉，
+    // 让用户拿到明确的失败提示，而不是一篇需要自己回头删的空文档。
     if markdown.chars().count() < MIN_CONTENT_CHARS {
         return Err(AppError::Custom(
             "未能提取到正文——该页可能需要登录、由 JS 动态渲染，或本身没有文章内容".into(),
@@ -658,7 +658,7 @@ mod tests {
 
     #[test]
     fn extract_page_without_article_errors() {
-        // 只有导航、没有正文 → 应报「未能提取到正文」而不是产出垃圾笔记。
+        // 只有导航、没有正文 → 应报「未能提取到正文」而不是产出垃圾文档。
         // readability 会从这种空壳页里抠出 `[首页](/)`，靠 MIN_CONTENT_CHARS 挡下。
         let html = "<html><body><nav><a href='/'>首页</a></nav></body></html>";
         let err = extract_article(html, "https://x.com").unwrap_err();

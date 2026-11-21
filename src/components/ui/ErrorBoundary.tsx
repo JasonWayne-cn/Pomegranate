@@ -67,7 +67,7 @@ function ErrorDisplay({
         title="您的系统 WebView 版本过旧"
         subTitle={
           <Space direction="vertical" size={4}>
-            <Text>笔记编辑器需要较新版本的浏览器内核才能运行。</Text>
+            <Text>文档编辑器需要较新版本的浏览器内核才能运行。</Text>
             <Text type="secondary">
               错误原因：当前 WebView 不支持 ES2018+ 正则语法（lookbehind）
             </Text>

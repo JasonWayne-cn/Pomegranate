@@ -146,7 +146,7 @@ const router = createHashRouter([
       { path: "notes", element: <NoteListPage /> },
       { path: "mounts", element: <LazyPage><MountsPage /></LazyPage> },
       { path: "notes/:id", element: <NoteEditorPage /> },
-      // 白板本质是 note_type='whiteboard' 的笔记
+      // 白板本质是 note_type='whiteboard' 的文档
       { path: "whiteboard/:id", element: <LazyPage><WhiteboardPage /></LazyPage> },
       { path: "search", element: <SearchPage /> },
       { path: "tags", element: <TagsPage /> },

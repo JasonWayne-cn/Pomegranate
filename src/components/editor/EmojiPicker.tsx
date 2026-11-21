@@ -2,7 +2,7 @@
  * Emoji 选择器：工具栏触发的 Popover，按分类 Tab 列出常用 emoji。
  *
  * 不引入第三方 emoji 数据库（emoji-mart 等体积 ~500KB+），用手写常用集 ~280 个。
- * 90% 笔记场景够用；用户输入特殊 emoji 仍可直接粘贴。
+ * 90% 文档场景够用；用户输入特殊 emoji 仍可直接粘贴。
  *
  * 选中后通过 editor.chain().focus().insertContent(emoji) 插入到光标处。
  */

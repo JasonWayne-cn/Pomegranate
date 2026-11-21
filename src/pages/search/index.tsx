@@ -11,6 +11,7 @@ import {
   Select,
   DatePicker,
   Checkbox,
+  Tooltip,
   theme as antdTheme,
 } from "antd";
 import {
@@ -20,14 +21,16 @@ import {
   AlertTriangle,
   Check,
   SlidersHorizontal,
+  History,
+  Trash2,
   X as XIcon,
 } from "lucide-react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import dayjs from "dayjs";
 import {
   hasActiveFilters,
   parseSearchUrl,
   writeSearchUrl,
+  type SearchUrlState,
 } from "@/lib/searchUrlState";
 import { searchApi, taskApi, folderApi, tagApi } from "@/lib/api";
 import { useModuleConfig } from "@/hooks/useModuleConfig";
@@ -45,9 +48,7 @@ import type {
 
 const { Text } = Typography;
 
-/** 笔记结果单行高度估算（含 title + snippet + 日期三行 + 上下 padding） */
-const ESTIMATED_ROW_HEIGHT = 92;
-/** "全部" 模式下笔记最多展示这么多条，再多就让用户切到「笔记」Tab 看全 */
+/** "全部" 模式下文档最多展示这么多条，再多就让用户切到「文档」Tab 看全 */
 const ALL_MODE_NOTES_PREVIEW = 20;
 
 type Scope = "all" | "notes" | "tasks";
@@ -71,7 +72,7 @@ function collectSubtreeIds(folders: Folder[], targetIds: number[]): number[] {
  * RangePicker 给出的 [起, 止] 日期串 → 后端要的时间范围（任一端为空返回 null = 不筛选）。
  *
  * 后端比的是 notes 表的 `YYYY-MM-DD HH:MM:SS`，补上时分秒才能让"选到今天"
- * 含当天全部笔记，而不是卡在 00:00:00。
+ * 含当天全部文档，而不是卡在 00:00:00。
  */
 function toDayRange(strs: [string, string]): [string, string] | null {
   return strs[0] && strs[1] ? [`${strs[0]} 00:00:00`, `${strs[1]} 23:59:59`] : null;
@@ -118,12 +119,39 @@ function buildSearchFilters(
   return Object.keys(f).length > 0 ? f : undefined;
 }
 
-function DesktopSearchPage() {
+/**
+ * 搜索主体。
+ *
+ * `embedded` = 在首页模态窗里渲染：不读写 URL（否则会把首页地址污染成
+ * `/?q=...`），Tab 切换改为本地状态；其余搜索/筛选逻辑完全一致。
+ */
+export function DesktopSearchPage({
+  embedded = false,
+  initialQuery = "",
+}: {
+  embedded?: boolean;
+  initialQuery?: string;
+} = {}) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { token } = antdTheme.useToken();
-  // 进入页面时从 URL 恢复条件：点进笔记再返回、刷新都不丢（见 lib/searchUrlState）
-  const [initialUrl] = useState(() => parseSearchUrl(searchParams));
+  // 首页模态窗里的搜索记录（横排 chips）；独立搜索页不展示
+  const recentSearches = useAppStore((s) => s.recentSearches);
+  const removeRecentSearch = useAppStore((s) => s.removeRecentSearch);
+  const clearRecentSearches = useAppStore((s) => s.clearRecentSearches);
+  // 进入页面时从 URL 恢复条件：点进文档再返回、刷新都不丢（见 lib/searchUrlState）
+  const [initialUrl] = useState<SearchUrlState>(() => {
+    if (!embedded) return parseSearchUrl(searchParams);
+    return {
+      q: initialQuery.trim(),
+      folders: [],
+      tags: [],
+      types: [],
+      updated: null,
+      created: null,
+      titleOnly: false,
+    };
+  });
 
   // 模块设置中心：默认结果类型 / 仅标题 / 结果上限
   const { values: searchConfig, loaded: searchConfigLoaded } = useModuleConfig(
@@ -169,11 +197,11 @@ function DesktopSearchPage() {
   useEffect(() => {
     if (!searchConfigLoaded || titleOnlyDefaultAppliedRef.current) return;
     titleOnlyDefaultAppliedRef.current = true;
-    // URL 显式带条件时以 URL 为准
-    if (!searchParams.has("titleOnly")) {
+    // URL 显式带条件时以 URL 为准；embedded 模式没有 URL 条件，直接套配置
+    if (embedded || !searchParams.has("titleOnly")) {
       setTitleOnly(searchConfig.title_only);
     }
-  }, [searchConfigLoaded, searchConfig.title_only, searchParams]);
+  }, [searchConfigLoaded, searchConfig.title_only, searchParams, embedded]);
   // RangePicker 是非受控的：清空筛选时靠换 key 重挂载，才能把选择器上残留的日期也清掉
   const [pickerResetKey, setPickerResetKey] = useState(0);
 
@@ -230,20 +258,19 @@ function DesktopSearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtersKey]);
 
-  // URL ?type= 决定 Scope：缺省 "all"
-  const scope = ((searchParams.get("type") ??
-    searchConfig.default_scope) as Scope);
+  // Tab（全部 / 文档 / 待办）：独立页面用 URL ?type=，embedded 用本地 state
+  const [embeddedScope, setEmbeddedScope] = useState<Scope>(
+    (searchConfig.default_scope as Scope) ?? "all",
+  );
+  const scope: Scope = embedded
+    ? embeddedScope
+    : ((searchParams.get("type") ?? searchConfig.default_scope) as Scope);
 
-  // 虚拟滚动只在「笔记」单 Tab 下启用（"全部" 时只展示前 20 条预览，无需虚拟化）
-  const scrollParentRef = useRef<HTMLDivElement | null>(null);
-  const virtualizer = useVirtualizer({
-    count: scope === "notes" ? results.length : 0,
-    getScrollElement: () => scrollParentRef.current,
-    estimateSize: () => ESTIMATED_ROW_HEIGHT,
-    overscan: 6,
-  });
+  // 结果列表直接渲染、不再套内层滚动容器：
+  // 独立页面由 Content 滚动，模态窗由 Modal body 滚动 —— 全链路只保留一条竖直滚动条。
+  // 结果上限由 searchConfig.max_results 限制（≤200 条），无需虚拟化。
 
-  // URL ?q= 驱动搜索：外部（SearchPanel 点历史 / 首页搜索框直达）改变 URL 时
+  // URL ?q= 驱动搜索：外部（移动端 / 标签页跳转 / 手动改地址）改变 URL 时
   // 同步输入框并触发重搜；用户在输入框 typing 走下方本地 debounce，不走这里
   //
   // 🔴 读 URL 和写 URL 两个 effect 在同一次提交里都会跑：外部跳转那一轮 query 还是旧值，
@@ -252,6 +279,8 @@ function DesktopSearchPage() {
   //    与它相同 = 自己写的，忽略；不同才是外部跳转，并让写回 effect 跳过这一轮。
   const urlQ = (searchParams.get("q") ?? "").trim();
   useEffect(() => {
+    // embedded（首页模态窗）：不响应 URL，关键词由 initialQuery 一次性带入
+    if (embedded) return;
     if (!urlQ || urlQ === lastWrittenQRef.current) return;
     lastWrittenQRef.current = urlQ;
     skipNextUrlWriteRef.current = true;
@@ -287,7 +316,7 @@ function DesktopSearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlQ]);
 
-  // 首次进入：URL 里带着关键词（含从笔记返回）就按恢复的条件搜一次
+  // 首次进入：URL 里带着关键词（含从文档返回）就按恢复的条件搜一次
   useEffect(() => {
     if (initialUrl.q) doSearch(initialUrl.q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -295,6 +324,8 @@ function DesktopSearchPage() {
 
   // 条件变化 → 写回 URL（replace，不往历史栈里塞记录，后退仍是回到上一页）
   useEffect(() => {
+    // embedded：不写 URL（否则首页地址会变成 /?q=…）
+    if (embedded) return;
     // 外部跳转那一轮的 state 还是旧的，写回会把新 URL 覆盖掉（见上方读 URL 的 effect）
     if (skipNextUrlWriteRef.current) {
       skipNextUrlWriteRef.current = false;
@@ -327,7 +358,7 @@ function DesktopSearchPage() {
     setSearchParams,
   ]);
 
-  /** 并发拉笔记 + 待办；任意一边失败不阻塞另一边 */
+  /** 并发拉文档 + 待办；任意一边失败不阻塞另一边 */
   async function doSearch(keyword: string, f: SearchFilters | undefined = filters) {
     // 请求序号：连续输入 / 改条件会有多个请求同时在跑，慢的旧结果回来不能盖掉新结果
     const seq = ++searchSeqRef.current;
@@ -337,7 +368,7 @@ function DesktopSearchPage() {
     const limit = Math.max(10, Math.min(200, searchConfig.max_results || 50));
     const [notes, tasks] = await Promise.all([
       searchApi.search(keyword, limit, f).catch((e) => {
-        console.error("笔记搜索失败:", e);
+        console.error("文档搜索失败:", e);
         return [] as SearchResult[];
       }),
       taskApi.search(keyword, limit).catch((e) => {
@@ -355,7 +386,7 @@ function DesktopSearchPage() {
     setLoading(false);
   }
 
-  /** 索引-only 的外部二进制文档直接进 Office 打开原文件，其余仍进笔记编辑器 */
+  /** 索引-only 的外部二进制文档直接进 Office 打开原文件，其余仍进文档编辑器 */
   function openResult(item: SearchResult) {
     if (item.ext_index_only && item.abs_path) {
       const readOnly = item.read_only ? "1" : "0";
@@ -385,8 +416,12 @@ function DesktopSearchPage() {
     }, 300);
   }
 
-  /** 切换 Tab：写回 URL，保持 ?q= 不变以维持历史/分享链接 */
+  /** 切换 Tab：独立页面写回 URL；embedded 只改本地状态 */
   function setScope(next: Scope) {
+    if (embedded) {
+      setEmbeddedScope(next);
+      return;
+    }
     const sp = new URLSearchParams(searchParams);
     if (next === "all") sp.delete("type");
     else sp.set("type", next);
@@ -396,18 +431,18 @@ function DesktopSearchPage() {
   const showNotes = scope === "all" || scope === "notes";
   const showTasks = scope === "all" || scope === "tasks";
   const totalHits = results.length + taskResults.length;
-  // "全部" 模式下笔记只展示 preview，超出由"查看全部"链接引导切到笔记 Tab
+  // "全部" 模式下文档只展示 preview，超出由"查看全部"链接引导切到文档 Tab
   const notesToRender =
     scope === "all" ? results.slice(0, ALL_MODE_NOTES_PREVIEW) : results;
 
   return (
     // 与 AI 问答页对齐：内容列限制在 max-w-4xl 并居中，宽窗口下左右留出呼吸空间
     <div className="mx-auto w-full max-w-4xl">
-      {/* 搜索框：与首页 / 笔记列表搜索同款（普通 Input + 独立搜索按钮） */}
+      {/* 搜索框：与首页 / 文档列表搜索同款（普通 Input + 独立搜索按钮） */}
       <div className="mb-4 flex items-stretch gap-1.5" style={{ width: "100%" }}>
         <Input
           size="large"
-          placeholder="搜索笔记内容 / 待办标题…"
+          placeholder="搜索文档内容 / 待办标题…"
           prefix={<SearchIcon size={18} />}
           suffix={
             <MicButton
@@ -433,6 +468,99 @@ function DesktopSearchPage() {
         </Button>
       </div>
 
+      {/* 首页模态窗：搜索记录横排 chips，风格对齐文档列表的「子文件夹」条 */}
+      {embedded && recentSearches.length > 0 && (
+        <div className="mb-4 flex items-center gap-2" style={{ fontSize: 12 }}>
+          <span
+            style={{
+              color: token.colorTextSecondary,
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+            }}
+          >
+            搜索记录
+          </span>
+          <div
+            className="flex items-center gap-2"
+            style={{ flex: 1, minWidth: 0, flexWrap: "wrap" }}
+          >
+            {recentSearches.map((q) => (
+              <span
+                key={q}
+                role="button"
+                tabIndex={0}
+                onClick={() => handleInputChange(q)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleInputChange(q);
+                  }
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  maxWidth: 220,
+                  height: 26,
+                  padding: "0 8px",
+                  border: `1px solid ${token.colorBorder}`,
+                  borderRadius: 6,
+                  background: token.colorBgContainer,
+                  color: token.colorTextSecondary,
+                  cursor: "pointer",
+                  userSelect: "none",
+                }}
+              >
+                <History
+                  size={12}
+                  style={{ flexShrink: 0, color: token.colorTextTertiary }}
+                />
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {q}
+                </span>
+                <XIcon
+                  size={12}
+                  aria-label={`删除搜索记录 ${q}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeRecentSearch(q);
+                  }}
+                  style={{ flexShrink: 0, color: token.colorTextTertiary }}
+                />
+              </span>
+            ))}
+            {/* 行尾垃圾桶：清空全部搜索历史 */}
+            <Tooltip title="清除搜索历史">
+              <button
+                type="button"
+                aria-label="清除搜索历史"
+                onClick={() => clearRecentSearches()}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 26,
+                  height: 26,
+                  border: `1px solid ${token.colorBorder}`,
+                  borderRadius: 6,
+                  background: token.colorBgContainer,
+                  color: token.colorTextTertiary,
+                  cursor: "pointer",
+                }}
+              >
+                <Trash2 size={13} />
+              </button>
+            </Tooltip>
+          </div>
+        </div>
+      )}
+
       {/* 范围切换：仅在已搜索时显示，免得空状态有个孤零零的切换器 */}
       {searched && (
         <div className="mb-4 flex items-center justify-between">
@@ -441,7 +569,7 @@ function DesktopSearchPage() {
             onChange={(v) => setScope(v as Scope)}
             options={[
               { value: "all", label: `全部 ${totalHits}` },
-              { value: "notes", label: `笔记 ${results.length}` },
+              { value: "notes", label: `文档 ${results.length}` },
               { value: "tasks", label: `待办 ${taskResults.length}` },
             ]}
           />
@@ -451,7 +579,7 @@ function DesktopSearchPage() {
                 共 {totalHits} 条结果
               </Text>
             )}
-            {/* 筛选只作用于笔记，待办 Tab 下没有意义，故隐藏 */}
+            {/* 筛选只作用于文档，待办 Tab 下没有意义，故隐藏 */}
             {scope !== "tasks" && (
               <Button
                 size="small"
@@ -467,7 +595,7 @@ function DesktopSearchPage() {
         </div>
       )}
 
-      {/* 筛选栏（P1-2）：仅笔记结果生效 */}
+      {/* 筛选栏（P1-2）：仅文档结果生效 */}
       {searched && showFilters && scope !== "tasks" && (
         <div
           className="mb-4 flex flex-wrap items-center gap-2 rounded-lg p-3"
@@ -508,7 +636,7 @@ function DesktopSearchPage() {
             value={pickedTypes}
             onChange={setPickedTypes}
             options={[
-              { label: "笔记", value: "markdown" },
+              { label: "文档", value: "markdown" },
               { label: "白板", value: "whiteboard" },
             ]}
             placeholder="类型"
@@ -563,7 +691,7 @@ function DesktopSearchPage() {
         <div className="flex flex-col items-center py-12">
           <SearchIcon size={48} style={{ opacity: 0.15 }} />
           <Text type="secondary" className="mt-4" style={{ fontSize: 14 }}>
-            输入关键词同时搜索笔记与待办
+            输入关键词同时搜索文档与待办
           </Text>
         </div>
       ) : totalHits === 0 ? (
@@ -572,15 +700,8 @@ function DesktopSearchPage() {
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       ) : (
-        // 单一滚动容器；笔记 Tab 下用虚拟化，其它 Tab 直接渲染
-        <div
-          ref={scrollParentRef}
-          style={{
-            height: "calc(100vh - 220px)",
-            overflowY: "auto",
-            contain: "strict",
-          }}
-        >
+        // 不设内层滚动容器：滚动统一交给外层（页面 Content / Modal body）
+        <div>
           {/* 待办分组（"全部" 或 "待办" Tab 显示） */}
           {showTasks && taskResults.length > 0 && (
             <section className="mb-6">
@@ -604,48 +725,26 @@ function DesktopSearchPage() {
             </section>
           )}
 
-          {/* 笔记分组 */}
+          {/* 文档分组 */}
           {showNotes && results.length > 0 && (
             <section>
               <SectionHeader
                 icon={<NotebookText size={14} />}
-                label="笔记"
+                label="文档"
                 count={results.length}
                 token={token}
               />
               {scope === "notes" ? (
-                // 笔记 Tab：虚拟滚动（千级结果不卡）
-                <div
-                  style={{
-                    height: virtualizer.getTotalSize(),
-                    width: "100%",
-                    position: "relative",
-                  }}
-                >
-                  {virtualizer.getVirtualItems().map((vItem) => {
-                    const item = results[vItem.index];
-                    return (
-                      <div
-                        key={item.id}
-                        data-index={vItem.index}
-                        ref={virtualizer.measureElement}
-                        style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          width: "100%",
-                          transform: `translateY(${vItem.start}px)`,
-                        }}
-                      >
-                        <NoteRow
-                          item={item}
-                          token={token}
-                          keyword={query}
-                          onClick={() => openResult(item)}
-                        />
-                      </div>
-                    );
-                  })}
+                <div>
+                  {results.map((item) => (
+                    <NoteRow
+                      key={item.id}
+                      item={item}
+                      token={token}
+                      keyword={query}
+                      onClick={() => openResult(item)}
+                    />
+                  ))}
                 </div>
               ) : (
                 // 全部 Tab：只渲染预览前 N 条，多余的引导切 Tab
@@ -669,7 +768,7 @@ function DesktopSearchPage() {
                         onClick={() => setScope("notes")}
                         style={{ fontSize: 12, color: token.colorPrimary }}
                       >
-                        查看全部 {results.length} 条笔记 →
+                        查看全部 {results.length} 条文档 →
                       </a>
                     </div>
                   )}
@@ -714,7 +813,7 @@ function SectionHeader({
   );
 }
 
-/** 笔记结果行（与原虚拟滚动样式一致） */
+/** 文档结果行（与原虚拟滚动样式一致） */
 function NoteRow({
   item,
   token,

@@ -462,7 +462,7 @@ export function Sidebar() {
 
     lastClickRef.current = { key, time: now };
 
-    // 单击：若已选中 → 取消筛选回到全部笔记；否则进入该文件夹筛选
+    // 单击：若已选中 → 取消筛选回到全部文档；否则进入该文件夹筛选
     if (selectedKey === key) {
       setSelectedKey(null);
       navigate("/notes");
@@ -755,7 +755,7 @@ export function Sidebar() {
         Pomegranate{import.meta.env.DEV ? " [DEV]" : ""}
       </div>
 
-      {/* 全局"新建笔记"+ "打开 md 文件"按钮 */}
+      {/* 全局"新建文档"+ "打开 md 文件"按钮 */}
       <div
         style={{
           padding: collapsed ? "8px 6px" : "10px 12px",
@@ -911,7 +911,7 @@ export function Sidebar() {
                 </div>
               )
             )}
-            {/* 常驻虚拟文件夹"未分类"：folder_id IS NULL 的笔记自动归在这里，
+            {/* 常驻虚拟文件夹"未分类"：folder_id IS NULL 的文档自动归在这里，
                 不需要用户手动建。点击跳到 /notes?folder=uncategorized */}
             <div
               className="cursor-pointer select-none flex items-center gap-2"

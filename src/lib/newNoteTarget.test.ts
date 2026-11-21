@@ -6,9 +6,9 @@ import {
   UNCATEGORIZED_PARAM,
 } from "./newNoteTarget";
 
-describe("新建笔记落点：侧边栏选中态", () => {
+describe("新建文档落点：侧边栏选中态", () => {
   it("选中文件夹 → 新建落到该文件夹，不套全局默认", () => {
-    // 这是本次修复的核心：侧边栏顶部「+ 新建笔记」以前永远传 null，
+    // 这是本次修复的核心：侧边栏顶部「+ 新建文档」以前永远传 null，
     // 哪怕用户明明选中了某个文件夹
     expect(targetFromSidebarKey("42")).toEqual({
       folderId: 42,
@@ -46,9 +46,9 @@ describe("新建笔记落点：侧边栏选中态", () => {
     expect(t).not.toEqual(noContext);
   });
 
-  it("选中的是笔记 → 视为无文件夹上下文", () => {
-    // "我在看这篇笔记" ≠ "我在这个文件夹里工作"，
-    // 不该拿这篇笔记的 folder_id 去猜用户想建到哪
+  it("选中的是文档 → 视为无文件夹上下文", () => {
+    // "我在看这篇文档" ≠ "我在这个文件夹里工作"，
+    // 不该拿这篇文档的 folder_id 去猜用户想建到哪
     expect(targetFromSidebarKey("note:123")).toEqual({
       folderId: null,
       useDefaults: true,
@@ -64,7 +64,7 @@ describe("新建笔记落点：侧边栏选中态", () => {
   });
 });
 
-describe("新建笔记落点：URL ?folder= 参数", () => {
+describe("新建文档落点：URL ?folder= 参数", () => {
   it("?folder=42 → 落到 42 号文件夹", () => {
     expect(targetFromFolderParam("42")).toEqual({
       folderId: 42,
@@ -95,7 +95,7 @@ describe("新建笔记落点：URL ?folder= 参数", () => {
 
 describe("两个入口对同一个文件夹必须给出一致答案", () => {
   /**
-   * 这是本次 bug 的根因回归测试：同一个选中状态，侧边栏按钮、笔记页按钮、
+   * 这是本次 bug 的根因回归测试：同一个选中状态，侧边栏按钮、文档页按钮、
    * Ctrl+N 三条路以前各算各的。现在它们共用这两个函数，对等输入必须等价输出。
    */
   it("文件夹 id 在两种表示法下结果相同", () => {

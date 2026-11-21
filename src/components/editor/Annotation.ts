@@ -15,11 +15,11 @@ declare module "@tiptap/core" {
  * Tiptap inline mark：批注 / 注释（MVP 档实现）。
  *
  * 设计：
- * - 批注内容直接存在 mark 属性 data-comment 里，跟笔记 content JSON 一起持久化
+ * - 批注内容直接存在 mark 属性 data-comment 里，跟文档 content JSON 一起持久化
  * - 不依赖独立批注表 → 备份/导出/同步都自然带着批注走（GFM 脚注 / HTML span / Word 批注）
  * - 鼠标悬停由 HTML title 自带 tooltip，零成本
  *
- * 升级路径：以后想做"跨笔记批注聚合"时，写脚本扫所有 note.content 把 data-comment
+ * 升级路径：以后想做"跨文档批注聚合"时，写脚本扫所有 note.content 把 data-comment
  * 抽到独立表即可，不丢数据。
  *
  * 快捷键：Ctrl/Cmd + Alt + M

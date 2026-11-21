@@ -4,13 +4,13 @@
  * 为什么自绘（见 bug 修复背景）：
  *   第三方包的 NodeView 靠 DOM click + 往 `document` 绑全局监听来显示缩放手柄，且
  *   **不实现任何 ProseMirror NodeView 生命周期**（无 destroy/update/ignoreMutation/
- *   stopEvent）。在本项目「复用编辑器实例 + setContent 切换笔记」的架构下，每切一次
- *   笔记旧节点销毁但 document 监听残留，切回来新建节点又叠一个 → 监听泄漏 + 选中态
+ *   stopEvent）。在本项目「复用编辑器实例 + setContent 切换文档」的架构下，每切一次
+ *   文档旧节点销毁但 document 监听残留，切回来新建节点又叠一个 → 监听泄漏 + 选中态
  *   在节点重建后失效（点击图片没反应，只剩 hover 双击放大）。
  *
  * 本实现的关键差异：
  *   1. 选中态由 ProseMirror 的 NodeSelection 驱动（props.selected），React 卸载即清理，
- *      切多少次笔记都不泄漏、不失效。
+ *      切多少次文档都不泄漏、不失效。
  *   2. 点击图片 → 手动 setNodeSelection（不依赖 atom 默认点击行为，避开 ReactNodeView
  *      stopEvent 把 click 吞掉导致选不中）。
  *   3. 4 角拖拽缩放 → 松手 updateAttributes({width}) 持久化（走 FigureExtension 的

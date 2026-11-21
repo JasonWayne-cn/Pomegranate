@@ -55,7 +55,7 @@ pub fn save_note_attachment_from_path(
     rewrite_to_relative(&state, info)
 }
 
-/// 删除笔记的所有附件
+/// 删除文档的所有附件
 #[tauri::command]
 pub fn delete_note_attachments(state: State<'_, AppState>, note_id: i64) -> Result<(), String> {
     AttachmentService::delete_note_attachments(&state.data_dir, note_id).map_err(|e| e.to_string())

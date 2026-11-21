@@ -3,8 +3,8 @@
 //! 替代旧的 `scan_orphan_images` / `clean_orphan_images`：
 //! - 一次扫描覆盖 5 类素材：images / videos / attachments / pdfs / sources
 //! - 修复旧实现的两个 BUG：
-//!   1. trash 笔记 content 没扫 → 撤回笔记后图片消失
-//!   2. 加密笔记 content 是密文 → 加密笔记图片被全部判为孤儿
+//!   1. trash 文档 content 没扫 → 撤回文档后图片消失
+//!   2. 加密文档 content 是密文 → 加密文档图片被全部判为孤儿
 
 use tauri::State;
 

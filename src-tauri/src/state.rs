@@ -42,7 +42,7 @@ pub struct AppState {
     pub sync_v1_gate: crate::services::sync_v1::lock::SyncGate,
     /// 启动时 argv 里的 .md 文件路径，等前端 mount 后 take 出来
     pub pending_open_md_path: Mutex<Option<String>>,
-    /// T-007 笔记加密保险库：内存中的主密钥（可选），锁定时清空
+    /// T-007 文档加密保险库：内存中的主密钥（可选），锁定时清空
     pub vault: RwLock<VaultState>,
     /// In-memory MCP client（指向同进程内的 KbServer）。
     /// `Option` 是因为初始化失败不应阻断主应用启动 —— None 时 mcp_internal_* 命令会报"未就绪"。

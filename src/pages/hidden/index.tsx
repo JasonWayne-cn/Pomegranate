@@ -36,18 +36,18 @@ function parseFolderParam(raw: string | null): {
   label: string;
   opts: Parameters<typeof hiddenApi.list>[0];
 } {
-  if (!raw) return { label: "全部隐藏笔记", opts: {} };
+  if (!raw) return { label: "全部隐藏文档", opts: {} };
   if (raw === "uncategorized")
     return { label: "未分类", opts: { uncategorized: true } };
   const id = Number(raw);
   if (Number.isFinite(id) && id > 0) {
     return { label: "", opts: { folderId: id } }; // label 由调用方按 folderMap 反查
   }
-  return { label: "全部隐藏笔记", opts: {} };
+  return { label: "全部隐藏文档", opts: {} };
 }
 
 /**
- * 隐藏笔记页（T-003）
+ * 隐藏文档页（T-003）
  *
  * 筛选状态走 URL ?folder= ：
  * - 不传 → 全部
@@ -83,7 +83,7 @@ export default function HiddenPage() {
     if (parsed.opts?.folderId != null) {
       return folderMap.get(parsed.opts.folderId) ?? `(已删除 #${parsed.opts.folderId})`;
     }
-    return "全部隐藏笔记";
+    return "全部隐藏文档";
   }, [parsed, folderMap]);
 
   /** 拉列表 */
@@ -155,7 +155,7 @@ export default function HiddenPage() {
     return [
       {
         key: "open",
-        label: "打开笔记",
+        label: "打开文档",
         icon: <ExternalLink size={13} />,
         onClick: () => {
           ctx.close();
@@ -296,7 +296,7 @@ export default function HiddenPage() {
           <Space size="small">
             <Popconfirm
               title="取消隐藏？"
-              description="这条笔记会重新出现在主列表 / 搜索 / 图谱中"
+              description="这条文档会重新出现在主列表 / 搜索 / 图谱中"
               okText="取消隐藏"
               cancelText="保留隐藏"
               onConfirm={() => handleUnhide(record.id)}
@@ -329,7 +329,7 @@ export default function HiddenPage() {
         <Title level={3} style={{ margin: 0, lineHeight: "32px" }}>
           <span className="flex items-center gap-2">
             <EyeOff size={22} />
-            隐藏笔记
+            隐藏文档
             <Text type="secondary" style={{ fontSize: 13, fontWeight: "normal" }}>
               · {currentFilterLabel}
             </Text>
@@ -339,8 +339,8 @@ export default function HiddenPage() {
 
       <div className="flex-shrink-0" style={{ marginBottom: 12, lineHeight: 1.6 }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          只显示被标记为「隐藏」的笔记 —— 主界面 / 搜索 / 反链 / 图谱 / AI
-          问答都不会显示这些笔记。隐藏是弱保护，数据库里仍是明文；需要强保护请到笔记编辑器右上角点锁图标启用加密。
+          只显示被标记为「隐藏」的文档 —— 主界面 / 搜索 / 反链 / 图谱 / AI
+          问答都不会显示这些文档。隐藏是弱保护，数据库里仍是明文；需要强保护请到文档编辑器右上角点锁图标启用加密。
         </Text>
       </div>
 
@@ -399,8 +399,8 @@ export default function HiddenPage() {
         <EmptyState
           description={
             folderParam
-              ? `「${currentFilterLabel}」下没有隐藏笔记`
-              : "还没有被隐藏的笔记"
+              ? `「${currentFilterLabel}」下没有隐藏文档`
+              : "还没有被隐藏的文档"
           }
         />
       )}

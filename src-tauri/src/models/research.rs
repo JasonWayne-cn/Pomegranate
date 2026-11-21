@@ -54,7 +54,7 @@ pub struct ResearchLiterature {
     pub abstract_text: String,
     pub url: String,
     pub file_path: String,
-    /// 阅读笔记 / 摘录
+    /// 阅读文档 / 摘录
     pub notes: String,
     pub tags: String,
     /// to_read / reading / read

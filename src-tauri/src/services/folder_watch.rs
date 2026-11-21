@@ -14,7 +14,7 @@
 //! - **等文件写完再导**：连续两轮 (size, mtime) 都没变才认为写完，
 //!   否则会读到剪藏插件写了一半的文件
 //! - **改动即同步**：已导入过的文件如果 mtime 变了会再导一次；
-//!   `import_single_markdown` 内部按 source_file_path 去重，会复用原笔记并更新内容
+//!   `import_single_markdown` 内部按 source_file_path 去重，会复用原文档并更新内容
 //! - 失败不打断循环：单个文件出错只记日志，下一轮和其它文件照常
 
 use std::collections::HashMap;
@@ -164,26 +164,26 @@ async fn scan_once(
     let mut ok_count = 0usize;
     for path in pending {
         let path_str = path.to_string_lossy().to_string();
-        // as_scratch=false：监听目录是用户主动配的（剪藏落地），这些是要进知识库的正式笔记，
+        // as_scratch=false：监听目录是用户主动配的（剪藏落地），这些是要进知识库的正式文档，
         // 不是"随手打开改一下"的临时文件
         match ImportService::import_single_markdown(&state.db, &path_str, &app_data_dir, false).await
         {
             Ok(res) => {
-                // import_single_markdown 建笔记时 folder_id 固定为 None，这里再归位
+                // import_single_markdown 建文档时 folder_id 固定为 None，这里再归位
                 if let Some(fid) = target_folder {
                     if let Err(e) = state.db.move_note_to_folder(res.note_id, Some(fid)) {
-                        log::warn!("[folder-watch] 笔记 {} 移入目标文件夹失败: {}", res.note_id, e);
+                        log::warn!("[folder-watch] 文档 {} 移入目标文件夹失败: {}", res.note_id, e);
                     }
                 }
                 ok_count += 1;
                 log::info!(
-                    "[folder-watch] 已导入 {} → 笔记 #{}{}",
+                    "[folder-watch] 已导入 {} → 文档 #{}{}",
                     path_str,
                     res.note_id,
                     if res.was_synced { "（内容已更新）" } else { "" }
                 );
                 if delete_source {
-                    // 删源文件前先断开来源关联：否则笔记还指着一个不存在的路径，
+                    // 删源文件前先断开来源关联：否则文档还指着一个不存在的路径，
                     // 之后保存会走"写回原文件"分支并报错
                     let _ = state.db.set_note_source_file(res.note_id, None, None);
                     if let Err(e) = std::fs::remove_file(&path) {

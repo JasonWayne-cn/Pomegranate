@@ -103,7 +103,7 @@ export function MobileMe() {
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
               <span className="rounded bg-white/20 px-2 py-0.5">
-                📝 {stats?.total_notes ?? 0} 笔记
+                📝 {stats?.total_notes ?? 0} 文档
               </span>
               <span className="rounded bg-white/20 px-2 py-0.5">
                 🏷️ {stats?.total_tags ?? 0} 标签
@@ -179,7 +179,7 @@ export function MobileMe() {
         />
         <Row
           icon={<Folder size={20} className="text-amber-500" />}
-          label="导入笔记"
+          label="导入文档"
           right={<span className="text-xs text-slate-400">.md / .txt</span>}
           onClick={() => navigate("/quick-create")}
         />
@@ -218,13 +218,13 @@ export function MobileMe() {
         />
         <Row
           icon={<LockKeyhole size={20} className="text-red-500" />}
-          label="隐藏笔记 PIN"
+          label="隐藏文档 PIN"
           onClick={() => navigate("/hidden")}
         />
         <Row
           icon={<KeyRound size={20} className="text-amber-500" />}
-          label="笔记加密 Vault"
-          info="桌面专属（移动端只读已加密笔记）"
+          label="文档加密 Vault"
+          info="桌面专属（移动端只读已加密文档）"
         />
       </ListGroup>
 

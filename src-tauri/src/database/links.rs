@@ -4,7 +4,7 @@ use crate::models::{GraphData, GraphEdge, GraphNode, NoteLink};
 /// 去 markdown 转义：把 `\X`（X 为非字母数字）中的 `\` 丢弃。
 ///
 /// 用途：从 markdown 文件导入或经 markdown 序列化往返后，
-/// 笔记 content 中的 `_ * # [ ] ( )` 等会被 `\` 转义
+/// 文档 content 中的 `_ * # [ ] ( )` 等会被 `\` 转义
 /// （例如 `[[A_B]]` → `[[A\_B]]`，甚至外层 `[[` → `\[\[`）。
 /// 既会让 `extract_wiki_titles` 找不到 `[[...]]` 配对，
 /// 也会让标题字符串无法和原始 `title` 字段对齐。
@@ -39,7 +39,7 @@ pub(crate) fn normalize_title(s: &str) -> String {
         .to_lowercase()
 }
 
-/// 从笔记 HTML 内容里提取所有 `[[标题]]` / `[[标题|ID]]`（KB 2.0）。
+/// 从文档 HTML 内容里提取所有 `[[标题]]` / `[[标题|ID]]`（KB 2.0）。
 pub(crate) fn extract_wiki_refs(html: &str) -> Vec<(String, Option<i64>)> {
     let mut text = String::with_capacity(html.len());
     let mut in_tag = false;
@@ -91,7 +91,7 @@ pub(crate) fn extract_wiki_refs(html: &str) -> Vec<(String, Option<i64>)> {
     refs
 }
 
-/// 从笔记 HTML 内容里提取所有 `[[标题]]` —— 与前端 `extractWikiLinks` 对齐。
+/// 从文档 HTML 内容里提取所有 `[[标题]]` —— 与前端 `extractWikiLinks` 对齐。
 ///
 /// 实现：极简 stripHtml → markdown 反转义 → 扫描 `[[ ... ]]` 配对 → trim + 去重。
 /// 反转义这步至关重要：DB 里的 wiki 链接经常是 `\[\[标题\]\]` 这种被 markdown 整体转义的形式，
@@ -134,7 +134,7 @@ fn extract_wiki_titles(html: &str) -> Vec<String> {
 }
 
 impl super::Database {
-    /// 同步笔记的出链（先删除旧链接，再插入新链接）
+    /// 同步文档的出链（先删除旧链接，再插入新链接）
     pub fn sync_note_links(&self, source_id: i64, target_ids: Vec<i64>) -> Result<(), AppError> {
         let conn = self
             .conn
@@ -193,14 +193,14 @@ impl super::Database {
         self.sync_note_links(source_id, target_ids)
     }
 
-    /// 获取反向链接（哪些笔记链接到了 target_id）
+    /// 获取反向链接（哪些文档链接到了 target_id）
     pub fn get_backlinks(&self, target_id: i64) -> Result<Vec<NoteLink>, AppError> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
-        // T-003: 反向链接也过滤隐藏源笔记——不想在"普通笔记"的反链面板里泄露
-        // "哪些隐藏笔记引用了你"。跳转 [[...]] 本身不受影响（走 find_note_id_by_title_loose）。
+        // T-003: 反向链接也过滤隐藏源文档——不想在"普通文档"的反链面板里泄露
+        // "哪些隐藏文档引用了你"。跳转 [[...]] 本身不受影响（走 find_note_id_by_title_loose）。
         let mut stmt = conn.prepare(
             "SELECT nl.source_id, n.title, nl.context, n.updated_at
              FROM note_links nl
@@ -221,12 +221,12 @@ impl super::Database {
         Ok(links)
     }
 
-    /// 通过"规范化精确匹配"查找笔记 ID
+    /// 通过"规范化精确匹配"查找文档 ID
     ///
     /// 优化：从全表扫 + 应用层逐行规范化，改为直接命中 `idx_notes_title_normalized`
     /// 索引。`title_normalized` 列在 v17 迁移时回填，`create_note` / `update_note` /
     /// `get_or_create_daily` 同步维护。这条路径被 wiki 链接编辑器、保存前链接同步
-    /// 等高频调用，改完后 10k 笔记库下的 IPC 响应从 ~50ms 级降到亚毫秒级。
+    /// 等高频调用，改完后 10k 文档库下的 IPC 响应从 ~50ms 级降到亚毫秒级。
     pub fn find_note_id_by_title_loose(&self, title: &str) -> Result<Option<i64>, AppError> {
         let needle = normalize_title(title);
         if needle.is_empty() {
@@ -246,7 +246,7 @@ impl super::Database {
         Ok(result)
     }
 
-    /// 根据标题模糊搜索笔记（用于 [[ 自动补全）
+    /// 根据标题模糊搜索文档（用于 [[ 自动补全）
     pub fn search_notes_by_title(
         &self,
         keyword: &str,
@@ -257,8 +257,8 @@ impl super::Database {
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
         let pattern = format!("%{}%", keyword);
-        // T-003: wiki link 候选下拉不暴露隐藏笔记标题（弱保护）；
-        // 用户已经写好的 [[隐藏笔记]] 跳转仍可用（走 find_note_id_by_title_loose，那里不过滤）。
+        // T-003: wiki link 候选下拉不暴露隐藏文档标题（弱保护）；
+        // 用户已经写好的 [[隐藏文档]] 跳转仍可用（走 find_note_id_by_title_loose，那里不过滤）。
         let mut stmt = conn.prepare(
             "SELECT id, title FROM notes WHERE title LIKE ?1 AND is_deleted = 0 AND is_hidden = 0 ORDER BY updated_at DESC LIMIT ?2",
         )?;
@@ -272,13 +272,13 @@ impl super::Database {
 
     /// 获取知识图谱数据（实时计算的链接关系 + 文件夹层级）
     ///
-    /// - `folder_id = None`：全库图谱（所有未删除笔记 + 所有文件夹层级）。
-    /// - `folder_id = Some(id)`：只取该文件夹及其所有子孙文件夹内的笔记；
-    ///   与范围内笔记存在 wiki 链接、但本身在范围外的笔记，作为 `is_boundary`
+    /// - `folder_id = None`：全库图谱（所有未删除文档 + 所有文件夹层级）。
+    /// - `folder_id = Some(id)`：只取该文件夹及其所有子孙文件夹内的文档；
+    ///   与范围内文档存在 wiki 链接、但本身在范围外的文档，作为 `is_boundary`
     ///   的"边界节点"保留，便于看出这个文件夹的入口/出口。
     ///
-    /// 边的来源：**实时扫描每条笔记 content 里的 `[[标题]]`**，与所有笔记标题做规范化匹配建边。
-    /// 不再依赖 `note_links` 表（该表由 handleSave 时同步，存在"目标笔记后创建则永远不补全"的问题）。
+    /// 边的来源：**实时扫描每条文档 content 里的 `[[标题]]`**，与所有文档标题做规范化匹配建边。
+    /// 不再依赖 `note_links` 表（该表由 handleSave 时同步，存在"目标文档后创建则永远不补全"的问题）。
     /// `note_links` 表仍由其他功能（反向链接面板）使用，本方法不读它。
     pub fn get_graph_data(&self, folder_id: Option<i64>) -> Result<GraphData, AppError> {
         use std::collections::{HashMap, HashSet};
@@ -288,7 +288,7 @@ impl super::Database {
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
 
-        // 一次性查所有未删除笔记的元信息 + content（用于扫 wiki 链接）
+        // 一次性查所有未删除文档的元信息 + content（用于扫 wiki 链接）
         struct Row {
             id: i64,
             title: String,
@@ -300,9 +300,9 @@ impl super::Database {
         }
 
         // 用 LEFT JOIN + GROUP BY 一次性拿到 tag_count，替代原来每行一条相关子查询（N+1）。
-        // 对于 10k+ 笔记、平均 3 标签的情况，扫描量从 10k * 10k → 10k + 30k，快十数倍。
-        // T-003: 过滤隐藏笔记。节点不返回后，下面扫 wiki 建边时 title_to_id 里也没这些笔记，
-        // 对隐藏笔记的 [[wiki link]] 自动成为"断边"，图里既无节点也无指向它的边，达到隐身效果。
+        // 对于 10k+ 文档、平均 3 标签的情况，扫描量从 10k * 10k → 10k + 30k，快十数倍。
+        // T-003: 过滤隐藏文档。节点不返回后，下面扫 wiki 建边时 title_to_id 里也没这些文档，
+        // 对隐藏文档的 [[wiki link]] 自动成为"断边"，图里既无节点也无指向它的边，达到隐身效果。
         let mut stmt = conn.prepare(
             "SELECT n.id, n.title, n.content, n.is_daily, n.is_pinned,
                     COUNT(nt.tag_id) AS tag_count, n.folder_id
@@ -441,7 +441,7 @@ impl super::Database {
             }
         }
 
-        // folder → 笔记归属边（边界笔记不挂文件夹，避免图里出现范围外目录）
+        // folder → 文档归属边（边界文档不挂文件夹，避免图里出现范围外目录）
         for r in &rows {
             if !note_in_scope(r) {
                 continue;
@@ -457,7 +457,7 @@ impl super::Database {
             }
         }
 
-        // 节点：范围内笔记 + 边界笔记 + 作用域内文件夹
+        // 节点：范围内文档 + 边界文档 + 作用域内文件夹
         let mut nodes: Vec<GraphNode> = Vec::new();
         for r in rows {
             let in_scope = folder_id.is_none()

@@ -130,7 +130,7 @@ export interface PluginPanelViewDef {
 /**
  * 插件功能区（Ribbon）按钮 — 1.1.0 新增
  *
- * 渲染在主窗 Header 右侧，常用于"全局快捷动作"（例如"快速捕获"、"导出当前笔记"）。
+ * 渲染在主窗 Header 右侧，常用于"全局快捷动作"（例如"快速捕获"、"导出当前文档"）。
  * 与 sidebar 的区别：Ribbon 是动作触发器（点完就走），不持有视图路由。
  */
 export interface PluginRibbonItemDef {
@@ -172,7 +172,7 @@ export interface PluginEditorContextMenuItemDef {
  * 传给插件 callback 的受控接口。不暴露 Tiptap editor 实例，避免插件直接调内部命令。
  */
 export interface EditorActionCtx {
-  /** 当前笔记 ID；新建笔记 / 未保存时为 null */
+  /** 当前文档 ID；新建文档 / 未保存时为 null */
   noteId: number | null;
   /** 当前选中的纯文本（无选区时为空字符串） */
   selection: string;
@@ -235,7 +235,7 @@ export interface PluginEditorAPI {
   removeToolbarButton(id: string): void;
   /**
    * 同步查询当前激活编辑器的选区文本。
-   * 返回 null = 当前没有激活的编辑器（用户不在笔记页 / 编辑器未就绪）。
+   * 返回 null = 当前没有激活的编辑器（用户不在文档页 / 编辑器未就绪）。
    * 返回空字符串 = 编辑器存在但无选区。
    */
   getCurrentSelection(): string | null;
@@ -420,7 +420,7 @@ export interface PluginHttpAPI {
   request(input: PluginHttpRequest): Promise<PluginHttpResponse>;
 }
 
-/** 笔记子 API */
+/** 文档子 API */
 export interface PluginNotesAPI {
   list(query?: NoteQuery): Promise<Note[]>;
   get(id: number): Promise<Note | null>;
@@ -521,7 +521,7 @@ export interface SystemInfo {
 export interface TextHealthIssue {
   table: string;
   column: string;
-  /** 该行主键值（notes.id 等），用于定位是哪条笔记 */
+  /** 该行主键值（notes.id 等），用于定位是哪条文档 */
   rowId: number;
   /** 修正后的内容预览（截断到 80 字符） */
   preview: string;
@@ -546,9 +546,9 @@ export interface TextHealthReport {
   errors: string[];
 }
 
-// ─── 笔记 ─────────────────────────────────────
+// ─── 文档 ─────────────────────────────────────
 
-/** 笔记 */
+/** 文档 */
 export interface Note {
   id: number;
   title: string;
@@ -570,26 +570,26 @@ export interface Note {
   word_count: number;
   created_at: string;
   updated_at: string;
-  /** 关联的原始文件相对路径（相对 app_data_dir），纯笔记为 null */
+  /** 关联的原始文件相对路径（相对 app_data_dir），纯文档为 null */
   source_file_path: string | null;
   /** 原始文件类型："pdf" / "docx" / "doc" / null */
   source_file_type: string | null;
   /** 同 folder 内的自定义排序值，越小越靠前；只在 NoteQuery.sort_by="custom" 时生效 */
   sort_order: number;
-  /** 笔记类型：普通 Markdown 笔记 or 白板。决定点开时进哪个编辑器 */
+  /** 文档类型：普通 Markdown 文档 or 白板。决定点开时进哪个编辑器 */
   note_type: NoteType;
 }
 
 /**
- * 笔记类型（对齐 Rust `models::note_type`）。
+ * 文档类型（对齐 Rust `models::note_type`）。
  *
- * - `markdown`：普通笔记，`content` 是 Markdown 正文
+ * - `markdown`：普通文档，`content` 是 Markdown 正文
  * - `whiteboard`：白板，`content` 是 Excalidraw 场景 JSON（别拿去当正文渲染）
  */
 export type NoteType = "markdown" | "whiteboard";
 
 /**
- * 笔记内嵌白板保存后的资源路径（相对 data_dir 的 POSIX 路径）。
+ * 文档内嵌白板保存后的资源路径（相对 data_dir 的 POSIX 路径）。
  * 场景文件与预览图配对命名，改同一块白板永远覆盖这两个文件。
  */
 export interface EmbeddedWhiteboardSaved {
@@ -625,7 +625,7 @@ export interface NoteSnapshot extends NoteSnapshotMeta {
   content: string;
 }
 
-/** 单条笔记的历史版本占用（设置页"占用最大的笔记"列表）。与 Rust `models::SnapshotNoteUsage` 对齐 */
+/** 单条文档的历史版本占用（设置页"占用最大的文档"列表）。与 Rust `models::SnapshotNoteUsage` 对齐 */
 export interface SnapshotNoteUsage {
   note_id: number;
   title: string;
@@ -636,16 +636,16 @@ export interface SnapshotNoteUsage {
 }
 
 /**
- * 白板「笔记卡片」要显示的笔记摘要。与 Rust `models::NoteExcerpt` 对齐。
+ * 白板「文档卡片」要显示的文档摘要。与 Rust `models::NoteExcerpt` 对齐。
  *
- * 卡片是活的：每次打开白板都重新取一次，笔记改了卡片跟着变。
+ * 卡片是活的：每次打开白板都重新取一次，文档改了卡片跟着变。
  */
 export interface NoteExcerpt {
   note_id: number;
   title: string;
-  /** 已转纯文本并截断的正文；笔记不存在 / 已加密时是提示文案 */
+  /** 已转纯文本并截断的正文；文档不存在 / 已加密时是提示文案 */
   excerpt: string;
-  /** 笔记已删除 —— 卡片显示成失效样式 */
+  /** 文档已删除 —— 卡片显示成失效样式 */
   missing: boolean;
 }
 
@@ -658,7 +658,7 @@ export interface SnapshotUsage {
 }
 
 /**
- * AI 引用笔记里抽出的图片清单（回答下方"溯源"挂缩略图）。
+ * AI 引用文档里抽出的图片清单（回答下方"溯源"挂缩略图）。
  * 与 Rust models::NoteImageRef 对齐。
  * images 是相对 data_dir 的 POSIX 路径，前端 `toKbAsset` 拼 `kb-asset://` 后渲染。
  */
@@ -709,22 +709,22 @@ export interface ConverterDiagnostic {
   active: DocConverter;
 }
 
-/** 创建/更新笔记入参 */
+/** 创建/更新文档入参 */
 export interface NoteInput {
   title: string;
   content: string;
   folder_id?: number | null;
 }
 
-/** 笔记列表查询参数 */
+/** 文档列表查询参数 */
 export interface NoteQuery {
   folder_id?: number | null;
   keyword?: string | null;
   page?: number;
   page_size?: number;
-  /** true 时只返回 folder_id IS NULL 的笔记（"未分类"虚拟文件夹） */
+  /** true 时只返回 folder_id IS NULL 的文档（"未分类"虚拟文件夹） */
   uncategorized?: boolean;
-  /** true 时点父文件夹连同所有子孙文件夹的笔记一起返回（默认 true，符合"文件夹=容器"直觉） */
+  /** true 时点父文件夹连同所有子孙文件夹的文档一起返回（默认 true，符合"文件夹=容器"直觉） */
   include_descendants?: boolean;
   /** 排序模式：默认按 is_pinned DESC, updated_at DESC */
   sort_by?: "default" | "custom" | "created" | "title";
@@ -751,7 +751,7 @@ export interface Folder {
 }
 
 /**
- * 一个「空文件夹」——子树内（含自身）没有任何未回收笔记。
+ * 一个「空文件夹」——子树内（含自身）没有任何未回收文档。
  * 「导入历史日记」会建出成百上千个日期文件夹，日记摘走后就成了空壳，靠清理功能批量删。
  */
 export interface EmptyFolderInfo {
@@ -772,7 +772,7 @@ export interface Tag {
   parent_id: number | null;
 }
 
-/** 笔记列表「标签」列用的轻量标签（不含 note_count），与 Rust `NoteTagBrief` 对齐 */
+/** 文档列表「标签」列用的轻量标签（不含 note_count），与 Rust `NoteTagBrief` 对齐 */
 export interface NoteTagBrief {
   id: number;
   name: string;
@@ -794,9 +794,9 @@ export interface SearchResult {
   snippet: string;
   updated_at: string;
   folder_id: number | null;
-  /** 笔记类型：搜索结果据此换图标（白板点开是画布，不是编辑器） */
+  /** 文档类型：搜索结果据此换图标（白板点开是画布，不是编辑器） */
   note_type: NoteType;
-  /** 外部挂载文件的磁盘绝对路径；普通笔记为 null */
+  /** 外部挂载文件的磁盘绝对路径；普通文档为 null */
   abs_path: string | null;
   /** 外部二进制文档仅作索引：点击直接进 Office 工作台 */
   ext_index_only: boolean;
@@ -871,13 +871,13 @@ export type DatasetSchema = Dataset & {
 export interface SearchFilters {
   /** 限定文件夹（需前端展开成含子孙的完整 id 列表） */
   folderIds?: number[];
-  /** 限定标签，笔记需**同时**含全部所选标签（AND 语义） */
+  /** 限定标签，文档需**同时**含全部所选标签（AND 语义） */
   tagIds?: number[];
   /** 更新时间下界（含），格式与 notes.updated_at 一致 */
   updatedAfter?: string;
   /** 更新时间上界（含） */
   updatedBefore?: string;
-  /** 限定笔记类型 */
+  /** 限定文档类型 */
   noteTypes?: NoteType[];
   /** 创建时间下界（含），格式与 notes.created_at 一致 */
   createdAfter?: string;
@@ -889,13 +889,13 @@ export interface SearchFilters {
 
 // ─── 回收站 ───────────────────────────────────
 
-/** 回收站笔记查询参数 */
+/** 回收站文档查询参数 */
 export interface TrashQuery {
   page?: number;
   page_size?: number;
 }
 
-// ─── 笔记链接 ─────────────────────────────────
+// ─── 文档链接 ─────────────────────────────────
 
 /** 反向链接 */
 export interface NoteLink {
@@ -905,18 +905,18 @@ export interface NoteLink {
   updated_at: string;
 }
 
-/** 与当前笔记相连的一篇笔记（出链 / 入链共用；字段名中性，不叫 source/target） */
+/** 与当前文档相连的一篇文档（出链 / 入链共用；字段名中性，不叫 source/target） */
 export interface LinkedNote {
   id: number;
   title: string;
   updatedAt: string;
 }
 
-/** 当前笔记的链接全貌，编辑器底部状态条一次取回 */
+/** 当前文档的链接全貌，编辑器底部状态条一次取回 */
 export interface NoteLinkSummary {
-  /** 本篇链出去的笔记（我引用了谁） */
+  /** 本篇链出去的文档（我引用了谁） */
   outgoing: LinkedNote[];
-  /** 链进来的笔记（谁引用了我） */
+  /** 链进来的文档（谁引用了我） */
   incoming: LinkedNote[];
   /** 断链：正文写了 [[X]] 但 X 不存在 / 已删 / 已隐藏，按原文标题去重 */
   broken: string[];
@@ -936,7 +936,7 @@ export interface WikiLinkSuggestItem {
 export interface GraphNode {
   id: number;
   title: string;
-  /** 节点类型："note" = 笔记，"folder" = 文件夹 */
+  /** 节点类型："note" = 文档，"folder" = 文件夹 */
   node_type: "note" | "folder";
   is_daily: boolean;
   is_pinned: boolean;
@@ -944,7 +944,7 @@ export interface GraphNode {
   link_count: number;
   /** 文件夹自定义颜色（仅 folder 节点可能有；note 恒为 null） */
   color: string | null;
-  /** 按文件夹限定范围时：范围外但与范围内笔记有链接的边界节点 */
+  /** 按文件夹限定范围时：范围外但与范围内文档有链接的边界节点 */
   is_boundary?: boolean;
 }
 
@@ -989,9 +989,9 @@ export interface LlmGraphEdge {
 export interface LlmGraphData {
   nodes: LlmGraphNode[];
   edges: LlmGraphEdge[];
-  /** 本次结果覆盖的笔记数 */
+  /** 本次结果覆盖的文档数 */
   note_count: number;
-  /** 来源笔记标题（去重，最多 20 条） */
+  /** 来源文档标题（去重，最多 20 条） */
   note_titles: string[];
 }
 
@@ -1019,7 +1019,7 @@ export interface LlmExtractionStatus {
 export interface LlmGraphScopeStatus {
   /** full = 全建图，partial = 部分建图，none = 未建图，stale = 有更新 */
   state: "full" | "partial" | "none" | "stale" | string;
-  /** 范围内可建图的笔记总数（不含回收站 / 隐藏） */
+  /** 范围内可建图的文档总数（不含回收站 / 隐藏） */
   total: number;
   built: number;
   partial: number;
@@ -1085,7 +1085,7 @@ export interface AiModel {
   is_default: boolean;
   /**
    * 已存的上下文窗口（token）。**0 = 未设置**，对话时回落到端点上报 / 预置值
-   * （生效值由后端 `effective_limits` 算，决定 RAG 与挂载笔记的预算）。
+   * （生效值由后端 `effective_limits` 算，决定 RAG 与挂载文档的预算）。
    */
   max_context: number;
   supports_tools: boolean;
@@ -1320,7 +1320,7 @@ export interface AiConversation {
   id: number;
   title: string;
   model_id: number;
-  /** 附加给本对话的笔记 ID 列表，整个对话共享 */
+  /** 附加给本对话的文档 ID 列表，整个对话共享 */
   attached_note_ids: number[];
   /** RAG 检索范围限定到某文件夹（含子孙）；null = 全库。「对此文件夹问 AI」发起时带上 */
   scope_folder_id: number | null;
@@ -1343,7 +1343,7 @@ export interface AiMessage {
   /** 角色: user / assistant */
   role: string;
   content: string;
-  /** 引用的笔记 ID 列表 (JSON 字符串) */
+  /** 引用的文档 ID 列表 (JSON 字符串) */
   references: string | null;
   /** T-004: Skills 框架下 AI 调用的工具记录（JSON 字符串，反序列化后是 SkillCall[]）*/
   skill_calls: string | null;
@@ -1537,7 +1537,7 @@ export type MessageAttachment =
       truncated: boolean;
     };
 
-// ─── AI 写笔记并归档（T-006） ────────────
+// ─── AI 写文档并归档（T-006） ────────────
 
 export type TargetLength = "short" | "medium" | "long";
 
@@ -1548,7 +1548,7 @@ export interface DraftNoteRequest {
   targetLength?: TargetLength;
 }
 
-/** AI 生成的笔记草稿（未落库，Modal 里用户确认后才写入）*/
+/** AI 生成的文档草稿（未落库，Modal 里用户确认后才写入）*/
 export interface DraftNoteResponse {
   title: string;
   /** Markdown 正文 */
@@ -1558,7 +1558,7 @@ export interface DraftNoteResponse {
   reason?: string | null;
 }
 
-// ─── T-007 笔记加密 / Vault ─────────────────────
+// ─── T-007 文档加密 / Vault ─────────────────────
 
 /** Vault 整体状态（三态机）*/
 export type VaultStatus = "notset" | "locked" | "unlocked";
@@ -1593,7 +1593,7 @@ export interface ScannedFile {
    * - "fuzzy" 按 (title, content_hash) 兜底命中（用户可能搬动过源文件）
    */
   match_kind: ImportMatchKind;
-  /** match_kind 非 "new" 时，指向已存在笔记的 id */
+  /** match_kind 非 "new" 时，指向已存在文档的 id */
   existing_note_id: number | null;
   /** 从所在文件夹名（优先）或文件名识别出的日期 YYYY-MM-DD；不像日记则为 null */
   detected_date: string | null;
@@ -1601,11 +1601,11 @@ export interface ScannedFile {
   date_conflict: boolean;
 }
 
-/** 历史日记转换：一天对应的候选（可能由多篇笔记合并而来） */
+/** 历史日记转换：一天对应的候选（可能由多篇文档合并而来） */
 export interface DailyCandidate {
   /** 目标日期 YYYY-MM-DD */
   date: string;
-  /** 参与这一天的笔记 id（与 titles 同序，合并时按此顺序拼接） */
+  /** 参与这一天的文档 id（与 titles 同序，合并时按此顺序拼接） */
   noteIds: number[];
   titles: string[];
   /** 该日期已存在日记时，指向那条已有日记的 id */
@@ -1626,7 +1626,7 @@ export interface DailyConvertPlan {
   dateTo: string | null;
 }
 
-/** 一天有多篇笔记时怎么办 */
+/** 一天有多篇文档时怎么办 */
 export type MultiFileStrategy = "merge" | "keepFirst" | "skip";
 /** 该日期已有日记时怎么办 */
 export type DailyConflictStrategy = "skip" | "append";
@@ -1638,7 +1638,7 @@ export interface DailyConvertOptions {
 
 export interface DailyConvertResult {
   convertedDays: number;
-  /** 因合并而并入其它笔记、随后进回收站的笔记数 */
+  /** 因合并而并入其它文档、随后进回收站的文档数 */
   mergedNotes: number;
   appendedDays: number;
   skippedDays: number;
@@ -1660,21 +1660,21 @@ export interface ImportResult {
   skipped: number;
   duplicated: number;
   errors: string[];
-  /** T-009: 自动关联的 frontmatter tag 条数（笔记 × 标签 笛卡尔次数） */
+  /** T-009: 自动关联的 frontmatter tag 条数（文档 × 标签 笛卡尔次数） */
   tags_attached?: number;
-  /** T-009: 解析到 frontmatter 的笔记数 */
+  /** T-009: 解析到 frontmatter 的文档数 */
   frontmatter_parsed?: number;
   /** T-009 Commit 2: 复制到 kb_assets/images 的图片张数 */
   attachments_copied?: number;
-  /** T-009 Commit 2: 缺失的图片清单（"笔记标题: 原始引用"，已去重） */
+  /** T-009 Commit 2: 缺失的图片清单（"文档标题: 原始引用"，已去重） */
   attachments_missing?: string[];
-  /** 本次新建的笔记 ID（按文件参数顺序，含 Duplicate 副本） */
+  /** 本次新建的文档 ID（按文件参数顺序，含 Duplicate 副本） */
   noteIds?: number[];
-  /** 命中已有笔记并按 Skip 策略跳过时记录的现有笔记 ID */
+  /** 命中已有文档并按 Skip 策略跳过时记录的现有文档 ID */
   existingNoteIds?: number[];
   /** 按「日期文件夹」识别并标记为日记的篇数（dailyMode 开启时才非 0） */
   daily_marked?: number;
-  /** 同一天有多篇、只有第一篇成了日记，其余仍是普通笔记的篇数 */
+  /** 同一天有多篇、只有第一篇成了日记，其余仍是普通文档的篇数 */
   daily_extra_notes?: number;
 }
 
@@ -1688,11 +1688,11 @@ export interface ImportProgress {
 /** "打开单个 md 文件"返回结果 */
 export interface OpenMarkdownResult {
   noteId: number;
-  /** 检测到源文件有变化并已同步回笔记 */
+  /** 检测到源文件有变化并已同步回文档 */
   wasSynced: boolean;
   /**
-   * 这条笔记当前是否为"临时编辑"状态。
-   * 不等于打开时传的 asScratch —— 复用一条已有正式笔记时不会被降级成临时。
+   * 这条文档当前是否为"临时编辑"状态。
+   * 不等于打开时传的 asScratch —— 复用一条已有正式文档时不会被降级成临时。
    */
   isScratch: boolean;
 }
@@ -1756,10 +1756,10 @@ export interface AttachmentInfo {
 // ─── 外部 .md 双向同步（写回原文件） ─────────────
 
 /**
- * 笔记保存后写回原 .md 文件的结果。
+ * 文档保存后写回原 .md 文件的结果。
  *
  * - `ok`：写回成功；`assets_copied` = 用户在编辑器里新插入的图被复制到 `<basename>.assets/` 的张数
- * - `skipped`：笔记不是从外部 .md 打开的，没什么可写回（默认情况）
+ * - `skipped`：文档不是从外部 .md 打开的，没什么可写回（默认情况）
  * - `conflict`：原文件 mtime 与上次写回时不一致 = 外部编辑器（VSCode 等）改过文件，
  *   前端应弹 Modal 让用户选「覆盖外部 / 取消」（"覆盖外部" 后端再调一次 `force=true`）
  * - `missing`：原文件被删/移走/挂网盘断开
@@ -1786,7 +1786,7 @@ export interface ExportResult {
 
 /** 单篇导出结果 */
 export interface SingleExportResult {
-  /** 实际创建的笔记根目录（含 .md 与 assets/） */
+  /** 实际创建的文档根目录（含 .md 与 assets/） */
   root_dir: string;
   /** .md 文件绝对路径 */
   file_path: string;
@@ -1824,7 +1824,7 @@ export type MergeFormat = "markdown" | "html" | "word";
 /** 合并导出结果：一个文件夹合成的单个文件 */
 export interface MergeExportResult {
   filePath: string;
-  /** 实际合并进文档的笔记篇数 */
+  /** 实际合并进文档的文档篇数 */
   notesMerged: number;
   imagesInlined: number;
   imagesMissing: number;
@@ -1847,7 +1847,7 @@ export interface DashboardStats {
   total_links: number;
   today_updated: number;
   total_words: number;
-  /** 最后一次「写作」时间（含日记，排除导入笔记）；无手写笔记时为 null */
+  /** 最后一次「写作」时间（含日记，排除导入文档）；无手写文档时为 null */
   last_written_at: string | null;
 }
 
@@ -1871,9 +1871,9 @@ export interface DailyWritingStat {
   word_count: number;
 }
 
-// ─── 笔记模板 ─────────────────────────────────
+// ─── 文档模板 ─────────────────────────────────
 
-/** 笔记模板 */
+/** 文档模板 */
 export interface NoteTemplate {
   id: number;
   name: string;
@@ -1900,7 +1900,7 @@ export interface PageResult<T> {
 }
 
 /**
- * 批量恢复笔记的结果（与后端 RestoreBatchResult 对齐，serde camelCase）
+ * 批量恢复文档的结果（与后端 RestoreBatchResult 对齐，serde camelCase）
  *
  * `toRoot` = 其中因原文件夹已被删除而落到根目录的条数
  */
@@ -2389,12 +2389,12 @@ export interface ManifestEntry {
   isDaily?: boolean;
   /** 每日笔记的日期 YYYY-MM-DD（isDaily=true 时有值） */
   dailyDate?: string | null;
-  /** 是否隐藏笔记（旧 manifest 无此字段；修复隐藏笔记跨端变可见时加入） */
+  /** 是否隐藏文档（旧 manifest 无此字段；修复隐藏文档跨端变可见时加入） */
   isHidden?: boolean;
   /**
-   * Bug 12a: 笔记标签名列表（按 name 跨端，不带 id/color）。
-   * - undefined / null：旧客户端 manifest / 加密笔记 / tombstone → pull 端不动本地
-   * - []：该笔记当前无标签 → pull 端清空本地
+   * Bug 12a: 文档标签名列表（按 name 跨端，不带 id/color）。
+   * - undefined / null：旧客户端 manifest / 加密文档 / tombstone → pull 端不动本地
+   * - []：该文档当前无标签 → pull 端清空本地
    * - ["a", "b"]：替换为该列表
    */
   tags?: string[] | null;
@@ -2426,8 +2426,8 @@ export interface SyncPullResult {
   /** T-S024: 下载的附件数（远端 manifest 列了但本机没有的） */
   attachmentsDownloaded?: number;
   /**
-   * 因 vault meta 不匹配 / 缺失而被跳过的加密笔记数。
-   * >0 时前端弹提示告知用户（避免"加密笔记看着同步了实则被静默跳过"）。
+   * 因 vault meta 不匹配 / 缺失而被跳过的加密文档数。
+   * >0 时前端弹提示告知用户（避免"加密文档看着同步了实则被静默跳过"）。
    * 旧后端无此字段 → undefined，按 0 处理。
    */
   encryptedSkipped?: number;
@@ -2448,17 +2448,17 @@ export interface SyncGcResult {
   errors: string[];
 }
 
-/** T-S051: 一条待解决的同步冲突（本地/远端各改各的那条笔记） */
+/** T-S051: 一条待解决的同步冲突（本地/远端各改各的那条文档） */
 export interface SyncConflictItem {
   /** 所属同步源 id */
   backendId: number;
   /** 同步源名字（"我的坚果云"等） */
   backendName: string;
-  /** 笔记 stable_uuid */
+  /** 文档 stable_uuid */
   stableId: string;
-  /** 本地笔记 id；本地已无此笔记 → null */
+  /** 本地文档 id；本地已无此文档 → null */
   noteId: number | null;
-  /** 笔记标题 */
+  /** 文档标题 */
   title: string;
   /** 冲突文件绝对路径（resolve 时回传） */
   conflictFilePath: string;
@@ -2466,13 +2466,13 @@ export interface SyncConflictItem {
   conflictFileName: string;
   /** 冲突文件创建时间（≈ 远端冲突版本被拉下来的时间），best-effort，可能为 null */
   detectedAt: string | null;
-  /** 本地笔记当前正文（加密笔记 / 本地已无 → 空串） */
+  /** 本地文档当前正文（加密文档 / 本地已无 → 空串） */
   localContent: string;
-  /** 远端冲突版本正文（已去掉 # 标题前缀；加密笔记 → 空串） */
+  /** 远端冲突版本正文（已去掉 # 标题前缀；加密文档 → 空串） */
   remoteContent: string;
-  /** 是否加密笔记（加密笔记不支持在此合并，UI 只给"忽略"） */
+  /** 是否加密文档（加密文档不支持在此合并，UI 只给"忽略"） */
   encrypted: boolean;
-  /** 本地是否已无此笔记（只能"用远端（重建）"或"忽略"） */
+  /** 本地是否已无此文档（只能"用远端（重建）"或"忽略"） */
   noteMissingLocally: boolean;
 }
 
@@ -3069,7 +3069,7 @@ export interface MountScanResult {
   added: number;
   updated: number;
   unchanged: number;
-  /** 原文件已更新，但影子笔记有本地编辑，未自动覆盖 */
+  /** 原文件已更新，但影子文档有本地编辑，未自动覆盖 */
   stale: number;
   missing: number;
   errors: string[];
@@ -3090,7 +3090,7 @@ export interface ExternalEntry {
   title: string;
   missing: boolean;
   mtime: number;
-  /** 原文件已更新，但影子笔记有本地编辑 */
+  /** 原文件已更新，但影子文档有本地编辑 */
   stale: boolean;
   /** 抽取状态：ok / failed / scanned / encrypted / unsupported */
   status: string | null;
@@ -3099,7 +3099,7 @@ export interface ExternalEntry {
   sourceType: string | null;
   /** 原文件大小（字节） */
   size: number;
-  /** 影子笔记是否被本地编辑过 */
+  /** 影子文档是否被本地编辑过 */
   userEdited: boolean;
   /** 上次抽取时间 */
   lastSyncedAt: string | null;
@@ -3118,16 +3118,16 @@ export interface MountOpenResult {
   relPath: string;
   readOnly: boolean;
   missing: boolean;
-  /** 原文件已更新，但影子笔记有本地编辑，未自动覆盖 */
+  /** 原文件已更新，但影子文档有本地编辑，未自动覆盖 */
   stale: boolean;
-  /** 影子笔记是否被用户编辑过 */
+  /** 影子文档是否被用户编辑过 */
   userEdited: boolean;
   status: string | null;
   error: string | null;
   sourceType: string | null;
 }
 
-/** 影子笔记相对原文件的陈旧状态 */
+/** 影子文档相对原文件的陈旧状态 */
 export interface MountNoteStatus {
   noteId: number;
   external: boolean;

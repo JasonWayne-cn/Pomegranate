@@ -1,9 +1,9 @@
 /**
  * 历史版本用量与清理。
  *
- * 快照是"悄悄攒数据"的功能：每条笔记留最近 30 份，白板尤其大（一份几十 KB 起步），
+ * 快照是"悄悄攒数据"的功能：每条文档留最近 30 份，白板尤其大（一份几十 KB 起步），
  * 重度使用下库会稳步变大而用户看不见。这个区块给他一个交代 ——
- * 占了多少、是哪几条笔记占的、怎么清。
+ * 占了多少、是哪几条文档占的、怎么清。
  */
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -92,8 +92,8 @@ export function SnapshotSection() {
       style={{ marginTop: 16 }}
     >
       <Text type="secondary" style={{ fontSize: 13 }}>
-        保存笔记、白板自动保存、同步拉取覆盖本地之前，都会自动留一份旧内容，
-        误删误改可以在笔记 / 白板页的「历史版本」里找回。每条笔记保留最近 30 份。
+        保存文档、白板自动保存、同步拉取覆盖本地之前，都会自动留一份旧内容，
+        误删误改可以在文档 / 白板页的「历史版本」里找回。每条文档保留最近 30 份。
       </Text>
 
       {loading && !usage ? (
@@ -110,10 +110,10 @@ export function SnapshotSection() {
             />
           </div>
 
-          {/* 占用最大的笔记：用户要清理时最想看的就是这几条 */}
+          {/* 占用最大的文档：用户要清理时最想看的就是这几条 */}
           <div className="mt-4">
             <Text strong style={{ fontSize: 13 }}>
-              占用最大的笔记
+              占用最大的文档
             </Text>
             {!usage || usage.top_notes.length === 0 ? (
               <Empty
@@ -131,15 +131,15 @@ export function SnapshotSection() {
                     actions={[
                       <Popconfirm
                         key="clear"
-                        title="清掉这条笔记的历史版本？"
-                        description="只删历史版本，笔记本身不受影响。"
+                        title="清掉这条文档的历史版本？"
+                        description="只删历史版本，文档本身不受影响。"
                         okText="清理"
                         cancelText="取消"
                         okButtonProps={{ danger: true }}
                         onConfirm={() =>
                           void runClear(
                             () => snapshotApi.clearNote(item.note_id),
-                            "清理该笔记",
+                            "清理该文档",
                           )
                         }
                       >
@@ -189,7 +189,7 @@ export function SnapshotSection() {
             <span style={{ fontSize: 13 }}>天</span>
             <Popconfirm
               title={`清理 ${days} 天前的历史版本？`}
-              description="所有笔记里更早的版本都会被删除，笔记本身不受影响。"
+              description="所有文档里更早的版本都会被删除，文档本身不受影响。"
               okText="清理"
               cancelText="取消"
               okButtonProps={{ danger: true }}
@@ -205,7 +205,7 @@ export function SnapshotSection() {
 
             <Popconfirm
               title="清空全部历史版本？"
-              description="所有笔记与白板的历史版本都会删除且无法找回；笔记本身不受影响。"
+              description="所有文档与白板的历史版本都会删除且无法找回；文档本身不受影响。"
               okText="全部清空"
               cancelText="取消"
               okButtonProps={{ danger: true }}

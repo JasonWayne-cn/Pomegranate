@@ -32,7 +32,7 @@ describe("导入任务状态变换", () => {
   });
 
   it("两批并发各自记账，进度不串号", () => {
-    // 真实触发路径：设置页点了 Word 导入，切到笔记页又点了 PDF 导入
+    // 真实触发路径：设置页点了 Word 导入，切到文档页又点了 PDF 导入
     let jobs: ImportJob[] = [word, pdf];
     jobs = patchImportJob(jobs, "w1", { current: 3, fileName: "年报.docx" });
     jobs = patchImportJob(jobs, "p1", { current: 12, fileName: "论文.pdf" });

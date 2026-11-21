@@ -1,7 +1,7 @@
 /**
- * 「切回笔记再切到编辑模式报 Adding different instances of a keyed plugin」的回归测试。
+ * 「切回文档再切到编辑模式报 Adding different instances of a keyed plugin」的回归测试。
  *
- * 成因：笔记编辑态快照（整份 EditorState）里带着随组件动态注册的伪选区插件；切回笔记时
+ * 成因：文档编辑态快照（整份 EditorState）里带着随组件动态注册的伪选区插件；切回文档时
  * 默认进阅读模式 → 组件卸载、插件被摘掉 → 快照原样还原让插件「复活」→ 再切编辑模式，
  * 组件重新 registerPlugin 同 key 的新实例 → ProseMirror 抛错。
  *
@@ -57,7 +57,7 @@ describe("快照还原时对齐插件集合", () => {
   it("复现：快照里带着已被摘掉的插件，原样还原后再注册同 key 会抛错", () => {
     // 编辑模式：组件已挂载，插件 P1 在 state 里
     let state = register(createState(), createFakeSelectionPlugin(KEY));
-    const snapshot = state; // 切走笔记时存档
+    const snapshot = state; // 切走文档时存档
 
     // 切回时默认阅读模式 → 组件卸载 → 插件被摘掉
     state = unregister(state, KEY);
@@ -103,7 +103,7 @@ describe("快照还原时对齐插件集合", () => {
     expect(undoDepth(state)).toBeGreaterThan(0);
     const snapshot = state;
 
-    // 当前 state：插件已摘掉、历史是空的（模拟切到别的笔记后的现场）
+    // 当前 state：插件已摘掉、历史是空的（模拟切到别的文档后的现场）
     const live = unregister(createState(), KEY);
     expect(undoDepth(live)).toBe(0);
 

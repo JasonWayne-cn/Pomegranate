@@ -101,9 +101,9 @@ fn pdfs_dir_name() -> &'static str {
 #[serde(rename_all = "camelCase")]
 pub struct PdfImportResult {
     pub source_path: String,
-    /// 成功：对应的笔记 id；失败：None
+    /// 成功：对应的文档 id；失败：None
     pub note_id: Option<i64>,
-    /// 成功：笔记标题；失败：None
+    /// 成功：文档标题；失败：None
     pub title: Option<String>,
     /// 失败时的错误消息
     pub error: Option<String>,
@@ -127,7 +127,7 @@ pub struct PdfService;
 
 impl PdfService {
     /// 获取 PDF 根目录: {app_data_dir}/{prefix}pdfs/
-    /// 仅抽取 PDF 纯文本（不落盘、不创建笔记）。供 AI 会话附件等场景复用，
+    /// 仅抽取 PDF 纯文本（不落盘、不创建文档）。供 AI 会话附件等场景复用，
     /// 内部走与 `import_one` 相同的「pdf-extract → pdfium 修复重试」通路。
     pub fn extract_text_only(source: &Path) -> Result<String, AppError> {
         if !source.exists() {
@@ -151,7 +151,7 @@ impl PdfService {
         Ok(dir)
     }
 
-    /// 把一个 PDF 文件导入为笔记：抽取文本 → 创建笔记 → 保存图片/交错 HTML → 拷贝原文件。
+    /// 把一个 PDF 文件导入为文档：抽取文本 → 创建文档 → 保存图片/交错 HTML → 拷贝原文件。
     pub fn import_one(
         app_data_dir: &Path,
         db: &Database,
@@ -243,7 +243,7 @@ impl PdfService {
             )));
         }
 
-        // 2. 创建笔记（先写纯文本 HTML，拿到 note_id 后保存图片并更新为交错 HTML）
+        // 2. 创建文档（先写纯文本 HTML，拿到 note_id 后保存图片并更新为交错 HTML）
         let title = Self::note_title(source);
         let note = db.create_note(&NoteInput {
             title,
@@ -281,7 +281,7 @@ impl PdfService {
                         let html = PdfLayoutService::render_html(&layout, &image_paths);
                         if !html.is_empty() {
                             if let Err(e) = db.update_note_content(note.id, &html) {
-                                warnings.push(format!("图片已保存，但笔记正文更新失败: {e}"));
+                                warnings.push(format!("图片已保存，但文档正文更新失败: {e}"));
                             }
                         }
                     }
@@ -295,12 +295,12 @@ impl PdfService {
             log::info!("PDF 结构化文本不可用，跳过图片保留");
         }
 
-        // 3. 拷贝原 PDF 并关联到笔记
+        // 3. 拷贝原 PDF 并关联到文档
         Self::attach_pdf(app_data_dir, db, source, note.id)?;
 
         let note = db
             .get_note(note.id)?
-            .ok_or_else(|| AppError::NotFound("刚创建的笔记查询失败".into()))?;
+            .ok_or_else(|| AppError::NotFound("刚创建的文档查询失败".into()))?;
 
         Ok(PdfImportOutcome {
             note,
@@ -336,7 +336,7 @@ impl PdfService {
         Self::attach_pdf(app_data_dir, db, source, note.id)?;
         let note = db
             .get_note(note.id)?
-            .ok_or_else(|| AppError::NotFound("刚创建的笔记查询失败".into()))?;
+            .ok_or_else(|| AppError::NotFound("刚创建的文档查询失败".into()))?;
 
         Ok(PdfImportOutcome {
             note,
@@ -393,7 +393,7 @@ impl PdfService {
 
     /// 拷贝原 PDF 到 `pdfs/<note_id>/<原文件名>.pdf` 并写回 source_file_path。
     ///
-    /// 拷贝失败不算导入失败：笔记已经创建，只是不关联原文件。
+    /// 拷贝失败不算导入失败：文档已经创建，只是不关联原文件。
     fn attach_pdf(
         app_data_dir: &Path,
         db: &Database,
@@ -406,12 +406,12 @@ impl PdfService {
 
         if let Some(parent) = dst.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                log::warn!("PDF 子目录创建失败（笔记已建）: {}", e);
+                log::warn!("PDF 子目录创建失败（文档已建）: {}", e);
                 return Ok(());
             }
         }
         if let Err(e) = std::fs::copy(source, &dst) {
-            log::warn!("PDF 原文件拷贝失败（笔记已建）: {}", e);
+            log::warn!("PDF 原文件拷贝失败（文档已建）: {}", e);
             return Ok(());
         }
 
@@ -465,7 +465,7 @@ impl PdfService {
         }
     }
 
-    /// 删除笔记关联的所有 PDF 文件（永久删除笔记时调用）。
+    /// 删除文档关联的所有 PDF 文件（永久删除文档时调用）。
     ///
     /// 新格式（方案 C）：删整个 `pdfs/<note_id>/` 子目录；
     /// 旧格式（`pdfs/<note_id>.pdf`）由 trash 服务的 source_file_path 单文件删除负责，
@@ -474,7 +474,7 @@ impl PdfService {
         let dir = Self::pdfs_dir(app_data_dir).join(note_id.to_string());
         if dir.is_dir() {
             std::fs::remove_dir_all(&dir)?;
-            log::info!("已删除笔记 {} 的 PDF 子目录: {:?}", note_id, dir);
+            log::info!("已删除文档 {} 的 PDF 子目录: {:?}", note_id, dir);
         }
         Ok(())
     }
@@ -762,7 +762,7 @@ fn friendly_extract_error(raw: &str) -> String {
 ///
 /// 阈值 50 char 是经验值：
 /// - 普通 PDF 即便只有 1 页，正文也常 100+ 字符
-/// - 仅页码 / 页眉的"几乎空"PDF 一般不会被用户用来"导入笔记"
+/// - 仅页码 / 页眉的"几乎空"PDF 一般不会被用户用来"导入文档"
 /// - 扫描件 pdf-extract 几乎必然返回空字符串或纯空白
 ///
 /// 仅看 trim 后的 char 数；不分中英文。

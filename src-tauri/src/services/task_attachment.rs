@@ -2,7 +2,7 @@
 //!
 //! 目录：`{app_data_dir}/{prefix}kb_assets/task_files/<task_id>/`
 //!   · 放在 kb_assets 下 → 整包 ZIP 备份 / WebDAV 自动带上，备份代码零改动
-//!   · 🔴 不放 `images/<id>/`：那里的孤儿扫描按「笔记 id」判定，会把任务目录整个误删
+//!   · 🔴 不放 `images/<id>/`：那里的孤儿扫描按「文档 id」判定，会把任务目录整个误删
 //!
 //! 表 `task_attachments` 存相对 data_dir 的 POSIX 路径，前端拼 `kb-asset://<rel>` 显示。
 //! 任务软删时文件保留（复活还能用）；真正无主的文件交给孤儿扫描。
@@ -30,7 +30,7 @@ fn assets_dir_name() -> &'static str {
     }
 }
 
-/// 图片 MIME 单独映射：附件服务的表不含图片（笔记图片走 ImageService）
+/// 图片 MIME 单独映射：附件服务的表不含图片（文档图片走 ImageService）
 fn mime_of(ext: &str) -> &'static str {
     match ext {
         "png" => "image/png",

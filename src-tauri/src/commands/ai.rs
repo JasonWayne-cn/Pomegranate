@@ -176,7 +176,7 @@ pub fn update_ai_conversation_agent_settings(
         .map_err(|e| e.to_string())
 }
 
-/// 设置对话挂载的笔记列表（A 方向：选 N 篇笔记 → 强制塞进对话上下文）
+/// 设置对话挂载的文档列表（A 方向：选 N 篇文档 → 强制塞进对话上下文）
 ///
 /// 注意：每次调用都是**全量覆盖**，前端需要把"完整的最新选中列表"传过来；
 /// 撤销某篇只挂载就是重新发一次去掉它的列表。
@@ -336,7 +336,7 @@ pub fn cancel_ai_write_assist(state: State<'_, AppState>) -> Result<(), String> 
 
 /// AI 规划今日待办
 ///
-/// 聚合昨日/今日 daily 笔记 + 昨日未完成任务 + 今日已有任务 + 用户目标 → 喂 AI
+/// 聚合昨日/今日 daily 文档 + 昨日未完成任务 + 今日已有任务 + 用户目标 → 喂 AI
 /// → 返回 3~7 条建议（未写入）。前端展示后用户勾选/编辑才通过 `create_task` 落库。
 ///
 /// 非流式：`response_format: json_object` 要完整响应；典型耗时 5~15 秒。
@@ -370,7 +370,7 @@ pub async fn ai_extract_task_from_text(
 
 /// 目标驱动 AI 智能规划：把一个长期目标拆成多条可执行待办 + 阶段里程碑
 ///
-/// 与 `ai_plan_today` 区别：本方法不依赖历史笔记，按 `horizon_days` 跨度展开。
+/// 与 `ai_plan_today` 区别：本方法不依赖历史文档，按 `horizon_days` 跨度展开。
 /// 返回的 `batchId` 必须由前端在批量落库时透传到每条任务的 `source_batch_id`，
 /// 后续可用 `undo_task_batch(batch_id)` 一键撤销整批。
 ///
@@ -444,9 +444,9 @@ pub fn ai_parse_attachment(file_path: String) -> Result<AttachmentPreview, Strin
     AiService::parse_attachment_auto(&file_path).map_err(|e| e.to_string())
 }
 
-// ─── T-006 AI 写笔记并归档 Commands ─────────
+// ─── T-006 AI 写文档并归档 Commands ─────────
 
-/// AI 生成笔记草稿 + 建议归档目录
+/// AI 生成文档草稿 + 建议归档目录
 ///
 /// 返回 `{title, content, folderPath, reason}`，未落库。前端在 Modal 里让
 /// 用户编辑/确认后，通过现有 `folderApi` + `noteApi` 写入。
@@ -463,10 +463,10 @@ pub async fn ai_draft_note(
         .map_err(|e| e.to_string())
 }
 
-/// 获取或创建笔记的"伴生 AI 对话"
+/// 获取或创建文档的"伴生 AI 对话"
 ///
-/// 编辑器右侧抽屉用：每篇笔记有一条专属对话，懒创建（首次开抽屉才建）。
-/// 如果对话还在 → 直接返回；如果对话被删了 / 没建过 → 新建并挂载本笔记。
+/// 编辑器右侧抽屉用：每篇文档有一条专属对话，懒创建（首次开抽屉才建）。
+/// 如果对话还在 → 直接返回；如果对话被删了 / 没建过 → 新建并挂载本文档。
 ///
 /// 流程：
 ///   1. 读 notes.companion_conversation_id
@@ -491,13 +491,13 @@ pub fn get_or_create_companion_conversation(
         let _ = db.set_note_companion_conversation(note_id, None);
     }
 
-    // 2) 没有就建一条新对话，标题取笔记当前标题
+    // 2) 没有就建一条新对话，标题取文档当前标题
     let note = db
         .get_note(note_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("笔记 {} 不存在", note_id))?;
+        .ok_or_else(|| format!("文档 {} 不存在", note_id))?;
     let title = if note.title.trim().is_empty() {
-        format!("笔记 #{}", note_id)
+        format!("文档 #{}", note_id)
     } else {
         note.title.chars().take(40).collect::<String>()
     };
@@ -505,10 +505,10 @@ pub fn get_or_create_companion_conversation(
     let conv = db
         .create_ai_conversation(&title, default_model.id)
         .map_err(|e| e.to_string())?;
-    // 自动把本笔记挂上去作为附加上下文
+    // 自动把本文档挂上去作为附加上下文
     db.set_conversation_attached_notes(conv.id, &[note_id])
         .map_err(|e| e.to_string())?;
-    // 关联回笔记
+    // 关联回文档
     db.set_note_companion_conversation(note_id, Some(conv.id))
         .map_err(|e| e.to_string())?;
 
@@ -516,7 +516,7 @@ pub fn get_or_create_companion_conversation(
     db.get_ai_conversation(conv.id).map_err(|e| e.to_string())
 }
 
-/// B 方向：把整个 AI 对话归档为一篇笔记
+/// B 方向：把整个 AI 对话归档为一篇文档
 ///
 /// 对话内所有消息按用户/AI 顺序拼成 markdown，落库到 `notes` 表，
 /// `from_ai_conversation_id` 字段记下来源以便日后双向追溯。
@@ -583,5 +583,5 @@ pub fn archive_ai_conversation_to_note(
     // 重新拉一次拿带 from_ai_conversation_id 的完整 Note
     db.get_note(note.id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "归档后查询笔记失败".to_string())
+        .ok_or_else(|| "归档后查询文档失败".to_string())
 }

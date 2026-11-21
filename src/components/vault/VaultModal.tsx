@@ -105,7 +105,7 @@ export function VaultModal({ open, mode, onClose, onSuccess }: VaultModalProps) 
     ) : (
       <div className="flex items-center gap-2">
         <Unlock size={16} style={{ color: token.colorPrimary }} />
-        <span>解锁笔记保险库</span>
+        <span>解锁文档保险库</span>
       </div>
     );
 
@@ -129,7 +129,7 @@ export function VaultModal({ open, mode, onClose, onSuccess }: VaultModalProps) 
             type="warning"
             showIcon
             icon={<ShieldAlert size={16} />}
-            message="主密码一旦忘记，所有加密笔记数据永久不可恢复"
+            message="主密码一旦忘记，所有加密文档数据永久不可恢复"
             description="本地应用不会上传密码，也没有任何恢复手段。请务必记住或写在安全的地方。"
           />
 
@@ -181,7 +181,7 @@ export function VaultModal({ open, mode, onClose, onSuccess }: VaultModalProps) 
               onChange={(e) => setAcks((p) => ({ ...p, b: e.target.checked }))}
             >
               我明白忘记密码 ={" "}
-              <strong style={{ color: token.colorError }}>所有加密笔记永久不可读</strong>
+              <strong style={{ color: token.colorError }}>所有加密文档永久不可读</strong>
               （没有"找回密码"功能）
             </Checkbox>
             <Checkbox
@@ -204,7 +204,7 @@ export function VaultModal({ open, mode, onClose, onSuccess }: VaultModalProps) 
             type="info"
             showIcon
             icon={<Lock size={16} />}
-            message="本会话未解锁。输入主密码以查看 / 编辑加密笔记。"
+            message="本会话未解锁。输入主密码以查看 / 编辑加密文档。"
           />
           <Input.Password
             value={password}

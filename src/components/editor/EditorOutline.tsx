@@ -6,10 +6,10 @@ import { pickActiveIndex, type OutlineProbe } from "@/lib/outlineScrollSpy";
 import { useAppStore } from "@/store";
 
 /**
- * EditorOutline —— 笔记编辑页右侧大纲面板。
+ * EditorOutline —— 文档编辑页右侧大纲面板。
  *
  * 数据来源：订阅 Tiptap editor 的 `transaction` 事件，全量遍历 doc 收集所有
- * heading 节点。300ms debounce 后重算一次条目（普通笔记 < 1ms 完成）。
+ * heading 节点。300ms debounce 后重算一次条目（普通文档 < 1ms 完成）。
  *
  * 跳转：用 ProseMirror node `pos` 而非文本匹配，同名标题不会跳错。
  *   `editor.chain().focus().setTextSelection(pos+1).scrollIntoView().run()`
@@ -21,7 +21,7 @@ import { useAppStore } from "@/store";
  *   于是正文里两个标题挨得近（间距 < 工具栏高度）时，点击这一条后高亮立刻被判回
  *   上一条，表现就是"这一条点不动"。
  *
- * 自动隐藏：headings.length < 2 整面板隐藏（短笔记不打扰）。可见性切换由父
+ * 自动隐藏：headings.length < 2 整面板隐藏（短文档不打扰）。可见性切换由父
  * 组件控制（store.outlineVisible），本组件只看自身有没有数据。
  */
 

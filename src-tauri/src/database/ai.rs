@@ -387,7 +387,7 @@ impl Database {
         Ok(convs)
     }
 
-    /// 单条对话查询（给"挂载笔记"等需要读取附加列表的场景）
+    /// 单条对话查询（给"挂载文档"等需要读取附加列表的场景）
     pub fn get_ai_conversation(&self, id: i64) -> Result<AiConversation, AppError> {
         let conn = self
             .conn
@@ -424,7 +424,7 @@ impl Database {
         Ok(conv)
     }
 
-    /// 更新对话的附加笔记列表（A 方向：笔记 → AI 上下文）
+    /// 更新对话的附加文档列表（A 方向：文档 → AI 上下文）
     ///
     /// note_ids 序列化成 JSON 字符串存 attached_note_ids 列；同时 touch updated_at
     /// 让前端会话列表重排到顶部。
@@ -697,7 +697,7 @@ impl Database {
     /// 策略：
     /// - ASCII 字母数字：按空格/标点切分为整词（如 "Claude API"）
     /// - CJK 字符：按 bigram（2-gram）切分（"合同内容" → ["合同", "同内", "内容"]）
-    ///   之所以不整串保留，是因为中文没有空格，整串几乎无法与笔记内容精确匹配；
+    ///   之所以不整串保留，是因为中文没有空格，整串几乎无法与文档内容精确匹配；
     ///   bigram 对 LIKE '%xx%' 的召回足够好。
     pub(crate) fn extract_keywords(query: &str) -> Vec<String> {
         // 中文停用词（含常见疑问词、代词、虚词，避免 bigram 噪声）
@@ -835,16 +835,16 @@ impl Database {
         format!("\"{}\"", term.replace('"', "\"\""))
     }
 
-    /// 搜索相关笔记用于 RAG 上下文
+    /// 搜索相关文档用于 RAG 上下文
     ///
     /// 策略（中文友好 + 命中数排序）：
-    /// 1. LIKE 按每条笔记 **命中不同关键词的数量** 降序排（含"合同"+"内容"的笔记高于只含"合同"的）
+    /// 1. LIKE 按每条文档 **命中不同关键词的数量** 降序排（含"合同"+"内容"的文档高于只含"合同"的）
     /// 2. 若 query 里有 ASCII 单词，额外跑 FTS5 补充（英文 unicode61 可正确 tokenize）
     /// 3. 合并去重：LIKE 命中数高的优先，FTS5 用来填补 LIKE 漏掉的
     ///
     /// 为何不用 FTS5 为主：SQLite 默认 `unicode61` tokenizer 对中文按
     /// 连续 CJK 段切分（"合同内容" 是一个 token），bigram 关键词根本匹不上；
-    /// 反而会因为"总结"/"句话"这类噪声 bigram 误召回无关笔记。
+    /// 反而会因为"总结"/"句话"这类噪声 bigram 误召回无关文档。
     pub fn search_notes_for_rag(
         &self,
         query: &str,
@@ -884,7 +884,7 @@ impl Database {
             //
             // 加权后《小聊华为》: title.华为(5) + content.政府(1) + content.关系(1) = 7
             // 《中县干部》: content.政府(1) + content.关系(1) + ... = 10 但每项只 1 分
-            // 真正命中主题词的笔记（专有名词进 title）会显著上升。
+            // 真正命中主题词的文档（专有名词进 title）会显著上升。
             //
             // 业界做法：BM25 / TF-IDF 中 title 字段一般给 boost 系数 3-5。
             let title_exprs: Vec<String> = like_keywords
@@ -908,7 +908,7 @@ impl Database {
                 .map(|(i, _)| format!("(n.title LIKE ?{0} OR n.content LIKE ?{0})", i + 1))
                 .collect();
 
-            // T-003: RAG 检索结果不包含隐藏笔记（否则 AI 对话会泄露隐藏内容到历史）
+            // T-003: RAG 检索结果不包含隐藏文档（否则 AI 对话会泄露隐藏内容到历史）
             let sql = format!(
                 "SELECT n.id, n.title, n.content, ({score}) AS score
                  FROM notes n

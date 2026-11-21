@@ -34,7 +34,7 @@ export const SHORTCUTS: ShortcutDef[] = [
     scope: "global",
     defaultAccel: "CommandOrControl+Shift+N",
     group: "全局快捷键（系统级，后台也可用）",
-    desc: "剪贴板内容 → 新笔记",
+    desc: "剪贴板内容 → 新文档",
   },
   {
     id: "global.quickAddWindow",
@@ -55,7 +55,7 @@ export const SHORTCUTS: ShortcutDef[] = [
     scope: "global",
     defaultAccel: "CommandOrControl+Alt+D",
     group: "全局快捷键（系统级，后台也可用）",
-    desc: "打开今日笔记",
+    desc: "打开当天日记",
   },
   {
     id: "global.openSearch",
@@ -68,9 +68,9 @@ export const SHORTCUTS: ShortcutDef[] = [
   // ─── 应用内（窗口聚焦时生效） ───
   { id: "app.asrToggle", scope: "app", defaultAccel: "CommandOrControl+Shift+Space", group: "应用内", desc: "语音 toggle：边写边说，文字注入当前焦点输入框（无焦点则打开快速捕获 Modal）" },
   { id: "app.palette", scope: "app", defaultAccel: "CommandOrControl+K", group: "应用内", desc: "打开命令面板" },
-  { id: "app.newNote", scope: "app", defaultAccel: "CommandOrControl+N", group: "应用内", desc: "新建空白笔记" },
+  { id: "app.newNote", scope: "app", defaultAccel: "CommandOrControl+N", group: "应用内", desc: "新建空白文档" },
   { id: "app.quickNoteCapture", scope: "app", defaultAccel: "CommandOrControl+Alt+N", group: "应用内", desc: "快速记一笔：追加带时间戳的块到今天的日记" },
-  { id: "app.save", scope: "app", defaultAccel: "CommandOrControl+S", group: "应用内", desc: "保存当前笔记" },
+  { id: "app.save", scope: "app", defaultAccel: "CommandOrControl+S", group: "应用内", desc: "保存当前文档" },
   { id: "app.help", scope: "app", defaultAccel: "F1", group: "应用内", desc: "查看快捷键帮助" },
   { id: "app.focusToggle", scope: "app", defaultAccel: "F11", group: "应用内", desc: "切换专注模式" },
   { id: "app.exitFocus", scope: "app", defaultAccel: "Escape", group: "应用内", desc: "退出专注模式" },
@@ -104,7 +104,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "editor.find", scope: "editor", defaultAccel: "CommandOrControl+F", group: "编辑器 - 操作", desc: "查找" },
   { id: "editor.replace", scope: "editor", defaultAccel: "CommandOrControl+H", group: "编辑器 - 操作", desc: "查找并替换" },
   { id: "editor.exportMenu", scope: "editor", defaultAccel: "CommandOrControl+Shift+E", group: "编辑器 - 操作", desc: "打开导出菜单（Markdown / Word / HTML）" },
-  { id: "editor.exportCurrentMarkdown", scope: "editor", defaultAccel: "CommandOrControl+Alt+E", group: "编辑器 - 操作", desc: "直接导出当前笔记为 Markdown" },
+  { id: "editor.exportCurrentMarkdown", scope: "editor", defaultAccel: "CommandOrControl+Alt+E", group: "编辑器 - 操作", desc: "直接导出当前文档为 Markdown" },
 ];
 
 /**

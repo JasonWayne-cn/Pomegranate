@@ -19,7 +19,7 @@ import { useAppStore } from "@/store";
 import type { Note } from "@/types";
 
 /**
- * 移动端笔记编辑页（设计稿：02-note-edit.html）
+ * 移动端文档编辑页（设计稿：02-note-edit.html）
  *
  * 路由：/notes/:id —— 在 isMobile=true 时通过 wrapper 加载本组件。
  *

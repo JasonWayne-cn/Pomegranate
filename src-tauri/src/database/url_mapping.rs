@@ -37,7 +37,7 @@ impl Database {
         Ok(())
     }
 
-    /// 列出某笔记的所有映射，返回 `internal_url → original_url` 的 HashMap，便于反查替换
+    /// 列出某文档的所有映射，返回 `internal_url → original_url` 的 HashMap，便于反查替换
     pub fn list_url_mappings(&self, note_id: i64) -> Result<HashMap<String, String>, AppError> {
         let conn = self
             .conn
@@ -57,7 +57,7 @@ impl Database {
         Ok(map)
     }
 
-    /// 清空某笔记的所有 URL 映射（重新打开 .md 时先清空再重建，避免历史脏数据）
+    /// 清空某文档的所有 URL 映射（重新打开 .md 时先清空再重建，避免历史脏数据）
     pub fn clear_url_mappings(&self, note_id: i64) -> Result<(), AppError> {
         let conn = self
             .conn
@@ -67,7 +67,7 @@ impl Database {
         Ok(())
     }
 
-    /// 读取笔记上次写回原 .md 时的文件 mtime（秒级 unix timestamp）
+    /// 读取文档上次写回原 .md 时的文件 mtime（秒级 unix timestamp）
     ///
     /// None = 从未写回过。冲突检测时用：当前 fs::metadata().modified() 与此值不一致就算冲突。
     pub fn get_writeback_mtime(&self, note_id: i64) -> Result<Option<i64>, AppError> {

@@ -1,4 +1,4 @@
-//! V1 同步：笔记 `.md` 文件的读写格式（push 写 / pull 读 / 冲突解决读）。
+//! V1 同步：文档 `.md` 文件的读写格式（push 写 / pull 读 / 冲突解决读）。
 //!
 //! ## 当前格式
 //! ```text
@@ -18,14 +18,14 @@
 //! - 正文本身以 `# xxx` 开头 → push 端把正文当 `.md`（不加标题行）→ pull 端把第一行 `# xxx` 当标题
 //!   strip 掉 → **标题和正文双双被改坏**
 //! - 正文以空行开头 / 末尾多余换行 → pull 端 `skip_while(empty)` + `lines()` 会吃掉这些 → 正文被改
-//! pull 后本地 `content_hash` 偏离远端 → 反复推拉震荡 + 笔记内容被悄悄改写。
+//! pull 后本地 `content_hash` 偏离远端 → 反复推拉震荡 + 文档内容被悄悄改写。
 //!
 //! ## 兼容旧 `.md`
 //! [`parse_note_md`] 先看有没有 `---` front-matter；没有就退回旧规则（第一行 `# ` 当标题）。
-//! 旧 `.md` 被读一次（旧规则）→ 这条笔记下次被编辑 push 时写成新格式 → 渐进迁移；标题 + 正文都不变 →
+//! 旧 `.md` 被读一次（旧规则）→ 这条文档下次被编辑 push 时写成新格式 → 渐进迁移；标题 + 正文都不变 →
 //! `content_hash` 不变 → 不会触发额外推拉。
 
-/// 把笔记渲染成 `.md` 文本（push 端用）。见模块文档的格式说明。
+/// 把文档渲染成 `.md` 文本（push 端用）。见模块文档的格式说明。
 pub fn format_note_md(title: &str, content: &str) -> String {
     // JSON 字符串字面量：自动处理 `"` `\` 换行等转义；也是合法的 YAML 双引号标量
     let title_lit = serde_json::to_string(title).unwrap_or_else(|_| format!("{:?}", title));
@@ -120,12 +120,12 @@ mod tests {
 
     #[test]
     fn round_trip_plain() {
-        round_trip("我的笔记", "正文\n第二段");
+        round_trip("我的文档", "正文\n第二段");
     }
 
     #[test]
     fn round_trip_empty_content() {
-        round_trip("空笔记", "");
+        round_trip("空文档", "");
     }
 
     #[test]
@@ -167,8 +167,8 @@ mod tests {
     // ── 旧格式 fallback
     #[test]
     fn legacy_md_with_h1_title() {
-        let (t, c) = parse_note_md("# 我的旧笔记\n\n正文1\n正文2", "fb");
-        assert_eq!(t, "我的旧笔记");
+        let (t, c) = parse_note_md("# 我的旧文档\n\n正文1\n正文2", "fb");
+        assert_eq!(t, "我的旧文档");
         assert_eq!(c, "正文1\n正文2");
     }
 
@@ -181,8 +181,8 @@ mod tests {
 
     #[test]
     fn legacy_md_content_starts_with_h1_stays_lossy_as_before() {
-        // 旧 push 对"正文以 # 开头"的笔记写的 .md = 正文原样（无标题行）。新 parse 对这种旧 .md 仍按
-        // 旧规则把第一行 # 当标题——历史遗留损坏，新代码不再制造新损坏；该笔记一旦被重新 push 即写成
+        // 旧 push 对"正文以 # 开头"的文档写的 .md = 正文原样（无标题行）。新 parse 对这种旧 .md 仍按
+        // 旧规则把第一行 # 当标题——历史遗留损坏，新代码不再制造新损坏；该文档一旦被重新 push 即写成
         // front-matter 新格式而修复。
         let (t, c) = parse_note_md("# 我是正文H1\n正文", "fb");
         assert_eq!(t, "我是正文H1");

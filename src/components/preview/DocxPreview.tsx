@@ -6,7 +6,7 @@ interface Props {
   /**
    * kb-asset:// 相对路径。**.doc / .docx 的判断以它为准**。
    *
-   * 曾经这里还收一个 `fileName` 并用它推扩展名 —— 但 fileName 取自笔记里链接的
+   * 曾经这里还收一个 `fileName` 并用它推扩展名 —— 但 fileName 取自文档里链接的
    * 显示文本，用户可能改成不带扩展名的中文标题，于是改过名的 .doc 认不出来、
    * 跳过 doc→docx 转换、把老 Word 二进制直接喂给只吃 zip 的 mammoth。
    * 现在只认 rel，参数也一并去掉，免得后来者再拿它做类型判断。
@@ -30,7 +30,7 @@ function base64ToArrayBuffer(b64: string): ArrayBuffer {
  * - .doc：先 convert_doc_to_docx_base64（依赖系统 Word/WPS）→ mammoth
  * - 图片：mammoth 默认转 data URL 内嵌（预览不存盘，不污染附件目录）
  *
- * 与 wordImport.ts 的区别：那个会把图片转存到本地 + 创建笔记；这个**只读渲染**。
+ * 与 wordImport.ts 的区别：那个会把图片转存到本地 + 创建文档；这个**只读渲染**。
  */
 export function DocxPreview({ rel }: Props) {
   const { token } = antdTheme.useToken();
@@ -51,7 +51,7 @@ export function DocxPreview({ rel }: Props) {
         const abs = await systemApi.resolveAssetAbsolute(rel);
         // 按 `rel`（真实文件路径）而不是 `fileName` 判断格式。
         //
-        // fileName 取自笔记里链接的显示文本，用户可能改成不带扩展名的中文标题。
+        // fileName 取自文档里链接的显示文本，用户可能改成不带扩展名的中文标题。
         // 按它判断的话，改过名的老 .doc 会认不出来 → 跳过 doc→docx 转换 →
         // 直接把二进制喂给 mammoth（它只吃 zip 格式的 docx）→ 解析失败。
         // 与 AttachmentPreviewModal 的口径保持一致：类型判断一律看 rel。

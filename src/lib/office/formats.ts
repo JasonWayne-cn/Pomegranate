@@ -47,8 +47,17 @@ export function isEditable(format: OfficeFormat): boolean {
   return format !== "pdf";
 }
 
+/** 打开某个已会话的 Office 文件对应的路由（供标签栏切换使用）。 */
+export function officePathForFile(path: string, readOnly: boolean): string {
+  const params = new URLSearchParams({
+    path,
+    readonly: readOnly ? "1" : "0",
+  });
+  return `/office?${params.toString()}`;
+}
+
 /**
- * 文档（笔记/外部文档）对应的 Office 工作台路由；不支持的类型返回 null。
+ * 文档（文档/外部文档）对应的 Office 工作台路由；不支持的类型返回 null。
  *
  * 外部 PDF/Word/Excel 以只读方式打开，避免误写回源文件。
  */

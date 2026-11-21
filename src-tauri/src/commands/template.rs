@@ -40,7 +40,7 @@ pub fn delete_template(state: tauri::State<'_, AppState>, id: i64) -> Result<(),
     TemplateService::delete(&state.db, id).map_err(|e| e.to_string())
 }
 
-/// 按模板创建笔记：拉模板内容 → 渲染 `{{date}}` 等变量 → 落库。
+/// 按模板创建文档：拉模板内容 → 渲染 `{{date}}` 等变量 → 落库。
 /// title 不传则默认用模板名（保持与旧 GUI 行为一致）。
 #[tauri::command]
 pub fn create_note_from_template(

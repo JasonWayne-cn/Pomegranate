@@ -1719,7 +1719,7 @@ data: {\"type\":\"message_stop\"}\n\n";
                         "type": "function",
                         "function": {
                             "name": "search_notes",
-                            "description": "搜索笔记",
+                            "description": "搜索文档",
                             "parameters": {"type": "object", "properties": {"query": {"type": "string"}}}
                         }
                     })],

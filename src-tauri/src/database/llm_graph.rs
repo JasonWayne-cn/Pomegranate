@@ -1,6 +1,6 @@
 //! LLM 文档图谱的数据访问层。
 //!
-//! 抽取结果按笔记存储，查询时按 `norm_name` 跨笔记聚合为图。
+//! 抽取结果按文档存储，查询时按 `norm_name` 跨文档聚合为图。
 //! 该层只做 SQL 与聚合，Prompt 与模型调用在 `services::llm_graph`。
 
 use std::collections::{HashMap, HashSet};
@@ -29,7 +29,7 @@ pub struct LlmRelationRow {
     pub keywords: String,
 }
 
-/// 作用域内单篇笔记的图谱状态原始数据。
+/// 作用域内单篇文档的图谱状态原始数据。
 pub struct LlmGraphScopeNoteRow {
     /// 正文长度（字符数，SQLite LENGTH 对 TEXT 按字符计）
     pub content_len: i64,
@@ -59,7 +59,7 @@ struct NoteRelationRow {
 }
 
 impl Database {
-    /// 原子替换一篇笔记的抽取结果，并写入运行状态。
+    /// 原子替换一篇文档的抽取结果，并写入运行状态。
     pub fn replace_llm_graph(
         &self,
         note_id: i64,
@@ -159,7 +159,7 @@ impl Database {
         Ok(())
     }
 
-    /// 删除一篇笔记的全部 LLM 图谱数据。
+    /// 删除一篇文档的全部 LLM 图谱数据。
     pub fn delete_llm_graph(&self, note_id: i64) -> Result<(), AppError> {
         let conn = self
             .conn
@@ -180,7 +180,7 @@ impl Database {
         Ok(())
     }
 
-    /// 查询单篇笔记的抽取状态。
+    /// 查询单篇文档的抽取状态。
     pub fn get_llm_extraction_status(
         &self,
         note_id: i64,
@@ -273,7 +273,7 @@ impl Database {
         Ok(out)
     }
 
-    /// 列出作用域内需要抽取的笔记（按更新时间倒序）。
+    /// 列出作用域内需要抽取的文档（按更新时间倒序）。
     pub fn list_llm_graph_note_ids(
         &self,
         folder_id: Option<i64>,
@@ -318,9 +318,9 @@ impl Database {
         Ok(ids)
     }
 
-    /// 列出作用域内笔记的图谱状态原始数据（不加载正文，只取长度与哈希）。
+    /// 列出作用域内文档的图谱状态原始数据（不加载正文，只取长度与哈希）。
     ///
-    /// 状态聚合放在 service 层：这里只负责把「笔记内容指纹」与「抽取运行记录」
+    /// 状态聚合放在 service 层：这里只负责把「文档内容指纹」与「抽取运行记录」
     /// 一次查询出来，避免 N+1。
     pub fn list_llm_graph_scope_notes(
         &self,

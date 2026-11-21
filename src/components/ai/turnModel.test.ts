@@ -110,8 +110,8 @@ describe("已存消息 → 卡片", () => {
 
 describe("展示小工具", () => {
   it("工具名：内置译成中文，MCP 带出服务名，kb__ 前缀去掉", () => {
-    expect(describeTool("search_notes")).toEqual({ label: "检索笔记" });
-    expect(describeTool("kb__create_note")).toEqual({ label: "新建笔记" });
+    expect(describeTool("search_notes")).toEqual({ label: "检索文档" });
+    expect(describeTool("kb__create_note")).toEqual({ label: "新建文档" });
     expect(describeTool("mcp__github__list_issues")).toEqual({ label: "list_issues", source: "github" });
   });
 

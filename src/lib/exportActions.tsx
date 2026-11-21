@@ -36,7 +36,7 @@ function showSuccess(title: string, summary: string, filePath: string) {
   });
 }
 
-// ─── 单篇笔记 ──────────────────────────────────────────────
+// ─── 单篇文档 ──────────────────────────────────────────────
 
 /** 导出单篇为单文件 .md（图片/附件 base64 内嵌，不生成文件夹） */
 export async function exportNoteAsMarkdown(id: number) {
@@ -133,7 +133,7 @@ export async function exportNotesBatchAsMarkdown(ids: number[]) {
       totalAssets += r.assets_copied;
     } catch (e) {
       failed.push(id);
-      console.warn(`[export] 笔记 ${id} 导出失败:`, e);
+      console.warn(`[export] 文档 ${id} 导出失败:`, e);
     }
   }
   hide();
@@ -163,7 +163,7 @@ export async function exportFolderAsTree(
     const r = await exportApi.exportNotes(parentDir, folderId, recursive);
     hide();
     if (r.exported === 0) {
-      message.info("该范围下没有可导出的笔记");
+      message.info("该范围下没有可导出的文档");
       return;
     }
     showSuccess(
@@ -213,7 +213,7 @@ export async function exportFolderMerged(
       format,
     });
     hide();
-    const parts = [`已合并 ${r.notesMerged} 篇笔记`];
+    const parts = [`已合并 ${r.notesMerged} 篇文档`];
     if (r.imagesInlined > 0) parts.push(`内嵌图片 ${r.imagesInlined} 张`);
     if (r.imagesMissing > 0) parts.push(`${r.imagesMissing} 张缺失`);
     showSuccess("合并导出成功", `${parts.join("，")}，文件：`, r.filePath);

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { save as saveDialog, open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useAppStore } from "@/store";
+import { useTabsStore } from "@/store/tabs";
 import { noteApi, whiteboardApi, systemApi, searchApi } from "@/lib/api";
 import type { Note, SearchResult } from "@/types";
 // 仅类型导入：`import type` 会被编译期擦除，不会把 Excalidraw 拉进本页面的 chunk
@@ -61,6 +62,8 @@ export default function WhiteboardPage() {
   const { message } = AntdApp.useApp();
   const { token } = antdTheme.useToken();
   const themeCategory = useAppStore((s) => s.themeCategory);
+  const openTab = useTabsStore((s) => s.openTab);
+  const updateTabTitle = useTabsStore((s) => s.updateTabTitle);
 
   const [note, setNote] = useState<Note | null>(null);
   // 画布场景单独取（getScene 会把图片从附件内联回 base64），不能直接用 note.content
@@ -74,9 +77,9 @@ export default function WhiteboardPage() {
   const [presenting, setPresenting] = useState(false);
   /** 全屏的目标元素（只让画布容器全屏，不是整个窗口） */
   const canvasWrapRef = useRef<HTMLDivElement>(null);
-  /** 画布挂载后填入「插入笔记卡片」的函数 */
+  /** 画布挂载后填入「插入文档卡片」的函数 */
   const insertCardRef = useRef<((noteId: number) => Promise<void>) | null>(null);
-  /** 选笔记弹窗 */
+  /** 选文档弹窗 */
   const [cardPickerOpen, setCardPickerOpen] = useState(false);
   const [cardQuery, setCardQuery] = useState("");
   const [cardResults, setCardResults] = useState<SearchResult[]>([]);
@@ -106,16 +109,35 @@ export default function WhiteboardPage() {
         const n = await noteApi.get(noteId);
         if (cancelled) return;
         if (n.note_type !== "whiteboard") {
-          // 走错路由：这条其实是普通笔记，直接转到 Markdown 编辑器而不是报错，
+          // 走错路由：这条其实是普通文档，直接转到 Markdown 编辑器而不是报错，
           // 免得用户对着一个"打不开"的白板发愣
           navigate(`/notes/${noteId}`, { replace: true });
           return;
         }
-        const sceneJson = await whiteboardApi.getScene(noteId);
+        let sceneJson = "";
+        try {
+          sceneJson = await whiteboardApi.getScene(noteId);
+        } catch (e) {
+          // 内容已损坏（典型：历史上被文档编辑器误写成了 Markdown）：
+          // 不锁死页面，先开空白画布，避免用户对着错误信息无从下手。
+          if (cancelled) return;
+          console.warn("[whiteboard] 场景解析失败，以空白画布降级打开:", e);
+          message.warning(
+            "白板内容已损坏（不是合法 JSON），已打开空白画布；原内容可在历史版本里查找",
+            8,
+          );
+        }
         if (cancelled) return;
         setNote(n);
         setTitle(n.title);
         setScene(sceneJson);
+        // 白板也进 TabBar：带 noteType，点 tab 才能正确回到画布而不是 Markdown 编辑器
+        openTab({
+          id: n.id,
+          title: n.title,
+          sourceFileType: n.source_file_type,
+          noteType: "whiteboard",
+        });
       } catch (e) {
         if (!cancelled) setError(String(e));
       } finally {
@@ -125,7 +147,7 @@ export default function WhiteboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [noteId, navigate]);
+  }, [noteId, navigate, openTab]);
 
   // 卸载时清掉「已保存」提示的定时器，避免在已卸载组件上 setState
   useEffect(
@@ -168,11 +190,12 @@ export default function WhiteboardPage() {
       });
       setNote(updated);
       setTitle(updated.title);
+      updateTabTitle(noteId, updated.title);
     } catch (e) {
       message.error(`重命名失败: ${e}`);
       setTitle(note.title);
     }
-  }, [title, note, noteId, message]);
+  }, [title, note, noteId, message, updateTabTitle]);
 
   /** 导出画布为图片文件。走原生 save 对话框 + 已有的 writeBinaryFile 落盘 */
   const handleExport = useCallback(
@@ -282,7 +305,7 @@ export default function WhiteboardPage() {
     }
   }, [noteId, message, handleRestored]);
 
-  /** 复制画布为 PNG 到剪贴板，方便直接粘进笔记 */
+  /** 复制画布为 PNG 到剪贴板，方便直接粘进文档 */
   const handleCopyImage = useCallback(async () => {
     const api = exportApiRef.current;
     if (!api) {
@@ -291,7 +314,7 @@ export default function WhiteboardPage() {
     }
     try {
       await api.copyImageToClipboard();
-      message.success("已复制为图片，可直接粘贴到笔记里");
+      message.success("已复制为图片，可直接粘贴到文档里");
     } catch (e) {
       message.error(`复制失败: ${e}`);
     }
@@ -333,7 +356,7 @@ export default function WhiteboardPage() {
     },
   ];
 
-  /** 选笔记弹窗里的搜索。空关键词不搜 —— 全库列表对"找某条笔记"没帮助 */
+  /** 选文档弹窗里的搜索。空关键词不搜 —— 全库列表对"找某条文档"没帮助 */
   const searchForCard = useCallback(async (q: string) => {
     setCardQuery(q);
     if (!q.trim()) {
@@ -350,7 +373,7 @@ export default function WhiteboardPage() {
     }
   }, []);
 
-  /** 把选中的笔记作为卡片插进画布中心 */
+  /** 把选中的文档作为卡片插进画布中心 */
   const insertCard = useCallback(
     async (targetId: number) => {
       if (!insertCardRef.current) {
@@ -360,7 +383,7 @@ export default function WhiteboardPage() {
       try {
         await insertCardRef.current(targetId);
         setCardPickerOpen(false);
-        message.success("已插入笔记卡片（笔记内容变化时卡片会自动更新）");
+        message.success("已插入文档卡片（文档内容变化时卡片会自动更新）");
       } catch (e) {
         message.error(`插入失败: ${e}`);
       }
@@ -468,7 +491,7 @@ export default function WhiteboardPage() {
           type="text"
           icon={<StickyNote size={16} />}
           onClick={() => setCardPickerOpen(true)}
-          title="插入笔记卡片（把笔记内容摊在画布上，笔记改了卡片跟着变）"
+          title="插入文档卡片（把文档内容摊在画布上，文档改了卡片跟着变）"
         />
 
         <Button
@@ -548,21 +571,21 @@ export default function WhiteboardPage() {
         )}
       </div>
 
-      {/* 选笔记 → 插入卡片 */}
+      {/* 选文档 → 插入卡片 */}
       <Modal
         open={cardPickerOpen}
         onCancel={() => setCardPickerOpen(false)}
         footer={null}
-        title="插入笔记卡片"
+        title="插入文档卡片"
         destroyOnClose
       >
         <Text type="secondary" style={{ fontSize: 12 }}>
-          卡片显示笔记的标题与开头部分，笔记内容变化时卡片会自动更新。
+          卡片显示文档的标题与开头部分，文档内容变化时卡片会自动更新。
         </Text>
         <Input.Search
           autoFocus
           allowClear
-          placeholder="搜索笔记标题或内容…"
+          placeholder="搜索文档标题或内容…"
           className="mt-3"
           loading={cardSearching}
           onChange={(e) => void searchForCard(e.target.value)}
@@ -573,7 +596,7 @@ export default function WhiteboardPage() {
           style={{ maxHeight: 320, overflow: "auto" }}
           dataSource={cardResults}
           locale={{
-            emptyText: cardQuery.trim() ? "没有匹配的笔记" : "输入关键词开始搜索",
+            emptyText: cardQuery.trim() ? "没有匹配的文档" : "输入关键词开始搜索",
           }}
           renderItem={(item) => (
             <List.Item

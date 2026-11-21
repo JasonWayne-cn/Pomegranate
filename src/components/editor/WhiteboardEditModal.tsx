@@ -1,12 +1,12 @@
 /**
- * 内嵌白板的编辑弹窗：笔记里点开白板块后，在这里画。
+ * 内嵌白板的编辑弹窗：文档里点开白板块后，在这里画。
  *
  * 关闭时才落盘（而不是像整页白板那样防抖实时存）—— 这里是「打开-编辑-确认」的
  * 模态语义，用户按取消就该什么都没变。
  *
  * 保存做三件事：
  * 1. 场景 JSON + PNG 预览图一次写盘（后端配对命名，覆盖同一对文件）
- * 2. 量出预览图尺寸回传，让笔记里的块能提前占好高度、不抖
+ * 2. 量出预览图尺寸回传，让文档里的块能提前占好高度、不抖
  * 3. 把两个 `kb-asset://` 路径交回 NodeView 写进节点属性
  */
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -19,7 +19,7 @@ import type { WhiteboardExportApi } from "@/components/whiteboard/WhiteboardCanv
 import type { NoteSnapshotMeta, SnapshotReason } from "@/types";
 
 // 与整页白板共用同一个画布组件，也共用它的 lazy chunk：
-// 笔记里从不插白板的用户不会为 Excalidraw 付出任何下载成本
+// 文档里从不插白板的用户不会为 Excalidraw 付出任何下载成本
 const WhiteboardCanvas = lazy(
   () => import("@/components/whiteboard/WhiteboardCanvas"),
 );
@@ -33,7 +33,7 @@ export interface WhiteboardSaveResult {
 
 interface Props {
   open: boolean;
-  /** 白板资源按笔记归目录，所以必须知道自己属于哪篇笔记 */
+  /** 白板资源按文档归目录，所以必须知道自己属于哪篇文档 */
   noteId: number;
   /** 已有场景的 `kb-asset://` 路径；null = 这是一块还没画过的新白板 */
   scenePath: string | null;

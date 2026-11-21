@@ -6,16 +6,12 @@ import { HiddenPinUnlockModal } from "@/components/hidden/HiddenPinUnlockModal";
 import {
   Home,
   NotebookText,
-  Search,
   Calendar,
-  GitBranch,
   CheckSquare,
-  Layers,
   Bot,
-  Bell,
   Presentation,
   Trash2,
-  Info,
+  Settings,
   EyeOff,
 } from "lucide-react";
 import { useAppStore } from "@/store";
@@ -45,7 +41,7 @@ interface ActivityItem {
   icon: React.ReactNode;
   /**
    * 核心视图：永远显示，不受用户"功能模块"开关影响。
-   * 关闭笔记/搜索/回收站等核心入口会让应用变残废，所以不允许关。
+   * 关闭文档/搜索/回收站等核心入口会让应用变残废，所以不允许关。
    */
   core?: boolean;
 }
@@ -53,11 +49,13 @@ interface ActivityItem {
 /**
  * 主视图按"用户意图"分四组，组与组之间渲染分隔线：
  *   1. 概览：首页（每次启动看一眼）
- *   2. 创作 / 工作流：笔记 / 每日笔记 / 待办（日常高频写入）
- *   3. 检索 / 发现：搜索 / 文档关系（找东西）
- *   4. AI 辅助：AI 问答 / 定时推送 / 隐藏文档（提示词已并入 AI 问答的配置抽屉）
+ *   2. 创作 / 工作流：文档 / 每日笔记 / 待办（日常高频写入）
+ *   3. AI 辅助：AI 问答 / 隐藏文档（提示词已并入 AI 问答的配置抽屉）
+ *
+ * 搜索不再占侧栏：首页搜索框以模态窗展示结果。
  *
  * 标签是文档模块的子功能（入口在「文档」模块配置中），不再单独占一格。
+ * 卡片复习 / 定时推送不再占侧栏：入口在首页顶部齿轮打开的「首页」设置抽屉。
  *
  * 分组而非平铺的好处：用户扫一眼就能锁定意图所在区，比按使用频率排更省认知。
  */
@@ -69,17 +67,10 @@ const MAIN_GROUPS: ActivityItem[][] = [
     { view: "notes", route: "/notes", label: "文档", icon: <NotebookText size={18} />, core: true },
     { view: "daily", route: "/daily", label: "日记", icon: <Calendar size={18} /> },
     { view: "tasks", route: "/tasks", label: "待办", icon: <CheckSquare size={18} /> },
-    { view: "cards", route: "/cards", label: "卡片复习", icon: <Layers size={18} /> },
-  ],
-  // 检索 / 发现
-  [
-    { view: "search", route: "/search", label: "搜索", icon: <Search size={18} />, core: true },
-    { view: "graph", route: "/graph", label: "文档关系", icon: <GitBranch size={18} /> },
   ],
   // AI 辅助
   [
     { view: "ai", route: "/ai", label: "AI 问答", icon: <Bot size={18} /> },
-    { view: "push", route: "/push", label: "定时推送", icon: <Bell size={18} /> },
     { view: "hidden", route: "/hidden", label: "隐藏文档", icon: <EyeOff size={18} /> },
   ],
 ];
@@ -100,14 +91,14 @@ const PPT_ITEM: ActivityItem = {
  */
 const BOTTOM_ITEMS: ActivityItem[] = [
   { view: "trash", route: "/trash", label: "回收站", icon: <Trash2 size={18} />, core: true },
-  // 「关于」页承载全部设置 Tab，默认落在「关于」Tab
-  { view: "about", route: "/about?tab=about", label: "关于", icon: <Info size={18} />, core: true },
+  // 「设置」页承载全部设置 Tab，默认落在「关于」Tab
+  { view: "about", route: "/about?tab=about", label: "设置", icon: <Settings size={18} />, core: true },
 ];
 
 /** 路由 → ActiveView 的反查映射（用于根据 URL 推导高亮态） */
 const ROUTE_TO_VIEW: Array<[string, ActiveView]> = [
   ["/notes", "notes"],
-  // 白板是 note_type='whiteboard' 的笔记，模块归属仍是「文档」
+  // 白板是 note_type='whiteboard' 的文档，模块归属仍是「文档」
   ["/whiteboard", "notes"],
   ["/search", "search"],
   ["/daily", "daily"],
@@ -187,7 +178,7 @@ export function ActivityBar() {
    *
    * 用 startTransition 把"切视图 + 路由跳转 + 展开面板"标记为低优先级，
    * 让点击事件本身能立即响应（按钮即时高亮），子树重渲染在下一帧再做。
-   * 对"点笔记 → 侧边栏弹出"这种带较重子树的场景体感优化最明显。
+   * 对"点文档 → 侧边栏弹出"这种带较重子树的场景体感优化最明显。
    */
   function navigateToView(item: ActivityItem) {
     startTransition(() => {
@@ -204,7 +195,7 @@ export function ActivityBar() {
     // 此时点 ActivityBar 项会被误判成"点当前视图 → 仅折叠面板"，导致无法跳转。
     const onThisView = deriveActiveViewFromPath(location.pathname) === item.view;
     if (onThisView) {
-      // 「关于」页承载设置各 Tab：停留在其他 Tab 时再点图标回到默认「关于」Tab
+      // 「设置」页承载各 Tab：停留在其他 Tab 时再点图标回到默认「关于」Tab
       if (item.view === "about") {
         if (new URLSearchParams(location.search).get("tab") !== "about") {
           navigate(item.route, { replace: true });
@@ -215,7 +206,7 @@ export function ActivityBar() {
       return;
     }
 
-    // 隐藏笔记 PIN 拦截：已设过 PIN 且会话未解锁 → 弹解锁框
+    // 隐藏文档 PIN 拦截：已设过 PIN 且会话未解锁 → 弹解锁框
     if (item.view === "hidden" && !isHiddenUnlocked()) {
       void (async () => {
         try {

@@ -1,4 +1,4 @@
-//! 合并导出：把一个文件夹（或一批笔记）合成**单个**带章节结构的文件。
+//! 合并导出：把一个文件夹（或一批文档）合成**单个**带章节结构的文件。
 //!
 //! 与 `ExportService::export_notes` 的分工：
 //! - `export_notes` 导出"一堆散 .md + assets/"，解决的是**备份 / 迁移**；
@@ -31,17 +31,17 @@ pub enum MergeFormat {
 #[serde(rename_all = "camelCase")]
 pub struct MergeExportResult {
     pub file_path: String,
-    /// 实际合并进文档的笔记篇数
+    /// 实际合并进文档的文档篇数
     pub notes_merged: usize,
     pub images_inlined: usize,
     pub images_missing: usize,
 }
 
-/// 合并器的输入单元：一篇笔记 + 它相对导出根的文件夹路径
+/// 合并器的输入单元：一篇文档 + 它相对导出根的文件夹路径
 struct MergeNote {
     title: String,
     content: String,
-    /// 相对导出根的文件夹层级（不含根自身）。根直属笔记为空数组
+    /// 相对导出根的文件夹层级（不含根自身）。根直属文档为空数组
     rel_path: Vec<String>,
 }
 
@@ -51,7 +51,7 @@ const MAX_HEADING_LEVEL: usize = 6;
 pub struct MergeExportService;
 
 impl MergeExportService {
-    /// 把 `folder_id` 子树（或全库）的笔记合并导出到 `target_path`。
+    /// 把 `folder_id` 子树（或全库）的文档合并导出到 `target_path`。
     ///
     /// - `folder_id = None`：全库（章节按文件夹路径组织）
     /// - `recursive`：指定文件夹时是否含子文件夹，与 `export_notes` 同口径
@@ -69,7 +69,7 @@ impl MergeExportService {
         let notes = Self::collect_notes(db, folder_id, recursive)?;
         if notes.is_empty() {
             return Err(AppError::Custom(
-                "该范围下没有可导出的笔记（回收站中的笔记不计入）".into(),
+                "该范围下没有可导出的文档（回收站中的文档不计入）".into(),
             ));
         }
 
@@ -98,7 +98,7 @@ impl MergeExportService {
                 })
             }
             MergeFormat::Html => {
-                // 复用单篇 HTML 导出：合并后的 markdown 当作"一篇超长笔记"喂进去，
+                // 复用单篇 HTML 导出：合并后的 markdown 当作"一篇超长文档"喂进去，
                 // 图片内嵌 + 附件转 data: 下载链接的逻辑全部自动生效
                 let r = HtmlExportService::export_single(
                     title,
@@ -140,9 +140,9 @@ impl MergeExportService {
         }
     }
 
-    /// 查询范围内的笔记，并算出每篇相对导出根的文件夹路径。
+    /// 查询范围内的文档，并算出每篇相对导出根的文件夹路径。
     ///
-    /// 排序：先按文件夹路径、再按标题 —— 同一个文件夹的笔记聚在一起，
+    /// 排序：先按文件夹路径、再按标题 —— 同一个文件夹的文档聚在一起，
     /// 章节顺序才符合"目录树从上到下"的直觉（`export_notes` 按 updated_at 排是因为
     /// 它落的是独立文件，顺序无所谓）。
     fn collect_notes(
@@ -274,14 +274,14 @@ fn rel_path_to_root(
     parts
 }
 
-/// 把多篇笔记拼成一份带章节层级的 markdown。
+/// 把多篇文档拼成一份带章节层级的 markdown。
 ///
 /// 结构：
 /// ```text
 /// # 工作                 ← root_title（h1）
 /// ## 目录                ← 纯列表，不带锚点链接（见下方注释）
 /// ## 周报                ← 子文件夹（h2）
-/// ### 第一周             ← 笔记（h3）
+/// ### 第一周             ← 文档（h3）
 /// #### 正文原 h1          ← 正文标题整体下推
 /// ```
 ///
@@ -326,7 +326,7 @@ fn build_merged_markdown(root_title: &str, notes: &[MergeNote]) -> String {
         }
         current_path.truncate(note.rel_path.len());
 
-        // 笔记标题：文件夹层级之下再降一级
+        // 文档标题：文件夹层级之下再降一级
         let note_level = (note.rel_path.len() + 2).min(MAX_HEADING_LEVEL);
         out.push_str(&format!(
             "{} {}\n\n",
@@ -359,7 +359,7 @@ fn display_title(title: &str) -> &str {
 
 /// 把 markdown 正文里的 ATX 标题整体下推 `shift` 级，最深截到 h6。
 ///
-/// 必须跳过**围栏代码块**内的行：笔记里贴 shell 脚本（`# 注释`）或 markdown 示例极常见，
+/// 必须跳过**围栏代码块**内的行：文档里贴 shell 脚本（`# 注释`）或 markdown 示例极常见，
 /// 不做保护就会把代码内容改坏 —— 这是合并导出唯一真正有风险的一步。
 /// 缩进代码块（4 空格）同理跳过；ATX 标题本身最多允许 3 个前导空格。
 fn shift_headings(md: &str, shift: usize) -> String {
@@ -485,11 +485,11 @@ mod tests {
 
         assert!(out.starts_with("# 工作\n"), "{}", out);
         assert!(out.contains("## 目录"), "{}", out);
-        // 根直属笔记 → h2；子文件夹 → h2，其下笔记 → h3
+        // 根直属文档 → h2；子文件夹 → h2，其下文档 → h3
         assert!(out.contains("\n## 随手记\n"), "{}", out);
         assert!(out.contains("\n## 周报\n"), "{}", out);
         assert!(out.contains("\n### 周报一\n"), "{}", out);
-        // 笔记正文的 h1 被下推到 h4（章节 h3 之下）
+        // 文档正文的 h1 被下推到 h4（章节 h3 之下）
         assert!(out.contains("\n#### 本周"), "{}", out);
     }
 
@@ -528,7 +528,7 @@ mod tests {
             rel_path_to_root(3, None, &names, &parents),
             vec!["工作".to_string(), "周报".to_string(), "月度".to_string()]
         );
-        // 根自身的笔记：相对路径为空
+        // 根自身的文档：相对路径为空
         assert!(rel_path_to_root(1, Some(1), &names, &parents).is_empty());
     }
 

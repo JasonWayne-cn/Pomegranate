@@ -205,20 +205,20 @@ pub async fn sync_v1_get_local_manifest(app: tauri::AppHandle) -> Result<SyncMan
 
 /// T-S024: 重建附件索引
 ///
-/// 扫描所有活跃笔记的 content，提取 markdown 图片/链接/wiki 嵌入中的本地资产引用，
+/// 扫描所有活跃文档的 content，提取 markdown 图片/链接/wiki 嵌入中的本地资产引用，
 /// 计算 sha256 并 upsert 到 `note_attachments` 表。
 ///
 /// 触发场景：
 /// - 用户在设置页点"重建附件索引"按钮（首次启用 V1 同步时建议跑一次）
-/// - 笔记大批量导入后（外部工具导入的笔记 content 已经写好但索引表是空的）
+/// - 文档大批量导入后（外部工具导入的文档 content 已经写好但索引表是空的）
 ///
-/// 性能：O(笔记数 × 资产读取 IO)。1 万条笔记约几秒（取决于附件数和磁盘速度）→ 必须 async。
+/// 性能：O(文档数 × 资产读取 IO)。1 万条文档约几秒（取决于附件数和磁盘速度）→ 必须 async。
 #[tauri::command]
 pub async fn sync_v1_rebuild_attachment_index(app: tauri::AppHandle) -> Result<usize, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        // 用户主动点"重建附件索引" → 走 force_full（忽略 attachment_scan_at），把所有笔记都重扫一遍。
-        // push 前自动跑的是增量版本（scan_all_active_notes），靠 attachment_scan_at < updated_at 跳过未变更笔记。
+        // 用户主动点"重建附件索引" → 走 force_full（忽略 attachment_scan_at），把所有文档都重扫一遍。
+        // push 前自动跑的是增量版本（scan_all_active_notes），靠 attachment_scan_at < updated_at 跳过未变更文档。
         crate::services::sync_v1::attachment_scan::scan_all_active_notes_force(
             &state.db,
             &state.data_dir,

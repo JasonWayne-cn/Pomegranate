@@ -271,7 +271,7 @@ export function CreateTaskModal({
       .millisecond(0);
   }
 
-  // 笔记选择器状态（原地下拉）
+  // 文档选择器状态（原地下拉）
   const [notePickerOpen, setNotePickerOpen] = useState(false);
   const [noteQuery, setNoteQuery] = useState("");
   const [noteOptions, setNoteOptions] = useState<Note[]>([]);
@@ -373,7 +373,7 @@ export function CreateTaskModal({
     setNewProjectName("");
   }, [open, editing, presetPriority, presetImportant, presetDueDate, presetCategoryId]);
 
-  /** 拉候选笔记：keyword 空 → 最近 8 条，非空 → 模糊搜前 10 条 */
+  /** 拉候选文档：keyword 空 → 最近 8 条，非空 → 模糊搜前 10 条 */
   const loadNoteCandidates = useCallback(async (keyword: string) => {
     setNoteLoading(true);
     try {
@@ -384,7 +384,7 @@ export function CreateTaskModal({
       });
       setNoteOptions(result.items);
     } catch (e) {
-      console.error("加载笔记候选失败:", e);
+      console.error("加载文档候选失败:", e);
       setNoteOptions([]);
     } finally {
       setNoteLoading(false);
@@ -403,7 +403,7 @@ export function CreateTaskModal({
     [loadNoteCandidates],
   );
 
-  // 打开笔记选择器时加载"最近"
+  // 打开文档选择器时加载"最近"
   useEffect(() => {
     if (!notePickerOpen) return;
     setNoteQuery("");
@@ -418,15 +418,15 @@ export function CreateTaskModal({
     [],
   );
 
-  /** 打开行内笔记选择器（原地下拉） */
+  /** 打开行内文档选择器（原地下拉） */
   function handleAddNoteLink() {
     setNotePickerOpen(true);
   }
 
-  /** 选中笔记：加到 links，清空 select 值，保持下拉开，让用户继续选 */
+  /** 选中文档：加到 links，清空 select 值，保持下拉开，让用户继续选 */
   function handleNoteSelect(note: Note) {
     if (links.some((l) => l.kind === "note" && l.target === String(note.id))) {
-      message.info("该笔记已关联");
+      message.info("该文档已关联");
     } else {
       setLinks((prev) => [
         ...prev,
@@ -873,7 +873,7 @@ export function CreateTaskModal({
 
   const addMenu: MenuProps = {
     items: [
-      { key: "note", icon: <NotebookText size={14} />, label: "笔记" },
+      { key: "note", icon: <NotebookText size={14} />, label: "文档" },
       { key: "file", icon: <FileIcon size={14} />, label: "本地文件" },
       { key: "path", icon: <FolderIcon size={14} />, label: "本地目录" },
       { key: "url", icon: <LinkIcon size={14} />, label: "外部链接" },
@@ -1592,7 +1592,7 @@ export function CreateTaskModal({
                 showSearch
                 allowClear
                 filterOption={false}
-                placeholder="搜索笔记标题…"
+                placeholder="搜索文档标题…"
                 value={undefined}
                 loading={noteLoading}
                 searchValue={noteQuery}
@@ -1611,11 +1611,11 @@ export function CreateTaskModal({
                     </span>
                   ) : noteQuery.trim() ? (
                     <span className="text-xs" style={{ color: token.colorTextTertiary }}>
-                      没有匹配「{noteQuery}」的笔记
+                      没有匹配「{noteQuery}」的文档
                     </span>
                   ) : (
                     <span className="text-xs" style={{ color: token.colorTextTertiary }}>
-                      还没有笔记
+                      还没有文档
                     </span>
                   )
                 }

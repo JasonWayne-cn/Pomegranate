@@ -7,13 +7,13 @@ import type { Note } from "@/types";
 import { relativeTime } from "@/lib/utils";
 
 /**
- * 移动端笔记列表（设计稿：output/UI原型/2026-05-04_知识库移动端App/01-notes.html）
+ * 移动端文档列表（设计稿：output/UI原型/2026-05-04_知识库移动端App/01-notes.html）
  *
  * 结构：
- * - 顶栏：标题"笔记" + 数量 + 搜索按钮 + 更多按钮（功能暂留）
+ * - 顶栏：标题"文档" + 数量 + 搜索按钮 + 更多按钮（功能暂留）
  * - 文件夹 chips 横滑（暂用静态 ["全部"]，后续从 folderApi.list 拉）
- * - 置顶区（is_pinned 笔记）+ 普通区
- * - 笔记卡片：标题 / 2 行预览 / 时间 / 反链数（如有）
+ * - 置顶区（is_pinned 文档）+ 普通区
+ * - 文档卡片：标题 / 2 行预览 / 时间 / 反链数（如有）
  * - FAB 在 MobileLayout 提供，不需重复
  *
  * 性能：第一屏 page_size=20，下拉到底加载下一页（暂未实现，后续 PR）
@@ -150,7 +150,7 @@ function SectionLabel({
 }
 
 function NoteCard({ note, onClick }: { note: Note; onClick: () => void }) {
-  // 笔记预览：去掉 HTML 标签，截 80 字
+  // 文档预览：去掉 HTML 标签，截 80 字
   const preview = (note.content || "")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")

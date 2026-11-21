@@ -23,7 +23,7 @@ export const TOURS: Record<OnboardingTourId, OnboardingTourDef> = {
         target: '[data-tour="nav-notes"]',
         title: "文档",
         description:
-          "所有笔记按文件夹组织，支持列表、卡片、时间线三种视图和批量操作。",
+          "所有文档按文件夹组织，支持列表、卡片、时间线三种视图和批量操作。",
         placement: "right",
       },
       {
@@ -51,7 +51,7 @@ export const TOURS: Record<OnboardingTourId, OnboardingTourDef> = {
         target: '[data-tour="nav-ai"]',
         title: "AI 问答",
         description:
-          "基于你的笔记内容提问，也可以选择不同模型进行深度分析。",
+          "基于你的文档内容提问，也可以选择不同模型进行深度分析。",
         placement: "right",
       },
       {
@@ -71,14 +71,14 @@ export const TOURS: Record<OnboardingTourId, OnboardingTourDef> = {
         target: '[data-tour="home-search"]',
         title: "搜索与新建",
         description:
-          "顶部搜索可直达文档与待办；右侧按钮一键新建笔记，Ctrl+K 可全局搜索。",
+          "顶部搜索可直达文档与待办；右侧按钮一键新建文档，Ctrl+K 可全局搜索。",
         placement: "bottom",
       },
       {
         target: '[data-tour="home-quick-actions"]',
         title: "快速操作",
         description:
-          "添加待办、打开今日笔记、AI 问答、文档关系等高频入口集中在这里。",
+          "添加待办、打开当天日记、AI 问答、搜索记录等高频入口集中在这里。",
         placement: "bottom",
       },
       {
@@ -92,14 +92,14 @@ export const TOURS: Record<OnboardingTourId, OnboardingTourDef> = {
         target: '[data-tour="home-widget-recent"]',
         title: "最近文档",
         description:
-          "最近编辑过的笔记，点击即可继续写作；不需要再去文件夹里翻。",
+          "最近编辑过的文档，点击即可继续写作；不需要再去文件夹里翻。",
         placement: "bottom",
       },
       {
         target: '[data-tour="home-widget-ai"]',
         title: "问 AI",
         description:
-          "基于当前笔记内容快速提问，也可以进入完整对话查看所有会话。",
+          "基于当前文档内容快速提问，也可以进入完整对话查看所有会话。",
         placement: "bottom",
       },
       {

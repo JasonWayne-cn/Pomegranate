@@ -147,7 +147,7 @@ impl Database {
         Ok(())
     }
 
-    /// 删除文件夹（笔记的 folder_id 由 ON DELETE SET NULL 自动置空）
+    /// 删除文件夹（文档的 folder_id 由 ON DELETE SET NULL 自动置空）
     pub fn delete_folder(&self, id: i64) -> Result<bool, AppError> {
         let conn = self
             .conn
@@ -162,9 +162,9 @@ impl Database {
         Ok(affected > 0)
     }
 
-    /// 检查文件夹是否含有子内容（子文件夹 或 未回收的笔记）
-    /// 回收站中的笔记（is_deleted = 1）不计入阻止条件
-    /// 收集 root 文件夹自身 + 所有子孙文件夹的 ID（用于"递归列出子树笔记"场景）
+    /// 检查文件夹是否含有子内容（子文件夹 或 未回收的文档）
+    /// 回收站中的文档（is_deleted = 1）不计入阻止条件
+    /// 收集 root 文件夹自身 + 所有子孙文件夹的 ID（用于"递归列出子树文档"场景）
     ///
     /// 实现：用 BFS 一路扫 parent_id，避免递归 SQL CTE。folder 表通常 < 1000 条，
     /// 嵌套深度也很浅，BFS 一两次 SELECT 就跑完。
@@ -214,9 +214,9 @@ impl Database {
         Ok(all_ids)
     }
 
-    /// 详细版：返回 `(子文件夹数, 未在回收站的笔记数)`，
-    /// 让 service 层给具体错误（"还有 2 个子文件夹"/"还有 3 篇笔记（含隐藏 / 加密 / 仍存在数据库的）"）。
-    /// 隐藏笔记 / 加密笔记在 UI 默认看不到，但 is_deleted=0 仍算"占用"——这里完整计数避免用户困惑。
+    /// 详细版：返回 `(子文件夹数, 未在回收站的文档数)`，
+    /// 让 service 层给具体错误（"还有 2 个子文件夹"/"还有 3 篇文档（含隐藏 / 加密 / 仍存在数据库的）"）。
+    /// 隐藏文档 / 加密文档在 UI 默认看不到，但 is_deleted=0 仍算"占用"——这里完整计数避免用户困惑。
     pub fn folder_children_count(&self, id: i64) -> Result<(i64, i64), AppError> {
         let conn = self
             .conn
@@ -312,7 +312,7 @@ impl Database {
         Ok(())
     }
 
-    /// 删除候选中的空文件夹（无子文件夹且无笔记），返回删除数。
+    /// 删除候选中的空文件夹（无子文件夹且无文档），返回删除数。
     pub fn prune_empty_folders(&self, candidate_ids: &[i64]) -> Result<usize, AppError> {
         if candidate_ids.is_empty() {
             return Ok(0);
@@ -346,7 +346,7 @@ impl Database {
         Ok(deleted)
     }
 
-    /// 获取所有文件夹（平铺查询，含每个文件夹的笔记数），构建为树形结构
+    /// 获取所有文件夹（平铺查询，含每个文件夹的文档数），构建为树形结构
     pub fn list_folders_tree(&self) -> Result<Vec<Folder>, AppError> {
         let conn = self
             .conn

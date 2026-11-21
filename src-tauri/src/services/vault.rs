@@ -1,4 +1,4 @@
-//! T-007 笔记加密保险库（Vault）
+//! T-007 文档加密保险库（Vault）
 //!
 //! 对外职责：
 //! - `status(db)` 判断 vault 当前是什么状态（NotSet / Locked / Unlocked）
@@ -212,7 +212,7 @@ impl VaultService {
     /// - 导入后本机 vault 状态从 NotSet 变 Locked（解锁需用户输入相同密码）
     ///
     /// 注：sync_v1 pull 流程因为无 VaultState 句柄，实际走 `import_meta_if_not_set`。
-    /// 本方法保留给未来"加密笔记同步"显式命令使用（可校验 state 解锁态）。
+    /// 本方法保留给未来"加密文档同步"显式命令使用（可校验 state 解锁态）。
     #[allow(dead_code)]
     pub fn import_meta(
         db: &Database,
@@ -221,7 +221,7 @@ impl VaultService {
     ) -> Result<(), AppError> {
         if Self::status(db, state)? != VaultStatus::NotSet {
             return Err(AppError::Custom(
-                "本机 vault 已存在，不允许从远端覆盖（同步加密笔记前请确认两端 vault 状态一致）".into(),
+                "本机 vault 已存在，不允许从远端覆盖（同步加密文档前请确认两端 vault 状态一致）".into(),
             ));
         }
         // 简单验证 base64 可解析（防止脏数据写入）
@@ -236,7 +236,7 @@ impl VaultService {
         Ok(())
     }
 
-    /// 判定远端 vault meta 是否与本机一致（用于决定加密笔记能否互通）。
+    /// 判定远端 vault meta 是否与本机一致（用于决定加密文档能否互通）。
     /// 两端任一未设置 → false；salt 字符串相等 → true（同一 salt 派生同一 key）。
     pub fn meta_matches(
         db: &Database,

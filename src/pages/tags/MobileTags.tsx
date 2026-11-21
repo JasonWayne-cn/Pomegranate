@@ -13,11 +13,11 @@ import type { Tag } from "@/types";
  * 功能：
  * - 顶部：返回 + 「标签」 + 新增 +
  * - 标签云（按 note_count 降序，字号大小动态）
- * - 标签列表（点 chevron 进入该标签的笔记列表 — 暂跳搜索 ?q=#tag）
+ * - 标签列表（点 chevron 进入该标签的文档列表 — 暂跳搜索 ?q=#tag）
  * - 点击调色盘按钮 → 弹出底部颜色选择 + 删除/重命名
  *
  * MVP 不实现：
- * - 标签 → 该标签下笔记列表（需要 search 接口支持 tag_id 参数，先用 search keyword 替代）
+ * - 标签 → 该标签下文档列表（需要 search 接口支持 tag_id 参数，先用 search keyword 替代）
  */
 
 const COLOR_PALETTE: { name: string; bg: string; text: string; dot: string }[] = [
@@ -114,7 +114,7 @@ export function MobileTags() {
   }
 
   async function deleteTag(t: Tag) {
-    if (!window.confirm(`确认删除「#${t.name}」？关联的笔记会失去这个标签。`)) {
+    if (!window.confirm(`确认删除「#${t.name}」？关联的文档会失去这个标签。`)) {
       return;
     }
     try {
@@ -267,7 +267,7 @@ export function MobileTags() {
                           </button>
                           <button
                             onClick={() => gotoTagNotes(t)}
-                            aria-label="查看相关笔记"
+                            aria-label="查看相关文档"
                             className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-200 text-slate-600"
                           >
                             <ChevronRight size={16} />

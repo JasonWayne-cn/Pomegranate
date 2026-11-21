@@ -2,7 +2,7 @@
  * T-024 同步 V1 设置区
  *
  * 与现有 V0 SyncSection（整库 ZIP 备份）并存。
- * 这里管理"多 backend + 单笔记粒度增量同步"。
+ * 这里管理"多 backend + 单文档粒度增量同步"。
  *
  * v1 阶段仅 LocalPath backend 可用；S3 / WebDAV / Git 显示"敬请期待"占位。
  */
@@ -182,7 +182,7 @@ export function SyncV1Section() {
   const [conflictCount, setConflictCount] = useState(0);
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
 
-  // T-S024: 重建附件索引 —— 扫描所有笔记 content 中的本地资产引用并 upsert 到 note_attachments
+  // T-S024: 重建附件索引 —— 扫描所有文档 content 中的本地资产引用并 upsert 到 note_attachments
   async function handleRebuildAttachmentIndex() {
     setRebuildingIndex(true);
     try {
@@ -244,7 +244,7 @@ export function SyncV1Section() {
   }, []);
 
   // 自动同步结果通知：成功不打扰（仅刷新列表更新 last_*_ts 显示），失败弹 toast；
-  // encryptedSkipped>0（vault meta 不匹配 → 加密笔记被静默跳过）显式告知用户避免误以为同步了
+  // encryptedSkipped>0（vault meta 不匹配 → 加密文档被静默跳过）显式告知用户避免误以为同步了
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     void listen<{
@@ -262,7 +262,7 @@ export function SyncV1Section() {
       }
       if ((encryptedSkipped ?? 0) > 0) {
         message.warning(
-          `${encryptedSkipped} 篇加密笔记未同步：本机 vault 与远端不匹配（密码 / salt 不一致）`,
+          `${encryptedSkipped} 篇加密文档未同步：本机 vault 与远端不匹配（密码 / salt 不一致）`,
           6,
         );
       }
@@ -485,15 +485,15 @@ export function SyncV1Section() {
         modal.warning({
           title: `${r.conflicts} 条冲突待处理`,
           content:
-            "本地和远端各改了同一条笔记。点上方「冲突待处理」按钮可以并排对比、手动合并。",
+            "本地和远端各改了同一条文档。点上方「冲突待处理」按钮可以并排对比、手动合并。",
         });
       } else {
         message.success(msg);
       }
-      // 加密笔记被静默跳过 → 显式告知（两端 vault salt/密码不一致时常见）
+      // 加密文档被静默跳过 → 显式告知（两端 vault salt/密码不一致时常见）
       if ((r.encryptedSkipped ?? 0) > 0) {
         modal.warning({
-          title: `${r.encryptedSkipped} 篇加密笔记未同步`,
+          title: `${r.encryptedSkipped} 篇加密文档未同步`,
           content:
             '本机 vault（加密保险库）与远端不匹配 — 多半是两端用了不同的主密码或还没在本机解锁。请确认两端 vault 用的是同一密码、且已解锁；若是新设备，需先在保险库里"导入远端配置"或用同一密码重建 vault。',
         });
@@ -527,10 +527,10 @@ export function SyncV1Section() {
         message="多端实时同步（推荐用法）"
         description={
           <span style={{ fontSize: 12 }}>
-            单笔记粒度的增量同步：多端共用 UUID（不会重复创建笔记）、删除会同步到其它端、
-            附件按内容 hash 去重上传、加密笔记跨端可见。
+            单文档粒度的增量同步：多端共用 UUID（不会重复创建文档）、删除会同步到其它端、
+            附件按内容 hash 去重上传、加密文档跨端可见。
             <br />
-            <b>首次启用同步前</b>，请先点下方<b>「重建附件索引」</b>，让本机笔记里引用的图片/PDF
+            <b>首次启用同步前</b>，请先点下方<b>「重建附件索引」</b>，让本机文档里引用的图片/PDF
             等附件被登记进同步范围。
           </span>
         }
@@ -547,7 +547,7 @@ export function SyncV1Section() {
         </span>
         <Space size={4}>
           {conflictCount > 0 && (
-            <Tooltip title="本地和远端各改了同一条笔记，需要你来决定保留哪个版本（或手动合并）。">
+            <Tooltip title="本地和远端各改了同一条文档，需要你来决定保留哪个版本（或手动合并）。">
               <Badge count={conflictCount} size="small" offset={[-2, 2]}>
                 <Button
                   size="small"
@@ -560,7 +560,7 @@ export function SyncV1Section() {
               </Badge>
             </Tooltip>
           )}
-          <Tooltip title="扫描所有笔记的图片/PDF/source 引用并登记到附件同步索引。首次启用同步前、或批量导入笔记后请按一次。">
+          <Tooltip title="扫描所有文档的图片/PDF/source 引用并登记到附件同步索引。首次启用同步前、或批量导入文档后请按一次。">
             <Button
               size="small"
               loading={rebuildingIndex}
@@ -569,7 +569,7 @@ export function SyncV1Section() {
               重建附件索引
             </Button>
           </Tooltip>
-          <Tooltip title="清理远端 attachments/ 下已无笔记引用的孤儿文件。首次发现的孤儿会先标记，满 7 天再删（防误删）。本地路径 / S3 / WebDAV 均支持（个别禁用递归列举的 WebDAV 服务器会自动跳过）。">
+          <Tooltip title="清理远端 attachments/ 下已无文档引用的孤儿文件。首次发现的孤儿会先标记，满 7 天再删（防误删）。本地路径 / S3 / WebDAV 均支持（个别禁用递归列举的 WebDAV 服务器会自动跳过）。">
             <Button
               size="small"
               loading={gcRunning}
@@ -706,7 +706,7 @@ export function SyncV1Section() {
                   </Tooltip>
                   <Popconfirm
                     title="确认删除此同步源？"
-                    description="只清掉同步源配置和远端状态记录，不会动你的笔记"
+                    description="只清掉同步源配置和远端状态记录，不会动你的文档"
                     onConfirm={() => handleDelete(b.id)}
                     disabled={busy}
                   >
@@ -858,7 +858,7 @@ export function SyncV1Section() {
               <Alert
                 type="info"
                 showIcon
-                message="V1 是单笔记粒度的真同步，跟上方「整库 ZIP 备份」V0 是两套独立机制，可以并存"
+                message="V1 是单文档粒度的真同步，跟上方「整库 ZIP 备份」V0 是两套独立机制，可以并存"
               />
             </>
           )}

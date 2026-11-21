@@ -80,7 +80,7 @@ impl Database {
     /// 用于生成"干净的"DB 快照供同步包打包
     ///
     /// 另开一条连接执行，不拿主连接的 Mutex：库大时 VACUUM 要几秒到几十秒，
-    /// 若在主锁内跑，期间列表 / 搜索 / 保存笔记全部排队，自动同步时窗口像假死。
+    /// 若在主锁内跑，期间列表 / 搜索 / 保存文档全部排队，自动同步时窗口像假死。
     /// WAL 模式下这条连接只是一个读事务，看到的是开始时刻已提交数据的一致快照，
     /// 不阻塞主连接写入。内存库 / release 期间拿不到文件路径，退回在主锁内执行。
     pub fn vacuum_into(&self, target_path: &Path) -> Result<(), AppError> {
@@ -105,7 +105,7 @@ impl Database {
         Ok(())
     }
 
-    /// 未回收笔记数量
+    /// 未回收文档数量
     pub fn count_notes_active(&self) -> Result<usize, AppError> {
         let conn = self
             .conn

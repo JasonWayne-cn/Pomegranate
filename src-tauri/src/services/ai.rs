@@ -302,24 +302,24 @@ pub fn strip_pseudo_tool_calls(s: &str) -> String {
     blanks.replace_all(&s3, "\n\n").trim().to_string()
 }
 
-/// 围绕用户问题关键词命中点，从笔记正文中截取窗口片段供 RAG 上下文使用。
+/// 围绕用户问题关键词命中点，从文档正文中截取窗口片段供 RAG 上下文使用。
 ///
 /// 旧实现 `chars().take(500)` 只取开头 500 字，命中段在文档后半部时 AI 完全看不到。
 /// 改为：复用 `Database::extract_keywords` 得到和检索一致的关键词集合，取**最早命中位置**
 /// 居中的 `window` 字符窗口；未命中则降级为从头取 `window` 字符；首尾被裁剪用 `…` 标记，
 /// 提示 AI 这是片段而非整篇。
-/// 把对话挂载的 N 篇笔记拼成 system prompt 前缀字符串。
+/// 把对话挂载的 N 篇文档拼成 system prompt 前缀字符串。
 ///
-/// **预算计算**：模型 max_context 的 60% 留给附加笔记（剩 ~40% 给历史消息+输出+其它 system）。
-/// 每篇平均分配；标题不截断，正文按 `(预算 / 笔记数 / 1.5)` 截断（中文 1.5 字符≈1 token）。
+/// **预算计算**：模型 max_context 的 60% 留给附加文档（剩 ~40% 给历史消息+输出+其它 system）。
+/// 每篇平均分配；标题不截断，正文按 `(预算 / 文档数 / 1.5)` 截断（中文 1.5 字符≈1 token）。
 ///
-/// **失败容忍**：单篇笔记 `get_note` 失败时跳过该篇，不让单条坏数据搞挂整个对话。
-/// 笔记列表为空时返回空串，调用方按需跳过。
+/// **失败容忍**：单篇文档 `get_note` 失败时跳过该篇，不让单条坏数据搞挂整个对话。
+/// 文档列表为空时返回空串，调用方按需跳过。
 fn build_attached_notes_context(db: &Database, note_ids: &[i64], model: &AiModel) -> String {
     if note_ids.is_empty() {
         return String::new();
     }
-    // 拉笔记（失败的跳过；空数组直接返回空串）
+    // 拉文档（失败的跳过；空数组直接返回空串）
     let notes: Vec<(String, String)> = note_ids
         .iter()
         .filter_map(|id| {
@@ -339,8 +339,8 @@ fn build_attached_notes_context(db: &Database, note_ids: &[i64], model: &AiModel
 
     let mut out = String::with_capacity(total_budget_chars);
     out.push_str(&format!(
-        "用户为本次对话主动挂载了以下 {} 篇笔记作为强制上下文，请优先基于这些笔记内容回答；\
-         如果用户问题与挂载笔记完全无关，再考虑用一般知识回答。\n\n",
+        "用户为本次对话主动挂载了以下 {} 篇文档作为强制上下文，请优先基于这些文档内容回答；\
+         如果用户问题与挂载文档完全无关，再考虑用一般知识回答。\n\n",
         notes.len()
     ));
     for (i, (title, plain)) in notes.iter().enumerate() {
@@ -351,7 +351,7 @@ fn build_attached_notes_context(db: &Database, note_ids: &[i64], model: &AiModel
             ""
         };
         out.push_str(&format!(
-            "── 挂载笔记 {} / {} ──\n标题: {}\n内容:\n{}{}\n\n",
+            "── 挂载文档 {} / {} ──\n标题: {}\n内容:\n{}{}\n\n",
             i + 1,
             notes.len(),
             title,
@@ -741,7 +741,7 @@ impl AiService {
             if !context_snippet.is_empty() {
                 messages.push(json!({
                     "role": "user",
-                    "content": format!("以下是笔记的上下文内容（供参考）：\n{}", context_snippet)
+                    "content": format!("以下是文档的上下文内容（供参考）：\n{}", context_snippet)
                 }));
                 messages.push(json!({
                     "role": "assistant",
@@ -989,7 +989,7 @@ impl AiService {
         })
     }
 
-    /// 流式聊天：发送消息 → 检索笔记 → 调用 AI → 流式返回
+    /// 流式聊天：发送消息 → 检索文档 → 调用 AI → 流式返回
     ///
     /// 通过 Tauri Event 实时推送 token 到前端：
     /// - `ai:token`  每个生成的 token
@@ -1005,15 +1005,15 @@ impl AiService {
     ) -> Result<(), AppError> {
         let turn_started = std::time::Instant::now();
 
-        // 1. 获取对话（含附加笔记 IDs）和使用的模型
+        // 1. 获取对话（含附加文档 IDs）和使用的模型
         let conv = db.get_ai_conversation(conversation_id)?;
         let model = db.get_ai_model(conv.model_id)?;
 
-        // 2. 附加笔记上下文（A 方向：用户在 AI 页用 chip 选了 N 篇笔记作为强制上下文）
+        // 2. 附加文档上下文（A 方向：用户在 AI 页用 chip 选了 N 篇文档作为强制上下文）
         //    跟 RAG 独立：附加 = 必含；RAG = 智能补全；可叠加
         let attached_context = build_attached_notes_context(db, &conv.attached_note_ids, &model);
 
-        // 3. RAG: 检索相关笔记
+        // 3. RAG: 检索相关文档
         //
         // 上下文预算策略（2026-04-30 重写）：
         // - 旧版：硬编码 top 5 × 4000 字符 = 20K 字符。在 DeepSeek/Claude/GPT 等
@@ -1041,7 +1041,7 @@ impl AiService {
                 let mut included = 0usize;
 
                 rag_context.push_str(
-                    "以下是通过关键词检索到的笔记内容（可能相关，也可能无关），\
+                    "以下是通过关键词检索到的文档内容（可能相关，也可能无关），\
                      已按相关度排序：\n\n",
                 );
 
@@ -1239,17 +1239,17 @@ impl AiService {
              1. 只根据已知信息作答，不要编造事实。\n\
              2. 不确定或信息不足时，请明确说明，不要强行给出结论。",
         );
-        // 附加笔记（用户主动挂载的强制上下文）放在最前面，权重最高
+        // 附加文档（用户主动挂载的强制上下文）放在最前面，权重最高
         if !attached_context.is_empty() {
             system_prompt.push_str("\n\n");
             system_prompt.push_str(attached_context);
         }
         if !rag_context.is_empty() {
             system_prompt.push_str(
-                "\n\n接下来会提供检索到的笔记片段。请先判断这些笔记是否真的与用户问题相关：\n\
-                 · 若相关：基于笔记内容回答，必要时引用标题。\n\
-                 · 若不相关（例如笔记内容与用户问的主题明显无关）：\
-                 请直接回答「未在笔记中找到相关内容」，不要从无关笔记里拼凑答案。\n\n",
+                "\n\n接下来会提供检索到的文档片段。请先判断这些文档是否真的与用户问题相关：\n\
+                 · 若相关：基于文档内容回答，必要时引用标题。\n\
+                 · 若不相关（例如文档内容与用户问的主题明显无关）：\
+                 请直接回答「未在文档中找到相关内容」，不要从无关文档里拼凑答案。\n\n",
             );
             system_prompt.push_str(rag_context);
         }
@@ -1349,16 +1349,16 @@ impl AiService {
         // 3. 构建消息数组（带 skills 指引的 system prompt + 历史）
         let history = db.list_ai_messages(conversation_id)?;
         let system_prompt = "你是一个知识库助手。你可以调用以下内置工具辅助回答：\n\
-            - search_notes(query, limit?)：搜笔记\n\
-            - get_note(id)：读单篇笔记全文\n\
+            - search_notes(query, limit?)：搜文档\n\
+            - get_note(id)：读单篇文档全文\n\
             - list_tags()：列所有标签\n\
-            - find_related(note_id)：找相关笔记（反向链接）\n\
+            - find_related(note_id)：找相关文档（反向链接）\n\
             - get_today_tasks()：今日待办\n\
             \n此外可能有外部 MCP 工具可用（名字以 `mcp__` 开头，描述里有 `[MCP/server名]` 标签）。\
             这些工具来自用户在「设置 → MCP 服务器」加的第三方服务（如 GitHub / Filesystem / 高德地图 / kb-mcp 自身等）。\
             描述中 `[MCP/...]` 是工具来源标记，调用时仍按工具名（含 mcp__ 前缀）调用。\n\
             \n原则：\n\
-            1. 回答涉及用户笔记内容时，先用 search_notes 搜索，再按需 get_note 读全文；不要凭空编造。\n\
+            1. 回答涉及用户文档内容时，先用 search_notes 搜索，再按需 get_note 读全文；不要凭空编造。\n\
             2. 涉及第三方系统（GitHub 仓库 / 文件系统 / 地图 等）时，优先用对应 MCP 工具。\n\
             3. 工具返回的内容可能有省略（标记 `…（已截断）`），必要时再次调用获取更多。\n\
             4. 最终给用户的回答用中文，简洁准确。";
@@ -1415,7 +1415,7 @@ impl AiService {
                                 直接给出最终中文答复。\
                                 绝对不要再输出 <tool_call>、<tool_use>、```tool_call、\
                                 functions.xxx(...) 等任何形式的工具调用语法或代码块；\
-                                如果信息不足以回答，明确告诉用户笔记里没有相关内容。"
+                                如果信息不足以回答，明确告诉用户文档里没有相关内容。"
                 }));
                 std::borrow::Cow::Owned(m)
             };
@@ -1648,7 +1648,7 @@ impl AiService {
     // T-005 AI 规划今日待办
     // ══════════════════════════════════════════════════════════════════
 
-    /// 聚合上下文（昨日/今日 daily 笔记 + 未完成任务 + 今日已有任务）→ 喂 AI → 解析 JSON
+    /// 聚合上下文（昨日/今日 daily 文档 + 未完成任务 + 今日已有任务）→ 喂 AI → 解析 JSON
     ///
     /// 故意走非流式：需要完整 JSON 响应 + 前端不需要 token-by-token 体验。
     /// 返回 `PlanTodayResponse`，前端把 `tasks` 展示为可编辑清单，用户确认后批量写库。
@@ -1717,14 +1717,14 @@ impl AiService {
             let plain = strip_html(&n.content);
             let snippet: String = plain.chars().take(600).collect();
             if !snippet.trim().is_empty() {
-                user_sections.push(format!("## 昨日笔记摘要\n{}", snippet));
+                user_sections.push(format!("## 昨日文档摘要\n{}", snippet));
             }
         }
         if let Some(n) = &daily_today {
             let plain = strip_html(&n.content);
             let snippet: String = plain.chars().take(600).collect();
             if !snippet.trim().is_empty() {
-                user_sections.push(format!("## 今日笔记已有内容\n{}", snippet));
+                user_sections.push(format!("## 当天日记已有内容\n{}", snippet));
             }
         }
         if !carry_over.is_empty() {
@@ -1768,7 +1768,7 @@ impl AiService {
 
         let system_prompt = format!(
             "你是一个日程规划助手，使用艾森豪威尔四象限法则做决策。\
-             根据用户的笔记和已有任务，给出 3~7 条今天要做的具体待办。\
+             根据用户的文档和已有任务，给出 3~7 条今天要做的具体待办。\
              严格返回 JSON 对象，不要 markdown 代码块，不要任何额外文字，格式如下：\n\
              {{\n  \
              \"tasks\": [\n    \
@@ -1911,16 +1911,16 @@ impl AiService {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // T-006 AI 写笔记并归档
+    // T-006 AI 写文档并归档
     // ══════════════════════════════════════════════════════════════════
 
-    /// AI 生成一篇 Markdown 笔记 + 建议归档目录
+    /// AI 生成一篇 Markdown 文档 + 建议归档目录
     ///
     /// 输入：主题 / 参考材料 / 目标长度 + 当前所有目录的扁平化路径列表
     /// 输出：`{title, content, folderPath, reason}`（未写入 DB，由前端弹 Modal 让用户确认）
     ///
     /// 设计要点：
-    /// 1. 只把**目录路径字符串**喂给 AI，不喂笔记内容 → 避免大 prompt + 信息泄露
+    /// 1. 只把**目录路径字符串**喂给 AI，不喂文档内容 → 避免大 prompt + 信息泄露
     /// 2. 非流式 + JSON 模式（不支持 response_format 的 Provider 由 prompt 约束）
     /// 3. 两轮兜底解析（原始 / 剥 markdown ``` ）
     ///
@@ -1939,7 +1939,7 @@ impl AiService {
         // T-012: 仅 Ollama 不支持（无 JSON 模式）；其他都按 OpenAI 兼容协议
         if provider.protocol() == ProviderProtocol::Ollama {
             return Err(AppError::Custom(
-                "AI 写笔记暂不支持 Ollama 协议，请切换到 OpenAI 兼容模型（含本地 LM Studio）。"
+                "AI 写文档暂不支持 Ollama 协议，请切换到 OpenAI 兼容模型（含本地 LM Studio）。"
                     .into(),
             ));
         }
@@ -1968,11 +1968,11 @@ impl AiService {
             .unwrap_or_default();
 
         let user_content = format!(
-            "请帮我写一篇关于【{}】的 Markdown 笔记，目标长度 {}。{}\n\n\
+            "请帮我写一篇关于【{}】的 Markdown 文档，目标长度 {}。{}\n\n\
              ## 现有目录（供归档参考）\n{}\n\n\
              请严格以 JSON 对象返回（不要 markdown 代码块、不要解释），格式：\n\
              {{\n  \
-             \"title\": \"笔记标题（简洁、能检索）\",\n  \
+             \"title\": \"文档标题（简洁、能检索）\",\n  \
              \"content\": \"Markdown 正文（不要带外层 H1，因为标题已单独存）\",\n  \
              \"folderPath\": \"建议的归档路径，如 工作/周报；可填新目录；空串=根目录\",\n  \
              \"reason\": \"为什么归到这个目录（一句话）\"\n\
@@ -1984,7 +1984,7 @@ impl AiService {
         );
 
         let system_prompt =
-            "你是一个笔记助手。根据用户提供的主题和参考材料，写一篇结构清晰的 Markdown 笔记，\
+            "你是一个文档助手。根据用户提供的主题和参考材料，写一篇结构清晰的 Markdown 文档，\
              并根据【现有目录】列表建议最合适的归档路径。\n\
              原则：\n\
              1. 正文用 Markdown；用合适的小标题、列表、代码块\n\
@@ -2022,7 +2022,7 @@ impl AiService {
 
     /// 根据用户目标 + 计划周期，AI 一次性产出多条结构化待办 + 阶段里程碑。
     ///
-    /// 与 `plan_today` 的区别：plan_today 只看今天 3~7 条且依赖笔记上下文；
+    /// 与 `plan_today` 的区别：plan_today 只看今天 3~7 条且依赖文档上下文；
     /// 本方法是"开新计划"，无历史依赖，按 horizon_days 跨度铺到未来。
     ///
     /// 落库由前端在预览页勾选后调 `taskApi.create`，**必须**把响应里的
@@ -2637,9 +2637,9 @@ mod draft_note_tests {
     fn parse_plain_json() {
         // 内容里同时含 "# 和 "## 序列，避开 raw string `"##` 闭合歧义，
         // 这里直接用普通字符串 + 反斜杠转义
-        let raw = "{\"title\":\"Rust 学习笔记\",\"content\":\"## 所有权\",\"folderPath\":\"学习/Rust\",\"reason\":\"与 Rust 主题相关\"}";
+        let raw = "{\"title\":\"Rust 学习文档\",\"content\":\"## 所有权\",\"folderPath\":\"学习/Rust\",\"reason\":\"与 Rust 主题相关\"}";
         let r = parse_draft_note_response(raw).unwrap();
-        assert_eq!(r.title, "Rust 学习笔记");
+        assert_eq!(r.title, "Rust 学习文档");
         assert_eq!(r.folder_path, "学习/Rust");
     }
 
@@ -2902,7 +2902,7 @@ mod strip_pseudo_tool_calls_tests {
 
     #[test]
     fn keeps_genuine_content_intact() {
-        let s = "用户笔记里没有相关内容。建议你检索其他关键词。";
+        let s = "用户文档里没有相关内容。建议你检索其他关键词。";
         assert_eq!(strip_pseudo_tool_calls(s), s);
     }
 

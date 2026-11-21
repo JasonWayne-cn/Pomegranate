@@ -1,7 +1,7 @@
 /**
  * 删除后的「撤销」提示条。
  *
- * 笔记进回收站、待办打墓碑都是软删，数据还在，所以删除不弹确认框，
+ * 文档进回收站、待办打墓碑都是软删，数据还在，所以删除不弹确认框，
  * 改成删完给一条带「撤销」的提示：误删一键找回，正常删除也少点一次。
  */
 import type { MessageInstance } from "antd/es/message/interface";
@@ -46,8 +46,8 @@ export function showUndoMessage(
 }
 
 /**
- * 笔记移到回收站后的提示。撤销 = 从回收站恢复，并刷新各处笔记列表。
- * @param afterUndo 调用方自己的额外刷新（比如笔记页当前分页），可不传
+ * 文档移到回收站后的提示。撤销 = 从回收站恢复，并刷新各处文档列表。
+ * @param afterUndo 调用方自己的额外刷新（比如文档页当前分页），可不传
  */
 export function notifyNotesTrashed(
   message: MessageInstance,

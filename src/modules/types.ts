@@ -67,6 +67,21 @@ export interface ModulePanelDef {
   link?: { to: string; label: string };
 }
 
+/**
+ * 模块抽屉里的「功能页签」。
+ *
+ * 用于把完整功能页（如卡片复习 / 定时推送）收进模块设置抽屉，
+ * 侧边栏不再单独占一个入口。组件与配置面板同级的懒加载处理。
+ */
+export interface ModuleFeatureTab {
+  /** 页签 key，在模块内唯一 */
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  /** 懒加载完整功能页组件 */
+  load: () => Promise<{ default: ComponentType }>;
+}
+
 export interface ModuleShortcut {
   keys: string;
   desc: string;
@@ -86,6 +101,8 @@ export interface ModuleMeta {
   /** 配置面板分组；不填则保持扁平列表 */
   groups?: ModulePanelGroup[];
   panels: ModulePanelDef[];
+  /** 额外功能页签（完整功能页），排在「配置 / 使用说明」之后 */
+  featureTabs?: ModuleFeatureTab[];
   /** src/modules/help 下的文件名，例如 "notes.md" */
   helpFile: string;
   shortcuts?: ModuleShortcut[];

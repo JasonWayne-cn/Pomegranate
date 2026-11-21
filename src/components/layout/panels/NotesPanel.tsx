@@ -63,10 +63,10 @@ import {
 import { ImportPreviewModal } from "@/components/ImportPreviewModal";
 
 /**
- * NotesPanel —— Activity Bar 模式下"笔记"视图的主面板内容。
+ * NotesPanel —— Activity Bar 模式下"文档"视图的主面板内容。
  *
  * 负责：
- *   · 顶部：视图标题 + 新建笔记 + 打开本机 md
+ *   · 顶部：视图标题 + 新建文档 + 打开本机 md
  *   · 主体：文件夹树（创建 / 重命名 / 删除 / 拖拽 / 右键菜单 / 导入）
  *
  * 实现基线：从原 Sidebar.tsx 的文件夹树部分拆出，交互零改动。
@@ -75,13 +75,13 @@ import { ImportPreviewModal } from "@/components/ImportPreviewModal";
 /** 临时"新建子文件夹"节点的 key 前缀 */
 const NEW_NODE_PREFIX = "__new_under_";
 
-/** 笔记叶节点 key 前缀（与文件夹 id 区分） */
+/** 文档叶节点 key 前缀（与文件夹 id 区分） */
 const NOTE_KEY_PREFIX = "note:";
 
-/** 「未分类」虚拟根节点 key（folder_id IS NULL 的笔记挂在这里） */
+/** 「未分类」虚拟根节点 key（folder_id IS NULL 的文档挂在这里） */
 const UNCATEGORIZED_KEY = "__uncategorized__";
 
-/** 单个文件夹直属笔记的展示上限（超过引导用户去主区） */
+/** 单个文件夹直属文档的展示上限（超过引导用户去主区） */
 const NOTES_PER_FOLDER_LIMIT = 100;
 
 function isNoteKey(key: string): boolean {
@@ -159,10 +159,10 @@ type TreeFolderData = { isNote: false; isChild: boolean; isExternal: boolean };
 type TreeNodeData = TreeNoteData | TreeFolderData;
 type EnrichedNode = DataNode & { data?: TreeNodeData };
 
-/** 将 Folder[] + 各文件夹直属笔记 转为 antd Tree 的 DataNode[]
+/** 将 Folder[] + 各文件夹直属文档 转为 antd Tree 的 DataNode[]
  *
- * 子节点顺序：先所有子文件夹（保持原有顺序），后所有直属笔记（按 updated_at 倒序，
- * 由后端排序）。单个文件夹笔记数 > NOTES_PER_FOLDER_LIMIT 时只展示前 N 条。
+ * 子节点顺序：先所有子文件夹（保持原有顺序），后所有直属文档（按 updated_at 倒序，
+ * 由后端排序）。单个文件夹文档数 > NOTES_PER_FOLDER_LIMIT 时只展示前 N 条。
  */
 function foldersToTreeData(
   folders: Folder[],
@@ -180,7 +180,7 @@ function foldersToTreeData(
       .slice(0, NOTES_PER_FOLDER_LIMIT)
       .map((n) => ({
         key: noteKey(n.id),
-        // 当该笔记 tab 已打开时，优先用 tabs store 的实时 title（编辑器
+        // 当该文档 tab 已打开时，优先用 tabs store 的实时 title（编辑器
         // handleTitleChange 同步进去）→ 用户在编辑器键入即可看到侧边栏跟随。
         // 没打开 tab 时回退到 DB 拉的 n.title。
         title: tabTitleByNoteId.get(n.id) || n.title || "未命名",
@@ -261,8 +261,8 @@ function findFolderParentId(folders: Folder[], id: number): number | null {
 /**
  * 收集从根到 targetId（含）的所有祖先文件夹 id 路径
  *
- * 用于"跳到笔记 → 自动展开树"：把这条路径上的所有文件夹从 collapsed 集合中移除，
- * 即可把目标笔记所在层级展开到可见。targetId 不在树里时返回空数组。
+ * 用于"跳到文档 → 自动展开树"：把这条路径上的所有文件夹从 collapsed 集合中移除，
+ * 即可把目标文档所在层级展开到可见。targetId 不在树里时返回空数组。
  */
 function collectAncestorFolderIds(folders: Folder[], targetId: number): number[] {
   let path: number[] = [];
@@ -299,7 +299,7 @@ export function NotesPanel() {
   );
   const { token } = antdTheme.useToken();
 
-  // 文件夹直属笔记缓存（按 folderId 索引）。
+  // 文件夹直属文档缓存（按 folderId 索引）。
   // 展开时按需加载；notesRefreshTick 变化时清空已加载的项触发重拉。
   const [notesByFolder, setNotesByFolder] = useState<Map<number, Note[]>>(
     () => new Map(),
@@ -307,15 +307,15 @@ export function NotesPanel() {
   // 正在请求的 folderId 集合，避免同一个文件夹并发请求
   const loadingNotesRef = useRef<Set<number>>(new Set());
 
-  // 未分类笔记（folder_id IS NULL）：底部"未分类"虚拟节点展开时按需加载，
-  // 让用户在 NotesPanel 顶部"+ 新建笔记"建出来的 null-folder 笔记能立刻看到。
-  // 展开/收起态走 store 持久化（跨视图保留），笔记列表本地缓存（首次展开后秒开）。
+  // 未分类文档（folder_id IS NULL）：底部"未分类"虚拟节点展开时按需加载，
+  // 让用户在 NotesPanel 顶部"+ 新建文档"建出来的 null-folder 文档能立刻看到。
+  // 展开/收起态走 store 持久化（跨视图保留），文档列表本地缓存（首次展开后秒开）。
   const uncategorizedExpanded = useAppStore((s) => s.notesUncategorizedExpanded);
   const setUncategorizedExpanded = useAppStore((s) => s.setNotesUncategorizedExpanded);
   const [uncategorizedNotes, setUncategorizedNotes] = useState<Note[]>([]);
   const loadingUncategorizedRef = useRef(false);
 
-  /** 拉某个文件夹的直属笔记（include_descendants=false） */
+  /** 拉某个文件夹的直属文档（include_descendants=false） */
   async function loadNotesForFolder(folderId: number) {
     if (loadingNotesRef.current.has(folderId)) return;
     loadingNotesRef.current.add(folderId);
@@ -326,7 +326,7 @@ export function NotesPanel() {
         page: 1,
         page_size: NOTES_PER_FOLDER_LIMIT,
         // 树是组织视图，按用户自定义顺序展示（sort_order ASC）；
-        // 未拖排过的笔记 sort_order 由 v31 迁移按 updated_at DESC 初始化，
+        // 未拖排过的文档 sort_order 由 v31 迁移按 updated_at DESC 初始化，
         // 肉眼仍是时间序，拖排后立刻可见
         sort_by: "custom",
         // 文档树需要显示挂载目录里的 PDF/Word/Excel（索引影子文档）
@@ -341,13 +341,13 @@ export function NotesPanel() {
         return next;
       });
     } catch (e) {
-      console.warn(`[notes-panel] 加载文件夹 ${folderId} 笔记失败:`, e);
+      console.warn(`[notes-panel] 加载文件夹 ${folderId} 文档失败:`, e);
     } finally {
       loadingNotesRef.current.delete(folderId);
     }
   }
 
-  /** 拉未分类笔记（folder_id IS NULL） */
+  /** 拉未分类文档（folder_id IS NULL） */
   async function loadUncategorizedNotes() {
     if (loadingUncategorizedRef.current) return;
     loadingUncategorizedRef.current = true;
@@ -363,7 +363,7 @@ export function NotesPanel() {
         sameNoteHeaders(prev, r.items) ? prev : r.items,
       );
     } catch (e) {
-      console.warn("[notes-panel] 加载未分类笔记失败:", e);
+      console.warn("[notes-panel] 加载未分类文档失败:", e);
     } finally {
       loadingUncategorizedRef.current = false;
     }
@@ -528,11 +528,11 @@ export function NotesPanel() {
   /**
    * URL → 树状态同步：当路由进入 /notes/:id（来自搜索面板、Ctrl+K、首页 dropdown 等）时，
    *
-   *   1. 立刻把 selectedKey 设到该笔记，让侧栏高亮一致
+   *   1. 立刻把 selectedKey 设到该文档，让侧栏高亮一致
    *   2. 异步查 note.folder_id：
    *        - null → 展开"未分类"虚拟节点 + 触发拉取
    *        - 非 null → 收集从根到 folder 的所有祖先 id，
-   *          从 collapsed 集合中移除，让该层级在树上可见 + 拉笔记列表
+   *          从 collapsed 集合中移除，让该层级在树上可见 + 拉文档列表
    *
    * 不依赖任何缓存（直接 noteApi.get 拿权威 folder_id），避免缓存陈旧导致跳错位置。
    * folders 加进 deps：首次 panel mount 时 folders 可能还在加载，等加载完会重跑这条 effect。
@@ -556,7 +556,7 @@ export function NotesPanel() {
         if (cancelled) return;
         const fid = note.folder_id;
         if (fid === null) {
-          // 未分类：展开虚拟节点 + 拉笔记
+          // 未分类：展开虚拟节点 + 拉文档
           const store = useAppStore.getState();
           if (!store.notesUncategorizedExpanded) {
             store.setNotesUncategorizedExpanded(true);
@@ -579,14 +579,14 @@ export function NotesPanel() {
               store.setNotesAllFoldersCollapsed(newCollapsed);
             }
           }
-          // 拉这个文件夹的直属笔记（懒加载缓存）
+          // 拉这个文件夹的直属文档（懒加载缓存）
           if (!notesByFolder.has(fid)) {
             void loadNotesForFolder(fid);
           }
         }
       })
       .catch(() => {
-        // 笔记不存在 / 已删，安静失败：保留高亮即可，不打扰用户
+        // 文档不存在 / 已删，安静失败：保留高亮即可，不打扰用户
       });
 
     return () => {
@@ -665,7 +665,7 @@ export function NotesPanel() {
     }
   }
 
-  // 初次拿到文件夹后，对默认展开的文件夹批量预热笔记，避免一打开就要点一下才显示
+  // 初次拿到文件夹后，对默认展开的文件夹批量预热文档，避免一打开就要点一下才显示
   useEffect(() => {
     if (folders.length === 0 || expandedKeys.length === 0) return;
     for (const k of expandedKeys) {
@@ -768,7 +768,7 @@ export function NotesPanel() {
     const key = editingKey;
     const name = editingName.trim();
 
-    // 笔记重命名：复用 update_note Command（带原 content / folder_id 一起更新）
+    // 文档重命名：复用 update_note Command（带原 content / folder_id 一起更新）
     if (isNoteKey(key)) {
       const id = noteIdFromKey(key);
       const note = findNoteById(id);
@@ -782,7 +782,7 @@ export function NotesPanel() {
         setEditingName("");
         return;
       }
-      // 加密笔记的 content 是占位符，直接 update_note 会把真实加密内容覆盖掉。
+      // 加密文档的 content 是占位符，直接 update_note 会把真实加密内容覆盖掉。
       // 引导用户在编辑器里改标题（那里能拿到解密后内容）。
       if (note.is_encrypted) {
         message.info("加密文档请在编辑器内修改标题");
@@ -865,9 +865,9 @@ export function NotesPanel() {
     const dropKey = String(info.node.key);
     if (dragKey.startsWith(NEW_NODE_PREFIX) || dropKey.startsWith(NEW_NODE_PREFIX)) return;
 
-    // ── 笔记拖动 → 跨 folder 改 folder_id；同 folder 内调 reorder 改 sort_order ──
+    // ── 文档拖动 → 跨 folder 改 folder_id；同 folder 内调 reorder 改 sort_order ──
     // Why: 跨 folder 时改 sort_order 没意义（用户肯定还要再拖到目标位置），保持原行为；
-    //      同 folder 时拖到另一笔记上/旁 → 重排，注意：仅在列表页"自定义排序"模式下可见
+    //      同 folder 时拖到另一文档上/旁 → 重排，注意：仅在列表页"自定义排序"模式下可见
     if (isNoteKey(dragKey)) {
       const noteId = noteIdFromKey(dragKey);
       const note = findNoteById(noteId);
@@ -876,7 +876,7 @@ export function NotesPanel() {
       // 计算目标 folderId：
       //   - 落在文件夹节点上（!dropToGap） → 目标 = 该文件夹
       //   - 落在文件夹之间的 gap → 目标 = 该文件夹的父
-      //   - 落在另一篇笔记上/旁 → 目标 = 那篇笔记所在的文件夹
+      //   - 落在另一篇文档上/旁 → 目标 = 那篇文档所在的文件夹
       let targetFolderId: number | null;
       let dropNoteId: number | null = null;
       if (isNoteKey(dropKey)) {
@@ -905,9 +905,9 @@ export function NotesPanel() {
         return;
       }
 
-      // 同 folder + dropNode 是文件夹（不是笔记叶子）
-      // → 用户视觉是"拖到笔记列表头部上方的 gap"（子文件夹在前、笔记在后）
-      // → 把 dragNote 插到笔记列表最前
+      // 同 folder + dropNode 是文件夹（不是文档叶子）
+      // → 用户视觉是"拖到文档列表头部上方的 gap"（子文件夹在前、文档在后）
+      // → 把 dragNote 插到文档列表最前
       if (dropNoteId == null) {
         const siblings: Note[] =
           targetFolderId == null
@@ -943,11 +943,11 @@ export function NotesPanel() {
         }
         return;
       }
-      // 同 folder + 落在另一笔记叶子上/旁 → 计算精确插入位置
+      // 同 folder + 落在另一文档叶子上/旁 → 计算精确插入位置
       if (dropNoteId === noteId) return;
       const dropNote = findNoteById(dropNoteId);
       if (!dropNote) return;
-      // 同档校验：list_notes 第一排序键是 is_pinned DESC，置顶笔记永远在前。
+      // 同档校验：list_notes 第一排序键是 is_pinned DESC，置顶文档永远在前。
       // 跨档拖排 sort_order 写入后视觉上会"跳回"置顶档，体验非常迷惑——直接拒绝
       if (note.is_pinned !== dropNote.is_pinned) {
         message.info(
@@ -1001,7 +1001,7 @@ export function NotesPanel() {
       return;
     }
 
-    // 拖动文件夹时：目标若是笔记，忽略
+    // 拖动文件夹时：目标若是文档，忽略
     if (isNoteKey(dropKey)) return;
 
     const dragId = Number(dragKey);
@@ -1048,7 +1048,7 @@ export function NotesPanel() {
 
   // ─── 单击/双击 ─────────────────────────────
 
-  /** 在 notesByFolder 缓存 + 未分类列表 里按 id 查找笔记 */
+  /** 在 notesByFolder 缓存 + 未分类列表 里按 id 查找文档 */
   function findNoteById(id: number): Note | null {
     for (const list of notesByFolder.values()) {
       const found = list.find((n) => n.id === id);
@@ -1078,7 +1078,7 @@ export function NotesPanel() {
       return;
     }
 
-    // 笔记叶节点：单击打开编辑器；300ms 内同节点二次点击 → 进入重命名
+    // 文档叶节点：单击打开编辑器；300ms 内同节点二次点击 → 进入重命名
     if (isNoteKey(key)) {
       const now = Date.now();
       const last = lastClickRef.current;
@@ -1094,7 +1094,12 @@ export function NotesPanel() {
         const note = findNoteById(id);
         const officePath = officePathForSource(note?.source_file_path);
         setSelectedKey(key);
-        navigate(officePath ?? `/notes/${id}`);
+        // 白板直接进画布页，避免先进编辑器再重定向的闪动
+        const target =
+          note?.note_type === "whiteboard"
+            ? `/whiteboard/${id}`
+            : (officePath ?? `/notes/${id}`);
+        navigate(target);
       }
       return;
     }
@@ -1138,7 +1143,7 @@ export function NotesPanel() {
   function buildMenuItems(key: string, name: string): ContextMenuEntry[] {
     const close = () => setContextMenu(null);
 
-    // ─── 笔记叶子菜单 ───
+    // ─── 文档叶子菜单 ───
     if (isNoteKey(key)) {
       const noteId = noteIdFromKey(key);
       const note = findNoteById(noteId);
@@ -1149,7 +1154,11 @@ export function NotesPanel() {
           icon: <ExternalLink size={14} />,
           label: "打开",
           onClick: () => {
-            navigate(officePathForSource(note?.source_file_path) ?? `/notes/${noteId}`);
+            navigate(
+              note?.note_type === "whiteboard"
+                ? `/whiteboard/${noteId}`
+                : (officePathForSource(note?.source_file_path) ?? `/notes/${noteId}`),
+            );
             close();
           },
         },
@@ -1243,7 +1252,7 @@ export function NotesPanel() {
         },
       },
       { type: "divider" },
-      // ─── 导入：与"+ 新建笔记"按钮口径一致（MD/TXT/PDF/Word），文件夹递归是侧边栏独占 ───
+      // ─── 导入：与"+ 新建文档"按钮口径一致（MD/TXT/PDF/Word），文件夹递归是侧边栏独占 ───
       {
         key: "import-text",
         icon: <FileTypeIcon type="md" size={14} />,
@@ -1337,7 +1346,7 @@ export function NotesPanel() {
     }
   }
 
-  // ─── OS 文件拖入新建笔记 ───────────────────
+  // ─── OS 文件拖入新建文档 ───────────────────
 
   /** 识别 .md/.markdown/.txt 文本文件（按扩展名；MIME 在 Windows 上常为空） */
   function isDroppedTextFile(f: File): boolean {
@@ -1347,7 +1356,7 @@ export function NotesPanel() {
     return ext === "md" || ext === "markdown" || ext === "txt";
   }
 
-  /** 只有 OS 文件拖入（dataTransfer.types 含 "Files"）才视为新建笔记场景，避免干扰 Tree 内部节点拖动 */
+  /** 只有 OS 文件拖入（dataTransfer.types 含 "Files"）才视为新建文档场景，避免干扰 Tree 内部节点拖动 */
   function hasOsFiles(dt: DataTransfer): boolean {
     // dataTransfer.types 在 DOMStringList / ReadonlyArray 两种实现间兼容，统一转数组再判断
     for (let i = 0; i < dt.types.length; i++) {
@@ -1374,7 +1383,7 @@ export function NotesPanel() {
   }
 
   /**
-   * 把拖入的文件各自建成笔记。优先走 importApi.importSelected（能拿到 OS 路径时，
+   * 把拖入的文件各自建成文档。优先走 importApi.importSelected（能拿到 OS 路径时，
    * 享受去重/副本/source_file 追踪）；否则回退到前端 File.text() + noteApi.create。
    */
   async function handleOsFilesDropped(files: File[]) {
@@ -1646,8 +1655,8 @@ export function NotesPanel() {
       notesByFolder,
       tabTitleByNoteId,
     );
-    // 末尾追加"未分类"虚拟根节点：folder_id IS NULL 的笔记直接挂在这里。
-    // 这样未分类笔记也能参与 antd Tree 的拖拽（拖到任意文件夹会触发 handleDrop
+    // 末尾追加"未分类"虚拟根节点：folder_id IS NULL 的文档直接挂在这里。
+    // 这样未分类文档也能参与 antd Tree 的拖拽（拖到任意文件夹会触发 handleDrop
     // 跨 folder 移动逻辑），不需要单独写一套 HTML5 drag 系统。
     const uncatTitle =
       uncategorizedNotes.length > 0
@@ -1725,7 +1734,7 @@ export function NotesPanel() {
         </div>
       </div>
 
-      {/* 文件夹小节 —— 兼任 OS 文件拖入区（.md/.txt → 新建笔记） */}
+      {/* 文件夹小节 —— 兼任 OS 文件拖入区（.md/.txt → 新建文档） */}
       <div
         className="flex-1 overflow-auto"
         style={{
@@ -1837,7 +1846,7 @@ export function NotesPanel() {
                 onDrop={handleDrop}
                 onDragEnter={({ node }) => {
                   // 拖拽 hover 到折叠文件夹时自动展开，避免用户拖到一半还要先点开。
-                  // 仅对真实文件夹节点生效；笔记叶子 / 新建占位 / 未分类逻辑各自独立处理。
+                  // 仅对真实文件夹节点生效；文档叶子 / 新建占位 / 未分类逻辑各自独立处理。
                   const k = String(node.key);
                   if (k.startsWith(NEW_NODE_PREFIX) || isNoteKey(k)) return;
                   if (k === UNCATEGORIZED_KEY) {
@@ -1879,7 +1888,7 @@ export function NotesPanel() {
                   event.stopPropagation();
                   const key = String(node.key);
                   if (key.startsWith(NEW_NODE_PREFIX)) return;
-                  // 笔记叶节点：用 note.title 作为 name 传给菜单
+                  // 文档叶节点：用 note.title 作为 name 传给菜单
                   let name: string | null;
                   if (isNoteKey(key)) {
                     const note = findNoteById(noteIdFromKey(key));

@@ -263,7 +263,7 @@ pub(crate) fn run_push_blocking(
 
 /// emit 同步结果给前端（设置页 SyncV1Section 监听，失败时弹 toast 提示）
 ///
-/// `encrypted_skipped` >0 时前端会弹"X 篇加密笔记未同步"提示（vault salt/密码不一致）。
+/// `encrypted_skipped` >0 时前端会弹"X 篇加密文档未同步"提示（vault salt/密码不一致）。
 fn emit_result(
     app: &AppHandle,
     backend_id: i64,

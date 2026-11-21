@@ -15,7 +15,7 @@ impl SearchService {
         Self::search_filtered(db, query, limit, None)
     }
 
-    /// 搜索笔记（处理空查询、限制默认值、应用筛选）
+    /// 搜索文档（处理空查询、限制默认值、应用筛选）
     ///
     /// `filters = None` 与全部维度都没勾等价，走原有行为。
     pub fn search_filtered(

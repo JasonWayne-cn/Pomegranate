@@ -415,7 +415,7 @@ export function AiWorkbench({
           </div>
         ) : (
           <div className="flex min-h-[320px] items-center justify-center">
-            <Text type="secondary">生成结果会显示在这里，可保存到「产出」后导出为笔记。</Text>
+            <Text type="secondary">生成结果会显示在这里，可保存到「产出」后导出为文档。</Text>
           </div>
         )}
       </Card>

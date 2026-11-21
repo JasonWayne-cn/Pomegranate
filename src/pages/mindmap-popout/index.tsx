@@ -10,8 +10,8 @@ import { noteApi } from "@/lib/api";
  * 思维导图独立弹出窗口页面（由 popout_window.rs::open_mindmap 加载）
  *
  * - URL 形如 `index.html#/mindmap-popout/:noteId`，window label = `popout-mindmap-{id}`
- * - 进入时拉一次笔记内容；之后通过 Tauri 全局事件 `note:updated` 跨窗口同步
- * - 标题同步：拉到笔记后 setTitle(笔记标题) → OS 标题栏跟着变
+ * - 进入时拉一次文档内容；之后通过 Tauri 全局事件 `note:updated` 跨窗口同步
+ * - 标题同步：拉到文档后 setTitle(文档标题) → OS 标题栏跟着变
  * - 复用 MindMapView 组件（variant=standalone：占满整个窗口、不显示关闭/弹窗按钮）
  */
 export default function MindMapPopoutPage() {
@@ -24,10 +24,10 @@ export default function MindMapPopoutPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 初次加载笔记 + 监听跨窗口更新事件
+  // 初次加载文档 + 监听跨窗口更新事件
   useEffect(() => {
     if (!Number.isFinite(noteId) || noteId <= 0) {
-      setError("无效的笔记 ID");
+      setError("无效的文档 ID");
       setLoading(false);
       return;
     }
@@ -41,7 +41,7 @@ export default function MindMapPopoutPage() {
         setTitle(note.title);
         setContent(note.content);
         setLoading(false);
-        // OS 标题栏写上笔记标题，方便用户在任务栏/Alt+Tab 里识别
+        // OS 标题栏写上文档标题，方便用户在任务栏/Alt+Tab 里识别
         try {
           await getCurrentWebviewWindow().setTitle(
             `思维导图 · ${note.title || "未命名"}`,

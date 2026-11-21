@@ -48,7 +48,7 @@ function flattenFolders(
 }
 
 /**
- * 导入笔记：Markdown 文件夹扫描、PDF、Word。
+ * 导入文档：Markdown 文件夹扫描、PDF、Word。
  * 供设置页与文档模块抽屉共用。
  */
 export function ImportSection({ compact }: Props) {
@@ -252,7 +252,7 @@ export function ImportSection({ compact }: Props) {
         if (result.duplicated > 0) parts.push(`副本 ${result.duplicated} 篇`);
         if (result.skipped > 0) parts.push(`跳过 ${result.skipped} 篇`);
         message.success(parts.join("，"));
-        // 导入过程会按层级新建文件夹，触发左侧笔记树与文件夹树刷新
+        // 导入过程会按层级新建文件夹，触发左侧文档树与文件夹树刷新
         useAppStore.getState().bumpNotesRefresh();
         useAppStore.getState().bumpFoldersRefresh();
       }
@@ -291,7 +291,7 @@ export function ImportSection({ compact }: Props) {
         title={
           <span className="flex items-center gap-2">
             <FolderInput size={16} />
-            导入笔记
+            导入文档
           </span>
         }
       >
@@ -404,10 +404,10 @@ export function ImportSection({ compact }: Props) {
             style={{ fontSize: 12 }}
           >
             <span>🆕 全新 <strong>{matchStats.news}</strong></span>
-            <span title="路径已匹配到已有笔记（上次导入过）">
+            <span title="路径已匹配到已有文档（上次导入过）">
               🔁 已导入过 <strong>{matchStats.paths}</strong>
             </span>
-            <span title="路径不同但标题+内容与已有笔记一致，可能是用户搬动过文件">
+            <span title="路径不同但标题+内容与已有文档一致，可能是用户搬动过文件">
               ⚠️ 可能重复 <strong>{matchStats.fuzzies}</strong>
             </span>
           </div>

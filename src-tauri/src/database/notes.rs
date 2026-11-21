@@ -6,9 +6,9 @@ use crate::models::{DailyEntry, Note, NoteInput};
 use super::Database;
 
 impl Database {
-    // ─── 笔记 DAO ─────────────────────────────────
+    // ─── 文档 DAO ─────────────────────────────────
 
-    /// 创建笔记
+    /// 创建文档
     ///
     /// 同步维护：
     /// - `title_normalized`（v17）：wiki 链接查找走索引
@@ -23,8 +23,8 @@ impl Database {
         let normalized = crate::database::links::normalize_title(&input.title);
         let content_hash = crate::services::hash::sha256_hex(&input.content);
         let stable_uuid = uuid::Uuid::new_v4().to_string();
-        // 自定义排序下新笔记排在所属 folder 末尾：MAX(sort_order)+1000
-        // 避免和用户拖排到第一位的笔记(sort_order=0)撞车 → "第一名"被新建吞掉
+        // 自定义排序下新文档排在所属 folder 末尾：MAX(sort_order)+1000
+        // 避免和用户拖排到第一位的文档(sort_order=0)撞车 → "第一名"被新建吞掉
         // folder_id 用 ?3，子查询里复用同一参数（COALESCE 用 -1 兜底 NULL 比较）
         conn.execute(
             "INSERT INTO notes (title, content, folder_id, title_normalized, content_hash, stable_uuid, sort_order)
@@ -48,7 +48,7 @@ impl Database {
         self.get_note_inner(&conn, id)
     }
 
-    /// 用指定的 stable_uuid 创建笔记（同步 V1 pull 用：保留远端 UUID 让多端 ID 稳定）
+    /// 用指定的 stable_uuid 创建文档（同步 V1 pull 用：保留远端 UUID 让多端 ID 稳定）
     ///
     /// 与 `create_note` 区别：
     /// - UUID 由调用方传入而非内部生成。冲突时返回 SQLite UNIQUE 错误，
@@ -56,7 +56,7 @@ impl Database {
     /// - `is_daily` / `daily_date`：从远端 manifest entry 透传，恢复"每日笔记"标记
     ///   （修日记跨端反复重建）。`is_daily=false` 时 `daily_date` 强制存 NULL；
     ///   旧 manifest 不带时调用方传 `false, None`，靠 `get_or_create_daily` 兜底认领自愈。
-    /// - `is_hidden`：从远端 manifest entry 透传，恢复"隐藏笔记"标记（避免隐藏笔记拉到对端变可见）。
+    /// - `is_hidden`：从远端 manifest entry 透传，恢复"隐藏文档"标记（避免隐藏文档拉到对端变可见）。
     pub fn create_note_with_uuid(
         &self,
         input: &NoteInput,
@@ -93,7 +93,7 @@ impl Database {
         self.get_note_inner(&conn, id)
     }
 
-    /// 同步 V1 pull 用：把本地某条笔记的"每日笔记"标记对齐到远端 manifest entry。
+    /// 同步 V1 pull 用：把本地某条文档的"每日笔记"标记对齐到远端 manifest entry。
     ///
     /// - 远端说它是日记（`is_daily=true`），本地这条 `is_daily=0` → 设 `is_daily=1, daily_date=date`，
     ///   **但前提是本地没有另一条同 `daily_date` 的真日记**（否则会出现"两条当天日记"，反而更乱）；
@@ -121,7 +121,7 @@ impl Database {
             .optional()?
         {
             Some(v) => v != 0,
-            None => return Ok(()), // 笔记不在了
+            None => return Ok(()), // 文档不在了
         };
 
         match (is_daily, cur_is_daily) {
@@ -141,7 +141,7 @@ impl Database {
                     .optional()?;
                 if let Some(other) = conflict {
                     log::warn!(
-                        "[sync] note#{} 远端标记为 {} 的日记，但本地 note#{} 已占着这天 → 保持 note#{} 为普通笔记，请手动合并",
+                        "[sync] note#{} 远端标记为 {} 的日记，但本地 note#{} 已占着这天 → 保持 note#{} 为普通文档，请手动合并",
                         id, date, other, id
                     );
                     return Ok(());
@@ -164,11 +164,11 @@ impl Database {
         Ok(())
     }
 
-    /// 同步 V1 pull 用：把本地某条笔记的"隐藏"标记对齐到远端 manifest entry。
+    /// 同步 V1 pull 用：把本地某条文档的"隐藏"标记对齐到远端 manifest entry。
     ///
     /// 只做单向恢复：**远端隐藏（`is_hidden=true`）而本地这条还可见 → 设 `is_hidden=1`**
-    /// （避免隐藏笔记拉到新端变可见这个隐私问题）。反方向（远端可见、本地隐藏）不动 ——
-    /// 不主动取消本地隐藏，免得误把用户刚在本端隐藏的笔记又改回可见。
+    /// （避免隐藏文档拉到新端变可见这个隐私问题）。反方向（远端可见、本地隐藏）不动 ——
+    /// 不主动取消本地隐藏，免得误把用户刚在本端隐藏的文档又改回可见。
     /// 不动 `updated_at`（元数据对齐，不算内容变更）。
     pub fn sync_note_hidden_state(&self, id: i64, is_hidden: bool) -> Result<(), AppError> {
         if !is_hidden {
@@ -178,7 +178,7 @@ impl Database {
             .conn
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
-        // affected=0 也无所谓（本地已隐藏，或笔记不存在）
+        // affected=0 也无所谓（本地已隐藏，或文档不存在）
         conn.execute(
             "UPDATE notes SET is_hidden = 1 WHERE id = ?1 AND is_hidden = 0",
             params![id],
@@ -186,13 +186,13 @@ impl Database {
         Ok(())
     }
 
-    /// 按 stable_uuid 读取笔记的 (is_encrypted, encrypted_blob)（T-S014 同步加密笔记用）
+    /// 按 stable_uuid 读取文档的 (is_encrypted, encrypted_blob)（T-S014 同步加密文档用）
     ///
     /// 返回值含义：
-    /// - `Ok(Some((true, Some(blob))))` 加密笔记 + 有密文（正常情况）
-    /// - `Ok(Some((true, None)))` 加密笔记但 blob 为空（数据异常）
-    /// - `Ok(Some((false, _)))` 非加密笔记
-    /// - `Ok(None)` 笔记不存在
+    /// - `Ok(Some((true, Some(blob))))` 加密文档 + 有密文（正常情况）
+    /// - `Ok(Some((true, None)))` 加密文档但 blob 为空（数据异常）
+    /// - `Ok(Some((false, _)))` 非加密文档
+    /// - `Ok(None)` 文档不存在
     pub fn get_note_crypto_state_by_uuid(
         &self,
         uuid: &str,
@@ -216,11 +216,11 @@ impl Database {
         Ok(row)
     }
 
-    /// T-S014：用远端 UUID 创建/更新加密笔记
+    /// T-S014：用远端 UUID 创建/更新加密文档
     ///
     /// 行为：
     /// - 本地已有该 stable_uuid → UPDATE encrypted_blob + is_encrypted=1 + content="🔒 已加密"
-    /// - 本地不存在 → INSERT 一条加密笔记（is_encrypted=1，content 占位）
+    /// - 本地不存在 → INSERT 一条加密文档（is_encrypted=1，content 占位）
     ///
     /// 占位 content 用与 T-007 一致的字符串，FTS 索引到的也是占位，自然过滤；
     /// content_hash 用 encrypted_blob 的 sha256_hex（与 manifest 算法一致）。
@@ -293,10 +293,10 @@ impl Database {
         }
     }
 
-    /// 按 stable_uuid 查笔记 id（同步 V1 多端 upsert 用）
+    /// 按 stable_uuid 查文档 id（同步 V1 多端 upsert 用）
     ///
     /// `stable_uuid` 是 v36 引入的多端稳定标识。返回值用于 sync_v1 pull 拿到远端 manifest entry 后
-    /// 判断"本地是否已有该笔记"，决定 update 还是 create。
+    /// 判断"本地是否已有该文档"，决定 update 还是 create。
     pub fn get_note_id_by_stable_uuid(&self, uuid: &str) -> Result<Option<i64>, AppError> {
         let conn = self
             .conn
@@ -312,7 +312,7 @@ impl Database {
         Ok(id)
     }
 
-    /// 更新笔记
+    /// 更新文档
     ///
     /// 同步维护 `title_normalized`（v17）与 `content_hash`（v22）。
     pub fn update_note(&self, id: i64, input: &NoteInput) -> Result<Note, AppError> {
@@ -340,16 +340,16 @@ impl Database {
         )?;
 
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", id)));
         }
 
         self.get_note_inner(&conn, id)
     }
 
-    /// 同步 V1 pull 专用：更新笔记，但 `updated_at` 用**传入的值**（远端 manifest entry 的 updated_at），
+    /// 同步 V1 pull 专用：更新文档，但 `updated_at` 用**传入的值**（远端 manifest entry 的 updated_at），
     /// 而非冒泡到 `datetime('now')`。
     ///
-    /// 为什么：pull 是"被动接收远端版本"，不该把本地 `updated_at` 改成现在 —— 否则下一轮本地这条笔记的
+    /// 为什么：pull 是"被动接收远端版本"，不该把本地 `updated_at` 改成现在 —— 否则下一轮本地这条文档的
     /// `updated_at` 莫名其妙比远端新（last-write-wins 会误判它要 push），也让"本地最近改动"时间失真。
     /// 设成远端 entry 的 `updated_at` → 本地与远端一致；内容也一致时 `content_hash` 相同 → diff 跳过。
     pub fn update_note_synced(
@@ -381,15 +381,15 @@ impl Database {
             ],
         )?;
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", id)));
         }
         self.get_note_inner(&conn, id)
     }
 
-    /// 批量移动笔记到指定文件夹（`folder_id = None` 表示移到根目录）
+    /// 批量移动文档到指定文件夹（`folder_id = None` 表示移到根目录）
     ///
     /// 只改 `folder_id`，**不碰 `updated_at`**：批量整理属于"归档动作"，
-    /// 不应把大量笔记的"最近更新"时间一起冒泡到最前。
+    /// 不应把大量文档的"最近更新"时间一起冒泡到最前。
     /// 一条 `WHERE id IN (...)` SQL 完成，保证原子性。
     pub fn move_notes_batch(&self, ids: &[i64], folder_id: Option<i64>) -> Result<usize, AppError> {
         if ids.is_empty() {
@@ -417,7 +417,7 @@ impl Database {
         Ok(affected)
     }
 
-    /// 把这些笔记从各自的文件夹里摘出来（`folder_id = NULL`），返回它们原来所在的文件夹 id（去重）。
+    /// 把这些文档从各自的文件夹里摘出来（`folder_id = NULL`），返回它们原来所在的文件夹 id（去重）。
     ///
     /// 「导入 / 整理历史日记」专用。日记被认领后不该继续占着 `2020-05-26` 这类日期文件夹：
     /// `list_notes` 一律过滤 `is_daily = 0`，那个文件夹在用户眼里就是个空壳，
@@ -468,7 +468,7 @@ impl Database {
         Ok(folder_ids)
     }
 
-    /// 删除笔记（永久删除，预留给未来使用）
+    /// 删除文档（永久删除，预留给未来使用）
     #[allow(dead_code)]
     pub fn delete_note(&self, id: i64) -> Result<bool, AppError> {
         let conn = self
@@ -479,9 +479,9 @@ impl Database {
         Ok(affected > 0)
     }
 
-    /// 获取单个笔记
+    /// 获取单个文档
     ///
-    /// 不过滤 `is_hidden`：wiki link [[...]] 点击跳转需要能打开隐藏笔记；
+    /// 不过滤 `is_hidden`：wiki link [[...]] 点击跳转需要能打开隐藏文档；
     /// 主列表/搜索等入口由各自的 DAO 方法负责过滤。
     pub fn get_note(&self, id: i64) -> Result<Option<Note>, AppError> {
         let conn = self
@@ -521,9 +521,9 @@ impl Database {
         Ok(result)
     }
 
-    /// 批量查询若干笔记的 folder_id（轻量：只取 id+folder_id，不加载正文）。
+    /// 批量查询若干文档的 folder_id（轻量：只取 id+folder_id，不加载正文）。
     ///
-    /// 用于按文件夹范围过滤工具结果（如 find_related 的反链来源笔记）。
+    /// 用于按文件夹范围过滤工具结果（如 find_related 的反链来源文档）。
     /// 返回 map: note_id -> folder_id（folder_id 为 None 表示未分类）。不存在的 id 不会出现在 map 里。
     pub fn note_folder_map(
         &self,
@@ -553,12 +553,12 @@ impl Database {
         Ok(map)
     }
 
-    /// 查询笔记列表（分页 + 可选 folder_id 和 keyword 过滤）
+    /// 查询文档列表（分页 + 可选 folder_id 和 keyword 过滤）
     ///
-    /// `uncategorized=true` 时只返回 folder_id IS NULL 的笔记（"未分类"虚拟文件夹）；
+    /// `uncategorized=true` 时只返回 folder_id IS NULL 的文档（"未分类"虚拟文件夹）；
     /// 与 `folder_id` 互斥，同时传 `folder_id` 优先生效。
     ///
-    /// `include_descendants=true` 时点父文件夹连同子孙文件夹的笔记一起返回（默认行为，
+    /// `include_descendants=true` 时点父文件夹连同子孙文件夹的文档一起返回（默认行为，
     /// 符合用户对"文件夹=容器"的直觉）。仅在传了 `folder_id` 时生效；未分类不递归。
     pub fn list_notes(
         &self,
@@ -590,10 +590,10 @@ impl Database {
             .map_err(|e| AppError::Custom(e.to_string()))?;
 
         // 构建 WHERE 条件（始终过滤已删除 + 隐藏 + 临时 + 日记）
-        // T-003: is_hidden=0 在所有主列表入口强制过滤；隐藏笔记只能从 /hidden 专用页访问
+        // T-003: is_hidden=0 在所有主列表入口强制过滤；隐藏文档只能从 /hidden 专用页访问
         // is_scratch=0 同理：以"临时编辑"方式打开的外部 .md 不进主列表，走专用面板
         //（用户拿本应用改一份外部 README 时，不希望它混进自己的知识库列表）
-        // 日记 is_daily=1 也无条件过滤：所有用户视角的「笔记列表」（主列表 / 未分类 / 文件夹）
+        // 日记 is_daily=1 也无条件过滤：所有用户视角的「文档列表」（主列表 / 未分类 / 文件夹）
         // 都不显示日记，日记只走 📅 每日笔记专用面板。
         // 不影响 FTS 全文搜索 / MCP / AI RAG —— 那些走独立查询路径。
         // ext_index_only=0：外部二进制文档（PDF/Word/Excel）默认不进文档列表；
@@ -671,7 +671,7 @@ impl Database {
 
         // 查询分页数据
         let offset = (page.saturating_sub(1)) * page_size;
-        // 置顶笔记永远优先（is_pinned DESC），二级排序由 sort_by 决定。
+        // 置顶文档永远优先（is_pinned DESC），二级排序由 sort_by 决定。
         // 兜底全部带上 updated_at DESC 防止同值时顺序抖动。
         let order_clause = match sort_by.unwrap_or("default") {
             "custom" => "is_pinned DESC, sort_order ASC, updated_at DESC",
@@ -724,7 +724,7 @@ impl Database {
         Ok((notes, total))
     }
 
-    // ─── T-007 笔记加密 DAO ────────────────────────
+    // ─── T-007 文档加密 DAO ────────────────────────
 
     /// 启用加密：写入密文 + 占位 content + 标记 is_encrypted=1
     ///
@@ -748,7 +748,7 @@ impl Database {
             params![blob, placeholder, id],
         )?;
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", id)));
         }
         Ok(())
     }
@@ -767,12 +767,12 @@ impl Database {
             params![plaintext, id],
         )?;
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", id)));
         }
         Ok(())
     }
 
-    /// 查询笔记是否处于加密态。笔记不存在或已软删返回 NotFound。
+    /// 查询文档是否处于加密态。文档不存在或已软删返回 NotFound。
     /// ImageService 落盘 / 渲染前需要先反查这个，决定走加密分支还是明文分支。
     pub fn get_note_is_encrypted(&self, id: i64) -> Result<bool, AppError> {
         let conn = self
@@ -787,10 +787,10 @@ impl Database {
             )
             .ok();
         flag.map(|v| v != 0)
-            .ok_or_else(|| AppError::NotFound(format!("笔记 {} 不存在", id)))
+            .ok_or_else(|| AppError::NotFound(format!("文档 {} 不存在", id)))
     }
 
-    /// 读取加密笔记的 blob（未解密）。调用方拿到后用 vault 解密
+    /// 读取加密文档的 blob（未解密）。调用方拿到后用 vault 解密
     pub fn get_encrypted_blob(&self, id: i64) -> Result<Option<Vec<u8>>, AppError> {
         let conn = self
             .conn
@@ -807,9 +807,9 @@ impl Database {
         Ok(result)
     }
 
-    /// 更新加密笔记的密文（不改 is_encrypted / placeholder；用于"已加密态下编辑"保存）
+    /// 更新加密文档的密文（不改 is_encrypted / placeholder；用于"已加密态下编辑"保存）
     ///
-    /// 预留给 T-007b：解锁态下直接在编辑器里编辑加密笔记，保存时重加密写回。
+    /// 预留给 T-007b：解锁态下直接在编辑器里编辑加密文档，保存时重加密写回。
     /// v1 的流程是"取消加密 → 编辑 → 重新加密"，暂未调用。
     #[allow(dead_code)]
     pub fn update_encrypted_blob(&self, id: i64, blob: &[u8]) -> Result<(), AppError> {
@@ -824,16 +824,16 @@ impl Database {
         )?;
         if affected == 0 {
             return Err(AppError::NotFound(format!(
-                "笔记 {} 不存在或未处于加密态",
+                "文档 {} 不存在或未处于加密态",
                 id
             )));
         }
         Ok(())
     }
 
-    // ─── T-003 隐藏笔记 DAO ─────────────────────────
+    // ─── T-003 隐藏文档 DAO ─────────────────────────
 
-    /// 切换笔记的"隐藏"状态
+    /// 切换文档的"隐藏"状态
     ///
     /// 隐藏后主列表 / 搜索 / 反链 / 图谱 / RAG 全部不显示；取消隐藏立刻恢复可见。
     /// 返回切换后的新状态（true=已隐藏）。
@@ -848,12 +848,12 @@ impl Database {
             params![i32::from(hidden), id],
         )?;
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", id)));
         }
         Ok(hidden)
     }
 
-    /// 列出所有隐藏笔记（分页），按 updated_at DESC
+    /// 列出所有隐藏文档（分页），按 updated_at DESC
     ///
     /// 与 list_notes 刚好相反——只取 is_hidden=1（仍过滤 is_deleted=0）。
     /// 可按目录过滤：
@@ -936,7 +936,7 @@ impl Database {
         Ok((notes, total))
     }
 
-    /// 返回所有"含至少一篇隐藏笔记"的 folder_id（含 None 表示有未分类的隐藏笔记）
+    /// 返回所有"含至少一篇隐藏文档"的 folder_id（含 None 表示有未分类的隐藏文档）
     ///
     /// 顺序：NULL 在前（"未分类"语义上排首位），其余按 folder_id ASC。
     pub fn list_hidden_folder_ids(&self) -> Result<Vec<Option<i64>>, AppError> {
@@ -957,7 +957,7 @@ impl Database {
 
     // ─── 临时编辑（scratch）DAO ───────────────────
 
-    /// 列出"临时编辑"笔记（以临时方式打开的外部 .md）
+    /// 列出"临时编辑"文档（以临时方式打开的外部 .md）
     ///
     /// 与 list_notes 相反：只取 is_scratch=1。不做目录过滤 —— 临时文件本就不归属
     /// 用户的文件夹体系，按最近改动倒序平铺即可。
@@ -1013,7 +1013,7 @@ impl Database {
         Ok((notes, total))
     }
 
-    /// 读取笔记的"临时编辑"标记（笔记不存在按 false 处理）
+    /// 读取文档的"临时编辑"标记（文档不存在按 false 处理）
     ///
     /// 单独开一个轻查询而不是走 get_note：调用方（打开 .md 的去重分支）只关心这一位，
     /// 没必要把整篇 content 拉进内存。
@@ -1032,9 +1032,9 @@ impl Database {
         Ok(v.unwrap_or(0) != 0)
     }
 
-    /// 设置笔记的"临时编辑"标记
+    /// 设置文档的"临时编辑"标记
     ///
-    /// `false` = 转为正式笔记：立刻回到主列表 / 搜索 / 双链。
+    /// `false` = 转为正式文档：立刻回到主列表 / 搜索 / 双链。
     /// 只动这一列，不碰 updated_at —— 归档动作不该让同步误判"本端改过内容"。
     pub fn set_note_scratch(&self, id: i64, scratch: bool) -> Result<(), AppError> {
         let conn = self
@@ -1046,14 +1046,14 @@ impl Database {
             params![if scratch { 1 } else { 0 }, id],
         )?;
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", id)));
         }
         Ok(())
     }
 
     // ─── 置顶 & 移动 DAO ─────────────────────────
 
-    /// 切换笔记置顶状态
+    /// 切换文档置顶状态
     pub fn toggle_pin(&self, id: i64) -> Result<bool, AppError> {
         let conn = self
             .conn
@@ -1068,7 +1068,7 @@ impl Database {
         )?;
 
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", id)));
         }
 
         let is_pinned: bool = conn.query_row(
@@ -1080,9 +1080,9 @@ impl Database {
         Ok(is_pinned)
     }
 
-    /// 拿到当前筛选条件下「全部」笔记的 id 列表（不分页），按 sort_by 排序。
+    /// 拿到当前筛选条件下「全部」文档的 id 列表（不分页），按 sort_by 排序。
     ///
-    /// 拖拽排序专用：前端只看到当前页 12 条笔记，但 reorder 必须覆盖
+    /// 拖拽排序专用：前端只看到当前页 12 条文档，但 reorder 必须覆盖
     /// **整个可见集合**的 ID，否则跨页 sort_order 会被踩到 0/1000/… 撞车。
     /// WHERE 条件与 list_notes 保持完全一致。
     pub fn list_note_ids_for_reorder(
@@ -1193,11 +1193,11 @@ impl Database {
         Ok(ids)
     }
 
-    /// 批量重排笔记的 sort_order（同 folder 内一次性按给定顺序赋值 0/1000/2000…）
+    /// 批量重排文档的 sort_order（同 folder 内一次性按给定顺序赋值 0/1000/2000…）
     ///
     /// 调用约定：`ordered_ids` 为同一 folder（或同一虚拟分组，如未分类）内**完整**的
-    /// 笔记 ID 顺序列表。本函数不校验 folder_id 一致性——前端拿到该 folder 当前
-    /// 的全部笔记后调用即可，间隔 1000 留给未来插队。
+    /// 文档 ID 顺序列表。本函数不校验 folder_id 一致性——前端拿到该 folder 当前
+    /// 的全部文档后调用即可，间隔 1000 留给未来插队。
     ///
     /// 用事务保证原子性：要么全部更新成功要么全部回滚。
     pub fn reorder_notes(&self, ordered_ids: &[i64]) -> Result<(), AppError> {
@@ -1220,7 +1220,7 @@ impl Database {
         Ok(())
     }
 
-    /// 移动笔记到文件夹
+    /// 移动文档到文件夹
     pub fn move_note_to_folder(
         &self,
         note_id: i64,
@@ -1238,7 +1238,7 @@ impl Database {
         )?;
 
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", note_id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", note_id)));
         }
 
         Ok(())
@@ -1246,7 +1246,7 @@ impl Database {
 
     // ─── 回收站 DAO ──────────────────────────────
 
-    /// 软删除笔记（移入回收站）
+    /// 软删除文档（移入回收站）
     pub fn soft_delete_note(&self, id: i64) -> Result<bool, AppError> {
         let conn = self
             .conn
@@ -1261,7 +1261,7 @@ impl Database {
     }
 
     /// 批量软删除（移入回收站）；返回实际标记删除的条数
-    /// 已经在回收站的笔记会被忽略（WHERE is_deleted = 0）
+    /// 已经在回收站的文档会被忽略（WHERE is_deleted = 0）
     pub fn soft_delete_notes_batch(&self, ids: &[i64]) -> Result<usize, AppError> {
         if ids.is_empty() {
             return Ok(0);
@@ -1284,7 +1284,7 @@ impl Database {
         Ok(affected)
     }
 
-    /// 恢复笔记（从回收站恢复）
+    /// 恢复文档（从回收站恢复）
     pub fn restore_note(&self, id: i64) -> Result<bool, AppError> {
         let conn = self
             .conn
@@ -1298,7 +1298,7 @@ impl Database {
         Ok(affected > 0)
     }
 
-    /// 永久删除笔记
+    /// 永久删除文档
     pub fn permanent_delete_note(&self, id: i64) -> Result<bool, AppError> {
         let conn = self
             .conn
@@ -1311,7 +1311,7 @@ impl Database {
         Ok(affected > 0)
     }
 
-    /// 查询回收站笔记列表（分页）
+    /// 查询回收站文档列表（分页）
     pub fn list_trash(
         &self,
         page: usize,
@@ -1375,7 +1375,7 @@ impl Database {
         Ok(affected)
     }
 
-    /// 查询指定笔记的 source_file_path（无论是否在回收站）
+    /// 查询指定文档的 source_file_path（无论是否在回收站）
     pub fn get_note_source_path(&self, id: i64) -> Result<Option<String>, AppError> {
         let conn = self
             .conn
@@ -1388,8 +1388,8 @@ impl Database {
         Ok(path.flatten())
     }
 
-    /// 轻量查询单条笔记的 folder_id（不存在或 folder_id 为 NULL 都返回 None）
-    /// 用于"恢复笔记前判断是否落根目录"等场景，避免读整条 Note
+    /// 轻量查询单条文档的 folder_id（不存在或 folder_id 为 NULL 都返回 None）
+    /// 用于"恢复文档前判断是否落根目录"等场景，避免读整条 Note
     pub fn get_note_folder_id(&self, id: i64) -> Result<Option<i64>, AppError> {
         let conn = self
             .conn
@@ -1402,9 +1402,9 @@ impl Database {
         Ok(fid.flatten())
     }
 
-    /// 列出所有笔记的 (id, is_encrypted, content) —— 含回收站。
-    /// 加密笔记的 content 是密文占位符，孤儿扫描里调用方应跳过其 content
-    /// 但保留 id 用于"该笔记目录下的素材整体放过"判定。
+    /// 列出所有文档的 (id, is_encrypted, content) —— 含回收站。
+    /// 加密文档的 content 是密文占位符，孤儿扫描里调用方应跳过其 content
+    /// 但保留 id 用于"该文档目录下的素材整体放过"判定。
     pub fn list_all_contents_for_orphan_scan(
         &self,
     ) -> Result<Vec<(i64, bool, Option<String>)>, AppError> {
@@ -1425,8 +1425,8 @@ impl Database {
         Ok(rows)
     }
 
-    /// 列出所有笔记的 source_file_path（非空），用于孤儿 PDF/源文件扫描。
-    /// 含回收站笔记 —— 回收站撤回时还要用。
+    /// 列出所有文档的 source_file_path（非空），用于孤儿 PDF/源文件扫描。
+    /// 含回收站文档 —— 回收站撤回时还要用。
     pub fn list_all_source_file_paths(&self) -> Result<Vec<String>, AppError> {
         let conn = self
             .conn
@@ -1442,7 +1442,7 @@ impl Database {
         Ok(rows)
     }
 
-    /// 列出回收站内所有笔记的 (id, source_file_path) —— 用于清理时遍历
+    /// 列出回收站内所有文档的 (id, source_file_path) —— 用于清理时遍历
     pub fn list_trash_ids_with_sources(&self) -> Result<Vec<(i64, Option<String>)>, AppError> {
         let conn = self
             .conn
@@ -1458,8 +1458,8 @@ impl Database {
         Ok(rows)
     }
 
-    /// 将所有笔记批量移到回收站（软删）
-    /// 只影响 is_deleted = 0 的笔记；已在回收站的保持不变。
+    /// 将所有文档批量移到回收站（软删）
+    /// 只影响 is_deleted = 0 的文档；已在回收站的保持不变。
     pub fn trash_all_notes(&self) -> Result<usize, AppError> {
         let conn = self
             .conn
@@ -1559,7 +1559,7 @@ impl Database {
         drop(stmt);
 
         // 兜底：认领"伪日记" —— 早期同步协议没把 is_daily 写进 manifest，从别的端拉过来的日记
-        // 会落成 is_daily=0、标题仍是程序生成的 "{date} 的日记" 的普通笔记。这里把它认领为当天日记
+        // 会落成 is_daily=0、标题仍是程序生成的 "{date} 的日记" 的普通文档。这里把它认领为当天日记
         // （UPDATE is_daily=1, daily_date），而不是再 INSERT 一条 → 阻止日记在多端反复增殖；
         // 也覆盖"新旧客户端共存的过渡期"（旧端推上来的 entry 还没带 is_daily）。
         let claim_title = format!("{} 的日记", date);
@@ -1688,7 +1688,7 @@ impl Database {
         Ok(entries)
     }
 
-    /// 内部方法：通过已有连接获取单个笔记（避免重复锁）
+    /// 内部方法：通过已有连接获取单个文档（避免重复锁）
     // pub(super)：兄弟模块 database::whiteboard 建完白板后要在**同一把锁内**取回整行。
     // 换成公开的 get_note() 会二次 lock 同一个 Mutex —— std::sync::Mutex 不可重入，直接死锁。
     pub(super) fn get_note_inner(
@@ -1726,7 +1726,7 @@ impl Database {
         Ok(note)
     }
 
-    /// 更新笔记的源文件路径与类型
+    /// 更新文档的源文件路径与类型
     pub fn set_note_source_file(
         &self,
         id: i64,
@@ -1742,14 +1742,14 @@ impl Database {
             params![path, file_type, id],
         )?;
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", id)));
         }
         Ok(())
     }
 
-    /// 标记笔记的 AI 对话归档来源（B 方向：AI 对话 → 笔记）
+    /// 标记文档的 AI 对话归档来源（B 方向：AI 对话 → 文档）
     ///
-    /// 给"从笔记跳回原 AI 对话"的反向追溯能力用。设为 None 解除关联。
+    /// 给"从文档跳回原 AI 对话"的反向追溯能力用。设为 None 解除关联。
     pub fn set_note_from_ai_conversation(
         &self,
         note_id: i64,
@@ -1764,12 +1764,12 @@ impl Database {
             params![conversation_id, note_id],
         )?;
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", note_id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", note_id)));
         }
         Ok(())
     }
 
-    /// 读笔记的伴生 AI 对话 ID（编辑器右侧抽屉用）
+    /// 读文档的伴生 AI 对话 ID（编辑器右侧抽屉用）
     ///
     /// 返回 None 时调用方应负责创建一条新对话，再 set_note_companion_conversation 写回。
     pub fn get_note_companion_conversation(&self, note_id: i64) -> Result<Option<i64>, AppError> {
@@ -1788,7 +1788,7 @@ impl Database {
         Ok(result)
     }
 
-    /// 关联笔记的伴生 AI 对话 ID（None 解除）
+    /// 关联文档的伴生 AI 对话 ID（None 解除）
     pub fn set_note_companion_conversation(
         &self,
         note_id: i64,
@@ -1803,14 +1803,14 @@ impl Database {
             params![conversation_id, note_id],
         )?;
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", note_id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", note_id)));
         }
         Ok(())
     }
 
-    /// 按 source_file_path 查找未被删除的笔记，返回 (id, content)
+    /// 按 source_file_path 查找未被删除的文档，返回 (id, content)
     ///
-    /// 用于 .md 文件重复打开去重：若已有导入过的同路径笔记，直接跳过去而不是新建。
+    /// 用于 .md 文件重复打开去重：若已有导入过的同路径文档，直接跳过去而不是新建。
     pub fn find_active_note_by_source_path(
         &self,
         path: &str,
@@ -1832,9 +1832,9 @@ impl Database {
         Ok(result)
     }
 
-    /// 只更新笔记正文，不动 title/folder_id/source_file_path 等元数据
+    /// 只更新文档正文，不动 title/folder_id/source_file_path 等元数据
     ///
-    /// 用于"外部编辑过 md 源文件 → 重新打开时同步回笔记"的场景。
+    /// 用于"外部编辑过 md 源文件 → 重新打开时同步回文档"的场景。
     /// 同步更新 content_hash（v22）。
     pub fn update_note_content(&self, id: i64, content: &str) -> Result<(), AppError> {
         let conn = self
@@ -1849,18 +1849,18 @@ impl Database {
             params![content, content_hash, id],
         )?;
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", id)));
         }
         Ok(())
     }
 
-    /// 列出全部**普通**笔记（非日记）及其所在文件夹的完整路径，供"历史日记转换"扫描用。
+    /// 列出全部**普通**文档（非日记）及其所在文件夹的完整路径，供"历史日记转换"扫描用。
     ///
-    /// 返回 `(note_id, title, folder_path)`；`folder_path` 是从根到该笔记所在文件夹的
-    /// 名称串，用 '/' 连接（根层笔记为空串）—— 与 `ScannedFile.relative_dir` 同构，
-    /// 这样 `daily_import` 那套日期识别对"库里的笔记"和"磁盘上的文件"能共用一份实现。
+    /// 返回 `(note_id, title, folder_path)`；`folder_path` 是从根到该文档所在文件夹的
+    /// 名称串，用 '/' 连接（根层文档为空串）—— 与 `ScannedFile.relative_dir` 同构，
+    /// 这样 `daily_import` 那套日期识别对"库里的文档"和"磁盘上的文件"能共用一份实现。
     ///
-    /// 用递归 CTE 一次查完，避免几千条笔记逐条向上爬文件夹树（N+1 查询）。
+    /// 用递归 CTE 一次查完，避免几千条文档逐条向上爬文件夹树（N+1 查询）。
     pub fn list_notes_with_folder_path(&self) -> Result<Vec<(i64, String, String)>, AppError> {
         let conn = self
             .conn
@@ -1893,11 +1893,11 @@ impl Database {
         Ok(rows)
     }
 
-    /// 把一条普通笔记就地认领为某天的日记。
+    /// 把一条普通文档就地认领为某天的日记。
     ///
-    /// 只改 `is_daily` / `daily_date`，**不动正文、不动 folder_id** —— 转换后笔记树里
+    /// 只改 `is_daily` / `daily_date`，**不动正文、不动 folder_id** —— 转换后文档树里
     /// 原来的位置保持不变，日记页也能按日期看到，且回滚只需把 is_daily 清回 0。
-    /// 与 `get_or_create_daily` 里"认领伪日记"是同一路数，不新建笔记，避免日记增殖。
+    /// 与 `get_or_create_daily` 里"认领伪日记"是同一路数，不新建文档，避免日记增殖。
     pub fn mark_note_as_daily(&self, id: i64, date: &str) -> Result<(), AppError> {
         let conn = self
             .conn
@@ -1910,16 +1910,16 @@ impl Database {
             params![date, id],
         )?;
         if affected == 0 {
-            return Err(AppError::NotFound(format!("笔记 {} 不存在", id)));
+            return Err(AppError::NotFound(format!("文档 {} 不存在", id)));
         }
         Ok(())
     }
 
-    /// 按 (title, content_hash) 查活跃笔记的 id —— 导入去重的兜底
+    /// 按 (title, content_hash) 查活跃文档的 id —— 导入去重的兜底
     ///
     /// 和 `find_active_note_by_source_path` 的关系：
     /// 主判用 source_file_path；若用户把源文件搬动过，path 匹配不到，再用
-    /// (title, content_hash) 兜底匹配"同标题+同内容"的已存在笔记。
+    /// (title, content_hash) 兜底匹配"同标题+同内容"的已存在文档。
     /// 故意用 AND 而非仅 hash——标题被改过说明用户主动区分，不该算重复。
     pub fn find_active_note_by_title_and_hash(
         &self,
@@ -1948,7 +1948,7 @@ mod stable_uuid_tests {
     //!
     //! 用 `Database::init(":memory:")` 走完整 v0 → v36 迁移链路验证：
     //! - 迁移幂等（重复初始化不报错）
-    //! - 新建笔记自动填 stable_uuid
+    //! - 新建文档自动填 stable_uuid
     //! - UNIQUE 索引拦截重复
     //! - get_note_id_by_stable_uuid 能查到
 
@@ -2030,7 +2030,7 @@ mod stable_uuid_tests {
             )
         };
         assert_eq!(u1.len(), 36, "UUID v4 文本长度应为 36（含 4 个连字符）");
-        assert_ne!(u1, u2, "不同笔记 UUID 必须不同");
+        assert_ne!(u1, u2, "不同文档 UUID 必须不同");
     }
 
     #[test]
@@ -2142,7 +2142,7 @@ mod stable_uuid_tests {
     fn get_or_create_daily_claims_pseudo_daily_instead_of_creating() {
         let db = fresh_db();
 
-        // 模拟早期同步：从别的端拉来一条日记，落成了 is_daily=0 的普通笔记
+        // 模拟早期同步：从别的端拉来一条日记，落成了 is_daily=0 的普通文档
         let pseudo = db
             .create_note_with_uuid(
                 &NoteInput {
@@ -2181,7 +2181,7 @@ mod stable_uuid_tests {
         assert_eq!(cnt, 1, "不能因为同步又多出一条日记");
     }
 
-    /// get_or_create_daily 没有任何同名笔记时仍然正常新建
+    /// get_or_create_daily 没有任何同名文档时仍然正常新建
     #[test]
     fn get_or_create_daily_creates_when_nothing_to_claim() {
         let db = fresh_db();
@@ -2223,7 +2223,7 @@ mod stable_uuid_tests {
         let db = fresh_db();
         // 本地已有 2026-05-12 的真日记
         let real = db.get_or_create_daily("2026-05-12").unwrap();
-        // 另一条普通笔记（比如多端各自建过日记，被同步拉过来一条）
+        // 另一条普通文档（比如多端各自建过日记，被同步拉过来一条）
         let other = db
             .create_note(&NoteInput {
                 title: "2026-05-12 的日记".into(),
@@ -2234,11 +2234,11 @@ mod stable_uuid_tests {
 
         // 远端说 other 也是 2026-05-12 的日记 → 因为 real 占着这天，应跳过
         db.sync_note_daily_state(other.id, true, Some("2026-05-12")).unwrap();
-        assert_eq!(note_daily_state(&db, other.id), (false, None), "冲突时应保持 other 为普通笔记");
+        assert_eq!(note_daily_state(&db, other.id), (false, None), "冲突时应保持 other 为普通文档");
         assert_eq!(note_daily_state(&db, real.id), (true, Some("2026-05-12".into())), "原日记不受影响");
     }
 
-    // ───────── 修 Bug：隐藏笔记 is_hidden 跨端同步 ─────────
+    // ───────── 修 Bug：隐藏文档 is_hidden 跨端同步 ─────────
 
     fn note_is_hidden(db: &Database, id: i64) -> bool {
         let conn = db.conn_lock().unwrap();
@@ -2342,7 +2342,7 @@ mod stable_uuid_tests {
             "updated_at 必须用传入值，不能冒泡到 now"
         );
 
-        // 笔记不存在 → NotFound
+        // 文档不存在 → NotFound
         let err = db
             .update_note_synced(
                 999_999,

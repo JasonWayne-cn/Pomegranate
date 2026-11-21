@@ -13,7 +13,7 @@
  *
  * 流程：
  *   1. 克隆 editor.view.dom（真实渲染 DOM）
- *   2. 顶部插入笔记标题（标题是编辑器外的独立字段，打印文档需要它当大标题）
+ *   2. 顶部插入文档标题（标题是编辑器外的独立字段，打印文档需要它当大标题）
  *   3. 剥掉编辑态控件（节点视图工具栏 / 光标小部件等）
  *   4. 图片固化为 base64：实时 DOM 的 img.src 已是 http://asset.localhost/… 或 blob:…，
  *      在主文档 fetch → dataURL，保证打印 iframe 自包含（blob: 跨不进 iframe，必须固化）
@@ -229,9 +229,9 @@ function applyCodeBlockCaptions(root: HTMLElement, titles: string[]): void {
 }
 
 /**
- * 判断克隆出的编辑器 DOM 是否已经以「与笔记标题相同」的一级标题开头。
+ * 判断克隆出的编辑器 DOM 是否已经以「与文档标题相同」的一级标题开头。
  *
- * 很多笔记习惯把标题手写成正文首个 `# 标题`。这种情况下再在顶部插标题就会
+ * 很多文档习惯把标题手写成正文首个 `# 标题`。这种情况下再在顶部插标题就会
  * 得到两个大标题。比较前剔除自动编号 widget（`.kb-hnum`），并压缩空白，
  * 因为屏幕上标题文本可能是「1 标题」。
  */
@@ -255,9 +255,9 @@ function startsWithSameTitleHeading(clone: HTMLElement, title: string): boolean 
  * markdown 重渲染永远看不到它（用户反馈"导出 html、word 时无编号"就是这么来的）。
  *
  * @param editor     Tiptap 编辑器实例
- * @param title      笔记标题；作为文档大标题插到最前
+ * @param title      文档标题；作为文档大标题插到最前
  * @param titleClass 大标题的 class（打印要 kb-print-title 压掉顶部空白，其它场景不需要）
- * @param onProgress 可选进度回调；大笔记内嵌资源要几秒到几十秒，调用方据此更新提示，
+ * @param onProgress 可选进度回调；大文档内嵌资源要几秒到几十秒，调用方据此更新提示，
  *                   免得用户以为卡死
  */
 export async function editorDomToSelfContainedHtml(
@@ -333,8 +333,8 @@ export async function editorDomToSelfContainedHtml(
  * 打印（或打印成 PDF）当前编辑器内容，所见即所得。
  *
  * @param editor     Tiptap 编辑器实例（来自 TiptapEditor 的 onEditorReady）
- * @param title      笔记标题，作为打印文档大标题 + 打印对话框默认文件名
- * @param onProgress 可选进度回调，图多的笔记内嵌阶段会走几秒到几十秒
+ * @param title      文档标题，作为打印文档大标题 + 打印对话框默认文件名
+ * @param onProgress 可选进度回调，图多的文档内嵌阶段会走几秒到几十秒
  */
 export async function printEditorContent(
   editor: Editor,
@@ -465,7 +465,7 @@ async function inlineImages(
  *
  * 只把 **URL 清单**交给 Rust，拿回 data: URL 后在本地 DOM 上回填 —— 而不是把整篇
  * （图片已内嵌、动辄几十 MB 的）HTML 送过去再拿回来。后者一趟 IPC 就是两次巨型
- * JSON 序列化加 Rust 全文正则，是大笔记打印卡死的头号原因。
+ * JSON 序列化加 Rust 全文正则，是大文档打印卡死的头号原因。
  *
  * `budget` 是本次还能内嵌多少字节（图片已经吃掉一部分）；≤0 时直接跳过，全部保留原链接。
  */
@@ -734,7 +734,7 @@ html, body, #root {
 
 .tiptap { padding: 0 !important; caret-color: transparent !important; }
 
-/* 顶部插入的笔记标题：与正文 h1 一致，并强制顶部不留多余空白 */
+/* 顶部插入的文档标题：与正文 h1 一致，并强制顶部不留多余空白 */
 .tiptap .kb-print-title { margin-top: 0 !important; }
 
 /* 隐藏一切编辑态控件 */

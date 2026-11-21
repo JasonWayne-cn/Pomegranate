@@ -64,7 +64,7 @@ pub fn save_embedding_config(
     Ok(())
 }
 
-/// 全量重建笔记向量（后台串行，进度通过 `ai:reindex_progress` 事件回报）。
+/// 全量重建文档向量（后台串行，进度通过 `ai:reindex_progress` 事件回报）。
 ///
 /// 前置：embedding 已配置、启用且维度已知（先 test_embedding 再 save）。
 #[tauri::command]
@@ -87,7 +87,7 @@ pub async fn reindex_notes(
         .map_err(|e| e.to_string())?;
     let total = notes.len();
 
-    // 全量重建：先清空旧向量，避免笔记变短后残留旧的 chunk
+    // 全量重建：先清空旧向量，避免文档变短后残留旧的 chunk
     state
         .db
         .clear_all_note_embeddings()
@@ -99,7 +99,7 @@ pub async fn reindex_notes(
     let mut done = 0usize;
     let mut failed = 0usize;
     for (id, content) in notes {
-        // 长笔记分块，每块单独 embed，避免超过 API 单次输入上限
+        // 长文档分块，每块单独 embed，避免超过 API 单次输入上限
         let chunks = crate::services::embedding::chunk_text(&content, CHUNK_CHARS);
         let mut note_failed = false;
         for (idx, chunk) in chunks.iter().enumerate() {
@@ -113,12 +113,12 @@ pub async fn reindex_notes(
                         &cfg.model_id,
                         cfg.dim,
                     ) {
-                        log::warn!("[reindex] 笔记 {} chunk {} 入库失败: {}", id, idx, e);
+                        log::warn!("[reindex] 文档 {} chunk {} 入库失败: {}", id, idx, e);
                         note_failed = true;
                     }
                 }
                 Err(e) => {
-                    log::warn!("[reindex] 笔记 {} chunk {} embed 失败: {}", id, idx, e);
+                    log::warn!("[reindex] 文档 {} chunk {} embed 失败: {}", id, idx, e);
                     note_failed = true;
                 }
             }

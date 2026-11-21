@@ -1,10 +1,10 @@
 //! T-S020 sidecar CAS 附件同步索引表 DAO
 //!
-//! `note_attachments` (v37) 记录每条笔记引用的本地资产文件 + 内容 hash。
+//! `note_attachments` (v37) 记录每条文档引用的本地资产文件 + 内容 hash。
 //! 用于：
 //! - 同步 push 阶段：算出本机所有 unique sha256，与远端 has_attachment 算差集
 //! - 同步 pull 阶段：远端 manifest.attachments 与本地 unique hashes 算差集，下载缺失的
-//! - 本地引用查询：按 hash 反查本地 path（笔记内嵌引用 fallback 时用）
+//! - 本地引用查询：按 hash 反查本地 path（文档内嵌引用 fallback 时用）
 
 use rusqlite::{params, OptionalExtension};
 
@@ -26,7 +26,7 @@ pub struct NoteAttachmentRow {
 }
 
 impl Database {
-    /// upsert 单条笔记 → 资产的引用记录（同 note_id+rel_path 覆盖）。
+    /// upsert 单条文档 → 资产的引用记录（同 note_id+rel_path 覆盖）。
     ///
     /// 薄包装，委托给 [`upsert_attachment_refs_batch`]，避免两份 SQL 各自演化。
     /// **热路径（附件扫描）不要用它**：逐条调会产生大量锁抖动，直接用批量版。
@@ -57,13 +57,13 @@ impl Database {
         Ok(())
     }
 
-    /// 批量 upsert 一条笔记的全部资产引用（一次加锁 + 一个事务）。
+    /// 批量 upsert 一条文档的全部资产引用（一次加锁 + 一个事务）。
     ///
     /// 相对逐条调 [`upsert_attachment_ref`] 的意义在于**减少锁抖动**：
     /// 附件全库扫描要处理近万条引用，逐条 upsert 就是近万次
     /// `Mutex` 加解锁。同步跑在 `spawn_blocking` 线程上，而 `get_note` 之类的
     /// **同步 Command 跑在主线程**并争抢同一把锁 —— 高频抖动下主线程可能被饿住，
-    /// 用户体感就是"扫描期间点笔记一直转圈"。一次锁 + 一个事务同时也让写入更快。
+    /// 用户体感就是"扫描期间点文档一直转圈"。一次锁 + 一个事务同时也让写入更快。
     ///
     /// 入参为空时直接返回（不开事务）。返回成功写入的条数。
     pub fn upsert_attachment_refs_batch(
@@ -96,9 +96,9 @@ impl Database {
         Ok(refs.len())
     }
 
-    /// 列出某笔记的所有附件引用
+    /// 列出某文档的所有附件引用
     ///
-    /// 预留给 UI 显示"此笔记引用的附件清单"+ note CASCADE 测试用。
+    /// 预留给 UI 显示"此文档引用的附件清单"+ note CASCADE 测试用。
     #[allow(dead_code)]
     pub fn list_attachments_for_note(
         &self,
@@ -156,10 +156,10 @@ impl Database {
         Ok(rows)
     }
 
-    /// 按 sha256 列出**所有**本地路径（一附件可能被多笔记引用）。
+    /// 按 sha256 列出**所有**本地路径（一附件可能被多文档引用）。
     ///
     /// 给 push 端构造 `AttachmentEntry.paths` 用：让 manifest 携带"这个 hash 在写端的所有原路径"，
-    /// pull 端按这些路径把字节从 `sync_in/<hash>.<ext>` 拷到原位置，让笔记里的
+    /// pull 端按这些路径把字节从 `sync_in/<hash>.<ext>` 拷到原位置，让文档里的
     /// `kb-asset://kb_assets/images/...` 引用能命中文件。
     pub fn list_attachment_paths_by_hash(
         &self,
@@ -205,7 +205,7 @@ impl Database {
         Ok(path)
     }
 
-    /// 删除某笔记的全部附件引用（笔记物理删除时用；CASCADE 也会触发，但显式调更安全）
+    /// 删除某文档的全部附件引用（文档物理删除时用；CASCADE 也会触发，但显式调更安全）
     #[allow(dead_code)]
     pub fn delete_attachment_refs_for_note(&self, note_id: i64) -> Result<usize, AppError> {
         let conn = self
@@ -229,7 +229,7 @@ mod tests {
         let db = Database::init(":memory:").expect("init :memory: 应成功");
         let n = db
             .create_note(&NoteInput {
-                title: "笔记 A".into(),
+                title: "文档 A".into(),
                 content: "x".into(),
                 folder_id: None,
             })
@@ -284,14 +284,14 @@ mod tests {
         let (db, n1) = setup();
         let n2 = db
             .create_note(&NoteInput {
-                title: "笔记 B".into(),
+                title: "文档 B".into(),
                 content: "y".into(),
                 folder_id: None,
             })
             .unwrap()
             .id;
 
-        // 同一 hash 在两个笔记里
+        // 同一 hash 在两个文档里
         db.upsert_attachment_ref(n1, "kb_assets/images/a.png", "shared_h", 100, None)
             .unwrap();
         db.upsert_attachment_ref(n2, "kb_assets/images/dup.png", "shared_h", 100, None)
@@ -325,7 +325,7 @@ mod tests {
         let (db, nid) = setup();
         db.upsert_attachment_ref(nid, "pdfs/x.pdf", "abc", 1, None)
             .unwrap();
-        // 物理删除笔记应触发 CASCADE
+        // 物理删除文档应触发 CASCADE
         {
             let conn = db.conn_lock().unwrap();
             conn.execute("DELETE FROM notes WHERE id = ?1", [nid]).unwrap();

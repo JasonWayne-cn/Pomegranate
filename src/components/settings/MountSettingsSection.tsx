@@ -125,7 +125,7 @@ export function MountSettingsSection({ compact }: Props) {
       readOnly: false,
       indexEnabled: true,
       dailyMode: false,
-      scanInterval: 10,
+      scanInterval: 600,
     });
     setAddOpen(true);
   }
@@ -200,7 +200,7 @@ export function MountSettingsSection({ compact }: Props) {
     Modal.confirm({
       title: "移除挂载点？",
       content:
-        "只删除索引和影子笔记，磁盘上的原始文件不受影响。如需保留影子笔记，请到完整管理页选择「转为本地笔记」。",
+        "只删除索引和影子文档，磁盘上的原始文件不受影响。如需保留影子文档，请到完整管理页选择「转为本地文档」。",
       okText: "移除索引",
       okButtonProps: { danger: true },
       cancelText: "取消",
@@ -389,7 +389,7 @@ export function MountSettingsSection({ compact }: Props) {
             readOnly: false,
             indexEnabled: true,
             dailyMode: false,
-            scanInterval: 10,
+            scanInterval: 600,
             syncTypes: {
               text: true,
               pdf: true,
@@ -417,7 +417,7 @@ export function MountSettingsSection({ compact }: Props) {
           <Form.Item
             name="scanInterval"
             label="同步间隔（秒）"
-            tooltip="后台每隔多久检查一次原文件变化；默认 10 秒。"
+            tooltip="后台每隔多久检查一次原文件变化；默认 10 分钟（600 秒）。"
             rules={[{ required: true, message: "请输入同步间隔" }]}
           >
             <InputNumber min={2} max={3600} style={{ width: "100%" }} />

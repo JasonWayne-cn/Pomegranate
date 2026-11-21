@@ -4,7 +4,7 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{Note, NoteInput};
 
-/// 快速捕获服务：把剪贴板内容存为一条新笔记。
+/// 快速捕获服务：把剪贴板内容存为一条新文档。
 ///
 /// 标题规则：`YYYY-MM-DD HH:mm 首句（截断 30 字符）`
 /// - 首句：按段首换行 → 句末标点（。！？.!?；;）切分
@@ -13,7 +13,7 @@ use crate::models::{Note, NoteInput};
 pub struct QuickCaptureService;
 
 impl QuickCaptureService {
-    /// 从一段文本创建新笔记。folder_id 当前固定 None（落到根目录），
+    /// 从一段文本创建新文档。folder_id 当前固定 None（落到根目录），
     /// 后续如要支持"指定默认文件夹"再从 app_config 读。
     ///
     /// 内容会经过两道规范化：
@@ -120,7 +120,7 @@ fn is_orphan_list_marker(s: &str) -> bool {
 
 /// 把行首 ASCII 空格 / Tab 转成不间断空格（U+00A0），保留 plain text 的视觉缩进。
 ///
-/// **为什么要转**：笔记 content 字段会被 `tiptap-markdown` 当 Markdown 解析渲染。
+/// **为什么要转**：文档 content 字段会被 `tiptap-markdown` 当 Markdown 解析渲染。
 /// Markdown 标准里：
 /// - 段落内的行首 ASCII 空格会被 trim
 /// - 行首 4+ ASCII 空格会被识别为代码块（缩进式 fenced code）

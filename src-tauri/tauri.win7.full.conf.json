@@ -74,8 +74,8 @@
     ],
     "copyright": "Copyright (c) 2026 AgileFR",
     "category": "Productivity",
-    "shortDescription": "智能桌面随手笔记应用（Windows 7 完整版 · 内置 WebView2 109）",
-    "longDescription": "基于 Tauri 构建的本地笔记工具，支持 Markdown 编辑、全文搜索、双向链接、知识图谱、AI 问答等功能。\n\n本版本内置 WebView2 109 Fixed Runtime，适用于 Windows 7 SP1，无需预装运行时。",
+    "shortDescription": "智能桌面随手文档应用（Windows 7 完整版 · 内置 WebView2 109）",
+    "longDescription": "基于 Tauri 构建的本地文档工具，支持 Markdown 编辑、全文搜索、双向链接、知识图谱、AI 问答等功能。\n\n本版本内置 WebView2 109 Fixed Runtime，适用于 Windows 7 SP1，无需预装运行时。",
     "windows": {
       "webviewInstallMode": {
         "type": "fixedRuntime",

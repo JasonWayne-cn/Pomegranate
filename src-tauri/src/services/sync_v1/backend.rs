@@ -41,9 +41,9 @@ pub enum BackendAuth {
 /// Manifest 在远端的标准位置（所有 backend 共用此约定）
 pub const MANIFEST_FILENAME: &str = "manifest.json";
 
-/// 笔记在远端的目录约定
+/// 文档在远端的目录约定
 ///
-/// 笔记按 `notes/<stable_id>.md` 存（不嵌套子目录，平铺最简单；
+/// 文档按 `notes/<stable_id>.md` 存（不嵌套子目录，平铺最简单；
 /// 文件夹层级用 manifest entry 的 folder_path 字段表达，重建时 ensure_folder_path）
 #[allow(dead_code)]
 pub const NOTES_DIR: &str = "notes";
@@ -86,10 +86,10 @@ pub trait SyncBackendImpl {
     /// 写入远端 manifest.json（覆盖）
     fn write_manifest(&self, manifest: &SyncManifestV1) -> Result<(), AppError>;
 
-    /// 上传一条笔记的 .md 文本到远端 `path`（path 是相对 vault 根的 posix 路径）
+    /// 上传一条文档的 .md 文本到远端 `path`（path 是相对 vault 根的 posix 路径）
     fn put_note(&self, path: &str, content: &str) -> Result<(), AppError>;
 
-    /// T-S030: 批量上传笔记 `.md` 文本
+    /// T-S030: 批量上传文档 `.md` 文本
     ///
     /// 返回值通常与入参一一对应（第 i 个结果对应第 i 个 item）；但实现允许在"整批
     /// 致命错误"（如远端目录创建失败）时**提前中止**并返回更短的 Vec（甚至 1 个元素 = 那条错误），
@@ -110,10 +110,10 @@ pub trait SyncBackendImpl {
             .collect()
     }
 
-    /// 下载一条笔记的 .md 文本；不存在返回 Ok(None)
+    /// 下载一条文档的 .md 文本；不存在返回 Ok(None)
     fn get_note(&self, path: &str) -> Result<Option<String>, AppError>;
 
-    /// 删除远端笔记（T-S012 起被 push tombstone 流程调用）
+    /// 删除远端文档（T-S012 起被 push tombstone 流程调用）
     fn delete_note(&self, path: &str) -> Result<(), AppError>;
 
     /// T-S023：上传附件（按 hash 路径，CAS 布局）

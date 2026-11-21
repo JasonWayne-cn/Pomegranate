@@ -60,7 +60,7 @@ export const WikiLinkSuggestionList = forwardRef<WikiLinkSuggestionListRef, Prop
             color: token.colorTextTertiary,
           }}
         >
-          无匹配笔记
+          无匹配文档
         </div>
       );
     }

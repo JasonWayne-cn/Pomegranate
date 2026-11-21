@@ -26,7 +26,12 @@ function configFor(type: string | null | undefined): IconConfig {
       return { label: "PDF", color: "#D4380D", bg: "#FFF1F0" };
     case "docx":
     case "doc":
+    case "docm":
       return { label: "W", color: "#1677FF", bg: "#E6F4FF" };
+    case "pptx":
+    case "pptm":
+    case "ppt":
+      return { label: "P", color: "#D46B08", bg: "#FFF7E6" };
     case "md":
     case "markdown":
       return { label: "M↓", color: "#08979C", bg: "#E6FFFB" };

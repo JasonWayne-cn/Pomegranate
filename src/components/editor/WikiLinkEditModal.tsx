@@ -1,8 +1,8 @@
 /**
- * 「修改双链指向」弹窗 —— 右键双链 → 修改链接，换成另一篇笔记。
+ * 「修改双链指向」弹窗 —— 右键双链 → 修改链接，换成另一篇文档。
  *
  * 之前只能手动把 `[[旧标题]]` 逐字改成 `[[新标题]]`：既容易打错字，也拿不到 ID 锚点
- * （手敲出来的双链没有 `|123`，目标笔记一改名就断链）。这里选完直接写回
+ * （手敲出来的双链没有 `|123`，目标文档一改名就断链）。这里选完直接写回
  * `[[新标题|新ID]]`，链接自带稳定锚点。
  */
 import { useEffect, useRef, useState } from "react";
@@ -14,7 +14,7 @@ interface Props {
   open: boolean;
   /** 当前双链的标题，用作搜索初值，让用户一眼看到自己在改哪条 */
   currentTitle: string;
-  /** 选定新目标：回传标题与笔记 id，由调用方替换文档里的那段文本 */
+  /** 选定新目标：回传标题与文档 id，由调用方替换文档里的那段文本 */
   onSubmit: (title: string, id: number) => void;
   onCancel: () => void;
 }
@@ -40,7 +40,7 @@ export function WikiLinkEditModal({
       if (seq !== seqRef.current) return; // 已有更新的搜索，丢弃本次
       setOptions(list);
     } catch (e) {
-      if (seq === seqRef.current) message.error(`搜索笔记失败：${e}`);
+      if (seq === seqRef.current) message.error(`搜索文档失败：${e}`);
     } finally {
       if (seq === seqRef.current) setLoading(false);
     }
@@ -56,12 +56,12 @@ export function WikiLinkEditModal({
 
   function handleOk() {
     if (picked == null) {
-      message.warning("请先选择要链接到的笔记");
+      message.warning("请先选择要链接到的文档");
       return;
     }
     const hit = options.find((o) => o.id === picked);
     if (!hit) {
-      message.warning("所选笔记已失效，请重新搜索");
+      message.warning("所选文档已失效，请重新搜索");
       return;
     }
     onSubmit(hit.title, hit.id);
@@ -85,12 +85,12 @@ export function WikiLinkEditModal({
         showSearch
         autoFocus
         className="w-full"
-        placeholder="输入标题关键词搜索笔记"
+        placeholder="输入标题关键词搜索文档"
         value={picked ?? undefined}
         onChange={(v: number) => setPicked(v)}
         onSearch={(v) => void search(v)}
         filterOption={false}
-        notFoundContent={loading ? <Spin size="small" /> : "没有匹配的笔记"}
+        notFoundContent={loading ? <Spin size="small" /> : "没有匹配的文档"}
         options={options.map((o) => ({
           value: o.id,
           // 重名时用所在文件夹消歧，与 [[ 候选下拉口径一致
@@ -98,7 +98,7 @@ export function WikiLinkEditModal({
         }))}
       />
       <div className="mt-2 text-xs text-[var(--ant-color-text-quaternary)]">
-        替换后会写成带 ID 锚点的形式，目标笔记以后改名也不会断链。
+        替换后会写成带 ID 锚点的形式，目标文档以后改名也不会断链。
       </div>
     </Modal>
   );

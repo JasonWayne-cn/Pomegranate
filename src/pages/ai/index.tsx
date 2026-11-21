@@ -154,10 +154,10 @@ function DesktopAiChatPage() {
   // 流式中的这一轮：思考 / 各轮工具调用 / 正在写的回答，统一累积成 LiveTurn，
   // 再交给 TurnCard 渲染成和历史消息完全一致的卡片。
   const [liveTurn, setLiveTurn] = useState<LiveTurn | null>(null);
-  // 附加笔记（A 方向）：当前对话的 attached_note_ids 对应的完整笔记对象
+  // 附加文档（A 方向）：当前对话的 attached_note_ids 对应的完整文档对象
   const [attachedNotes, setAttachedNotes] = useState<Note[]>([]);
   const [attachOpen, setAttachOpen] = useState(false);
-  // 归档（B 方向）：把对话存为笔记的 Modal
+  // 归档（B 方向）：把对话存为文档的 Modal
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [archiveTitle, setArchiveTitle] = useState("");
   const [archiving, setArchiving] = useState(false);
@@ -198,7 +198,7 @@ function DesktopAiChatPage() {
         icon: <Quote size={13} />,
         onClick: () => {
           msgCtx.close();
-          // 每行前加 "> " 转 markdown 引用，方便贴回笔记保留出处
+          // 每行前加 "> " 转 markdown 引用，方便贴回文档保留出处
           const quoted = m.content
             .split("\n")
             .map((line) => `> ${line}`)
@@ -334,7 +334,7 @@ function DesktopAiChatPage() {
     null,
   );
 
-  // 接收外部跳转过来的"激活对话 ID"（笔记列表"发到 AI" / 首页"问 AI" 入口）
+  // 接收外部跳转过来的"激活对话 ID"（文档列表"发到 AI" / 首页"问 AI" 入口）
   // 拿到一次后清掉 state，避免用户后续再切回 AI 页又被自动跳走
   useEffect(() => {
     const state = location.state as
@@ -364,7 +364,7 @@ function DesktopAiChatPage() {
     }
   }, [activeConvId]);
 
-  // 切换对话时同步「附加笔记」chips：从对话的 attached_note_ids 拉对应笔记对象
+  // 切换对话时同步「附加文档」chips：从对话的 attached_note_ids 拉对应文档对象
   // conversations 列表更新时也跟随（用户在 Modal 里改完会通过 loadConversations 触发重拉）
   useEffect(() => {
     const conv = conversations.find((c) => c.id === activeConvId);
@@ -380,7 +380,7 @@ function DesktopAiChatPage() {
       ),
     ).then((arr) => {
       if (cancelled) return;
-      // 过滤掉拉取失败的（笔记被删了）
+      // 过滤掉拉取失败的（文档被删了）
       setAttachedNotes(arr.filter((n): n is Note => n !== null));
     });
     return () => {
@@ -411,7 +411,7 @@ function DesktopAiChatPage() {
     }
   }
 
-  /** A 方向：移除单条挂载笔记（从 chip 区点 × 触发） */
+  /** A 方向：移除单条挂载文档（从 chip 区点 × 触发） */
   async function handleRemoveAttached(noteId: number) {
     if (!activeConvId) return;
     const newIds = attachedNotes.filter((n) => n.id !== noteId).map((n) => n.id);
@@ -432,14 +432,14 @@ function DesktopAiChatPage() {
       await loadConversations();
       setAttachOpen(false);
       message.success(
-        ids.length === 0 ? "已清空附加笔记" : `已附加 ${ids.length} 篇笔记`,
+        ids.length === 0 ? "已清空附加文档" : `已附加 ${ids.length} 篇文档`,
       );
     } catch (e) {
       message.error(`保存失败: ${e}`);
     }
   }
 
-  /** B 方向：归档当前对话为一篇笔记 */
+  /** B 方向：归档当前对话为一篇文档 */
   async function handleArchiveConfirm() {
     if (!activeConvId) return;
     setArchiving(true);
@@ -448,10 +448,10 @@ function DesktopAiChatPage() {
         activeConvId,
         archiveTitle.trim() || undefined,
       );
-      message.success("已归档为笔记");
+      message.success("已归档为文档");
       setArchiveOpen(false);
       setArchiveTitle("");
-      // 顺手跳到新建的笔记编辑器，方便用户立刻整理
+      // 顺手跳到新建的文档编辑器，方便用户立刻整理
       navigate(`/notes/${note.id}`);
     } catch (e) {
       message.error(`归档失败: ${e}`);
@@ -756,8 +756,8 @@ function DesktopAiChatPage() {
                 <Tooltip
                   title={
                     useSkills
-                      ? "智能模式（已开启）：AI 自动调用搜笔记 / 读笔记 / 列标签 / 今日待办 等内置工具，并接入「设置 → MCP 服务器」里所有外部 MCP 工具。关掉切换为纯聊天（不接入知识库）"
-                      : "智能模式（已关闭）：纯聊天，AI 不会读取你的笔记和外部工具"
+                      ? "智能模式（已开启）：AI 自动调用搜文档 / 读文档 / 列标签 / 今日待办 等内置工具，并接入「设置 → MCP 服务器」里所有外部 MCP 工具。关掉切换为纯聊天（不接入知识库）"
+                      : "智能模式（已关闭）：纯聊天，AI 不会读取你的文档和外部工具"
                   }
                 >
                   <div className="flex items-center gap-1.5">
@@ -858,8 +858,8 @@ function DesktopAiChatPage() {
                     />
                   </Tooltip>
                 </Popover>
-                {/* B 方向：把整个对话归档成笔记 */}
-                <Tooltip title="把整个对话归档成一篇笔记">
+                {/* B 方向：把整个对话归档成文档 */}
+                <Tooltip title="把整个对话归档成一篇文档">
                   <Button
                     size="small"
                     type="text"
@@ -872,7 +872,7 @@ function DesktopAiChatPage() {
                       setArchiveOpen(true);
                     }}
                   >
-                    存为笔记
+                    存为文档
                   </Button>
                 </Tooltip>
               </div>
@@ -893,7 +893,7 @@ function DesktopAiChatPage() {
                       }}
                     />
                     <div style={{ color: token.colorTextSecondary }}>
-                      输入问题开始对话，AI 会参考你的笔记内容回答
+                      输入问题开始对话，AI 会参考你的文档内容回答
                     </div>
                   </div>
                 </div>
@@ -940,7 +940,7 @@ function DesktopAiChatPage() {
               </div>
             </div>
 
-            {/* 输入区域（上方为附加笔记 chip 区，强制塞进上下文） */}
+            {/* 输入区域（上方为附加文档 chip 区，强制塞进上下文） */}
             <div
               className="shrink-0 px-4 py-3"
               style={{
@@ -949,7 +949,7 @@ function DesktopAiChatPage() {
               }}
             >
               <div className="mx-auto w-full max-w-4xl">
-              {/* 附加笔记 chip 区：仅在挂载了笔记时显示 */}
+              {/* 附加文档 chip 区：仅在挂载了文档时显示 */}
               {attachedNotes.length > 0 && (
                 <div
                   className="flex flex-wrap items-center gap-1.5 mb-2 pb-2"
@@ -1011,7 +1011,7 @@ function DesktopAiChatPage() {
               )}
 
               <div className="flex gap-2 items-end">
-                <Tooltip title="附加笔记到本对话上下文（整对话共享）">
+                <Tooltip title="附加文档到本对话上下文（整对话共享）">
                   <Button
                     icon={<BookOpen size={16} />}
                     onClick={() => setAttachOpen(true)}
@@ -1101,7 +1101,7 @@ function DesktopAiChatPage() {
         )}
       </div>
 
-      {/* A 方向：附加笔记选择 Modal */}
+      {/* A 方向：附加文档选择 Modal */}
       <AttachNotesModal
         open={attachOpen}
         currentIds={attachedNotes.map((n) => n.id)}
@@ -1111,7 +1111,7 @@ function DesktopAiChatPage() {
 
       {/* B 方向：归档对话 Modal */}
       <Modal
-        title="把对话归档为笔记"
+        title="把对话归档为文档"
         open={archiveOpen}
         onCancel={() => setArchiveOpen(false)}
         onOk={handleArchiveConfirm}
@@ -1122,12 +1122,12 @@ function DesktopAiChatPage() {
       >
         <div className="flex flex-col gap-3">
           <div className="text-sm" style={{ color: token.colorTextSecondary }}>
-            会把本对话所有消息按 Q/A 顺序拼成 markdown 存为一篇新笔记，并跳到编辑器。
+            会把本对话所有消息按 Q/A 顺序拼成 markdown 存为一篇新文档，并跳到编辑器。
           </div>
           <Input
             value={archiveTitle}
             onChange={(e) => setArchiveTitle(e.target.value)}
-            placeholder="笔记标题（留空则用对话标题）"
+            placeholder="文档标题（留空则用对话标题）"
             maxLength={120}
           />
         </div>
@@ -1144,7 +1144,7 @@ function DesktopAiChatPage() {
   );
 }
 
-/** A 方向：附加笔记多选 Modal — 复用 noteApi.list 拉全部，前端 Select multiple 多选搜索 */
+/** A 方向：附加文档多选 Modal — 复用 noteApi.list 拉全部，前端 Select multiple 多选搜索 */
 function AttachNotesModal({
   open,
   currentIds,
@@ -1160,7 +1160,7 @@ function AttachNotesModal({
   const [selected, setSelected] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // 打开时拉全部笔记 + 把当前已挂载的 ID 同步到选择器
+  // 打开时拉全部文档 + 把当前已挂载的 ID 同步到选择器
   useEffect(() => {
     if (!open) return;
     setSelected(currentIds);
@@ -1168,13 +1168,13 @@ function AttachNotesModal({
     noteApi
       .list({ page: 1, page_size: 500 })
       .then((res) => setAllNotes(res.items))
-      .catch((e) => message.error(`加载笔记失败: ${e}`))
+      .catch((e) => message.error(`加载文档失败: ${e}`))
       .finally(() => setLoading(false));
   }, [open, currentIds]);
 
   return (
     <Modal
-      title="附加笔记到对话上下文"
+      title="附加文档到对话上下文"
       open={open}
       onCancel={onClose}
       onOk={() => onConfirm(selected)}
@@ -1185,7 +1185,7 @@ function AttachNotesModal({
     >
       <div className="flex flex-col gap-2">
         <div className="text-xs" style={{ color: "#888" }}>
-          被选中的笔记会作为本对话的强制上下文（整个对话共享）。
+          被选中的文档会作为本对话的强制上下文（整个对话共享）。
           每篇按 60% 模型上下文的均分预算自动截断。
         </div>
         <Select
@@ -1194,7 +1194,7 @@ function AttachNotesModal({
           value={selected}
           onChange={setSelected}
           loading={loading}
-          placeholder="搜索 / 选择笔记…"
+          placeholder="搜索 / 选择文档…"
           style={{ width: "100%" }}
           maxTagCount={5}
           maxTagPlaceholder={(omitted) => `+${omitted.length}`}
@@ -1205,7 +1205,7 @@ function AttachNotesModal({
           }
           options={allNotes.map((n) => ({
             value: n.id,
-            label: n.title || `笔记 #${n.id}`,
+            label: n.title || `文档 #${n.id}`,
           }))}
         />
       </div>

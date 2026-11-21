@@ -17,7 +17,7 @@ interface Props {
 }
 
 /**
- * 标签预设色选择器 —— 标签页新建/编辑 Modal 和笔记编辑器标签 chip 的 Popover 都用它
+ * 标签预设色选择器 —— 标签页新建/编辑 Modal 和文档编辑器标签 chip 的 Popover 都用它
  */
 export function TagColorPicker({ value, onChange, allowClear = false }: Props) {
   const { token } = antdTheme.useToken();

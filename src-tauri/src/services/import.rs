@@ -76,7 +76,7 @@ impl ImportService {
             .sort_by_file_name() // 同层按字母序稳定排序
             .into_iter()
             // T-009: 跳过 OB 配置目录 / 隐藏目录 / 常见噪音目录，避免把 .obsidian / .trash /
-            // .git 这类内部状态当成笔记导入。是否应跳过由 should_skip_dir_entry 判断。
+            // .git 这类内部状态当成文档导入。是否应跳过由 should_skip_dir_entry 判断。
             .filter_entry(|e| !should_skip_dir_entry(e))
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file() && is_text_extension(&ext_lower(e.path())))
@@ -149,13 +149,13 @@ impl ImportService {
     /// - `root_path`: 扫描的根路径。传了才能按相对路径重建目录树；不传则全部平铺到 base
     /// - `preserve_root`: 是否在 base 下多套一层"源文件夹名"。需要 root_path 存在
     /// - `policy`: 已存在的文件怎么办（Skip / Duplicate）
-    /// - `daily_mode`: true = 按「日期文件夹/笔记.md」结构把笔记标记成日记
+    /// - `daily_mode`: true = 按「日期文件夹/文档.md」结构把文档标记成日记
     ///   （日期由 `ScannedFile.detected_date` 同一套逻辑识别）。
     ///   同一天有多篇时**只认领第一篇** —— 日记是一天一篇，多认会让日记页出现重复日期。
-    ///   其余篇保持普通笔记，用户可事后在日记页用「整理历史日记」按冲突策略合并进当天。
+    ///   其余篇保持普通文档，用户可事后在日记页用「整理历史日记」按冲突策略合并进当天。
     ///
     /// 同名文件夹按 (parent_id, name) 复用已有记录，避免重复创建。
-    /// 每条成功导入的笔记都会写入 canonical `source_file_path`，方便下次导入时去重。
+    /// 每条成功导入的文档都会写入 canonical `source_file_path`，方便下次导入时去重。
     pub async fn import_selected_files<R: Runtime, E: Emitter<R>>(
         db: &Database,
         file_paths: &[String],
@@ -170,7 +170,7 @@ impl ImportService {
         let total = file_paths.len();
         // 本批已认领的日期 —— 保证「一天一篇」，同一天的后续文件不再认领
         let mut claimed_dates: std::collections::HashSet<String> = std::collections::HashSet::new();
-        // 被认领成日记的笔记 id —— 导入结束后统一摘出日期文件夹（见循环后的收尾）
+        // 被认领成日记的文档 id —— 导入结束后统一摘出日期文件夹（见循环后的收尾）
         let mut claimed_note_ids: Vec<i64> = Vec::new();
         let mut daily_marked = 0usize;
         let mut daily_extra_notes = 0usize;
@@ -263,7 +263,7 @@ impl ImportService {
                 continue;
             }
 
-            // ─── T-009: 解析 frontmatter，剥离 yaml block 后才是真正的笔记正文 ───
+            // ─── T-009: 解析 frontmatter，剥离 yaml block 后才是真正的文档正文 ───
             let (front_matter, body_content) =
                 crate::services::markdown::parse_frontmatter(&content);
             if front_matter.is_some() {
@@ -272,7 +272,7 @@ impl ImportService {
 
             // ─── 去重判定（与 scan 阶段用同一套逻辑，避免扫描后文件被改动造成不一致）
             // 注意：去重比对用 body_content（剥离 frontmatter 后），与 import 实际写库内容
-            // 保持一致，避免"frontmatter 改了但正文没改"被误判为新笔记
+            // 保持一致，避免"frontmatter 改了但正文没改"被误判为新文档
             let canonical_path = canonicalize_path(file_path);
             let fm_title = front_matter.as_ref().and_then(|fm| fm.title.clone());
             let title = fm_title
@@ -296,7 +296,7 @@ impl ImportService {
                 ("new", _) => title,
                 (_, ImportConflictPolicy::Skip) => {
                     skipped += 1;
-                    // 记下命中的已有笔记 ID，供前端"重复命中也跳"用
+                    // 记下命中的已有文档 ID，供前端"重复命中也跳"用
                     if let Some(id) = existing_id {
                         existing_note_ids.push(id);
                     }
@@ -310,7 +310,7 @@ impl ImportService {
                 }
             };
 
-            // ─── 定位这条笔记要挂的文件夹 ───
+            // ─── 定位这条文档要挂的文件夹 ───
             let target_folder_id = match root_canonical.as_ref() {
                 Some(root_c) => {
                     let rel_dir = compute_relative_dir(file_path, root_c);
@@ -344,7 +344,7 @@ impl ImportService {
 
             match db.create_note(&input) {
                 Ok(note) => {
-                    // 记录新建的笔记 ID，给前端"导入后跳转"用
+                    // 记录新建的文档 ID，给前端"导入后跳转"用
                     note_ids.push(note.id);
                     // 写入 canonical path，下次导入同一文件即可按 path 去重命中
                     // 注意：Duplicate 策略新建的副本也挂 canonical_path —— 这样下次
@@ -460,7 +460,7 @@ impl ImportService {
                             current_body = rewrite.new_body;
                         }
                         Err(e) => {
-                            log::warn!("[import] 笔记 {} 本地图片重写失败: {}", note.id, e);
+                            log::warn!("[import] 文档 {} 本地图片重写失败: {}", note.id, e);
                         }
                     }
 
@@ -482,7 +482,7 @@ impl ImportService {
                             current_body = rewrite.new_body;
                         }
                         Err(e) => {
-                            log::warn!("[import] 笔记 {} 外链图片下载失败: {}", note.id, e);
+                            log::warn!("[import] 文档 {} 外链图片下载失败: {}", note.id, e);
                         }
                     }
 
@@ -504,7 +504,7 @@ impl ImportService {
                             current_body = rewrite.new_body;
                         }
                         Err(e) => {
-                            log::warn!("[import] 笔记 {} 本地视频重写失败: {}", note.id, e);
+                            log::warn!("[import] 文档 {} 本地视频重写失败: {}", note.id, e);
                         }
                     }
 
@@ -526,14 +526,14 @@ impl ImportService {
                             current_body = rewrite.new_body;
                         }
                         Err(e) => {
-                            log::warn!("[import] 笔记 {} 外链视频下载失败: {}", note.id, e);
+                            log::warn!("[import] 文档 {} 外链视频下载失败: {}", note.id, e);
                         }
                     }
 
                     // 内容真的变了才回写，省一次 DB 写
                     if current_body != input.content {
                         if let Err(e) = db.update_note_content(note.id, &current_body) {
-                            log::warn!("[import] 笔记 {} 图片重写后回写失败: {}", note.id, e);
+                            log::warn!("[import] 文档 {} 图片重写后回写失败: {}", note.id, e);
                         }
                     }
 
@@ -548,12 +548,12 @@ impl ImportService {
             }
         }
 
-        // 日记收尾：把认领成日记的笔记摘出日期文件夹，再清掉因此变空的日期文件夹。
+        // 日记收尾：把认领成日记的文档摘出日期文件夹，再清掉因此变空的日期文件夹。
         //
         // 不这么做的话，`2020-05-26/日记.md` 导进来会留下一个"用户视角是空的"文件夹
-        // （笔记列表强制过滤 is_daily=0），删它时反被告知"还有 1 篇笔记"，
+        // （文档列表强制过滤 is_daily=0），删它时反被告知"还有 1 篇文档"，
         // 确认后当天日记进了回收站 —— 真实用户反馈的坑。日记只由 daily_date 组织即可。
-        // 同一天有多篇时只有被认领的那篇会摘走，其余普通笔记仍留在原文件夹（文件夹也就不空）。
+        // 同一天有多篇时只有被认领的那篇会摘走，其余普通文档仍留在原文件夹（文件夹也就不空）。
         if !claimed_note_ids.is_empty() {
             match db.detach_notes_from_folders(&claimed_note_ids) {
                 Ok(folder_ids) => {
@@ -586,8 +586,8 @@ impl ImportService {
     }
 
     /// 打开单个 Markdown 文件：
-    /// - 首次：创建新笔记并记录 source_file_path
-    /// - 重复打开同一文件：复用已有笔记；若文件内容变化则同步回笔记
+    /// - 首次：创建新文档并记录 source_file_path
+    /// - 重复打开同一文件：复用已有文档；若文件内容变化则同步回文档
     ///
     /// 返回 (note_id, was_synced)：was_synced=true 表示发生了内容同步，
     /// 前端可据此显示轻量 toast。
@@ -595,9 +595,9 @@ impl ImportService {
     ///
     /// `as_scratch`：这次打开是否按"临时编辑"处理。
     /// - 首次打开 → 直接写入 is_scratch
-    /// - 复用已有笔记 → **只升不降**：临时笔记可以被提升为正式笔记，
-    ///   但已经是正式笔记的绝不会因为这次选了"临时"而被悄悄移出主列表
-    ///   （用户可能只是随手点错，代价是他以为笔记丢了）
+    /// - 复用已有文档 → **只升不降**：临时文档可以被提升为正式文档，
+    ///   但已经是正式文档的绝不会因为这次选了"临时"而被悄悄移出主列表
+    ///   （用户可能只是随手点错，代价是他以为文档丢了）
     pub async fn import_single_markdown(
         db: &Database,
         file_path: &str,
@@ -627,11 +627,11 @@ impl ImportService {
             )));
         }
 
-        // 去重：已有同 source_file_path 的活跃笔记 → 复用
+        // 去重：已有同 source_file_path 的活跃文档 → 复用
         if let Some((existing_id, existing_content)) =
             db.find_active_note_by_source_path(&canonical)?
         {
-            // 外部修改过文件 → 同步最新内容到笔记（含图片处理）
+            // 外部修改过文件 → 同步最新内容到文档（含图片处理）
             let was_synced = existing_content != raw_content;
             if was_synced {
                 let (processed, mappings) =
@@ -640,13 +640,13 @@ impl ImportService {
                 // 重新打开 = 重置 URL 映射（外部可能换了图床/路径）
                 let _ = db.clear_url_mappings(existing_id);
                 let _ = db.insert_url_mappings(existing_id, &mappings);
-                // 同步到笔记之后，把"上次写回时的 mtime"对齐为外部文件当前 mtime，
+                // 同步到文档之后，把"上次写回时的 mtime"对齐为外部文件当前 mtime，
                 // 否则下次保存时 mtime 不一致会误报"外部改过"
                 if let Some(mt) = read_file_mtime(path) {
                     let _ = db.set_writeback_mtime(existing_id, mt);
                 }
                 log::info!(
-                    "[open-md] 检测到 {} 内容变化，已同步到笔记 #{}",
+                    "[open-md] 检测到 {} 内容变化，已同步到文档 #{}",
                     canonical,
                     existing_id
                 );
@@ -664,13 +664,13 @@ impl ImportService {
                     let _ = db.clear_url_mappings(existing_id);
                     let _ = db.insert_url_mappings(existing_id, &mappings);
                     log::info!(
-                        "[open-md] 笔记 #{} 用当前索引规则补处理了历史未解析图片引用",
+                        "[open-md] 文档 #{} 用当前索引规则补处理了历史未解析图片引用",
                         existing_id
                     );
                 }
             }
-            // 复用已有笔记时"只升不降"：选了「加入知识库」就把临时标记摘掉，
-            // 选了「临时编辑」却撞上一条正式笔记则保持原样（详见函数头注释）
+            // 复用已有文档时"只升不降"：选了「加入知识库」就把临时标记摘掉，
+            // 选了「临时编辑」却撞上一条正式文档则保持原样（详见函数头注释）
             if !as_scratch {
                 let _ = db.set_note_scratch(existing_id, false);
             }
@@ -681,7 +681,7 @@ impl ImportService {
             });
         }
 
-        // 首次打开：创建笔记并记录来源
+        // 首次打开：创建文档并记录来源
         let title = extract_title(&raw_content).unwrap_or(file_name);
         let input = NoteInput {
             title,
@@ -695,7 +695,7 @@ impl ImportService {
         };
         let _ = db.set_note_source_file(note.id, Some(&canonical), Some(src_type));
         // 首次打开：按调用方选择打临时标记。写回原文件 / 冲突检测等能力不受影响，
-        // 只是这条笔记不进主列表 / 搜索 / 双链
+        // 只是这条文档不进主列表 / 搜索 / 双链
         if as_scratch {
             let _ = db.set_note_scratch(note.id, true);
         }
@@ -705,11 +705,11 @@ impl ImportService {
             process_single_md_images(&raw_content, note.id, path, app_data_dir).await;
         if processed != raw_content {
             if let Err(e) = db.update_note_content(note.id, &processed) {
-                log::warn!("[open-md] 笔记 {} 图片重写后回写失败: {}", note.id, e);
+                log::warn!("[open-md] 文档 {} 图片重写后回写失败: {}", note.id, e);
             }
         }
         let _ = db.insert_url_mappings(note.id, &mappings);
-        // 首次打开就记录 mtime；之后笔记保存时的写回会比对它做冲突检测
+        // 首次打开就记录 mtime；之后文档保存时的写回会比对它做冲突检测
         if let Some(mt) = read_file_mtime(path) {
             let _ = db.set_writeback_mtime(note.id, mt);
         }
@@ -738,7 +738,7 @@ pub fn read_file_mtime(path: &Path) -> Option<i64> {
 ///  - 本地相对路径（如 `./images/foo.png`）：以 .md 同级目录为锚点解析并复制到 kb_assets
 ///  - http(s):// 外链：下载到本地（含微信公众号防盗链处理）
 ///
-/// 处理失败的引用保留原样，不会让笔记打开流程中断。
+/// 处理失败的引用保留原样，不会让文档打开流程中断。
 ///
 /// 返回 (处理后的 body, 替换映射)：映射 = `Vec<(原始 URL, 内部 asset URL)>`，
 /// 给 open_markdown_file 写入 `note_url_mapping`，写回 .md 时按 internal_url 反查恢复原链接。
@@ -1063,7 +1063,7 @@ mod tests {
 
     #[test]
     fn hashtag_basic_extract() {
-        let tags = extract_inline_hashtags("今天写了 #工作 和 #学习/英语 笔记");
+        let tags = extract_inline_hashtags("今天写了 #工作 和 #学习/英语 文档");
         assert_eq!(tags, vec!["工作".to_string(), "学习/英语".to_string()]);
     }
 

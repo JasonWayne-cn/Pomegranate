@@ -118,16 +118,16 @@ function DesktopDailyPage() {
   const loadingMonthsRef = useRef<Set<string>>(new Set());
   const { token } = antdTheme.useToken();
 
-  // ── 大纲（与笔记编辑器 notes/editor.tsx 同款实现，桌面日记也能看目录）──
+  // ── 大纲（与文档编辑器 notes/editor.tsx 同款实现，桌面日记也能看目录）──
   // editor 实例来自 TiptapEditor 的 onEditorReady；editorBodyRef 作 IntersectionObserver 的滚动根。
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [editorInstance, setEditorInstance] = useState<any | null>(null);
   const editorBodyRef = useRef<HTMLDivElement | null>(null);
   const outlineVisible = useAppStore((s) => s.outlineVisible);
   const toggleOutline = useAppStore((s) => s.toggleOutline);
-  // 大纲停靠位置（'right' 默认 / 'left'）：与笔记编辑器共用同一 store 偏好
+  // 大纲停靠位置（'right' 默认 / 'left'）：与文档编辑器共用同一 store 偏好
   const outlinePosition = useAppStore((s) => s.outlinePosition);
-  // 大纲宽度：与笔记编辑器共用同一 localStorage 键，两处宽度记忆一致
+  // 大纲宽度：与文档编辑器共用同一 localStorage 键，两处宽度记忆一致
   // （220 的取值理由见 pages/notes/editor.tsx 同名常量；两处必须同值）
   const OUTLINE_DEFAULT_WIDTH = 220;
   const [outlineWidth, setOutlineWidth] = useState<number>(() => {
@@ -261,7 +261,7 @@ function DesktopDailyPage() {
     // 但缓存仍在；用 notesRefresh 作 effect 触发器在新建日记后强制 reload 当前月
   }, [date, ensureMonthLoaded]);
 
-  // 当 SidePanel 提示「笔记列表需要刷新」时（自动保存新建了日记），
+  // 当 SidePanel 提示「文档列表需要刷新」时（自动保存新建了日记），
   // 清掉当前月份缓存让下一次 picker 打开重拉
   const notesRefreshTick = useAppStore((s) => s.notesRefreshTick);
   useEffect(() => {
@@ -343,14 +343,14 @@ function DesktopDailyPage() {
   }
 
   /**
-   * 日记正文里点击 wiki 双链 → 跳到目标笔记。
+   * 日记正文里点击 wiki 双链 → 跳到目标文档。
    *
    * 之前这里没给 TiptapEditor 传 onWikiLinkClick，扩展拿到的回调是 undefined：
    * handleClick 认出双链、preventDefault 吞掉事件后什么都不做 —— 日记里的双链
    * 点上去连光标都不动，看起来就是「双链点击完全没反应」。
    *
-   * 与笔记编辑器口径保持一致：ID 锚点优先 → 规范化精确匹配 → 模糊取最相近；
-   * 跳走之前先 flush 未保存内容，避免日记草稿丢失。重名消歧的 Modal 是笔记页
+   * 与文档编辑器口径保持一致：ID 锚点优先 → 规范化精确匹配 → 模糊取最相近；
+   * 跳走之前先 flush 未保存内容，避免日记草稿丢失。重名消歧的 Modal 是文档页
    * 特有的交互，日记这边不引入，直接取最近更新的一条。
    */
   async function handleWikiLinkClick(wikiTitle: string, wikiId?: number) {
@@ -362,9 +362,9 @@ function DesktopDailyPage() {
           navigate(`/notes/${target.id}`);
           return;
         }
-        // ID 指向已删除笔记 → 退回按标题找
+        // ID 指向已删除文档 → 退回按标题找
       }
-      // 走 title_normalized 精确匹配（不过滤隐藏笔记）
+      // 走 title_normalized 精确匹配（不过滤隐藏文档）
       const exactId = await linkApi.findIdByTitle(wikiTitle);
       if (exactId != null) {
         await autoSave.flush();
@@ -375,10 +375,10 @@ function DesktopDailyPage() {
       if (results.length > 0) {
         await autoSave.flush();
         navigate(`/notes/${results[0].id}`);
-        message.info(`未找到同名笔记，跳转到相近的「${results[0].title}」`);
+        message.info(`未找到同名文档，跳转到相近的「${results[0].title}」`);
         return;
       }
-      message.warning(`未找到笔记「${wikiTitle}」`);
+      message.warning(`未找到文档「${wikiTitle}」`);
     } catch (e) {
       message.error(`跳转失败: ${e}`);
     }
@@ -501,12 +501,12 @@ function DesktopDailyPage() {
             <Button
               icon={<Sparkles size={14} />}
               onClick={() => setShowPlanModal(true)}
-              title="AI 根据今日/昨日笔记 + 待办，给出 3~7 条今日建议"
+              title="AI 根据今日/昨日文档 + 待办，给出 3~7 条今日建议"
             >
               AI 规划今日
             </Button>
           )}
-          <Tooltip title="从「日期文件夹/笔记.md」结构导入历史日记，或把已导入的普通笔记认回日记">
+          <Tooltip title="从「日期文件夹/文档.md」结构导入历史日记，或把已导入的普通文档认回日记">
             <Button
               icon={<CalendarCheck size={16} />}
               onClick={() => setShowImportModal(true)}
@@ -665,7 +665,7 @@ function DesktopDailyPage() {
           )}
         </div>
 
-        {/* 大纲拖拽分隔条：6px 宽，col-resize（与笔记编辑器同款逻辑，
+        {/* 大纲拖拽分隔条：6px 宽，col-resize（与文档编辑器同款逻辑，
             共用 editor.outlineWidth 记忆宽度，双击还原默认） */}
         {outlineVisible && (
           <div
@@ -726,8 +726,8 @@ function DesktopDailyPage() {
         )}
       </div>
 
-      {/* 链接状态条：与笔记编辑器同款，常驻底部不随正文滚动。
-          日记同样支持 [[双链]]，之前只有笔记编辑器能看到链接情况，这里补齐。
+      {/* 链接状态条：与文档编辑器同款，常驻底部不随正文滚动。
+          日记同样支持 [[双链]]，之前只有文档编辑器能看到链接情况，这里补齐。
           note 为空（当天还没落库）时组件自己返回 null，不占位。 */}
       <LinkStatusBar
         noteId={note?.id}

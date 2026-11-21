@@ -55,7 +55,7 @@ const KIND_LABEL: Record<string, string> = {
   polish: "语言润色",
   format: "规范检查",
   analyze: "数据分析",
-  note: "笔记",
+  note: "文档",
 };
 
 interface ProjectFormValues {

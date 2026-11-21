@@ -15,7 +15,7 @@ interface Props {
 }
 
 /**
- * 隐藏笔记 PIN 解锁弹窗。
+ * 隐藏文档 PIN 解锁弹窗。
  * 校验逻辑全在后端：错误次数限制、锁定提示都来自 invoke 抛出的字符串。
  */
 export function HiddenPinUnlockModal({ open, onSuccess, onCancel }: Props) {
@@ -72,7 +72,7 @@ export function HiddenPinUnlockModal({ open, onSuccess, onCancel }: Props) {
       title={
         <span className="flex items-center gap-2">
           <EyeOff size={18} />
-          解锁隐藏笔记
+          解锁隐藏文档
         </span>
       }
       okText="解锁"
@@ -86,7 +86,7 @@ export function HiddenPinUnlockModal({ open, onSuccess, onCancel }: Props) {
     >
       <div className="flex flex-col gap-3">
         <Text type="secondary" style={{ fontSize: 13 }}>
-          输入 PIN 即可访问隐藏笔记列表，10 分钟内无需重复验证。
+          输入 PIN 即可访问隐藏文档列表，10 分钟内无需重复验证。
         </Text>
         <Input.Password
           ref={inputRef}

@@ -1,7 +1,7 @@
-//! 笔记向量增量索引队列。
+//! 文档向量增量索引队列。
 //!
-//! 笔记创建/更新/删除/恢复/隐藏时投递 id，后台 worker 做防抖（默认 800ms）
-//! 后按当前 embedding 配置重建这些笔记的向量。设计目标：
+//! 文档创建/更新/删除/恢复/隐藏时投递 id，后台 worker 做防抖（默认 800ms）
+//! 后按当前 embedding 配置重建这些文档的向量。设计目标：
 //!
 //! - 不阻塞 IPC：写操作只做一次 mpsc `send`，embedding 网络请求在后台串行执行
 //! - 合并高频保存：编辑器逐字保存会在防抖窗口内合并为一次索引
@@ -44,12 +44,12 @@ pub fn init(db: Arc<Database>) {
         return;
     }
     tauri::async_runtime::spawn(run_worker(db, rx));
-    log::info!("[index-queue] 笔记向量增量索引队列已启动");
+    log::info!("[index-queue] 文档向量增量索引队列已启动");
 }
 
-/// 投递单篇笔记（创建/更新/删除/恢复/隐藏/加密状态变化）。
+/// 投递单篇文档（创建/更新/删除/恢复/隐藏/加密状态变化）。
 ///
-/// 任务执行时会重新查询笔记状态：已删除或隐藏的笔记会删除旧向量。
+/// 任务执行时会重新查询文档状态：已删除或隐藏的文档会删除旧向量。
 pub fn enqueue_note(note_id: i64) {
     if let Some(tx) = TX.get() {
         let _ = tx.send(IndexJob::Note(note_id));
@@ -123,7 +123,7 @@ async fn process_batch(db: &Database, pending: &HashSet<i64>, all: bool) {
         match db.list_note_ids_for_embedding() {
             Ok(ids) => ids,
             Err(e) => {
-                log::warn!("[index-queue] 列出待索引笔记失败: {}", e);
+                log::warn!("[index-queue] 列出待索引文档失败: {}", e);
                 return;
             }
         }
@@ -131,7 +131,7 @@ async fn process_batch(db: &Database, pending: &HashSet<i64>, all: bool) {
         pending.iter().copied().collect()
     };
 
-    log::debug!("[index-queue] 开始索引 {} 篇笔记 (all={})", ids.len(), all);
+    log::debug!("[index-queue] 开始索引 {} 篇文档 (all={})", ids.len(), all);
     let mut ok = 0usize;
     let mut failed = 0usize;
 
@@ -141,18 +141,18 @@ async fn process_batch(db: &Database, pending: &HashSet<i64>, all: bool) {
                 Ok(()) => ok += 1,
                 Err(e) => {
                     failed += 1;
-                    log::warn!("[index-queue] 笔记 {} 索引失败: {}", id, e);
+                    log::warn!("[index-queue] 文档 {} 索引失败: {}", id, e);
                 }
             },
             Ok(None) => {
                 // 已删除 / 隐藏 / 空正文：清理旧向量
                 if let Err(e) = db.delete_note_embeddings(id) {
-                    log::warn!("[index-queue] 清理笔记 {} 向量失败: {}", id, e);
+                    log::warn!("[index-queue] 清理文档 {} 向量失败: {}", id, e);
                 }
             }
             Err(e) => {
                 failed += 1;
-                log::warn!("[index-queue] 读取笔记 {} 失败: {}", id, e);
+                log::warn!("[index-queue] 读取文档 {} 失败: {}", id, e);
             }
         }
     }
@@ -162,10 +162,10 @@ async fn process_batch(db: &Database, pending: &HashSet<i64>, all: bool) {
     }
 }
 
-/// 重建单篇笔记的全部 chunk。
+/// 重建单篇文档的全部 chunk。
 ///
 /// 先完成所有 chunk 的 embedding，再删除旧向量并写入新向量 —— 中途失败时
-/// 旧向量仍然可用，避免笔记暂时从 RAG 中消失。
+/// 旧向量仍然可用，避免文档暂时从 RAG 中消失。
 async fn index_note(
     db: &Database,
     cfg: &EmbeddingConfig,

@@ -165,7 +165,7 @@ export function MobileAiModelModal({
         <Form.Item
           name="max_context"
           label="上下文窗口 token（可选）"
-          tooltip="影响发消息时拼接笔记的预算。留空 = 用预置值；没有预置值时按保守预算处理"
+          tooltip="影响发消息时拼接文档的预算。留空 = 用预置值；没有预置值时按保守预算处理"
         >
           <InputNumber
             min={1024}

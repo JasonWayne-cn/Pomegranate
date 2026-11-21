@@ -34,10 +34,10 @@ describe("computeLabels · 基础层级", () => {
   });
 
   it("用户反馈场景：跨 H2 后 H3 从 1 重新编号，而不是继续累加", () => {
-    // 笔记模块(H2) 下 9 个 H3 → AI问答模块(H2) 下第 1 个 H3
+    // 文档模块(H2) 下 9 个 H3 → AI问答模块(H2) 下第 1 个 H3
     const levels = [1, 2, ...Array(9).fill(3), 2, 3];
     const got = labels(h(levels));
-    expect(got[got.length - 3]).toBe("1.1.9"); // 笔记模块最后一条
+    expect(got[got.length - 3]).toBe("1.1.9"); // 文档模块最后一条
     expect(got[got.length - 2]).toBe("1.2"); // AI问答模块
     expect(got[got.length - 1]).toBe("1.2.1"); // 不是 "1.2.10"
   });

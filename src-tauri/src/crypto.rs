@@ -141,7 +141,7 @@ pub fn decrypt_field_or_none(stored: &str, context: &str) -> Option<String> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// T-007 笔记加密保险库（Vault）
+// T-007 文档加密保险库（Vault）
 //
 // 与上面的 WebDAV 密码加密完全独立：
 // - 上面 encrypt/decrypt：key 来自 hostname（应用自动派生，用户无感）
@@ -219,10 +219,10 @@ pub fn aead_decrypt(key: &[u8; KEY_LEN], blob: &[u8]) -> Result<Vec<u8>, AppErro
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 隐藏笔记 PIN 哈希（仅用于"挡随手访问"的 UX 门禁，不是数据加密）
+// 隐藏文档 PIN 哈希（仅用于"挡随手访问"的 UX 门禁，不是数据加密）
 //
 // 与 Vault 的根本区别：
-// - Vault: derive_user_key 的输出当 AES key 用，加密笔记内容；忘密码=数据丢失
+// - Vault: derive_user_key 的输出当 AES key 用，加密文档内容；忘密码=数据丢失
 // - HiddenPin: derive_user_key 的输出当哈希值存，只用于 verify；忘 PIN=可重置
 //
 // 复用 argon2_params() 不引入新依赖；输出 32 字节哈希以 base64 存 app_config。

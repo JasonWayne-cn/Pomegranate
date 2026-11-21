@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { isLocalAssetUrl, mapWithConcurrency } from "./printNote";
 
 describe("isLocalAssetUrl · 需要内嵌的本地资源", () => {
-  it("kb-asset:// 是笔记素材的标准形态", () => {
+  it("kb-asset:// 是文档素材的标准形态", () => {
     expect(isLocalAssetUrl("kb-asset://attachments/a.pdf")).toBe(true);
   });
 

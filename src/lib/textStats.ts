@@ -4,13 +4,13 @@ import type { Editor } from "@tiptap/react";
  * 编辑器字数 / 字符 / 段落 / 阅读时长统计
  *
  * 历史问题：之前 EditorStats.tsx 与 TiptapEditor.tsx 各写了一套算法，CJK 范围
- * 和文本源（textContent vs getText）都不同，导致同一篇笔记顶部和底部数字差好几个。
+ * 和文本源（textContent vs getText）都不同，导致同一篇文档顶部和底部数字差好几个。
  * 这里抽成单一来源真相，两边都用同一个 calcEditorStats，确保**永远一致**。
  *
  * 设计选择：
  *   1. 文本源：用 `editor.getText({ blockSeparator: "\n\n" })`。比 doc.textContent
  *      多了块边界分隔符，能让"段落 → 代码块 → 标题"之间的英文不被错误粘成一个词。
- *   2. CJK 范围：包括 CJK Unified、Ext A 罕用字、平假名、片假名。覆盖中日双语笔记。
+ *   2. CJK 范围：包括 CJK Unified、Ext A 罕用字、平假名、片假名。覆盖中日双语文档。
  *   3. 阅读速度：300 字/分钟（中文默读速度的中位数；250 偏慢，400 接近浏览）。
  */
 

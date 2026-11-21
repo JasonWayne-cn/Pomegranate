@@ -1,7 +1,20 @@
 import { type ReactNode } from "react";
-import { Card, Select, Tooltip } from "antd";
+import { Card, Select, Tooltip, type CardProps } from "antd";
 import { GripVertical, ChevronDown, ChevronRight } from "lucide-react";
 import type { WidgetSize, WidgetHeight } from "@/store/homeLayout";
+import { HideableCard } from "./HideableCard";
+import type { HomeWidgetKey } from "@/store/homeWidgets";
+
+/**
+ * 首页 widget id → 隐私设置里的卡片 key。
+ * 未列出的 widget（快速记一笔 / 写作活力）不参与遮盖。
+ */
+const BLUR_KEY_BY_WIDGET: Record<string, HomeWidgetKey> = {
+  todo: "todo",
+  recent: "recentNotes",
+  pinned: "pinned",
+  ai: "askAi",
+};
 
 export interface HomeWidgetProps {
   id: string;
@@ -28,6 +41,7 @@ export interface HomeWidgetProps {
  * 首页可折叠 + 可拖拽 + 可调宽高的 Widget 容器。
  */
 export function HomeWidget({
+  id,
   title,
   icon,
   collapsed,
@@ -40,31 +54,32 @@ export function HomeWidget({
   onHeightChange,
   children,
 }: HomeWidgetProps) {
-  return (
-    <Card
-      size="small"
-      style={{ height: "100%", display: "flex", flexDirection: "column" }}
-      styles={{
-        body: {
-          padding: collapsed ? 0 : undefined,
-          flex: 1,
-          minHeight: 0,
-          overflow: "hidden",
-        },
-      }}
-      title={
-        <div
-          className="flex items-center gap-2 cursor-grab active:cursor-grabbing select-none"
-          {...dragHandleProps}
-        >
-          <GripVertical size={14} className="text-gray-400 shrink-0" />
-          {icon}
-          <span style={{ fontSize: 13, fontWeight: 600, userSelect: "none" }}>
-            {title}
-          </span>
-        </div>
-      }
-      extra={
+  const blurKey = BLUR_KEY_BY_WIDGET[id];
+
+  const cardProps: CardProps = {
+    size: "small",
+    style: { height: "100%", display: "flex", flexDirection: "column" },
+    styles: {
+      body: {
+        padding: collapsed ? 0 : undefined,
+        flex: 1,
+        minHeight: 0,
+        overflow: "hidden",
+      },
+    },
+    title: (
+      <div
+        className="flex items-center gap-2 cursor-grab active:cursor-grabbing select-none"
+        {...dragHandleProps}
+      >
+        <GripVertical size={14} className="text-gray-400 shrink-0" />
+        {icon}
+        <span style={{ fontSize: 13, fontWeight: 600, userSelect: "none" }}>
+          {title}
+        </span>
+      </div>
+    ),
+    extra: (
         <div className="flex items-center gap-2">
           {extra}
           {/* 宽度下拉：阻止 mousedown 冒泡，避免误触 dnd-kit 拖拽 */}
@@ -121,9 +136,16 @@ export function HomeWidget({
             )}
           </button>
         </div>
-      }
-    >
+    ),
+  };
+
+  // 参与隐私遮盖的卡片走 HideableCard（右上角多一个眼睛按钮）；
+  // 其余卡片保持原来的普通 Card。
+  return blurKey ? (
+    <HideableCard widgetKey={blurKey} {...cardProps}>
       {!collapsed && children}
-    </Card>
+    </HideableCard>
+  ) : (
+    <Card {...cardProps}>{!collapsed && children}</Card>
   );
 }

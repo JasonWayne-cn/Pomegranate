@@ -80,7 +80,7 @@ pub mod plugin_token;
 pub mod plugin_rate_limit;
 // 插件系统：元数据管理、manifest 校验、安装/卸载
 pub mod plugins;
-// 笔记 pop-out 窗口仅桌面端（移动端改 Modal）
+// 文档 pop-out 窗口仅桌面端（移动端改 Modal）
 #[cfg(desktop)]
 pub mod popout_window;
 pub mod project;

@@ -47,7 +47,7 @@ export function AttachmentPreviewModal() {
   /**
    * 用哪个预览器，**必须**按 `rel`（真实文件路径）判断，不能按 `fileName`。
    *
-   * `fileName` 优先取笔记里链接的显示文本（见 TiptapEditor 的 attachment 点击处理），
+   * `fileName` 优先取文档里链接的显示文本（见 TiptapEditor 的 attachment 点击处理），
    * 用户完全可能把它改成不带扩展名的中文标题（"关于 XX 的通知"）。此前这里按
    * fileName 推扩展名，遇到改过名的 PDF 就三个分支都不匹配 → 落到 TextPreview
    * 兜底 → 用 UTF-8 读二进制 PDF → 报 "stream did not contain valid UTF-8"。

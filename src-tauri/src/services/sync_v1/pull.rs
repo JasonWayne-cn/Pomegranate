@@ -5,7 +5,7 @@
 //! 2. 计算本地 manifest
 //! 3. diff
 //! 4. 对 to_pull：从 backend.get_note 拉 .md 文本 → 解析 title + body → upsert 到本地
-//! 5. 对 to_delete_local：软删本地笔记（v1 不实际删，仅 set is_deleted=1）
+//! 5. 对 to_delete_local：软删本地文档（v1 不实际删，仅 set is_deleted=1）
 //! 6. 冲突 (conflicts)：默认 last-write-wins（按 updated_at 较新者赢）。两种情况会把远端版本
 //!    落到 `<app_data>/sync_conflicts/backend_<id>/<sid>_<ts>.md`，本地保持原样、等用户在设置页合并：
 //!      a) 双方 updated_at 完全相同但内容 hash 不同（manifest diff 的 `conflicts` 集合，极小概率）
@@ -151,8 +151,8 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
 
     // hash 算法兼容性检查（v1 → v2 升级）：
     // 远端 manifest 不带 hash_algo（旧客户端写的）且有内容 → 当前的 v2 公式与远端不一致，
-    // diff 会把所有笔记误判为变更。处理：清空本机 sync_remote_state（防止误判跳过），
-    // 本次 pull 直接退出；下次 push 会把本地全部笔记当作首次推送，写出 v2 格式 manifest 完成升级。
+    // diff 会把所有文档误判为变更。处理：清空本机 sync_remote_state（防止误判跳过），
+    // 本次 pull 直接退出；下次 push 会把本地全部文档当作首次推送，写出 v2 格式 manifest 完成升级。
     if !remote.entries.is_empty()
         && remote.hash_algo.as_deref() != Some(SyncManifestV1::HASH_ALGO_V2)
     {
@@ -174,16 +174,16 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
 
     // T-S014：vault meta 跨端同步
     // - 远端有 + 本机无 → 导入（用户用相同密码可解锁）
-    // - 远端有 + 本机有 + salt 不同 → 警告（加密笔记会跳过同步，普通笔记照常）
-    // - 远端有 + 本机有 + salt 相同 → 一致，加密笔记可互通
+    // - 远端有 + 本机有 + salt 不同 → 警告（加密文档会跳过同步，普通文档照常）
+    // - 远端有 + 本机有 + salt 相同 → 一致，加密文档可互通
     // - 远端无 → 不处理
     let remote_vault_compatible = match remote.vault.as_ref() {
-        None => false, // 远端没设置 vault → 加密笔记无法跨端
+        None => false, // 远端没设置 vault → 加密文档无法跨端
         Some(meta) => {
             match crate::services::vault::VaultService::import_meta_if_not_set(db, meta) {
                 Ok(true) => {
                     log::info!(
-                        "[sync_v1] 本机 vault 从远端 manifest 导入 salt+verifier（首次同步加密笔记）"
+                        "[sync_v1] 本机 vault 从远端 manifest 导入 salt+verifier（首次同步加密文档）"
                     );
                     true
                 }
@@ -193,18 +193,18 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                         Ok(true) => true,
                         Ok(false) => {
                             log::warn!(
-                                "[sync_v1] 远端 vault salt 与本机不同，加密笔记不参与本次同步"
+                                "[sync_v1] 远端 vault salt 与本机不同，加密文档不参与本次同步"
                             );
                             false
                         }
                         Err(e) => {
-                            log::warn!("[sync_v1] vault meta 比对失败 {}: 加密笔记跳过", e);
+                            log::warn!("[sync_v1] vault meta 比对失败 {}: 加密文档跳过", e);
                             false
                         }
                     }
                 }
                 Err(e) => {
-                    log::warn!("[sync_v1] 导入远端 vault meta 失败: {}（加密笔记跳过）", e);
+                    log::warn!("[sync_v1] 导入远端 vault meta 失败: {}（加密文档跳过）", e);
                     false
                 }
             }
@@ -225,13 +225,13 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
     );
     let diff = manifest::diff_manifests(&local, &remote);
 
-    // ── T-S024：附件下载阶段（先于笔记 entry pull，让笔记内容拉下来时附件已就位）
+    // ── T-S024：附件下载阶段（先于文档 entry pull，让文档内容拉下来时附件已就位）
     //
     // 流程：
     //   远端 manifest.attachments - 本地 unique hashes → 差集要下载
     //   下载内容写到 {prefix}kb_assets/sync_in/<hash>.<ext>（dev/prod 目录前缀对齐）
     //
-    // 路径还原说明：pull 端的笔记 .md 里可能引用 `kb_assets/images/xxx.png` 等原始路径，
+    // 路径还原说明：pull 端的文档 .md 里可能引用 `kb_assets/images/xxx.png` 等原始路径，
     // 但拉到的实际文件落在 sync_in/ → 编辑器/渲染器需要做 hash 反查 fallback。
     // 这是后续 UI 任务（不在 T-S024 范围），现阶段保证字节到达本地即可。
     let local_hashes: std::collections::HashSet<String> = db
@@ -286,7 +286,7 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                     }
                     result.attachments_downloaded += 1;
 
-                    // 2) Bug 9：按 manifest 携带的 paths 把字节还原到原相对路径，让笔记里
+                    // 2) Bug 9：按 manifest 携带的 paths 把字节还原到原相对路径，让文档里
                     //    kb-asset://kb_assets/images/... 引用能命中。同 hash 多 path 全部还原。
                     //    旧 manifest 不带 paths → 不还原（向后兼容；下次写端 push 后下次 pull 才修上）。
                     for rel in &att.paths {
@@ -325,8 +325,8 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                             }
                         }
                         // 写盘后无须立刻 upsert note_attachments —— 下次 push 前 scan_all_active_notes
-                        // 会扫到引用这条 path 的笔记（因为 attachment_scan_at 此时落后于 updated_at），
-                        // 自动 upsert 进 note_attachments。这样避免 pull 端额外猜测哪条笔记引用了它。
+                        // 会扫到引用这条 path 的文档（因为 attachment_scan_at 此时落后于 updated_at），
+                        // 自动 upsert 进 note_attachments。这样避免 pull 端额外猜测哪条文档引用了它。
                         if let Err(e) = std::fs::write(&target, &bytes) {
                             result.errors.push(format!(
                                 "还原附件到 {} 失败: {}",
@@ -350,16 +350,16 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
     }
 
     // T-S051: 分歧检测准备数据
-    //  - local_hash_by_uuid：本地每条笔记的当前内容 hash（用 stable_uuid 索引）
+    //  - local_hash_by_uuid：本地每条文档的当前内容 hash（用 stable_uuid 索引）
     //  - remote_states：本地与该 backend 的同步状态（含 last_synced_hash = 上次同步时的内容 hash）
-    // 若一条笔记在 to_pull 里（远端较新），但本地当前 hash 已偏离 last_synced（说明本地也改过了），
+    // 若一条文档在 to_pull 里（远端较新），但本地当前 hash 已偏离 last_synced（说明本地也改过了），
     // 且与远端 hash 也不同 → 双方各改各的 → 不静默覆盖本地，而是把远端版本落冲突文件等用户合并。
     let local_hash_by_uuid: std::collections::HashMap<&str, &str> = local
         .entries
         .iter()
         .map(|e| (e.stable_id.as_str(), e.content_hash.as_str()))
         .collect();
-    // 方案 C：本地每条笔记当前的 updated_at（按 stable_uuid 索引）——
+    // 方案 C：本地每条文档当前的 updated_at（按 stable_uuid 索引）——
     // pull 据此判断要不要用远端标签覆盖本地（本地标签较新时不覆盖，见 should_overwrite_tags）
     let local_updated_at_by_uuid: std::collections::HashMap<&str, &str> = local
         .entries
@@ -393,20 +393,20 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
         };
         let folder_id = ensure_folder_path(db, &entry.folder_path)?;
 
-        // T-S014：加密笔记走密文 upsert 分支
+        // T-S014：加密文档走密文 upsert 分支
         if entry.encrypted {
             if !remote_vault_compatible {
                 // 计入 encrypted_skipped 让前端给用户弹提示（之前只 warn 日志，用户毫无感知 →
-                // 误以为加密笔记也同步了，实则被静默跳过 / 多端 vault salt 不一致永远互不可见）
+                // 误以为加密文档也同步了，实则被静默跳过 / 多端 vault salt 不一致永远互不可见）
                 result.encrypted_skipped += 1;
                 log::warn!(
-                    "[sync_v1] 跳过加密笔记 {}（vault meta 不匹配或缺失）",
+                    "[sync_v1] 跳过加密文档 {}（vault meta 不匹配或缺失）",
                     entry.title
                 );
                 continue;
             }
-            // P0-5：加密笔记也做分歧检测 —— 本地有未推送改动且与远端各不相同 →
-            // 不静默用远端密文覆盖本地，落冲突文件保留本地。加密笔记冲突在 UI 上
+            // P0-5：加密文档也做分歧检测 —— 本地有未推送改动且与远端各不相同 →
+            // 不静默用远端密文覆盖本地，落冲突文件保留本地。加密文档冲突在 UI 上
             // 只能"忽略"（密文不可合并），但至少本地这次编辑不会被悄悄冲掉。
             if let Some(local_id) = db.get_note_id_by_stable_uuid(&entry.stable_id)? {
                 let diverged = is_divergence(
@@ -423,7 +423,7 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                         Ok(_) => {
                             result.conflicts += 1;
                             log::warn!(
-                                "[sync_v1] 加密笔记 {} 本地/远端各改各的，已落冲突文件，本地保留（密文不可合并，请在设置页处理）",
+                                "[sync_v1] 加密文档 {} 本地/远端各改各的，已落冲突文件，本地保留（密文不可合并，请在设置页处理）",
                                 entry.title
                             );
                         }
@@ -439,7 +439,7 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                 Ok(b) => b,
                 Err(e) => {
                     result.errors.push(format!(
-                        "加密笔记 {} base64 解码失败: {}",
+                        "加密文档 {} base64 解码失败: {}",
                         entry.title, e
                     ));
                     continue;
@@ -468,12 +468,12 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                 }
                 Err(e) => result
                     .errors
-                    .push(format!("写入加密笔记失败 {}: {}", entry.title, e)),
+                    .push(format!("写入加密文档失败 {}: {}", entry.title, e)),
             }
             continue;
         }
 
-        // 非加密笔记：原 markdown 路径（解析 front-matter / 兼容旧 # 标题格式）
+        // 非加密文档：原 markdown 路径（解析 front-matter / 兼容旧 # 标题格式）
         let (title, content) = super::note_md::parse_note_md(&body, &entry.title);
         let input = NoteInput {
             title,
@@ -499,7 +499,7 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                         Ok(_) => {
                             result.conflicts += 1;
                             log::warn!(
-                                "[sync_v1] 笔记 {} 本地/远端各改各的，已把远端版本落冲突文件，本地保留（等用户在设置页解决）",
+                                "[sync_v1] 文档 {} 本地/远端各改各的，已把远端版本落冲突文件，本地保留（等用户在设置页解决）",
                                 entry.title
                             );
                         }
@@ -530,14 +530,14 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                                 .errors
                                 .push(format!("对齐日记标记失败 {}: {}", entry.title, e));
                         }
-                        // 把"隐藏"标记对齐（仅单向：远端隐藏 → 本地也隐藏，避免隐藏笔记在新端变可见）
+                        // 把"隐藏"标记对齐（仅单向：远端隐藏 → 本地也隐藏，避免隐藏文档在新端变可见）
                         if let Err(e) = db.sync_note_hidden_state(local_id, entry.is_hidden) {
                             result
                                 .errors
                                 .push(format!("对齐隐藏标记失败 {}: {}", entry.title, e));
                         }
-                        // 对齐笔记类型（白板 ↔ 普通笔记）。不对齐的话，别的设备上画的白板
-                        // 拉到本机会被当成 Markdown 笔记打开 —— 满屏 JSON，一保存画布就没了。
+                        // 对齐文档类型（白板 ↔ 普通文档）。不对齐的话，别的设备上画的白板
+                        // 拉到本机会被当成 Markdown 文档打开 —— 满屏 JSON，一保存画布就没了。
                         if let Err(e) = crate::services::whiteboard::sync_note_type(
                             db,
                             local_id,
@@ -546,10 +546,10 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                         ) {
                             result
                                 .errors
-                                .push(format!("对齐笔记类型失败 {}: {}", entry.title, e));
+                                .push(format!("对齐文档类型失败 {}: {}", entry.title, e));
                         }
                         // Bug 12a：按 name 替换本地 tag 关联。Option 区分新旧客户端：
-                        //   None → 旧 manifest 没此字段 / 加密笔记 / tombstone → 不动
+                        //   None → 旧 manifest 没此字段 / 加密文档 / tombstone → 不动
                         //   Some(_) → 替换（含 Some(vec![]) → 清空，让"用户在另一端删空标签"也能跨端传播）
                         // 方案 C：仅当远端 entry 不旧于本地时才覆盖标签（should_overwrite_tags）——
                         // 本地标签较新时保留本地，不被远端旧标签回滚（P0-1）。
@@ -570,14 +570,14 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                     Err(e) => {
                         result
                             .errors
-                            .push(format!("更新本地笔记失败 {}: {}", entry.title, e));
+                            .push(format!("更新本地文档失败 {}: {}", entry.title, e));
                         None
                     }
                 }
             }
             None => {
                 // 本地没有 → 用远端 UUID 创建（保持多端 ID 稳定）+ 透传 is_daily/daily_date/is_hidden
-                // （否则拉来的日记变普通笔记 → get_or_create_daily 反复新建；隐藏笔记拉到对端变可见）
+                // （否则拉来的日记变普通文档 → get_or_create_daily 反复新建；隐藏文档拉到对端变可见）
                 match db.create_note_with_uuid(
                     &input,
                     &entry.stable_id,
@@ -586,12 +586,12 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                     entry.is_hidden,
                 ) {
                     Ok(n) => {
-                        // Bug 12a：新建笔记同步标签（旧 manifest tags=None → 跳过）
+                        // Bug 12a：新建文档同步标签（旧 manifest tags=None → 跳过）
                         if let Some(tag_names) = entry.tags.as_ref() {
                             if let Err(e) = db.sync_note_tags(n.id, tag_names) {
                                 result
                                     .errors
-                                    .push(format!("新建笔记设置标签失败 {}: {}", entry.title, e));
+                                    .push(format!("新建文档设置标签失败 {}: {}", entry.title, e));
                             }
                         }
                         // 白板要在这里补上类型标记：create_note_with_uuid 建出来的一律是
@@ -605,7 +605,7 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                             ) {
                                 result
                                     .errors
-                                    .push(format!("新建笔记设置类型失败 {}: {}", entry.title, e));
+                                    .push(format!("新建文档设置类型失败 {}: {}", entry.title, e));
                             }
                         }
                         Some(n.id)
@@ -613,7 +613,7 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                     Err(e) => {
                         result
                             .errors
-                            .push(format!("新建本地笔记失败 {}: {}", entry.title, e));
+                            .push(format!("新建本地文档失败 {}: {}", entry.title, e));
                         None
                     }
                 }
@@ -635,7 +635,7 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                     .push(format!("upsert sync_remote_state 失败: {}", e));
             }
             // 反链 pull 后重建：原本只有"前端 handleSave"才会触发 sync_note_links，
-            // 新端 pull 完笔记不打开就拿不到反向链接。这里立刻按 content 重新解析
+            // 新端 pull 完文档不打开就拿不到反向链接。这里立刻按 content 重新解析
             // [[wiki]] 写 note_links 表，让反链面板第一次打开就准确。
             // 失败只记 warn 不影响主流程（反链数据可由用户编辑保存自愈）。
             //
@@ -653,20 +653,20 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
 
     // ── 处理 to_delete_local（远端 tombstone）
     for entry in &diff.to_delete_local {
-        // T-S011：按 stable_uuid 找本地 id，没找到说明本地本就没有此笔记，跳过
+        // T-S011：按 stable_uuid 找本地 id，没找到说明本地本就没有此文档，跳过
         let local_id = match db.get_note_id_by_stable_uuid(&entry.stable_id)? {
             Some(id) => id,
             None => continue,
         };
         // P0：远端删除前先看本地有没有"未推送的新编辑"。有 → 本地编辑比这次远端删除更值得保留，
         // 不软删（edit-wins）：本地保持原样，下次 push 时这条非 tombstone + hash 已变 → 重新推到
-        // 远端（相当于本地编辑复活被删的笔记）。此处不更新 remote_state，保持"本地有改动待推"状态。
+        // 远端（相当于本地编辑复活被删的文档）。此处不更新 remote_state，保持"本地有改动待推"状态。
         if local_has_unpushed_change(
             local_hash_by_uuid.get(entry.stable_id.as_str()).copied(),
             remote_states.get(&local_id).map(|s| s.last_synced_hash.as_str()),
         ) {
             log::warn!(
-                "[sync_v1] 远端已删除笔记 {} 但本地有未推送改动 → 保留本地（edit-wins），下次 push 将重新上传",
+                "[sync_v1] 远端已删除文档 {} 但本地有未推送改动 → 保留本地（edit-wins），下次 push 将重新上传",
                 entry.title
             );
             continue;
@@ -1053,11 +1053,11 @@ fn apply_pulled_tasks(
     }
 }
 
-/// T-S051: 判定一条 to_pull 笔记是否"本地远端各改各的"
+/// T-S051: 判定一条 to_pull 文档是否"本地远端各改各的"
 ///
 /// 条件：本地当前 hash 已知 + 上次同步 hash 已知 + 本地 ≠ 上次同步（本地有未推送改动）
 ///       + 本地 ≠ 远端（远端确实带来了不同内容）→ 真分歧。
-/// 任一信息缺失（如该笔记从未同步过、本地刚 create）→ 不算分歧（按原 last-write-wins 走）。
+/// 任一信息缺失（如该文档从未同步过、本地刚 create）→ 不算分歧（按原 last-write-wins 走）。
 fn is_divergence(local_hash: Option<&str>, last_synced_hash: Option<&str>, remote_hash: &str) -> bool {
     match (local_hash, last_synced_hash) {
         (Some(lh), Some(ls)) => lh != ls && lh != remote_hash,
@@ -1082,10 +1082,10 @@ fn should_overwrite_tags(remote_updated_at: &str, local_updated_at: Option<&str>
 ///
 /// 判据：本地当前 content_hash 已知 + 上次同步 hash 已知 + 两者不同
 ///（说明本地在上次同步之后改过、但还没推上去）。
-/// 缺信息（该笔记从未成功同步过 / 本地 manifest 无此条）→ 返回 false，按原 delete-wins 走。
+/// 缺信息（该文档从未成功同步过 / 本地 manifest 无此条）→ 返回 false，按原 delete-wins 走。
 ///
 /// 返回 true 时调用方应**保留本地、跳过软删**（edit-wins）：本地这条非 tombstone 且 hash 已变，
-/// 下次 push 的 diff 会把它当作 to_push 重新上传，相当于本地编辑"复活"被删的笔记，
+/// 下次 push 的 diff 会把它当作 to_push 重新上传，相当于本地编辑"复活"被删的文档，
 /// 避免"在别端删除前后本地刚改的内容被静默软删进回收站"。
 fn local_has_unpushed_change(local_hash: Option<&str>, last_synced_hash: Option<&str>) -> bool {
     match (local_hash, last_synced_hash) {
@@ -1116,7 +1116,7 @@ mod tests {
         assert!(!is_divergence(Some("syncedH"), Some("syncedH"), "remoteH"));
         // 本地改了，但改成的内容恰好和远端一样 → 不算分歧（只需更新时间戳）
         assert!(!is_divergence(Some("sameH"), Some("syncedH"), "sameH"));
-        // 该笔记从未同步过 / 信息缺失 → 不算分歧
+        // 该文档从未同步过 / 信息缺失 → 不算分歧
         assert!(!is_divergence(Some("localH"), None, "remoteH"));
         assert!(!is_divergence(None, Some("syncedH"), "remoteH"));
     }

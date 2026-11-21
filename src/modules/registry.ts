@@ -36,17 +36,23 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     view: "home",
     label: "首页",
     icon: Home,
-    description: "仪表盘、最近笔记与今日概览",
+    description: "仪表盘、最近文档与今日概览",
     helpFile: "home.md",
-    panels: [
+    // 首页不再提供独立配置页签；抽屉里只有使用说明与下列功能页签
+    panels: [],
+    // 卡片复习 / 定时推送不再占侧边栏，收进首页设置抽屉的页签里
+    featureTabs: [
       {
-        id: "widgets",
-        title: "首页卡片",
-        kind: "component",
-        load: () =>
-          import("@/components/home/HomeWidgetsSection").then((m) => ({
-            default: m.HomeWidgetsSection,
-          })),
+        key: "cards",
+        label: "卡片复习",
+        icon: Layers,
+        load: () => import("@/pages/cards"),
+      },
+      {
+        key: "push",
+        label: "定时推送",
+        icon: Bell,
+        load: () => import("@/pages/push"),
       },
     ],
   },
@@ -55,10 +61,10 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     view: "notes",
     label: "文档",
     icon: NotebookText,
-    description: "Markdown 笔记、白板与思维导图",
+    description: "Markdown 文档、白板与思维导图",
     helpFile: "notes.md",
     shortcuts: [
-      { keys: "Ctrl + N", desc: "新建笔记" },
+      { keys: "Ctrl + N", desc: "新建文档" },
       { keys: "Ctrl + K", desc: "打开命令面板" },
       { keys: "F11", desc: "切换专注模式" },
       { keys: "Alt + ← / →", desc: "历史后退 / 前进" },
@@ -87,7 +93,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         kind: "link",
         group: "tags",
         description:
-          "标签属于文档模块：用于跨文件夹组织笔记。挂载的 Markdown 文档打标签会写回源文件 frontmatter；PDF / Word / Excel 的标签来自源文件解析。",
+          "标签属于文档模块：用于跨文件夹组织文档。挂载的 Markdown 文档打标签会写回源文件 frontmatter；PDF / Word / Excel 的标签来自源文件解析。",
         link: { to: "/tags", label: "打开标签管理" },
       },
       {
@@ -146,7 +152,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
       },
       {
         id: "import",
-        title: "导入笔记",
+        title: "导入文档",
         kind: "component",
         group: "general",
         load: () =>
@@ -156,7 +162,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
       },
       {
         id: "export",
-        title: "导出笔记",
+        title: "导出文档",
         kind: "component",
         group: "general",
         load: () =>
@@ -194,7 +200,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     description: "按日期记录日记与工作日志",
     helpFile: "daily.md",
     shortcuts: [
-      { keys: "Ctrl + N", desc: "新建笔记" },
+      { keys: "Ctrl + N", desc: "新建文档" },
       { keys: "Ctrl + K", desc: "命令面板中跳转今日日记" },
     ],
     panels: [
@@ -258,7 +264,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     description: "任务管理、提醒与重复任务",
     helpFile: "tasks.md",
     shortcuts: [
-      { keys: "Ctrl + N", desc: "新建笔记（可在待办中转换为任务）" },
+      { keys: "Ctrl + N", desc: "新建文档（可在待办中转换为任务）" },
       { keys: "Shift + F1", desc: "打开当前模块使用说明" },
     ],
     panels: [
@@ -321,7 +327,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         id: "templates",
         title: "任务模板",
         kind: "link",
-        description: "任务模板与笔记模板统一在全局模板管理中维护。",
+        description: "任务模板与文档模板统一在全局模板管理中维护。",
         link: { to: "/settings?tab=personal", label: "打开模板管理" },
       },
     ],
@@ -347,7 +353,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     view: "search",
     label: "搜索",
     icon: Search,
-    description: "全库笔记与附件检索",
+    description: "全库文档与附件检索",
     helpFile: "search.md",
     shortcuts: [
       { keys: "Ctrl + K", desc: "打开命令面板 / 快速搜索" },
@@ -365,8 +371,8 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
             type: "select",
             defaultValue: "all",
             options: [
-              { label: "笔记 + 任务", value: "all" },
-              { label: "仅笔记", value: "notes" },
+              { label: "文档 + 任务", value: "all" },
+              { label: "仅文档", value: "notes" },
               { label: "仅任务", value: "tasks" },
             ],
             description: "进入搜索页时默认选中的结果类型；URL 中显式指定时以 URL 为准",
@@ -414,7 +420,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     view: "ai",
     label: "AI 问答",
     icon: Bot,
-    description: "基于本地笔记的 AI 对话与提问",
+    description: "基于本地文档的 AI 对话与提问",
     helpFile: "ai.md",
     shortcuts: [
       { keys: "Ctrl + K", desc: "命令面板中发起 AI 提问" },
@@ -499,7 +505,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     view: "push",
     label: "定时推送",
     icon: Bell,
-    description: "定时把笔记或提醒推送到桌面",
+    description: "定时把文档或提醒推送到桌面",
     helpFile: "push.md",
     panels: [],
   },
@@ -574,7 +580,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         id: "open",
         title: "助研工作台",
         kind: "link",
-        description: "按课题管理文献与 AI 产出，支持导出为笔记。",
+        description: "按课题管理文献与 AI 产出，支持导出为文档。",
         link: { to: "/research", label: "打开助研工作台" },
       },
     ],
@@ -602,7 +608,7 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     view: "trash",
     label: "回收站",
     icon: Trash2,
-    description: "已删除笔记的恢复与清理",
+    description: "已删除文档的恢复与清理",
     helpFile: "trash.md",
     panels: [],
   },

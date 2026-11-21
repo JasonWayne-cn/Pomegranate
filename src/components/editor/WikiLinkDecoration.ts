@@ -147,7 +147,7 @@ export const WikiLinkDecoration = Extension.create<WikiLinkOptions>({
             if (el) {
               const title = el.getAttribute("data-wiki-link");
               if (title) {
-                // 有 ID 锚点优先用 ID（标题改了也能跳到正确笔记）；否则交给上层按 title 查
+                // 有 ID 锚点优先用 ID（标题改了也能跳到正确文档）；否则交给上层按 title 查
                 const idAttr = el.getAttribute("data-wiki-link-id");
                 const id = idAttr ? Number(idAttr) : undefined;
                 event.preventDefault();

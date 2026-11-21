@@ -73,8 +73,8 @@
     ],
     "copyright": "Copyright (c) 2026 AgileFR",
     "category": "Productivity",
-    "shortDescription": "智能桌面随手笔记应用",
-    "longDescription": "基于 Tauri 构建的本地笔记工具，支持 Markdown 编辑、全文搜索、双向链接、知识图谱、AI 问答等功能。",
+    "shortDescription": "智能桌面随手文档应用",
+    "longDescription": "基于 Tauri 构建的本地文档工具，支持 Markdown 编辑、全文搜索、双向链接、知识图谱、AI 问答等功能。",
     "windows": {
       "nsis": {
         "displayLanguageSelector": true,

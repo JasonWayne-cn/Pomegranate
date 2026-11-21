@@ -1,10 +1,10 @@
-//! 白板「笔记卡片」的正文摘要。
+//! 白板「文档卡片」的正文摘要。
 //!
-//! 卡片与 `[[双链]]` 角标的区别：角标只能点开跳走，卡片把笔记内容**摊在画布上**，
-//! 且每次打开白板都重新取一次 —— 笔记改了卡片跟着变，这是"知识库白板"
+//! 卡片与 `[[双链]]` 角标的区别：角标只能点开跳走，卡片把文档内容**摊在画布上**，
+//! 且每次打开白板都重新取一次 —— 文档改了卡片跟着变，这是"知识库白板"
 //! 区别于普通画图工具的地方。
 //!
-//! 摘要在后端算而不是把整篇正文丢给前端：一篇笔记可能几万字，
+//! 摘要在后端算而不是把整篇正文丢给前端：一篇文档可能几万字，
 //! 卡片上只放得下开头几行，多传的部分纯属浪费 IPC。
 
 use crate::database::Database;
@@ -13,21 +13,21 @@ use crate::models::NoteExcerpt;
 
 /// 卡片正文的字符上限。
 ///
-/// 按「一张卡片大约能舒服地放下的量」定：再多就该点进笔记看了，
+/// 按「一张卡片大约能舒服地放下的量」定：再多就该点进文档看了，
 /// 塞满一屏的卡片反而让画布没法用。
 const MAX_CHARS: usize = 280;
 
 /// 一次最多取多少条 —— 挡住前端传来的异常长列表（画布上不会有几百张卡片）。
 const MAX_IDS: usize = 200;
 
-/// 批量取笔记摘要。顺序与入参一致，查不到的也会返回（`missing = true`）。
+/// 批量取文档摘要。顺序与入参一致，查不到的也会返回（`missing = true`）。
 ///
 /// 全部按 id 单条取而不是拼一个 IN 查询：条数本就不多（一块白板上的卡片），
-/// 而复用 `get_note` 能自动继承它对加密笔记的处理，不必在这里重写一遍。
+/// 而复用 `get_note` 能自动继承它对加密文档的处理，不必在这里重写一遍。
 pub fn for_notes(db: &Database, note_ids: &[i64]) -> Result<Vec<NoteExcerpt>, AppError> {
     if note_ids.len() > MAX_IDS {
         return Err(AppError::InvalidInput(format!(
-            "一次最多取 {} 条笔记摘要",
+            "一次最多取 {} 条文档摘要",
             MAX_IDS
         )));
     }
@@ -37,7 +37,7 @@ pub fn for_notes(db: &Database, note_ids: &[i64]) -> Result<Vec<NoteExcerpt>, Ap
         out.push(match db.get_note(id)? {
             Some(note) => {
                 if note.is_encrypted {
-                    // 加密笔记的内容不该出现在画布上 —— 画布会被导出成图片、
+                    // 加密文档的内容不该出现在画布上 —— 画布会被导出成图片、
                     // 被同步、被别人看到，那等于绕过了加密
                     NoteExcerpt {
                         note_id: id,
@@ -61,12 +61,12 @@ pub fn for_notes(db: &Database, note_ids: &[i64]) -> Result<Vec<NoteExcerpt>, Ap
                     }
                 }
             }
-            // 笔记被删了不能让卡片凭空消失 —— 那样用户会以为是自己弄丢的。
-            // 保留卡片并标记失效，让他知道"这里原本引了一条现在没了的笔记"
+            // 文档被删了不能让卡片凭空消失 —— 那样用户会以为是自己弄丢的。
+            // 保留卡片并标记失效，让他知道"这里原本引了一条现在没了的文档"
             None => NoteExcerpt {
                 note_id: id,
-                title: format!("笔记 #{}", id),
-                excerpt: "（笔记已删除）".into(),
+                title: format!("文档 #{}", id),
+                excerpt: "（文档已删除）".into(),
                 missing: true,
             },
         });
@@ -160,7 +160,7 @@ mod tests {
         assert!(!got[0].missing);
     }
 
-    /// 笔记删了要标记失效而不是消失 —— 卡片凭空不见会让用户以为是自己弄丢的
+    /// 文档删了要标记失效而不是消失 —— 卡片凭空不见会让用户以为是自己弄丢的
     #[test]
     fn missing_note_is_flagged_not_dropped() {
         let db = mem_db();
@@ -170,7 +170,7 @@ mod tests {
         assert!(got[0].excerpt.contains("已删除"));
     }
 
-    /// 加密笔记的内容绝不能摊到画布上 —— 画布会被导出、同步、给别人看，
+    /// 加密文档的内容绝不能摊到画布上 —— 画布会被导出、同步、给别人看，
     /// 那等于绕过了加密
     #[test]
     fn encrypted_note_content_is_not_exposed() {

@@ -11,17 +11,17 @@ use crate::services::pdf::PdfService;
 pub struct TrashService;
 
 impl TrashService {
-    /// 清理某笔记的所有关联文件（图片目录 + 附件目录 + 源文件副本）
+    /// 清理某文档的所有关联文件（图片目录 + 附件目录 + 源文件副本）
     /// 文件层失败仅 warn，不阻塞数据库删除流程
     fn cleanup_note_assets(data_dir: &Path, note_id: i64, source_file_path: &Option<String>) {
         // 1. 删图片目录 kb_assets/images/<id>/
         if let Err(e) = ImageService::delete_note_images(data_dir, note_id) {
-            log::warn!("删除笔记 {} 图片目录失败: {}", note_id, e);
+            log::warn!("删除文档 {} 图片目录失败: {}", note_id, e);
         }
 
         // 2. 删附件目录 kb_assets/attachments/<id>/
         if let Err(e) = AttachmentService::delete_note_attachments(data_dir, note_id) {
-            log::warn!("删除笔记 {} 附件目录失败: {}", note_id, e);
+            log::warn!("删除文档 {} 附件目录失败: {}", note_id, e);
         }
 
         // 3. 删源文件（可能是 sources/<id>.docx、pdfs/<id>.pdf 等）
@@ -33,23 +33,23 @@ impl TrashService {
                 if let Err(e) = std::fs::remove_file(&abs) {
                     log::warn!("删除源文件 {:?} 失败: {}", abs, e);
                 } else {
-                    log::info!("已删除笔记 {} 源文件: {}", note_id, rel);
+                    log::info!("已删除文档 {} 源文件: {}", note_id, rel);
                 }
             }
         }
 
-        // 4. 删 PDF 子目录 pdfs/<id>/（新方案 C 格式：每个笔记独占目录）
+        // 4. 删 PDF 子目录 pdfs/<id>/（新方案 C 格式：每个文档独占目录）
         //    旧格式 pdfs/<id>.pdf 是单文件，这里 is_dir 检查会跳过，互不冲突
         if let Err(e) = PdfService::delete_note_pdfs(data_dir, note_id) {
-            log::warn!("删除笔记 {} PDF 子目录失败: {}", note_id, e);
+            log::warn!("删除文档 {} PDF 子目录失败: {}", note_id, e);
         }
     }
-    /// 软删除笔记（移入回收站）
+    /// 软删除文档（移入回收站）
     pub fn soft_delete(db: &Database, id: i64) -> Result<(), AppError> {
         let deleted = db.soft_delete_note(id)?;
         if !deleted {
             return Err(AppError::NotFound(format!(
-                "笔记 {} 不存在或已在回收站",
+                "文档 {} 不存在或已在回收站",
                 id
             )));
         }
@@ -57,7 +57,7 @@ impl TrashService {
         Ok(())
     }
 
-    /// 恢复笔记（从回收站恢复）
+    /// 恢复文档（从回收站恢复）
     ///
     /// 返回值：true = 恢复到原文件夹，false = 落到根目录
     /// （原文件夹被删时外键 ON DELETE SET NULL 已经把 folder_id 抹了）
@@ -67,7 +67,7 @@ impl TrashService {
         let restored = db.restore_note(id)?;
         if !restored {
             return Err(AppError::NotFound(format!(
-                "笔记 {} 不存在或不在回收站",
+                "文档 {} 不存在或不在回收站",
                 id
             )));
         }
@@ -75,7 +75,7 @@ impl TrashService {
         Ok(folder_id.is_some())
     }
 
-    /// 永久删除笔记（连带清理图片 + 源文件）
+    /// 永久删除文档（连带清理图片 + 源文件）
     pub fn permanent_delete(db: &Database, data_dir: &Path, id: i64) -> Result<(), AppError> {
         // 先查 source_file_path（DB 行删掉后就拿不到了）
         let source = db.get_note_source_path(id)?;
@@ -85,7 +85,7 @@ impl TrashService {
         let deleted = db.permanent_delete_note(id)?;
         if !deleted {
             return Err(AppError::NotFound(format!(
-                "笔记 {} 不存在或不在回收站",
+                "文档 {} 不存在或不在回收站",
                 id
             )));
         }
@@ -166,7 +166,7 @@ impl TrashService {
 
     /// 清空回收站（连带清理所有关联图片 + 源文件）
     pub fn empty(db: &Database, data_dir: &Path) -> Result<usize, AppError> {
-        // 先拿到所有待删笔记的 (id, source_path)
+        // 先拿到所有待删文档的 (id, source_path)
         let items = db.list_trash_ids_with_sources()?;
 
         // 删 DB 行（一次性批量）
@@ -179,7 +179,7 @@ impl TrashService {
         }
 
         log::info!(
-            "清空回收站: DB 删除 {} 条，清理 {} 个笔记的资产",
+            "清空回收站: DB 删除 {} 条，清理 {} 个文档的资产",
             affected,
             items.len()
         );

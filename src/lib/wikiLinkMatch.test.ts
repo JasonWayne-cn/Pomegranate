@@ -8,18 +8,18 @@ function titles(text: string) {
 
 describe("findWikiLinks · 基础识别", () => {
   it("旧格式 [[标题]]", () => {
-    const hits = findWikiLinks("[[我的笔记]]");
+    const hits = findWikiLinks("[[我的文档]]");
     expect(hits).toHaveLength(1);
-    expect(hits[0].title).toBe("我的笔记");
+    expect(hits[0].title).toBe("我的文档");
     expect(hits[0].id).toBeUndefined();
     expect(hits[0].start).toBe(0);
-    expect(hits[0].end).toBe("[[我的笔记]]".length);
+    expect(hits[0].end).toBe("[[我的文档]]".length);
   });
 
   it("带 ID 锚点 [[标题|123]]", () => {
-    const hits = findWikiLinks("[[我的笔记|135]]");
+    const hits = findWikiLinks("[[我的文档|135]]");
     expect(hits).toHaveLength(1);
-    expect(hits[0].title).toBe("我的笔记");
+    expect(hits[0].title).toBe("我的文档");
     expect(hits[0].id).toBe("135");
   });
 
@@ -30,13 +30,13 @@ describe("findWikiLinks · 基础识别", () => {
   });
 
   it("一行里多个双链", () => {
-    expect(titles("见 [[笔记A]] 和 [[笔记B|7]] 两篇")).toEqual(["笔记A", "笔记B"]);
+    expect(titles("见 [[文档A]] 和 [[文档B|7]] 两篇")).toEqual(["文档A", "文档B"]);
   });
 
   it("夹在正文中间时偏移正确", () => {
-    const text = "见 [[笔记A]] 这篇";
+    const text = "见 [[文档A]] 这篇";
     const hit = findWikiLinks(text)[0];
-    expect(text.slice(hit.start, hit.end)).toBe("[[笔记A]]");
+    expect(text.slice(hit.start, hit.end)).toBe("[[文档A]]");
   });
 });
 
@@ -60,7 +60,7 @@ describe("findWikiLinks · 跨 text node（本次 bug 的核心）", () => {
   });
 
   it("只把 ]] 切出去也一样要能认出来", () => {
-    expect(titles(["[[笔记A", "]]"].join(""))).toEqual(["笔记A"]);
+    expect(titles(["[[文档A", "]]"].join(""))).toEqual(["文档A"]);
   });
 });
 
@@ -68,18 +68,18 @@ describe("wikiLinkAtOffset · 按位置反查（表格里点不动的兜底路�
   // 背景：Tiptap 表格是带 NodeView 的容器，点在单元格里时 event.target 会被换成外层
   // <div class="tableWrapper">，DOM 反查拿不到 decoration span。改用 ProseMirror 给的
   // pos 换算成块内偏移，再用本函数反查，容器怎么包都不受影响。
-  const text = "见 [[笔记A|12]] 这篇";
+  const text = "见 [[文档A|12]] 这篇";
   const start = text.indexOf("[[");
-  const end = start + "[[笔记A|12]]".length;
+  const end = start + "[[文档A|12]]".length;
 
   it("落在双链内部 → 命中", () => {
-    expect(wikiLinkAtOffset(text, start + 3)?.title).toBe("笔记A");
+    expect(wikiLinkAtOffset(text, start + 3)?.title).toBe("文档A");
     expect(wikiLinkAtOffset(text, start + 3)?.id).toBe("12");
   });
 
   it("贴着两端的边界也算命中（与 decoration 视觉范围一致）", () => {
-    expect(wikiLinkAtOffset(text, start)?.title).toBe("笔记A");
-    expect(wikiLinkAtOffset(text, end)?.title).toBe("笔记A");
+    expect(wikiLinkAtOffset(text, start)?.title).toBe("文档A");
+    expect(wikiLinkAtOffset(text, end)?.title).toBe("文档A");
   });
 
   it("落在双链之外 → 不命中，让点击照常定位光标", () => {

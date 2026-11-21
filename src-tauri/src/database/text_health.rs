@@ -12,7 +12,7 @@
 //!
 //! 一旦某个 cell 有非法字节，`row.get::<_, String>(i)` 会返回
 //! `Conversion error from type Text at index: i, invalid utf-8 sequence...`，
-//! 于是**整条查询失败** —— 用户表现为"同步/拉取整个失败"，几千条好笔记被一行坏数据拖死。
+//! 于是**整条查询失败** —— 用户表现为"同步/拉取整个失败"，几千条好文档被一行坏数据拖死。
 //!
 //! ## 两层应对
 //!
@@ -31,7 +31,7 @@ use super::Database;
 
 // ─────────────────────────── 降级读工具 ───────────────────────────
 
-/// 日志里坏字节预览的最大长度（字符数），避免把整篇笔记打进日志
+/// 日志里坏字节预览的最大长度（字符数），避免把整篇文档打进日志
 const PREVIEW_CHARS: usize = 80;
 
 /// 截断字符串用于日志 / 报告展示（按**字符**截断，不会切碎多字节字符）
@@ -115,7 +115,7 @@ pub struct TextHealthIssue {
     pub column: String,
     /// 该行主键值（`notes.id` 等）
     pub row_id: i64,
-    /// 修正后的内容预览（截断到 80 字符）—— 给用户定位是哪条笔记
+    /// 修正后的内容预览（截断到 80 字符）—— 给用户定位是哪条文档
     pub preview: String,
     /// 是否已写回修复（`repair = false` 时恒为 false）
     pub repaired: bool,

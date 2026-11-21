@@ -33,7 +33,7 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
 
   addOptions() {
     return {
-      // 默认空实现：未配置时媒体项执行会提示"请先保存笔记"
+      // 默认空实现：未配置时媒体项执行会提示"请先保存文档"
       getNoteId: () => undefined,
       ensureNoteId: () => undefined,
       requestEmbedUrl: undefined,

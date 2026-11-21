@@ -16,8 +16,8 @@ const ITEMS: Array<{
   description: string;
 }> = [
   { key: "todo", label: "今日待办", description: "今天到期与紧急任务" },
-  { key: "recentNotes", label: "最近笔记", description: "最近编辑的文档" },
-  { key: "pinned", label: "置顶笔记", description: "手动置顶的文档" },
+  { key: "recentNotes", label: "最近文档", description: "最近编辑的文档" },
+  { key: "pinned", label: "置顶文档", description: "手动置顶的文档" },
   { key: "askAi", label: "AI 快捷入口", description: "首页 AI 提问卡片" },
 ];
 

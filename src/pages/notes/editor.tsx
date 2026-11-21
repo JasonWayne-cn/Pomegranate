@@ -75,7 +75,7 @@ function readEditorMarkdown(editor: unknown): string | null {
   }
 }
 
-/** 从 HTML 内容中提取 [[笔记标题]] 链接 */
+/** 从 HTML 内容中提取 [[文档标题]] 链接 */
 function extractWikiLinks(html: string): string[] {
   const text = stripHtml(html);
   const regex = /\[\[([^\]]+)\]\]/g;
@@ -212,7 +212,7 @@ function FolderPathEditor({
     }
   }, [open, treeData]);
 
-  // 默认文件夹偏好（"全局新建笔记"时套用）
+  // 默认文件夹偏好（"全局新建文档"时套用）
   const defaultFolderId = useAppStore((s) => s.defaultFolderId);
   const setDefaultFolderId = useAppStore((s) => s.setDefaultFolderId);
   const defaultFolderName = useMemo(
@@ -443,7 +443,7 @@ function MetaBar({
   const exactExists = allTags.some((t) => t.name === trimmedSearch);
   const showCreate = trimmedSearch.length > 0 && !exactExists;
 
-  // 默认标签偏好（"全局新建笔记"自动附加）
+  // 默认标签偏好（"全局新建文档"自动附加）
   const defaultTagIds = useAppStore((s) => s.defaultTagIds);
   const setDefaultTagIds = useAppStore((s) => s.setDefaultTagIds);
   const defaultTagNames = useMemo(
@@ -680,7 +680,7 @@ function DesktopNoteEditorPage() {
   });
   /** 思维导图视图：在编辑器右侧以 flex 分栏方式渲染（不是浮层） */
   const [mindMapOpen, setMindMapOpen] = useState(false);
-  /** 思维导图分栏宽度（像素，持久化到 localStorage 跨笔记记忆） */
+  /** 思维导图分栏宽度（像素，持久化到 localStorage 跨文档记忆） */
   const [mindMapWidth, setMindMapWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem("editor.mindMapWidth"));
     return Number.isFinite(saved) && saved >= 320 ? saved : 480;
@@ -714,8 +714,8 @@ function DesktopNoteEditorPage() {
   const [editorInstance, setEditorInstance] = useState<any | null>(null);
   const editorBodyRef = useRef<HTMLDivElement | null>(null);
 
-  // Ctrl/Cmd+A 全选笔记内容。
-  // 默认情况下焦点未落到 ProseMirror 编辑器时（比如刚打开笔记还没点入正文），
+  // Ctrl/Cmd+A 全选文档内容。
+  // 默认情况下焦点未落到 ProseMirror 编辑器时（比如刚打开文档还没点入正文），
   // WebView 会触发原生"选中整个文档"行为，把侧栏 / 工具栏 / 元属性区都选上。
   // 这里仅在事件来源是 body 或编辑器主体内部（且不在 input/textarea/contenteditable
   // 上）时拦截，转发到 editor.commands.selectAll —— 弹窗 / Modal / Select 等
@@ -757,7 +757,7 @@ function DesktopNoteEditorPage() {
   const [disambigItems, setDisambigItems] = useState<Note[]>([]);
   const [disambigTitle, setDisambigTitle] = useState("");
 
-  // 右侧 AI 抽屉（方案 A：编辑笔记时不离页问 AI；伴生对话存到 ai_conversations）
+  // 右侧 AI 抽屉（方案 A：编辑文档时不离页问 AI；伴生对话存到 ai_conversations）
   const [aiDrawerOpen, setAiDrawerOpen] = useState(false);
   // 选段触发（方案 C）：携带的选中文本，抽屉里展示为引用 chip 而不是塞输入框
   const [aiSelection, setAiSelection] = useState<string | undefined>(undefined);
@@ -785,6 +785,16 @@ function DesktopNoteEditorPage() {
     ? "该挂载点为只读，标签不可编辑"
     : "挂载文档的标签来自源文件解析，仅 Markdown 文件可写回";
 
+  /**
+   * 当前 title/content 状态实际属于哪条文档。
+   *
+   * 路由切到新 noteId 时，React 复用同一个编辑器实例，title/content 仍是上一篇的，
+   * 直到 loadData 落定才更新。这段时间里自动保存 / 草稿 effect 若按新 noteId 写入，
+   * 就会把上一篇内容覆盖到新文档（白板被写成 Markdown 就是这么发生的）。
+   * 所有"写"路径都先校验归属，未对齐则跳过。
+   */
+  const ownedNoteIdRef = useRef<number | null>(null);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -795,6 +805,14 @@ function DesktopNoteEditorPage() {
         tagApi.getNoteTags(noteId),
         linkApi.getBacklinks(noteId),
       ]);
+      // 白板本质是 note_type='whiteboard' 的文档：直接替换到画布页，
+      // 否则会把 Excalidraw 场景 JSON 当 Markdown 正文渲染出来。
+      // 必须发生在 openTab 之前，避免给白板留下一个"文档编辑器"标签页。
+      if (noteData.note_type === "whiteboard") {
+        navigate(`/whiteboard/${noteData.id}`, { replace: true });
+        return;
+      }
+      ownedNoteIdRef.current = noteData.id;
       setNote(noteData);
       setAllTags(tags);
       setNoteTags(existingTags);
@@ -804,6 +822,7 @@ function DesktopNoteEditorPage() {
         id: noteData.id,
         title: noteData.title,
         sourceFileType: noteData.source_file_type,
+        noteType: noteData.note_type,
       });
 
       // 如果 store 里有未保存的草稿（上次切 tab/跳转 wiki 时缓存），优先恢复
@@ -840,7 +859,7 @@ function DesktopNoteEditorPage() {
     if (id) loadData();
   }, [id, loadData]);
 
-  // 外部挂载的 PDF / Word / Excel 影子笔记：检测原文件是否已更新。
+  // 外部挂载的 PDF / Word / Excel 影子文档：检测原文件是否已更新。
   // 未编辑时可安全重抽；已编辑时提示会覆盖本地修改。
   useEffect(() => {
     if (!noteId) return;
@@ -864,11 +883,11 @@ function DesktopNoteEditorPage() {
           message: failed ? "原文件抽取失败" : "原文件已更新",
           description: (
             <div style={{ fontSize: 12 }}>
-              <div>{s.error || "影子笔记已落后于原文件。"}</div>
+              <div>{s.error || "影子文档已落后于原文件。"}</div>
               <div style={{ marginTop: 6, opacity: 0.75 }}>
                 {s.userEdited
-                  ? "你对影子笔记的编辑不会写回原文件；重新抽取会覆盖当前编辑。"
-                  : "影子笔记尚未编辑，可以安全重新抽取。"}
+                  ? "你对影子文档的编辑不会写回原文件；重新抽取会覆盖当前编辑。"
+                  : "影子文档尚未编辑，可以安全重新抽取。"}
               </div>
             </div>
           ),
@@ -894,7 +913,7 @@ function DesktopNoteEditorPage() {
         });
       })
       .catch(() => {
-        // 非外部笔记 / 状态查询失败不打扰用户
+        // 非外部文档 / 状态查询失败不打扰用户
       });
     return () => {
       cancelled = true;
@@ -929,7 +948,7 @@ function DesktopNoteEditorPage() {
     tagApi.list().then(setAllTags).catch(() => {});
   }, [tagsTick]);
 
-  // 笔记自身 tick：侧边栏改名 / 外部更新时同步 title 输入框 + meta，
+  // 文档自身 tick：侧边栏改名 / 外部更新时同步 title 输入框 + meta，
   // 但用户在编辑（dirty）时不动 title 字段，避免冲掉未保存的修改。
   // 用 ref 跳首次（与 loadData 重复）+ ref 读 dirty/title 避免循环依赖。
   const dirtyRef = useRef(dirty);
@@ -960,7 +979,7 @@ function DesktopNoteEditorPage() {
     [noteId, getDraft],
   );
 
-  // 跨窗口同步：另一个 webview（主窗 ↔ popout）保存了同一 id 的笔记后，
+  // 跨窗口同步：另一个 webview（主窗 ↔ popout）保存了同一 id 的文档后，
   // 这里通过 Tauri 全局事件 `note:updated` 收到通知。Zustand store 是 per-webview 的，
   // 没法跨进程同步，所以走 Tauri 事件桥。
   // 冲突保护：当前 buffer dirty 时不强制覆盖，弹 notification 让用户决定。
@@ -1048,11 +1067,13 @@ function DesktopNoteEditorPage() {
   }, [notesTick, noteId]);
 
   /**
-   * 保存当前笔记。
+   * 保存当前文档。
    * silent=true 用于"跳转前自动保存"场景：不弹"保存成功"toast，避免干扰用户操作；
    *             但若有未匹配的 wiki 链接仍会弹 warning（这种信息必须告知）。
    */
   async function handleSave(silent = false) {
+    // 状态仍属于上一篇文档时禁止写入，避免切文档竞态把旧内容覆盖到新 id
+    if (ownedNoteIdRef.current !== noteId) return;
     if (!title.trim()) {
       if (!silent) message.warning("标题不能为空");
       return;
@@ -1145,7 +1166,7 @@ function DesktopNoteEditorPage() {
         message.success("保存成功");
       }
 
-      // 外部 .md 双向同步：若该笔记是从 .md 文件打开来的，把当前内容写回原文件
+      // 外部 .md 双向同步：若该文档是从 .md 文件打开来的，把当前内容写回原文件
       if (updated.source_file_type === "md" && updated.source_file_path) {
         try {
           const r = await sourceWritebackApi.writeBack(noteId, false);
@@ -1217,7 +1238,7 @@ function DesktopNoteEditorPage() {
 
   /**
    * 跳转前保护：若当前有未保存修改，先静默保存再跳转，避免内容被新页面 loadData 覆盖丢失。
-   * 用于所有 navigate 到其他笔记/路由的场景（wiki 链接点击、消歧选择、模糊匹配等）。
+   * 用于所有 navigate 到其他文档/路由的场景（wiki 链接点击、消歧选择、模糊匹配等）。
    */
   async function ensureSavedBeforeNavigate() {
     if (dirty && title.trim()) {
@@ -1230,6 +1251,8 @@ function DesktopNoteEditorPage() {
   useEffect(() => {
     if (!dirty) return;
     const t = setTimeout(() => {
+      // 同上：内容尚未切到当前文档时不写草稿，否则新文档会"继承"上一篇内容
+      if (ownedNoteIdRef.current !== noteId) return;
       setDraft(noteId, { title, content });
     }, 400);
     return () => clearTimeout(t);
@@ -1269,6 +1292,8 @@ function DesktopNoteEditorPage() {
     return () => {
       const s = dbSaveOnUnmountRef.current;
       if (!s.dirty || !s.title.trim()) return;
+      // 归属校验：卸载时若状态还不是当前 noteId 的内容，宁可不写也不能写错文档
+      if (ownedNoteIdRef.current !== noteId) return;
       noteApi
         .update(noteId, {
           title: s.title.trim(),
@@ -1323,8 +1348,8 @@ function DesktopNoteEditorPage() {
   }
 
   /**
-   * T-003: 切换笔记"隐藏"状态。
-   * 隐藏后主界面看不到此笔记，但保留在当前编辑器 tab 里以便继续编辑；
+   * T-003: 切换文档"隐藏"状态。
+   * 隐藏后主界面看不到此文档，但保留在当前编辑器 tab 里以便继续编辑；
    * 取消隐藏立即回到普通可见态。
    */
   async function handleToggleHidden() {
@@ -1340,7 +1365,7 @@ function DesktopNoteEditorPage() {
   }
 
   /**
-   * T-007: 切换笔记加密态。
+   * T-007: 切换文档加密态。
    *
    * 前置：vault 必须已解锁。未解锁时弹 unlock/setup Modal，解锁后用户需再点一次本按钮。
    *
@@ -1385,7 +1410,7 @@ function DesktopNoteEditorPage() {
         await vaultApi.encryptNote(noteId);
         message.success("已加密（主界面将显示占位文本）");
       }
-      // 重新拉笔记以拿到最新 is_encrypted / content 占位符
+      // 重新拉文档以拿到最新 is_encrypted / content 占位符
       const fresh = await noteApi.get(noteId);
       savedRef.current = { title: fresh.title, content: fresh.content };
       setNote(fresh);
@@ -1397,7 +1422,7 @@ function DesktopNoteEditorPage() {
     }
   }
 
-  /** Ctrl/Cmd + 点击 [[标题]] 时跳转到对应笔记 */
+  /** Ctrl/Cmd + 点击 [[标题]] 时跳转到对应文档 */
   async function handleWikiLinkClick(wikiTitle: string) {
     try {
       const results = await linkApi.searchTargets(wikiTitle, 20);
@@ -1663,7 +1688,7 @@ function DesktopNoteEditorPage() {
       message.warning("编辑器尚未就绪，请稍后再试");
       return;
     }
-    // 图多的笔记内嵌资源要几秒，先给个 loading；HTML 准备好并交给独立
+    // 图多的文档内嵌资源要几秒，先给个 loading；HTML 准备好并交给独立
     // 打印窗口后即可收起——真正的 window.print() 在独立窗口里执行。
     const hideLoading = message.loading("正在准备打印内容…", 0);
     try {
@@ -1687,7 +1712,7 @@ function DesktopNoteEditorPage() {
       for (const tagId of toRemove) {
         await tagApi.removeFromNote(noteId, tagId);
       }
-      // 刷新笔记标签
+      // 刷新文档标签
       const updatedTags = await tagApi.getNoteTags(noteId);
       setNoteTags(updatedTags);
     } catch (e) {
@@ -1699,7 +1724,7 @@ function DesktopNoteEditorPage() {
   async function handleChangeTagColor(tagId: number, color: string | null) {
     try {
       await tagApi.setColor(tagId, color);
-      // 本地立即更新当前笔记的标签显示，避免等 refresh
+      // 本地立即更新当前文档的标签显示，避免等 refresh
       setNoteTags((prev) =>
         prev.map((t) => (t.id === tagId ? { ...t, color } : t)),
       );
@@ -1713,7 +1738,7 @@ function DesktopNoteEditorPage() {
     }
   }
 
-  /** 在编辑器里直接创建新标签并挂到当前笔记 */
+  /** 在编辑器里直接创建新标签并挂到当前文档 */
   async function handleCreateTag(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -1739,8 +1764,8 @@ function DesktopNoteEditorPage() {
     try {
       await noteApi.moveToFolder(noteId, folderId);
       setNote((prev) => (prev ? { ...prev, folder_id: folderId } : prev));
-      // 通知侧边栏 NotesPanel 重拉「未分类」+「目标文件夹」笔记列表，
-      // 否则在编辑器里改完目录，左侧侧边栏对应位置不会出现这条笔记
+      // 通知侧边栏 NotesPanel 重拉「未分类」+「目标文件夹」文档列表，
+      // 否则在编辑器里改完目录，左侧侧边栏对应位置不会出现这条文档
       useAppStore.getState().bumpNotesRefresh();
       useAppStore.getState().bumpFoldersRefresh();
       message.success("已移动");
@@ -1784,7 +1809,7 @@ function DesktopNoteEditorPage() {
             icon={<ArrowLeft size={16} />}
             onClick={() => {
               // 有历史栈（从 /tasks、/search、/daily 等跳进来）就 back
-              // 否则回笔记列表作为默认目的地
+              // 否则回文档列表作为默认目的地
               if (window.history.length > 1) {
                 navigate(-1);
               } else {
@@ -2390,7 +2415,7 @@ function DesktopNoteEditorPage() {
         )}
       </Modal>
 
-      {/* 同名笔记消歧 */}
+      {/* 同名文档消歧 */}
       <Modal
         open={disambigOpen}
         title={`「${disambigTitle}」存在 ${disambigItems.length} 条同名文档`}
@@ -2441,7 +2466,7 @@ function DesktopNoteEditorPage() {
         }}
       />
 
-      {/* 笔记内附件/三维模型预览：挂在编辑页根部，路由切换时自动卸载 */}
+      {/* 文档内附件/三维模型预览：挂在编辑页根部，路由切换时自动卸载 */}
       <AttachmentPreviewModal />
     </div>
   );

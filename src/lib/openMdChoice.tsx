@@ -4,8 +4,8 @@
  * ## 为什么要问
  *
  * 外部 .md 打开后会入库 —— 这换来了写回原文件、外部改动冲突检测、下次打开复用
- * 同一条笔记等能力。但用户拿本应用改一份别处的 README / 稿子时，并不希望它混进
- * 自己的笔记列表和搜索结果。
+ * 同一条文档等能力。但用户拿本应用改一份别处的 README / 稿子时，并不希望它混进
+ * 自己的文档列表和搜索结果。
  *
  * 之前只在首次打开时弹一条说明（`externalMdIntro.ts`）解释"为什么入库了"，
  * 这解决不了诉求 —— 用户要的不是解释，是**能选**。
@@ -14,7 +14,7 @@
  *
  * 只差"进不进默认视图"这一件事。两者都入库、都写回原文件、都能双向同步；
  * 临时编辑只是打上 `is_scratch` 标记，被主列表 / 搜索 / 双链 / RAG 过滤掉，
- * 之后随时可以在「临时文件」里转成正式笔记。
+ * 之后随时可以在「临时文件」里转成正式文档。
  *
  * ## 记住选择
  *
@@ -65,7 +65,7 @@ export function setOpenMdPreference(mode: OpenMdMode) {
  * 决定这次以什么方式打开外部 .md。已记住偏好则直接返回，不弹窗。
  *
  * 弹窗刻意关掉了 ESC / 点遮罩关闭：这两个动作没有合理的默认语义 ——
- * 当成"临时编辑"会让用户莫名其妙丢失笔记归属，当成"取消打开"又和用户
+ * 当成"临时编辑"会让用户莫名其妙丢失文档归属，当成"取消打开"又和用户
  * 刚刚双击文件的意图矛盾。所以只留两个明确按钮，必须选一个。
  */
 export function resolveOpenMdMode(fileName: string): Promise<OpenMdMode> {
@@ -91,14 +91,14 @@ export function resolveOpenMdMode(fileName: string): Promise<OpenMdMode> {
           <div>
             <div className="font-medium">加入知识库</div>
             <div className="text-xs opacity-65">
-              参与全文搜索、双向链接、AI 问答，出现在笔记列表里。
+              参与全文搜索、双向链接、AI 问答，出现在文档列表里。
             </div>
           </div>
           <div>
             <div className="font-medium">临时编辑</div>
             <div className="text-xs opacity-65">
-              只当 Markdown 编辑器用：不进笔记列表 / 搜索 / 双链。
-              编辑后<strong>同样会保存回原文件</strong>，之后可在「临时文件」里转为正式笔记。
+              只当 Markdown 编辑器用：不进文档列表 / 搜索 / 双链。
+              编辑后<strong>同样会保存回原文件</strong>，之后可在「临时文件」里转为正式文档。
             </div>
           </div>
           <label className="flex items-center gap-2 text-xs pt-1 cursor-pointer">

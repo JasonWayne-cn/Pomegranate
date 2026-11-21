@@ -7,8 +7,8 @@
  * - 图片类预览缩略图，其他类只显示路径列表
  *
  * 修复了旧版的两个 BUG：
- * 1. trash 笔记 content 已纳入引用集 → 撤回不会丢图片
- * 2. 加密笔记 content 是密文，对应 note 目录整体跳过判定
+ * 1. trash 文档 content 已纳入引用集 → 撤回不会丢图片
+ * 2. 加密文档 content 是密文，对应 note 目录整体跳过判定
  */
 import { useMemo, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -38,10 +38,10 @@ import type {
 const { Text } = Typography;
 
 const TAB_DEFS: { key: OrphanKind; label: string; description: string }[] = [
-  { key: "image", label: "图片", description: "笔记里删掉但磁盘还在的图片" },
-  { key: "video", label: "视频", description: "已不被任何笔记引用的视频" },
-  { key: "attachment", label: "附件", description: "已不被任何笔记引用的附件" },
-  { key: "pdf", label: "PDF", description: "已 purge 的笔记残留的 PDF" },
+  { key: "image", label: "图片", description: "文档里删掉但磁盘还在的图片" },
+  { key: "video", label: "视频", description: "已不被任何文档引用的视频" },
+  { key: "attachment", label: "附件", description: "已不被任何文档引用的附件" },
+  { key: "pdf", label: "PDF", description: "已 purge 的文档残留的 PDF" },
   { key: "source", label: "源文件", description: "已不被引用的 Word / 源文件" },
   { key: "task_file", label: "待办附件", description: "待办已被删除或附件已移除后残留的文件" },
 ];
@@ -62,7 +62,7 @@ function fmtMB(bytes: number): string {
 }
 
 function reasonLabel(reason: string): string {
-  if (reason === "notePurged") return "笔记已被永久删除";
+  if (reason === "notePurged") return "文档已被永久删除";
   if (reason === "taskPurged") return "待办已被永久删除";
   return "未被引用";
 }
@@ -439,7 +439,7 @@ function PathList({
             <div className="text-xs text-gray-500 truncate">{it.path}</div>
             <div className="text-xs text-gray-400 mt-0.5">
               {fmtMB(it.size)}
-              {it.noteId != null && <span className="ml-2">笔记 ID: {it.noteId}</span>}
+              {it.noteId != null && <span className="ml-2">文档 ID: {it.noteId}</span>}
               <span className="ml-2">{reasonLabel(it.reason)}</span>
             </div>
           </div>

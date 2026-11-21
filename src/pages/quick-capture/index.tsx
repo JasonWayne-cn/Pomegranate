@@ -23,7 +23,7 @@ import { useAppStore } from "@/store";
  * 特点：
  * - 全屏覆盖（fixed inset-0 z-50），不显示底栏 / FAB
  * - 自动保存草稿到 app_config（key=quick_capture_draft），下次进入还原
- * - 保存：把草稿追加到今日笔记（getOrCreate） + 清空草稿 → 跳到主页
+ * - 保存：把草稿追加到当天日记（getOrCreate） + 清空草稿 → 跳到主页
  *
  * 工具栏占位（暂未实装，弹 toast）：
  * - 图片 / 相机 / 麦克风（ASR）/ AI 整理 / 添加标签
@@ -122,7 +122,7 @@ export default function QuickCapturePage() {
       });
       await clearDraft();
       useAppStore.getState().bumpNotesRefresh();
-      message.success("已保存到今日笔记");
+      message.success("已保存到当天日记");
       navigate("/", { replace: true });
     } catch (e) {
       message.error(`保存失败: ${e}`);
@@ -179,7 +179,7 @@ export default function QuickCapturePage() {
           <textarea
             value={text}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={"比如…\n\n移动端 AI Tab 应该比 PC 更突出\n「剪藏 + 提问」组合操作 ——\n用户在地铁上读到一段文字，\n截图 + 问 AI 摘要 + 存为笔记\n一气呵成。"}
+            placeholder={"比如…\n\n移动端 AI Tab 应该比 PC 更突出\n「剪藏 + 提问」组合操作 ——\n用户在地铁上读到一段文字，\n截图 + 问 AI 摘要 + 存为文档\n一气呵成。"}
             className="w-full flex-1 resize-none bg-transparent text-base leading-relaxed text-slate-800 outline-none placeholder:text-slate-300 min-h-0"
             autoFocus
           />
@@ -223,7 +223,7 @@ export default function QuickCapturePage() {
         <div className="mt-3 flex items-center gap-3 rounded-2xl bg-white/15 px-4 py-3 text-white backdrop-blur">
           <FolderOpen size={18} />
           <div className="flex-1 text-sm">
-            保存到 <strong>📅 今日笔记</strong>
+            保存到 <strong>📅 当天日记</strong>
           </div>
         </div>
 

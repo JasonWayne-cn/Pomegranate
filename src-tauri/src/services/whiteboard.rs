@@ -238,7 +238,7 @@ fn inline_files(scene: &mut Value, vault: &RwLock<VaultState>, data_dir: &Path) 
             }
         };
 
-        // read_for_render 会自动处理 `.enc`（加密笔记的图片）
+        // read_for_render 会自动处理 `.enc`（加密文档的图片）
         let bytes = match ImageService::read_for_render(vault, &abs.to_string_lossy()) {
             Ok(b) => b,
             Err(e) => {
@@ -262,19 +262,19 @@ fn inline_files(scene: &mut Value, vault: &RwLock<VaultState>, data_dir: &Path) 
 
 // ─── 画布内的 [[wiki 双链]] ────────────────────────────────
 //
-// 用户在画布上写 `[[某笔记]]` 时，除了建立出链（见 save_scene），还要能**点开**。
+// 用户在画布上写 `[[某文档]]` 时，除了建立出链（见 save_scene），还要能**点开**。
 // 做法是把解析到的目标写进 Excalidraw 元素原生的 `link` 字段：画布上会自动出现
 // 链接角标，点击走前端 onLinkOpen 拦截 → React Router 跳转。
 //
 // 只托管我们自己写的这种 link（`#/notes/<id>` 前缀），用户手动挂的外链一概不碰。
 
-/// 我们托管的元素 link 前缀。与前端 HashRouter 的笔记路由一致。
+/// 我们托管的元素 link 前缀。与前端 HashRouter 的文档路由一致。
 const NOTE_LINK_PREFIX: &str = "#/notes/";
 
-/// 按文本里的 `[[标题]]` 给元素挂上/摘掉笔记链接。
+/// 按文本里的 `[[标题]]` 给元素挂上/摘掉文档链接。
 ///
 /// 三种情形：
-/// - 文本有 `[[X]]` 且 X 能解析到可见笔记 → `link = "#/notes/<id>"`
+/// - 文本有 `[[X]]` 且 X 能解析到可见文档 → `link = "#/notes/<id>"`
 /// - 文本没有 `[[X]]`（或解析不到）但当前 link 是我们挂的 → 清掉，
 ///   否则用户把链接语法删了、角标却还赖着不走，点下去还跳转
 /// - link 是别的东西（用户手填的 http 外链等）→ **完全不动**
@@ -314,13 +314,13 @@ fn apply_wiki_links(scene: &mut Value, db: &Database) {
     }
 }
 
-/// 拿一条笔记里「该被当成文本来解析」的内容。
+/// 拿一条文档里「该被当成文本来解析」的内容。
 ///
-/// 普通笔记就是正文；白板则是画布上的文字 —— 因为白板的 `content` 是 Excalidraw JSON，
+/// 普通文档就是正文；白板则是画布上的文字 —— 因为白板的 `content` 是 Excalidraw JSON，
 /// 直接拿去跑 `[[wiki]]` / 全文索引会掺进一堆属性名和转义符。
 ///
 /// 双链解析和搜索索引都走这里，保证两者口径一致：
-/// 用户在画布上写 `[[某笔记]]`，既能被搜到，也真的能建立反链。
+/// 用户在画布上写 `[[某文档]]`，既能被搜到，也真的能建立反链。
 pub fn text_for_indexing(note_type_val: &str, content: &str) -> String {
     if note_type_val != crate::models::note_type::WHITEBOARD {
         return content.to_string();
@@ -355,8 +355,8 @@ pub fn save_scene(
     let stored = serde_json::to_string(&scene)?;
     db.update_whiteboard_scene(id, &stored, &search_text)?;
 
-    // 画布上写的 `[[某笔记]]` 要真的算作出链 —— 否则白板在知识库里是座孤岛：
-    // 目标笔记的反链看不到它、知识图谱上它没有连线、断链检测也查不出笔画错的标题。
+    // 画布上写的 `[[某文档]]` 要真的算作出链 —— 否则白板在知识库里是座孤岛：
+    // 目标文档的反链看不到它、知识图谱上它没有连线、断链检测也查不出笔画错的标题。
     // 喂的是抽出来的纯文字而非 JSON，跟搜索索引同一口径。
     // 失败只记 warn：双链是派生数据，下次保存会自愈，不该让画布存不进去。
     if let Err(e) = db.rebuild_note_links_from_content(id, &search_text) {
@@ -365,21 +365,21 @@ pub fn save_scene(
     Ok(())
 }
 
-// ─── 笔记内嵌白板 ────────────────────────────────────────────
+// ─── 文档内嵌白板 ────────────────────────────────────────────
 //
-// 与"整页白板"（note_type='whiteboard' 的笔记）并存的另一种形态：
-// 笔记正文里插一个白板块，平时显示成一张预览图，点开才进画布编辑 —— 就是飞书文档里的画板。
+// 与"整页白板"（note_type='whiteboard' 的文档）并存的另一种形态：
+// 文档正文里插一个白板块，平时显示成一张预览图，点开才进画布编辑 —— 就是飞书文档里的画板。
 //
-// **场景数据存文件而不是内联进笔记**：一个带图的画布 JSON 动辄几百 KB，
-// 塞进 Tiptap 节点属性会让 `.md` 没法看，也让每次笔记保存都要搬运这坨数据。
+// **场景数据存文件而不是内联进文档**：一个带图的画布 JSON 动辄几百 KB，
+// 塞进 Tiptap 节点属性会让 `.md` 没法看，也让每次文档保存都要搬运这坨数据。
 //
 // 文件落在 `kb_assets/images/<note_id>/` 下（扩展名 `.excalidraw`）。
 // 放 images 目录看着有点将就，但换来的是**全套生命周期管理白拿**：
-// 笔记永久删除时 `delete_note_images` 一并清掉、孤儿扫描能扫到、
-// 加密笔记的 `.enc` 路由也是现成的。为此单开一个 whiteboards 目录，
+// 文档永久删除时 `delete_note_images` 一并清掉、孤儿扫描能扫到、
+// 加密文档的 `.enc` 路由也是现成的。为此单开一个 whiteboards 目录，
 // 上面每一条都得重写一遍。
 //
-// 笔记里引用它的形式是 `kb-asset://kb_assets/images/<id>/xxx.excalidraw`，
+// 文档里引用它的形式是 `kb-asset://kb_assets/images/<id>/xxx.excalidraw`，
 // 正好被 `sync_v1::attachment_scan` 认成本地资产 → 自动进同步，不必另写规则。
 
 /// 内嵌白板场景文件的扩展名
@@ -406,7 +406,7 @@ pub fn save_embedded_scene(
     externalize_files(&mut scene, db, vault, data_dir, note_id);
     let stored = serde_json::to_string(&scene)?;
 
-    // 加密笔记的白板内容也要加密，否则"这篇笔记加密了"就是个假象。
+    // 加密文档的白板内容也要加密，否则"这篇文档加密了"就是个假象。
     // 预览图同样加密 —— 只加密场景、留明文预览图等于把画的东西直接摊开给人看。
     let is_encrypted = db.get_note_is_encrypted(note_id)?;
     let enc_suffix = if is_encrypted { ".enc" } else { "" };
@@ -444,8 +444,8 @@ pub fn save_embedded_scene(
 
     // 覆盖之前留一份旧画布（仅"改已有白板"时；新建没有旧版本可留）。
     //
-    // 加密笔记跳过：快照存在库里是明文，给加密笔记留底等于把内容漏出去 ——
-    // 与 `services::snapshot` 对加密笔记的处理保持一致。
+    // 加密文档跳过：快照存在库里是明文，给加密文档留底等于把内容漏出去 ——
+    // 与 `services::snapshot` 对加密文档的处理保持一致。
     if let Some(rel) = rel_path {
         if !is_encrypted {
             match std::fs::read_to_string(&scene_abs) {
@@ -512,7 +512,7 @@ pub fn load_embedded_scene(
     Ok(serde_json::to_string(&scene)?)
 }
 
-/// 同步 V1 pull 用：按远端 manifest 声明的类型对齐本地笔记。
+/// 同步 V1 pull 用：按远端 manifest 声明的类型对齐本地文档。
 ///
 /// 拉到白板时顺手重建 `search_text` —— pull 走的是通用的 `update_note_synced`，
 /// 它只写 content，不知道白板要额外抽一份可搜索文本；不补这一步，
@@ -532,7 +532,7 @@ pub fn sync_note_type(
             .unwrap_or_default();
         db.set_note_type(id, note_type_val, Some(&text))
     } else {
-        // 退回普通笔记：清空 search_text，让 FTS 索引落回 content
+        // 退回普通文档：清空 search_text，让 FTS 索引落回 content
         db.set_note_type(id, note_type_val, None)
     }
 }
@@ -656,8 +656,8 @@ pub fn embedded_snapshot_scene(
 ///
 /// 回滚前先把当前画布另存一份，所以点错了还能再滚回来。
 ///
-/// 与整页白板不同，这里**不**重建 search_text 与双链：内嵌白板不是一条笔记，
-/// 它的内容本来就不进搜索索引（宿主笔记的正文才进）。
+/// 与整页白板不同，这里**不**重建 search_text 与双链：内嵌白板不是一条文档，
+/// 它的内容本来就不进搜索索引（宿主文档的正文才进）。
 pub fn restore_embedded_snapshot(
     db: &Database,
     vault: &RwLock<VaultState>,
@@ -670,13 +670,13 @@ pub fn restore_embedded_snapshot(
         .get_note_snapshot(snapshot_id)?
         .ok_or_else(|| AppError::NotFound(format!("历史版本 {} 不存在", snapshot_id)))?;
     if snap.note_id != note_id {
-        return Err(AppError::InvalidInput("该历史版本不属于这条笔记".into()));
+        return Err(AppError::InvalidInput("该历史版本不属于这条文档".into()));
     }
 
-    // 加密笔记的场景文件是密文，快照里存的是明文 —— 两者不该互相写入
+    // 加密文档的场景文件是密文，快照里存的是明文 —— 两者不该互相写入
     if db.get_note_is_encrypted(note_id)? {
         return Err(AppError::InvalidInput(
-            "加密笔记的内嵌白板暂不支持恢复历史版本".into(),
+            "加密文档的内嵌白板暂不支持恢复历史版本".into(),
         ));
     }
 
@@ -854,7 +854,7 @@ mod tests {
         Database::init(":memory:").unwrap()
     }
 
-    /// 建一条笔记当链接目标，返回 id
+    /// 建一条文档当链接目标，返回 id
     fn make_note(db: &Database, title: &str) -> i64 {
         db.create_note(&NoteInput {
             title: title.into(),
@@ -868,10 +868,10 @@ mod tests {
     #[test]
     fn apply_wiki_links_sets_link_for_existing_note() {
         let db = mem_db();
-        let target = make_note(&db, "目标笔记");
+        let target = make_note(&db, "目标文档");
         let mut scene = json!({
             "elements": [
-                { "type": "text", "text": "见 [[目标笔记]] 了解详情" }
+                { "type": "text", "text": "见 [[目标文档]] 了解详情" }
             ]
         });
         apply_wiki_links(&mut scene, &db);
@@ -881,13 +881,13 @@ mod tests {
         );
     }
 
-    /// 标题查不到对应笔记（断链）时不能瞎挂 link —— 点了会跳到不存在的笔记
+    /// 标题查不到对应文档（断链）时不能瞎挂 link —— 点了会跳到不存在的文档
     #[test]
     fn apply_wiki_links_skips_unresolvable_titles() {
         let db = mem_db();
         let mut scene = json!({
             "elements": [
-                { "type": "text", "text": "见 [[根本不存在的笔记]]" }
+                { "type": "text", "text": "见 [[根本不存在的文档]]" }
             ]
         });
         apply_wiki_links(&mut scene, &db);
@@ -928,17 +928,17 @@ mod tests {
     #[test]
     fn apply_wiki_links_ignores_non_text_elements() {
         let db = mem_db();
-        make_note(&db, "目标笔记");
+        make_note(&db, "目标文档");
         let mut scene = json!({
             "elements": [
-                { "type": "rectangle", "text": "见 [[目标笔记]]" }
+                { "type": "rectangle", "text": "见 [[目标文档]]" }
             ]
         });
         apply_wiki_links(&mut scene, &db);
         assert!(scene["elements"][0].get("link").is_none());
     }
 
-    // ─── 笔记内嵌白板：文件读写 ─────────────────────
+    // ─── 文档内嵌白板：文件读写 ─────────────────────
 
     #[test]
     fn embedded_stem_parses_plain_and_encrypted() {
@@ -946,7 +946,7 @@ mod tests {
             embedded_stem_of("kb_assets/images/5/wb-abc.excalidraw").as_deref(),
             Some("wb-abc")
         );
-        // 加密笔记的场景文件带 .enc，stem 必须一样 —— 否则加密笔记里
+        // 加密文档的场景文件带 .enc，stem 必须一样 —— 否则加密文档里
         // 每存一次就换个文件名，旧文件全成垃圾
         assert_eq!(
             embedded_stem_of("kb_assets/images/5/wb-abc.excalidraw.enc").as_deref(),
@@ -957,12 +957,12 @@ mod tests {
         assert!(embedded_stem_of("").is_none());
     }
 
-    /// 建一个临时数据目录 + 一条笔记，返回 (db, vault, data_dir, note_id)
+    /// 建一个临时数据目录 + 一条文档，返回 (db, vault, data_dir, note_id)
     fn embedded_fixture(
         tag: &str,
     ) -> (Database, RwLock<VaultState>, std::path::PathBuf, i64) {
         let db = mem_db();
-        let note_id = make_note(&db, "宿主笔记");
+        let note_id = make_note(&db, "宿主文档");
         let dir = std::env::temp_dir().join(format!("kb-wb-test-{}-{}", tag, note_id));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1097,7 +1097,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 白板走画布文字、普通笔记走原文 —— 双链与搜索都靠这个口径
+    /// 白板走画布文字、普通文档走原文 —— 双链与搜索都靠这个口径
     #[test]
     fn text_for_indexing_switches_by_note_type() {
         let scene = json!({
@@ -1108,7 +1108,7 @@ mod tests {
             text_for_indexing(crate::models::note_type::WHITEBOARD, &scene),
             "画布上的字"
         );
-        // 普通笔记原样返回，不做任何解析
+        // 普通文档原样返回，不做任何解析
         assert_eq!(
             text_for_indexing(crate::models::note_type::MARKDOWN, "# 标题\n正文"),
             "# 标题\n正文"

@@ -277,7 +277,7 @@ export function McpHttpSection() {
             <div>
               <div style={{ fontSize: 13 }}>允许写入</div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                关闭时外部 agent 只能读（搜索 / 读笔记 / 列标签）；打开后它能创建和修改你的笔记
+                关闭时外部 agent 只能读（搜索 / 读文档 / 列标签）；打开后它能创建和修改你的文档
               </Text>
             </div>
             <Switch
@@ -314,7 +314,7 @@ export function McpHttpSection() {
                     <>
                       <br />
                       <strong style={{ color: "#cf1322" }}>
-                        当前还同时开着「允许写入」—— 拿到 Token 的人可以任意修改你的笔记。
+                        当前还同时开着「允许写入」—— 拿到 Token 的人可以任意修改你的文档。
                       </strong>
                     </>
                   )}

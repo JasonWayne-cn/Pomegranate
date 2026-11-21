@@ -19,7 +19,7 @@ fn clamp_limit(limit: Option<i64>) -> i64 {
 }
 
 impl super::Database {
-    /// 最近修改的笔记（排除已删/隐藏/日记，逻辑同主列表）
+    /// 最近修改的文档（排除已删/隐藏/日记，逻辑同主列表）
     ///
     /// 🔴 `updated_at` 只精确到秒：同一秒内改过的几条会并列，并列行的相对顺序 SQL 不保证。
     /// 各处排序都补 `id DESC` 作次级键（自增 id = 写入先后），否则「最新在前」只对跨秒的成立。
@@ -50,7 +50,7 @@ impl super::Database {
         Ok(rows)
     }
 
-    /// 按标签筛选笔记（按 tag name 匹配；嵌套标签暂只查精确节点，不递归子孙）
+    /// 按标签筛选文档（按 tag name 匹配；嵌套标签暂只查精确节点，不递归子孙）
     pub fn dataview_notes_by_tag(
         &self,
         tag: &str,
@@ -85,7 +85,7 @@ impl super::Database {
         Ok(rows)
     }
 
-    /// 按文件夹筛选笔记（递归子文件夹）
+    /// 按文件夹筛选文档（递归子文件夹）
     pub fn dataview_notes_by_folder(
         &self,
         folder_id: i64,

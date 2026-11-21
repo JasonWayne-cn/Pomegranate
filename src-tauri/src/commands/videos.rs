@@ -5,7 +5,7 @@
 //!   Tauri 2.x 走 binary IPC 通道，比 base64 省 33% 体积 + 零编解码
 //! - `save_video_from_path` 走 `std::fs::copy` 零拷贝，给"工具栏插入视频"
 //!   或前端"大文件超限退化为文件选择器"的兜底场景
-//! - v1 不支持加密笔记的视频 —— 加密笔记调用直接返回错误，由前端引导用户取消加密
+//! - v1 不支持加密文档的视频 —— 加密文档调用直接返回错误，由前端引导用户取消加密
 
 use tauri::State;
 
@@ -48,13 +48,13 @@ pub fn save_video(
             MAX_BYTES / 1024 / 1024
         ));
     }
-    // v1 不支持加密笔记的视频
+    // v1 不支持加密文档的视频
     if state
         .db
         .get_note_is_encrypted(note_id)
         .map_err(|e| e.to_string())?
     {
-        return Err("加密笔记暂不支持插入视频，请先取消加密".into());
+        return Err("加密文档暂不支持插入视频，请先取消加密".into());
     }
 
     let abs = VideoService::save_bytes(&state.data_dir, note_id, &file_name, &data)
@@ -76,7 +76,7 @@ pub fn save_video_from_path(
         .get_note_is_encrypted(note_id)
         .map_err(|e| e.to_string())?
     {
-        return Err("加密笔记暂不支持插入视频，请先取消加密".into());
+        return Err("加密文档暂不支持插入视频，请先取消加密".into());
     }
 
     let abs = VideoService::save_from_path(&state.data_dir, note_id, &source_path)
@@ -84,7 +84,7 @@ pub fn save_video_from_path(
     to_relative(&state, &abs)
 }
 
-/// 删除笔记的所有视频
+/// 删除文档的所有视频
 #[tauri::command]
 pub fn delete_note_videos(state: State<'_, AppState>, note_id: i64) -> Result<(), String> {
     VideoService::delete_note_videos(&state.data_dir, note_id).map_err(|e| e.to_string())

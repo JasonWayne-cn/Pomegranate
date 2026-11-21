@@ -5,8 +5,13 @@ export interface NoteTab {
   title: string;
   /** 是否有未保存改动（编辑器标记脏状态时反映出来） */
   dirty?: boolean;
-  /** 关联源文件类型：pdf / docx / doc，用于 Tab 图标区分；纯笔记为 null */
+  /** 关联源文件类型：pdf / docx / doc，用于 Tab 图标区分；纯文档为 null */
   sourceFileType?: string | null;
+  /**
+   * 文档类型：whiteboard 的 tab 点击后要进 `/whiteboard/:id`（画布），
+   * 而不是 `/notes/:id`（Markdown 编辑器）。缺省按 markdown 处理。
+   */
+  noteType?: "markdown" | "whiteboard";
 }
 
 /** 编辑器卸载后保留的草稿快照（按 noteId 索引） */
@@ -27,13 +32,13 @@ interface TabsStore {
    */
   drafts: Record<number, NoteDraft>;
 
-  /** 打开一个笔记 tab；已存在则不重复，background=true 时不切换激活 */
+  /** 打开一个文档 tab；已存在则不重复，background=true 时不切换激活 */
   openTab: (tab: NoteTab, opts?: { background?: boolean }) => void;
   /** 激活指定 tab（不新增） */
   activateTab: (id: number) => void;
   /** 关闭 tab；返回关闭后应该激活的邻居 ID（null 表示没有剩余 tab） */
   closeTab: (id: number) => number | null;
-  /** 批量关闭 tab（删除多条笔记后用），返回新的 activeId */
+  /** 批量关闭 tab（删除多条文档后用），返回新的 activeId */
   closeTabsByIds: (ids: number[]) => number | null;
   /** 关闭所有 tab */
   closeAllTabs: () => void;
@@ -41,7 +46,7 @@ interface TabsStore {
   closeOtherTabs: (keepId: number) => void;
   /** 关闭指定 tab 右侧所有 */
   closeTabsToRight: (id: number) => void;
-  /** 同步 tab 标题（笔记重命名后调用） */
+  /** 同步 tab 标题（文档重命名后调用） */
   updateTabTitle: (id: number, title: string) => void;
   /** 同步脏状态 */
   setTabDirty: (id: number, dirty: boolean) => void;
@@ -66,7 +71,12 @@ export const useTabsStore = create<TabsStore>((set, get) => ({
     if (existIdx !== -1) {
       // 已存在：同步可变属性（title / sourceFileType），保留 dirty
       const next = tabs.slice();
-      next[existIdx] = { ...next[existIdx], title: tab.title, sourceFileType: tab.sourceFileType };
+      next[existIdx] = {
+        ...next[existIdx],
+        title: tab.title,
+        sourceFileType: tab.sourceFileType,
+        noteType: tab.noteType,
+      };
       set({
         tabs: next,
         activeId: opts?.background ? activeId : tab.id,

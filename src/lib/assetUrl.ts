@@ -1,7 +1,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 /**
- * 笔记 content 里素材的虚拟 scheme：
+ * 文档 content 里素材的虚拟 scheme：
  *   `kb-asset://kb_assets/images/<note_id>/<file>.png`
  *   `kb-asset://pdfs/<note_id>/<file>.pdf`
  *   `kb-asset://kb_assets/videos/<note_id>/<file>.mp4`
@@ -9,7 +9,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
  *
  * `://` 后是相对当前 instance 数据目录的 POSIX 路径。
  *
- * 设计动机：数据目录可被用户在运行期更换（环境变量 / 设置页），如果笔记里硬编码绝对路径，
+ * 设计动机：数据目录可被用户在运行期更换（环境变量 / 设置页），如果文档里硬编码绝对路径，
  * 迁移之后所有图片都会断。本 scheme 让 content 与具体 OS 路径解耦，
  * 渲染层运行时才 join data_dir 解析。
  */
@@ -124,7 +124,7 @@ function joinPosix(dataDir: string, rel: string): string {
  * 旧实现用「逐个枚举要跳过的协议」的黑名单写法，只列了 Windows 那种，
  * 于是 mac 上运行期 asset URL 落进兜底分支 → 后端解析回同一个 URL →
  * `setAttribute` 写回相同值 → 再次触发 MutationObserver → **无限同步循环**
- * （microtask 队列永远排不空，主线程彻底冻结，表现为「打开笔记就卡死」）。
+ * （microtask 队列永远排不空，主线程彻底冻结，表现为「打开文档就卡死」）。
  *
  * 改成白名单后，任何**当前未知**的协议（未来 Tauri 换格式、新增自定义协议）
  * 都自动落到 false，最坏情况是「不做兜底」，绝不会再形成死循环。

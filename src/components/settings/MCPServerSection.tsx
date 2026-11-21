@@ -233,7 +233,7 @@ export function MCPServerSection() {
                     ? "已覆盖原有的 knowledge-base 配置（其它 MCP server 保留）"
                     : "已合并到现有配置（其它 MCP server 保留）"
               }
-              description={`重启 ${label} 后生效${writable ? "（已开启可写模式，LLM 能修改你的笔记）" : ""}`}
+              description={`重启 ${label} 后生效${writable ? "（已开启可写模式，LLM 能修改你的文档）" : ""}`}
             />
           </div>
         ),
@@ -461,7 +461,7 @@ export function MCPServerSection() {
                           writable: false,
                           clientLabel: "Claude Desktop",
                         }}
-                        hint="LLM 只能搜不能改你的笔记。手动方式：抄到 %APPDATA%\\Claude\\claude_desktop_config.json"
+                        hint="LLM 只能搜不能改你的文档。手动方式：抄到 %APPDATA%\\Claude\\claude_desktop_config.json"
                       />
                     ),
                   },
@@ -977,7 +977,7 @@ function ClaudeCodeBlock({ tpl, cliInfo, onCopy, onSaveAs, onOpenClaudeDir, onIn
               不想自动写也可以复制下方 JSON 自己改
             </li>
             <li>
-              在某个项目目录里跑 <code>claude</code>，对话里说「找一下我笔记里关于 X」试试
+              在某个项目目录里跑 <code>claude</code>，对话里说「找一下我文档里关于 X」试试
             </li>
           </ol>
         }
@@ -1061,7 +1061,7 @@ function ClaudeCodeBlock({ tpl, cliInfo, onCopy, onSaveAs, onOpenClaudeDir, onIn
                 <SnippetBlock
                   json={tpl.settingsSnippetReadonly}
                   label="settings.json 只读"
-                  hint="LLM 只能搜不能改你的笔记。安全默认。"
+                  hint="LLM 只能搜不能改你的文档。安全默认。"
                   onCopy={onCopy}
                   installer={{ target: "claudecode", writable: false, clientLabel: "Claude Code" }}
                   onInstall={onInstall}

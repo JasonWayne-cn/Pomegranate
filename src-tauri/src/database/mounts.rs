@@ -43,7 +43,7 @@ fn category_for_ext(ext: &str) -> Option<&'static str> {
 
 use super::Database;
 
-/// 外部笔记的定位信息（Service 层读写文件时用）
+/// 外部文档的定位信息（Service 层读写文件时用）
 #[derive(Debug, Clone)]
 pub struct ExternalNoteMeta {
     pub note_id: i64,
@@ -65,7 +65,7 @@ pub struct ExternalNoteMeta {
     pub error: Option<String>,
 }
 
-/// 扫描前的影子笔记路径快照（用于识别外部移动/归档）
+/// 扫描前的影子文档路径快照（用于识别外部移动/归档）
 #[derive(Debug, Clone)]
 pub struct ExternalPathRow {
     pub id: i64,
@@ -76,7 +76,7 @@ pub struct ExternalPathRow {
     pub source_type: Option<String>,
 }
 
-/// 影子笔记的索引状态快照
+/// 影子文档的索引状态快照
 #[derive(Debug, Clone)]
 pub struct ExternalNoteRow {
     pub id: i64,
@@ -93,7 +93,7 @@ pub struct ExternalNoteRow {
 }
 
 impl ExternalNoteRow {
-    /// 用户是否改过影子笔记正文（当前 content_hash 与上次抽取基线不同）
+    /// 用户是否改过影子文档正文（当前 content_hash 与上次抽取基线不同）
     pub fn user_edited(&self) -> bool {
         match (&self.content_hash, &self.indexed_hash) {
             (Some(cur), Some(base)) => cur != base,
@@ -157,7 +157,7 @@ impl Database {
             .ok_or_else(|| AppError::Custom("创建挂载点后读取失败".into()))
     }
 
-    /// 列出全部挂载点，附带笔记数 / 缺失数 / 可用状态
+    /// 列出全部挂载点，附带文档数 / 缺失数 / 可用状态
     pub fn list_external_mounts(&self) -> Result<Vec<ExternalMount>, AppError> {
         let conn = self
             .conn
@@ -281,7 +281,7 @@ impl Database {
         Ok(())
     }
 
-    /// 按文件类别暂停/恢复已索引笔记。
+    /// 按文件类别暂停/恢复已索引文档。
     ///
     /// 暂停时保留正文，只把状态改为 `paused`；恢复时清空状态，等下一轮扫描重抽。
     pub fn set_external_notes_paused(
@@ -325,7 +325,7 @@ impl Database {
         Ok(affected)
     }
 
-    /// 删除挂载点（级联删除影子笔记和镜像文件夹，不碰磁盘文件）
+    /// 删除挂载点（级联删除影子文档和镜像文件夹，不碰磁盘文件）
     pub fn delete_external_mount(&self, id: i64) -> Result<(), AppError> {
         let conn = self
             .conn
@@ -335,14 +335,14 @@ impl Database {
         Ok(())
     }
 
-    /// 卸载但保留内容：影子笔记转成普通本地笔记，文件夹树丢弃
+    /// 卸载但保留内容：影子文档转成普通本地文档，文件夹树丢弃
     pub fn detach_external_mount(&self, id: i64) -> Result<(), AppError> {
         let mut conn = self
             .conn
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
         let tx = conn.transaction()?;
-        // 先把笔记移出外部文件夹，避免 folder 删除后 folder_id 指向不存在的行
+        // 先把文档移出外部文件夹，避免 folder 删除后 folder_id 指向不存在的行
         tx.execute("UPDATE notes SET folder_id = NULL WHERE mount_id = ?1", params![id])?;
         tx.execute("DELETE FROM folders WHERE mount_id = ?1", params![id])?;
         tx.execute(
@@ -409,10 +409,10 @@ impl Database {
         Ok(current_parent)
     }
 
-    /// 扫描前读取该挂载点的影子笔记路径快照。
+    /// 扫描前读取该挂载点的影子文档路径快照。
     ///
     /// Service 层用它识别"外部把文件移动/归档到别的目录"：
-    /// 同一份文件在新路径出现时，应沿用原 note id，而不是新建后把旧笔记标记缺失。
+    /// 同一份文件在新路径出现时，应沿用原 note id，而不是新建后把旧文档标记缺失。
     pub fn list_external_path_index(
         &self,
         mount_id: i64,
@@ -440,7 +440,7 @@ impl Database {
             .map_err(AppError::from)
     }
 
-    /// 外部文件移动/改名后，把影子笔记挂到新路径与新镜像文件夹。
+    /// 外部文件移动/改名后，把影子文档挂到新路径与新镜像文件夹。
     ///
     /// 只改定位信息，不动正文，因此标签、双链、历史版本都跟着原 note id 保留。
     pub fn relocate_external_note(
@@ -463,7 +463,7 @@ impl Database {
         Ok(())
     }
 
-    /// 清理挂载点下已经没有笔记、也没有子文件夹的镜像文件夹（自底向上）。
+    /// 清理挂载点下已经没有文档、也没有子文件夹的镜像文件夹（自底向上）。
     ///
     /// 外部归档/改名后，旧目录会变成空壳；不清掉的话文档目录树会一直保留
     /// 磁盘上已经不存在的层级。挂载根文件夹（`ext_rel_path = ''`）始终保留。
@@ -494,9 +494,9 @@ impl Database {
         Ok(deleted)
     }
 
-    // ─── 影子笔记 ───────────────────────────────
+    // ─── 影子文档 ───────────────────────────────
 
-    /// 查找挂载内某个相对路径对应的活跃影子笔记
+    /// 查找挂载内某个相对路径对应的活跃影子文档
     pub fn find_external_note(
         &self,
         mount_id: i64,
@@ -534,11 +534,11 @@ impl Database {
         Ok(row)
     }
 
-    /// 插入或更新影子笔记；返回 (note_id, 是否新建)
+    /// 插入或更新影子文档；返回 (note_id, 是否新建)
     ///
     /// - `source_hash`：原文件指纹（二进制文件是二进制哈希，文本是内容哈希）
     /// - `content_hash`：本次抽取出的影子正文哈希
-    /// - `indexed_hash`：抽取基线，用于判断用户是否编辑过影子笔记
+    /// - `indexed_hash`：抽取基线，用于判断用户是否编辑过影子文档
     #[allow(clippy::too_many_arguments)]
     pub fn upsert_external_note(
         &self,
@@ -641,7 +641,7 @@ impl Database {
         }
     }
 
-    /// 原文件已更新，但影子笔记有本地编辑：只标记 stale，不覆盖正文
+    /// 原文件已更新，但影子文档有本地编辑：只标记 stale，不覆盖正文
     pub fn mark_external_stale(&self, note_id: i64, error: Option<&str>) -> Result<(), AppError> {
         let conn = self
             .conn
@@ -821,7 +821,7 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
     }
 
-    /// 读取影子笔记的挂载定位信息
+    /// 读取影子文档的挂载定位信息
     pub fn get_external_note_meta(
         &self,
         note_id: i64,
@@ -908,7 +908,7 @@ impl Database {
         ))
     }
 
-    /// 写回/外部变更后更新影子笔记缓存
+    /// 写回/外部变更后更新影子文档缓存
     #[allow(clippy::too_many_arguments)]
     pub fn update_external_note_cache(
         &self,
@@ -1047,13 +1047,13 @@ mod tests {
         assert_eq!(same_id, note_id);
         assert!(!was_new);
 
-        // 影子笔记必须能被全文搜索命中（FTS 触发器自动同步）
+        // 影子文档必须能被全文搜索命中（FTS 触发器自动同步）
         let hits = db
             .search_notes_filtered("hello", 10, &Default::default())
             .unwrap();
         assert!(
             hits.iter().any(|r| r.id == note_id),
-            "外部影子笔记应参与全文搜索"
+            "外部影子文档应参与全文搜索"
         );
 
         // 标记缺失后再出现
@@ -1112,7 +1112,7 @@ mod tests {
             )
             .unwrap();
 
-        // 文档列表只保留文本类外部笔记
+        // 文档列表只保留文本类外部文档
         let (notes, total) = db
             .list_notes(None, None, 1, 100, false, true, None, false, false)
             .unwrap();
@@ -1151,7 +1151,7 @@ mod tests {
         );
         assert!(!pdf_hit.read_only, "默认可写挂载不应标记只读");
         let md_hit = hits.iter().find(|r| r.id == md_id).expect("md 也应命中");
-        assert!(!md_hit.ext_index_only, "文本类外部笔记不应标记 index-only");
+        assert!(!md_hit.ext_index_only, "文本类外部文档不应标记 index-only");
 
         // 挂载文件树仍展示全部条目，并带原文件绝对路径
         let entries = db.list_external_entries(mount.id).unwrap();

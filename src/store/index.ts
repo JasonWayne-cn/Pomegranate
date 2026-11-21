@@ -95,7 +95,7 @@ export const SIDE_PANEL_DEFAULT_WIDTH = 240;
 const RECENT_SEARCHES_MAX = 10;
 
 /**
- * 隐藏笔记 PIN 解锁会话有效期（毫秒）。
+ * 隐藏文档 PIN 解锁会话有效期（毫秒）。
  * 在此窗口内重复进 /hidden 不必再次输 PIN。
  * 故意短一点（10 分钟）：用户离开座位后回来，新一次访问要重新验证。
  */
@@ -180,7 +180,7 @@ export const EDITOR_LINE_HEIGHT_OPTIONS = [1.4, 1.5, 1.6, 1.8, 2.0] as const;
 export const EDITOR_CODE_FONT_SIZE_OPTIONS = [0, 12, 13, 14, 15, 16, 18, 20] as const;
 
 /**
- * 笔记自动保存防抖延迟选项（毫秒）。
+ * 文档自动保存防抖延迟选项（毫秒）。
  * 用户停止输入达到该时长后，触发一次静默保存（silent=true，不弹 toast）。
  * 1000ms 偏激进，5000ms 偏保守；默认 1500ms 接近 OneNote / Notion 的体感。
  */
@@ -263,7 +263,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
   {
     id: "default",
     label: "默认",
-    description: "笔记侧栏 + 大纲（右侧）全部显示，活动栏常驻",
+    description: "文档侧栏 + 大纲（右侧）全部显示，活动栏常驻",
     values: {
       sidePanelVisible: true,
       autoHideActivityBar: false,
@@ -274,7 +274,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
   {
     id: "focus",
     label: "专注写作",
-    description: "隐藏笔记侧栏与大纲，活动栏自动收起，只留正文",
+    description: "隐藏文档侧栏与大纲，活动栏自动收起，只留正文",
     values: {
       sidePanelVisible: false,
       autoHideActivityBar: true,
@@ -284,7 +284,7 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
   {
     id: "outline",
     label: "大纲优先",
-    description: "大纲移到左侧、隐藏笔记侧栏，大纲成为主导航",
+    description: "大纲移到左侧、隐藏文档侧栏，大纲成为主导航",
     values: {
       sidePanelVisible: false,
       autoHideActivityBar: false,
@@ -340,7 +340,7 @@ interface AppStore {
   sidebarCollapsed: boolean;
   /** 专注模式 */
   focusMode: boolean;
-  /** 笔记列表刷新触发器：递增即触发各页面重新拉数据 */
+  /** 文档列表刷新触发器：递增即触发各页面重新拉数据 */
   notesRefreshTick: number;
   /** 文件夹列表刷新触发器：Sidebar CRUD 后递增，编辑器/列表/设置页自动重拉 */
   foldersRefreshTick: number;
@@ -415,9 +415,9 @@ interface AppStore {
    */
   activityBarShowLabels: boolean;
   /**
-   * 专注模式下是否保留顶部笔记标签栏（持久化，默认 true）。
+   * 专注模式下是否保留顶部文档标签栏（持久化，默认 true）。
    * 专注模式会同时隐藏活动栏 / 侧栏 / 顶栏，若标签栏也一并隐藏，就**没有任何
-   * 切换笔记的入口**了，只能退出再进 —— 这不是"专注"是"锁死"。故默认保留；
+   * 切换文档的入口**了，只能退出再进 —— 这不是"专注"是"锁死"。故默认保留；
    * 想要什么都不剩的用户可以在设置里关掉。
    */
   focusModeKeepTabs: boolean;
@@ -468,10 +468,10 @@ interface AppStore {
    *  false 时首启允许 suggestUiScale 自动推荐覆盖；true 则始终尊重用户选择。 */
   uiScaleUserSet: boolean;
   /**
-   * 笔记自动保存开关（持久化）。
+   * 文档自动保存开关（持久化）。
    * 开启后：编辑器内容变更后，停止输入 autoSaveDelay 毫秒触发静默保存，
    * 用户无需手动点保存按钮（OneNote / Notion 体感）。
-   * 默认开启：日记页一直自动保存，笔记页默认不存会让新用户误以为两边一样而丢内容。
+   * 默认开启：日记页一直自动保存，文档页默认不存会让新用户误以为两边一样而丢内容。
    * 已持久化过该键的老用户按其保存值恢复（见 loadThemeFromStore），不会被强改。
    */
   autoSaveEnabled: boolean;
@@ -479,13 +479,13 @@ interface AppStore {
   autoSaveDelay: number;
   /**
    * 粘贴多行"代码样文本"时自动识别并包成代码块（持久化）。
-   * 背景：笔记正文以 Markdown 存储，保存 = HTML→MD→HTML 往返。把 C/JS 等代码当普通文本
+   * 背景：文档正文以 Markdown 存储，保存 = HTML→MD→HTML 往返。把 C/JS 等代码当普通文本
    * 粘贴时，4 空格缩进会被 CommonMark 当成缩进代码块、行首 `*` 被当成列表 —— 一段被拆碎。
    * 开启后：仅当剪贴板是纯文本（无富文本 HTML）且启发式判定像代码时，直接插入代码块，
    * 绕开 markdown 解析，缩进/星号原样保留。默认开启；关掉则恢复"纯文本走 markdown 解析"。
    */
   pasteCodeAsBlock: boolean;
-  /** 打开笔记时的默认查看模式（持久化）。'edit' = 编辑模式（默认），'read' = 阅读模式（隐藏工具栏，不可编辑） */
+  /** 打开文档时的默认查看模式（持久化）。'edit' = 编辑模式（默认），'read' = 阅读模式（隐藏工具栏，不可编辑） */
   defaultViewMode: "edit" | "read";
   /** 待办模块默认视图（列表/看板/四象限/日历/甘特）：打开待办页时的初始视图，持久化 */
   tasksDefaultView: "list" | "kanban" | "quadrant" | "calendar" | "gantt";
@@ -496,13 +496,13 @@ interface AppStore {
    */
   tasksCalendarColorBy: "priority" | "category";
   /**
-   * 笔记面板当前页签（持久化）：'folders' = 文件夹树 / 'tags' = 标签树。
-   * 标签和笔记是同一批内容的两种组织方式，合并到一个面板里用页签切换。
+   * 文档面板当前页签（持久化）：'folders' = 文件夹树 / 'tags' = 标签树。
+   * 标签和文档是同一批内容的两种组织方式，合并到一个面板里用页签切换。
    */
   notesPanelTab: "folders" | "tags";
-  /** 笔记编辑页：右侧大纲面板是否显示（持久化）。标题数 < 2 时由组件自动隐藏，与此独立 */
+  /** 文档编辑页：右侧大纲面板是否显示（持久化）。标题数 < 2 时由组件自动隐藏，与此独立 */
   outlineVisible: boolean;
-  /** 笔记编辑页：大纲面板停靠位置（持久化）。'right'（默认）/ 'left' */
+  /** 文档编辑页：大纲面板停靠位置（持久化）。'right'（默认）/ 'left' */
   outlinePosition: "left" | "right";
   /**
    * NotesPanel 文件夹树：被显式折叠的文件夹 id 集合（持久化）。
@@ -513,25 +513,25 @@ interface AppStore {
   /** NotesPanel 末尾"未分类"虚拟节点是否展开（持久化） */
   notesUncategorizedExpanded: boolean;
   /**
-   * NotesPanel 视图开关：true = 只显示文件夹节点，隐藏笔记叶子 + 隐藏"未分类"虚拟根（持久化）。
-   * 跳转到具体笔记（/notes/:id）时会被自动关闭，避免目标笔记被隐藏。
+   * NotesPanel 视图开关：true = 只显示文件夹节点，隐藏文档叶子 + 隐藏"未分类"虚拟根（持久化）。
+   * 跳转到具体文档（/notes/:id）时会被自动关闭，避免目标文档被隐藏。
    */
   notesShowOnlyFolders: boolean;
-  /** 笔记列表（列表视图）的列偏好：哪些列被隐藏、用户拖出来的列宽 */
+  /** 文档列表（列表视图）的列偏好：哪些列被隐藏、用户拖出来的列宽 */
   notesListColumnPrefs: NotesColumnPrefs;
   /**
-   * "全局新建笔记"时套用的默认文件夹 id；null = 没设默认（新建到根目录）。
+   * "全局新建文档"时套用的默认文件夹 id；null = 没设默认（新建到根目录）。
    * 由后端 app_config 持久化，应用启动时拉一次到 store。
    * 仅对"无上下文"的入口生效（顶部+号 / Ctrl+N / 命令面板 / 托盘等）；
    * 文件夹右键新建、?folder=X 列表内新建保留各自上下文，不被覆盖。
    */
   defaultFolderId: number | null;
-  /** "全局新建笔记"时自动附加的默认标签 ids；空数组 = 不附加 */
+  /** "全局新建文档"时自动附加的默认标签 ids；空数组 = 不附加 */
   defaultTagIds: number[];
   /**
-   * 每篇笔记被折叠的 heading anchors（按 noteId 分桶）。
+   * 每篇文档被折叠的 heading anchors（按 noteId 分桶）。
    *
-   * 业界主流（Obsidian）做法：折叠态是"视图偏好"，本机持久化但不写进笔记内容、
+   * 业界主流（Obsidian）做法：折叠态是"视图偏好"，本机持久化但不写进文档内容、
    * 不参与跨设备同步。anchor = slug + occurrence index（详见 components/editor/headingAnchor）。
    *
    * 整张表懒加载到 Map：noteId → Set<anchor>；持久化序列化为 Record<string, string[]>。
@@ -550,7 +550,7 @@ interface AppStore {
    * 关闭时：回到"跨重启记住上次展开/折叠状态"的行为。
    */
   notesCollapseFoldersOnStartup: boolean;
-  /** 笔记侧栏目录树是否画层级连线（点线参考线，类似 Windows 资源管理器） */
+  /** 文档侧栏目录树是否画层级连线（点线参考线，类似 Windows 资源管理器） */
   notesTreeGuideLines: boolean;
   /**
    * 会话级标志（不持久化、不参与 loadFromStore）：本次应用启动是否已执行过"启动收起"。
@@ -598,7 +598,7 @@ interface AppStore {
    * 内容区面板不透明度（持久化，0.3..1）。
    *
    * 只在启用背景图时有视觉意义：写入 :root 的 --kb-surface-alpha，
-   * 由 themes.css 的 `.kb-surface` 规则消费，决定主区面板（笔记列表 / 待办 /
+   * 由 themes.css 的 `.kb-surface` 规则消费，决定主区面板（文档列表 / 待办 /
    * AI 问答等）透出多少背景图。1 = 完全实色（等同关掉这个效果）。
    *
    * 下限取 0.3 而不是 0：再低文字就完全糊在背景图上了；亮色主题另有 55%
@@ -668,7 +668,7 @@ interface AppStore {
   finishImportJob: (id: string, result: { ok: number; failed: number }) => void;
   /** 立刻撤掉某条（异常收尾 / 用户手动关闭）。不会中断后台导入本身 */
   dismissImportJob: (id: string) => void;
-  /** 触发所有监听笔记列表的页面刷新（导入/创建后调用） */
+  /** 触发所有监听文档列表的页面刷新（导入/创建后调用） */
   bumpNotesRefresh: () => void;
   /** 触发所有文件夹下拉/列表刷新（Sidebar 增删改/拖拽后调用） */
   bumpFoldersRefresh: () => void;
@@ -764,7 +764,7 @@ interface AppStore {
   setUiScale: (scale: number) => void;
   /** 重置 uiScale 为 suggestUiScale() 推荐值（一键回归"自动"） */
   resetUiScale: () => void;
-  /** 切换/设置笔记自动保存开关 */
+  /** 切换/设置文档自动保存开关 */
   setAutoSaveEnabled: (on: boolean) => void;
   /** 设置自动保存防抖延迟（毫秒，会 clamp 到 [500, 30000]） */
   setAutoSaveDelay: (ms: number) => void;
@@ -777,7 +777,7 @@ interface AppStore {
   ) => void;
   /** 设置日历配色依据（紧急度 / 任务分类） */
   setTasksCalendarColorBy: (v: "priority" | "category") => void;
-  /** 切换笔记面板页签（文件夹 / 标签） */
+  /** 切换文档面板页签（文件夹 / 标签） */
   setNotesPanelTab: (v: "folders" | "tags") => void;
   /** 切换大纲面板可见性（persist） */
   toggleOutline: () => void;
@@ -802,11 +802,11 @@ interface AppStore {
   setNotesUncategorizedExpanded: (expanded: boolean) => void;
   /** 设置 NotesPanel "只显示文件夹"开关 */
   setNotesShowOnlyFolders: (only: boolean) => void;
-  /** 显示 / 隐藏笔记列表的某一列 */
+  /** 显示 / 隐藏文档列表的某一列 */
   setNotesListColumnHidden: (key: NotesColumnKey, hidden: boolean) => void;
   /** 记录用户拖出来的列宽（自动夹到合法范围） */
   setNotesListColumnWidth: (key: NotesColumnKey, width: number) => void;
-  /** 恢复笔记列表的默认列（全部显示、默认宽度） */
+  /** 恢复文档列表的默认列（全部显示、默认宽度） */
   resetNotesListColumns: () => void;
   /** 标记 NotesPanel 已完成首次"全部折叠"初始化（一次性） */
   markNotesFoldersInitialCollapseDone: () => void;
@@ -821,27 +821,27 @@ interface AppStore {
   setDefaultFolderId: (folderId: number | null) => Promise<void>;
   /** 设置默认标签集（空数组 = 清除）+ 持久化到 app_config */
   setDefaultTagIds: (tagIds: number[]) => Promise<void>;
-  /** 切换某条笔记某个 heading anchor 的折叠态（toggle） */
+  /** 切换某条文档某个 heading anchor 的折叠态（toggle） */
   toggleNoteHeadingFold: (noteId: number, anchor: string) => void;
-  /** 整体替换某条笔记的折叠 anchors（极少用，多用 toggle） */
+  /** 整体替换某条文档的折叠 anchors（极少用，多用 toggle） */
   setNoteHeadingFolded: (noteId: number, anchors: string[]) => void;
   /**
    * 启动时预取的文件夹树缓存。
-   * 让 NotesPanel 第一次 mount 时立即拿到种子数据，避免"点笔记 → 等 invoke"的空白闪烁。
+   * 让 NotesPanel 第一次 mount 时立即拿到种子数据，避免"点文档 → 等 invoke"的空白闪烁。
    * Panel mount 后仍会后台 loadFolders 取最新数据替换。
    */
   prefetchedFolders: Folder[] | null;
   /** 启动时空闲调用：拉一次文件夹树写入缓存（失败静默） */
   prefetchFolders: () => Promise<void>;
   /**
-   * 隐藏笔记 PIN 解锁时间戳（毫秒）。
+   * 隐藏文档 PIN 解锁时间戳（毫秒）。
    * null = 未解锁；与 HIDDEN_UNLOCK_TTL_MS 比对判定是否仍有效。
    * 故意不持久化：每次启动应用都要重新验证。
    */
   hiddenUnlockedAt: number | null;
-  /** 标记隐藏笔记已解锁（PIN 校验通过后调用） */
+  /** 标记隐藏文档已解锁（PIN 校验通过后调用） */
   markHiddenUnlocked: () => void;
-  /** 清除隐藏笔记解锁状态（用户主动锁定 / 修改 PIN 后调用） */
+  /** 清除隐藏文档解锁状态（用户主动锁定 / 修改 PIN 后调用） */
   clearHiddenUnlock: () => void;
   /** 当前是否在解锁有效期内 */
   isHiddenUnlocked: () => boolean;
@@ -882,7 +882,6 @@ export const OPTIONAL_VIEWS: readonly ActiveView[] = [
   "daily",
   "tasks",
   "cards",
-  "graph",
   "ai",
   "push",
   "hidden",
@@ -911,7 +910,7 @@ export type MobileDashboardItem =
   | "today_words" // 今日字数卡（蓝渐变）
   | "due_cards" // 待复习闪卡卡（紫渐变）
   | "today_tasks_card" // 今日待办计数卡
-  | "total_notes" // 笔记总数卡
+  | "total_notes" // 文档总数卡
   | "quick_actions" // 4 列快速操作
   | "today_tasks_list" // 今日待办速览列表
   | "heatmap" // 30 天写作热力图

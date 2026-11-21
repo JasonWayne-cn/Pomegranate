@@ -37,7 +37,7 @@ import { DEFAULT_SYNC_SCOPE } from "@/types";
 const { Text } = Typography;
 
 const SCOPE_ITEMS: { key: keyof SyncScope; label: string; hint?: string }[] = [
-  { key: "notes", label: "笔记元数据", hint: "包含文件夹/标签/链接/AI 对话" },
+  { key: "notes", label: "文档元数据", hint: "包含文件夹/标签/链接/AI 对话" },
   { key: "images", label: "图片（kb_assets/）" },
   { key: "pdfs", label: "PDF 原文件（pdfs/）", hint: "可能较大" },
   { key: "sources", label: "Word 原文件（sources/）" },
@@ -47,7 +47,7 @@ const SCOPE_ITEMS: { key: keyof SyncScope; label: string; hint?: string }[] = [
 const SCOPE_PRESETS: { name: string; scope: SyncScope }[] = [
   { name: "全量", scope: { ...DEFAULT_SYNC_SCOPE } },
   { name: "仅元数据", scope: { notes: true, settings: true, images: false, pdfs: false, sources: false } },
-  { name: "笔记+图片", scope: { notes: true, settings: true, images: true, pdfs: false, sources: false } },
+  { name: "文档+图片", scope: { notes: true, settings: true, images: true, pdfs: false, sources: false } },
 ];
 
 const CFG_KEY_AUTO = "sync.auto_enabled";
@@ -72,19 +72,19 @@ function persistUsername(v: string) {
 /**
  * 导入 / 拉取前的二次确认，两种模式都要弹。
  *
- * 为什么「保留本地文件」模式也要确认：两种模式下数据库（笔记 / 待办 / 设置）都会**整库替换**
+ * 为什么「保留本地文件」模式也要确认：两种模式下数据库（文档 / 待办 / 设置）都会**整库替换**
  * 成备份里的内容，区别只在图片 / PDF 等文件目录是否整体换掉。旧文案把它叫「合并」，
- * 用户以为本地新写的笔记会保留，结果被冲掉了 —— 所以必须把真实后果讲清楚再让用户点。
+ * 用户以为本地新写的文档会保留，结果被冲掉了 —— 所以必须把真实后果讲清楚再让用户点。
  */
 function confirmImport(mode: SyncImportMode, source: string): Promise<boolean> {
   const overwrite = mode === "overwrite";
   return new Promise<boolean>((resolve) => {
     Modal.confirm({
-      title: overwrite ? `完全替换为${source}的数据？` : `用${source}的数据替换本机笔记？`,
+      title: overwrite ? `完全替换为${source}的数据？` : `用${source}的数据替换本机文档？`,
       content: (
         <div style={{ fontSize: 13, lineHeight: 1.7 }}>
           <div>
-            本机当前的<b>笔记、文件夹、待办、设置</b>会整体替换为备份里的内容，
+            本机当前的<b>文档、文件夹、待办、设置</b>会整体替换为备份里的内容，
             本机在备份之后新写的内容<b>不会保留</b>。
           </div>
           <div>
@@ -264,7 +264,7 @@ export function SyncSection() {
     try {
       const result = await syncApi.exportToFile(scope, target, enc);
       message.success(
-        `已导出：${result.stats.notesCount} 条笔记 / ${result.stats.imagesCount + result.stats.pdfsCount + result.stats.sourcesCount} 个资产`,
+        `已导出：${result.stats.notesCount} 条文档 / ${result.stats.imagesCount + result.stats.pdfsCount + result.stats.sourcesCount} 个资产`,
       );
       loadHistory();
     } catch (e) {
@@ -292,7 +292,7 @@ export function SyncSection() {
         backupPassword.trim() || undefined,
       );
       message.success(
-        `已导入：来自 ${m.device}（${m.exportedAt}），${m.stats.notesCount} 条笔记`,
+        `已导入：来自 ${m.device}（${m.exportedAt}），${m.stats.notesCount} 条文档`,
       );
       loadHistory();
     } catch (e) {
@@ -375,7 +375,7 @@ export function SyncSection() {
       // 推送成功即证明配置可用，兜底落库（避免用户跳过测试直接推，下次重启丢配置）
       persistUrl(url);
       persistUsername(username);
-      message.success(`已推送 ${result.stats.notesCount} 条笔记到云端`);
+      message.success(`已推送 ${result.stats.notesCount} 条文档到云端`);
       loadHistory();
       loadCloudPreview();
     } catch (e) {
@@ -395,7 +395,7 @@ export function SyncSection() {
       persistUrl(url);
       persistUsername(username);
       message.success(
-        `已拉取：来自 ${m.device}（${m.exportedAt}），${m.stats.notesCount} 条笔记`,
+        `已拉取：来自 ${m.device}（${m.exportedAt}），${m.stats.notesCount} 条文档`,
       );
       loadHistory();
     } catch (e) {
@@ -441,7 +441,7 @@ export function SyncSection() {
         needPw ? backupPassword.trim() || undefined : undefined,
       );
       message.success(
-        `已从 ${snap.device} 拉取：${m.stats.notesCount} 条笔记（${m.exportedAt}）`,
+        `已从 ${snap.device} 拉取：${m.stats.notesCount} 条文档（${m.exportedAt}）`,
       );
       setSnapshotsModalOpen(false);
       loadHistory();
@@ -464,7 +464,7 @@ export function SyncSection() {
       setCloudManifest(m);
       if (m) {
         message.success(
-          `云端快照：${m.device}（${m.exportedAt}）· ${m.stats.notesCount} 条笔记`,
+          `云端快照：${m.device}（${m.exportedAt}）· ${m.stats.notesCount} 条文档`,
         );
       } else {
         message.info("云端暂无快照，请先执行一次推送");
@@ -506,7 +506,7 @@ export function SyncSection() {
         message="整库 ZIP 快照"
         description={
           <span style={{ fontSize: 12 }}>
-            把笔记、图片、PDF、Word 等全部数据打包成 ZIP，推到 WebDAV 云盘或导出本地文件。
+            把文档、图片、PDF、Word 等全部数据打包成 ZIP，推到 WebDAV 云盘或导出本地文件。
             <br />
             适合<b>灾备/迁移/版本回退</b>；
             <b>日常多端协作建议改用「多端实时同步」标签页</b>（增量同步 + 附件去重 + 删除可同步）。
@@ -549,13 +549,13 @@ export function SyncSection() {
         </div>
       </div>
 
-      {/* 导入模式。两种都会整库替换笔记数据（整包备份不做逐条合并），
-          区别只在附件目录；旧文案叫「合并」让人误以为本地笔记会保留，已按真实语义改名 */}
+      {/* 导入模式。两种都会整库替换文档数据（整包备份不做逐条合并），
+          区别只在附件目录；旧文案叫「合并」让人误以为本地文档会保留，已按真实语义改名 */}
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>导入模式</div>
         <Radio.Group value={importMode} onChange={(e) => setImportMode(e.target.value)}>
           <Radio value="merge">
-            替换笔记，保留本地附件{" "}
+            替换文档，保留本地附件{" "}
             <Text type="secondary" style={{ fontSize: 12 }}>（推荐 · 本机已有的图片 / PDF 不删）</Text>
           </Radio>
           <Radio value="overwrite">
@@ -564,7 +564,7 @@ export function SyncSection() {
           </Radio>
         </Radio.Group>
         <div style={{ fontSize: 12, color: "var(--ant-color-text-secondary, #888)", marginTop: 4 }}>
-          整包备份不会逐条合并：两种模式下笔记、待办、设置都以备份为准，本机之后新写的内容会被替换。
+          整包备份不会逐条合并：两种模式下文档、待办、设置都以备份为准，本机之后新写的内容会被替换。
           想多台设备互相合并，请用「多端实时同步」标签页。
         </div>
       </div>
@@ -672,7 +672,7 @@ export function SyncSection() {
         <div style={{ marginBottom: 8, fontSize: 12 }}>
           <Text type="secondary">
             云端最新快照：{cloudManifest.device}（{cloudManifest.exportedAt}），
-            {cloudManifest.stats.notesCount} 条笔记
+            {cloudManifest.stats.notesCount} 条文档
           </Text>
         </div>
       )}
@@ -838,7 +838,7 @@ function summarizeStats(json: string): string[] {
   try {
     const s = JSON.parse(json);
     const parts: string[] = [];
-    if (s.notesCount) parts.push(`${s.notesCount} 笔记`);
+    if (s.notesCount) parts.push(`${s.notesCount} 文档`);
     if (s.foldersCount) parts.push(`${s.foldersCount} 文件夹`);
     if (s.tagsCount) parts.push(`${s.tagsCount} 标签`);
     if (s.imagesCount) parts.push(`${s.imagesCount} 图片`);

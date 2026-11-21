@@ -43,9 +43,9 @@ pub fn convert_doc_to_docx_base64(path: String) -> Result<String, String> {
     Ok(STANDARD.encode(bytes))
 }
 
-/// 把源文件附到笔记上：拷贝原文件 + 更新 source_file_path/type
+/// 把源文件附到文档上：拷贝原文件 + 更新 source_file_path/type
 ///
-/// 用于 Word 导入：前端先建笔记拿到 note_id，再调用本接口把原文件挂上
+/// 用于 Word 导入：前端先建文档拿到 note_id，再调用本接口把原文件挂上
 #[tauri::command]
 pub fn attach_source_file(
     state: State<'_, AppState>,
@@ -63,10 +63,10 @@ pub fn attach_source_file(
     Ok(rel)
 }
 
-/// 获取笔记关联源文件的绝对路径（pdf/docx/doc 通用）
+/// 获取文档关联源文件的绝对路径（pdf/docx/doc 通用）
 ///
-/// 这个 Command 的返回值仅用于 PDF iframe 预览 / opener 打开（**不写入笔记 content**），
-/// 所以保留输出绝对路径，前端 `convertFileSrc` 直接喂给 iframe 即可；笔记 content 里
+/// 这个 Command 的返回值仅用于 PDF iframe 预览 / opener 打开（**不写入文档 content**），
+/// 所以保留输出绝对路径，前端 `convertFileSrc` 直接喂给 iframe 即可；文档 content 里
 /// 的 PDF 引用走另一套 kb-asset:// + Step 4 数据迁移。
 ///
 /// 老的 `get_pdf_absolute_path` 仍保留作 PDF 专用别名（已迁到相对路径）
@@ -79,7 +79,7 @@ pub fn get_source_file_absolute_path(
         .db
         .get_note(note_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("笔记 {} 不存在", note_id))?;
+        .ok_or_else(|| format!("文档 {} 不存在", note_id))?;
     let Some(rel) = note.source_file_path else {
         return Ok(None);
     };

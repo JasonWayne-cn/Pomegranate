@@ -167,10 +167,10 @@ pub struct PptMetaSuggestion {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PptJobInput {
-    /// 普通笔记 id
+    /// 普通文档 id
     #[serde(default)]
     pub note_ids: Vec<i64>,
-    /// 挂载文件对应的影子笔记 id（保留兼容）
+    /// 挂载文件对应的影子文档 id（保留兼容）
     #[serde(default)]
     pub mount_note_ids: Vec<i64>,
     /// 用户选择的本地文件（PDF/Word/Markdown 等）

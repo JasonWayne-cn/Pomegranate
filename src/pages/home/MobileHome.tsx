@@ -21,8 +21,8 @@ import { relativeTime } from "@/lib/utils";
  *
  * 内容（自上而下）：
  * 1. 问候 + 头像
- * 2. 4 数据卡（2x2 grid）：今日字数 / 待复习闪卡 / 今日待办 / 笔记总数
- * 3. 快速操作（4 列）：闪念 / 新建 / 今日笔记 / 问 AI
+ * 2. 4 数据卡（2x2 grid）：今日字数 / 待复习闪卡 / 今日待办 / 文档总数
+ * 3. 快速操作（4 列）：闪念 / 新建 / 当天日记 / 问 AI
  * 4. 今日待办速览（最多 3 条 + 全部 →）
  * 5. 30 天写作热力图（按 word_count 5 档配色）
  * 6. 最近编辑（最多 2 条 + 全部 →）
@@ -165,7 +165,7 @@ export function MobileHome() {
             className="flex flex-col items-start rounded-2xl border border-slate-200 bg-white p-4 active:scale-[0.98] transition-transform"
           >
             <div className="flex items-center gap-1.5 text-xs text-slate-500">
-              <FileText size={14} /> 笔记总数
+              <FileText size={14} /> 文档总数
             </div>
             <div className="mt-1 text-2xl font-bold text-slate-900">
               {stats?.total_notes ?? "—"}
@@ -199,7 +199,7 @@ export function MobileHome() {
           <QuickAction
             icon={<CalendarDays size={20} className="text-green-600" />}
             bg="bg-green-100"
-            label="今日笔记"
+            label="当天日记"
             onClick={() => navigate("/daily")}
           />
           <QuickAction
@@ -291,7 +291,7 @@ export function MobileHome() {
         {data.recentNotes.length === 0 ? (
           <EmptyHint
             icon={<FileText size={20} className="text-slate-300" />}
-            text="还没有笔记，去新建一篇吧"
+            text="还没有文档，去新建一篇吧"
           />
         ) : (
           <div className="space-y-2">
@@ -309,7 +309,7 @@ export function MobileHome() {
                   )}
                   <div className="flex-1 min-w-0">
                     <h3 className="truncate text-sm font-medium text-slate-900">
-                      {note.title || "未命名笔记"}
+                      {note.title || "未命名文档"}
                     </h3>
                     {note.content && (
                       <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">

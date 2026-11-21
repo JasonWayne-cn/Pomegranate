@@ -152,7 +152,7 @@ struct SearchNotesArgs {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct GetNoteArgs {
-    /// 笔记 id，从 search_notes 的结果中取
+    /// 文档 id，从 search_notes 的结果中取
     #[serde(deserialize_with = "lenient_int::de_i64")]
     id: i64,
 }
@@ -168,7 +168,7 @@ struct SearchByTagArgs {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct GetBacklinksArgs {
-    /// 目标笔记 id（要查"哪些笔记链接到了我"）
+    /// 目标文档 id（要查"哪些文档链接到了我"）
     #[serde(deserialize_with = "lenient_int::de_i64")]
     id: i64,
 }
@@ -198,9 +198,9 @@ struct ListTasksArgs {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct CreateNoteArgs {
-    /// 笔记标题（必填，不能为空字符串）
+    /// 文档标题（必填，不能为空字符串）
     title: String,
-    /// 笔记正文（HTML 或 Markdown 都行，主应用前端用 TipTap 渲染）
+    /// 文档正文（HTML 或 Markdown 都行，主应用前端用 TipTap 渲染）
     content: String,
     /// 可选：归属文件夹 id。不传则进"未分类"
     #[serde(default, deserialize_with = "lenient_int::de_opt_i64")]
@@ -209,7 +209,7 @@ struct CreateNoteArgs {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct UpdateNoteArgs {
-    /// 笔记 id
+    /// 文档 id
     #[serde(deserialize_with = "lenient_int::de_i64")]
     id: i64,
     /// 新标题（不传则保持不变）
@@ -219,14 +219,14 @@ struct UpdateNoteArgs {
     #[serde(default)]
     content: Option<String>,
     /// 新文件夹 id（不传则保持不变）。
-    /// 限制：暂不支持把笔记"移回未分类"，需要的话请在主应用 UI 操作
+    /// 限制：暂不支持把文档"移回未分类"，需要的话请在主应用 UI 操作
     #[serde(default, deserialize_with = "lenient_int::de_opt_i64")]
     folder_id: Option<i64>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct AddTagArgs {
-    /// 笔记 id
+    /// 文档 id
     #[serde(deserialize_with = "lenient_int::de_i64")]
     note_id: i64,
     /// 标签名（不存在会自动创建）
@@ -283,7 +283,7 @@ struct CreateNoteFromTemplateArgs {
     /// 模板 id（从 list_templates 取）
     #[serde(deserialize_with = "lenient_int::de_i64")]
     template_id: i64,
-    /// 新笔记标题（不传则用模板 name + 当前日期）
+    /// 新文档标题（不传则用模板 name + 当前日期）
     #[serde(default)]
     title: Option<String>,
     /// 目标文件夹 id；不传则进未分类
@@ -300,21 +300,21 @@ struct ListTrashArgs {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct RestoreNoteArgs {
-    /// 回收站里笔记的 id
+    /// 回收站里文档的 id
     #[serde(deserialize_with = "lenient_int::de_i64")]
     id: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct DeleteNoteArgs {
-    /// 笔记 id
+    /// 文档 id
     #[serde(deserialize_with = "lenient_int::de_i64")]
     id: i64,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct RemoveTagArgs {
-    /// 笔记 id
+    /// 文档 id
     #[serde(deserialize_with = "lenient_int::de_i64")]
     note_id: i64,
     /// 标签名
@@ -376,7 +376,7 @@ struct ListNotesByFolderArgs {
     /// 文件夹 id；不传或 null 表示「未分类」（folder_id IS NULL）
     #[serde(default, deserialize_with = "lenient_int::de_opt_i64")]
     folder_id: Option<i64>,
-    /// 是否包含子文件夹下的笔记，默认 false（只取直接子项）
+    /// 是否包含子文件夹下的文档，默认 false（只取直接子项）
     #[serde(default)]
     include_descendants: Option<bool>,
     /// 上限条数，默认 50，最大 200
@@ -386,7 +386,7 @@ struct ListNotesByFolderArgs {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 struct MoveNotesBatchArgs {
-    /// 要移动的笔记 id 列表
+    /// 要移动的文档 id 列表
     #[serde(deserialize_with = "lenient_int::de_vec_i64")]
     ids: Vec<i64>,
     /// 目标文件夹 id；不传或 null 表示移到「未分类」
@@ -410,7 +410,7 @@ struct SearchHit {
     title: String,
     /// 命中片段（去 HTML 标签的纯文本，长度约 140）
     snippet: String,
-    /// 笔记最近更新时间（本地时区字符串）
+    /// 文档最近更新时间（本地时区字符串）
     updated_at: String,
     folder_id: Option<i64>,
 }
@@ -419,7 +419,7 @@ struct SearchHit {
 struct NoteDetail {
     id: i64,
     title: String,
-    /// 笔记正文（如果是加密笔记则返回占位，不泄露密文）
+    /// 文档正文（如果是加密文档则返回占位，不泄露密文）
     content: String,
     folder_id: Option<i64>,
     is_daily: bool,
@@ -435,13 +435,13 @@ struct TagInfo {
     id: i64,
     name: String,
     color: Option<String>,
-    /// 该标签下未删除笔记的数量
+    /// 该标签下未删除文档的数量
     note_count: i64,
 }
 
 #[derive(Debug, Serialize)]
 struct BacklinkRef {
-    /// 反链来源笔记 id
+    /// 反链来源文档 id
     source_id: i64,
     source_title: String,
     /// 链接出现处的上下文片段（可能为 null）
@@ -502,7 +502,7 @@ struct FolderInfo {
     name: String,
     /// 父文件夹 id；null = 顶级
     parent_id: Option<i64>,
-    /// 该文件夹（不递归）下未删除笔记数
+    /// 该文件夹（不递归）下未删除文档数
     note_count: i64,
 }
 
@@ -613,8 +613,8 @@ impl KbServer {
     }
 
     // ─── search_notes：全文搜索 ───────────────────────────────
-    #[tool(description = "全文搜索本地知识库笔记（FTS5 + LIKE 兜底）。\
-                          自动过滤回收站 / 隐藏 / 加密笔记。\
+    #[tool(description = "全文搜索本地知识库文档（FTS5 + LIKE 兜底）。\
+                          自动过滤回收站 / 隐藏 / 加密文档。\
                           返回命中列表（id / title / snippet / updated_at）的 JSON。")]
     fn search_notes(
         &self,
@@ -654,9 +654,9 @@ impl KbServer {
     }
 
     // ─── get_note：按 id 取全文 ───────────────────────────────
-    #[tool(description = "按 id 读取单条笔记的完整内容（返回 JSON）。\
-                          加密笔记的 content 会被替换为占位符（不泄露密文）。\
-                          隐藏笔记拒绝访问，返回错误。")]
+    #[tool(description = "按 id 读取单条文档的完整内容（返回 JSON）。\
+                          加密文档的 content 会被替换为占位符（不泄露密文）。\
+                          隐藏文档拒绝访问，返回错误。")]
     fn get_note(
         &self,
         Parameters(args): Parameters<GetNoteArgs>,
@@ -669,16 +669,16 @@ impl KbServer {
 
         let detail = fetch_note(&conn, args.id)
             .map_err(|e| McpError::internal_error(format!("fetch_note: {e}"), None))?
-            .ok_or_else(|| McpError::invalid_params(format!("笔记 {} 不存在", args.id), None))?;
+            .ok_or_else(|| McpError::invalid_params(format!("文档 {} 不存在", args.id), None))?;
 
         let json = serde_json::to_string(&detail)
             .map_err(|e| McpError::internal_error(format!("serialize: {e}"), None))?;
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    // ─── list_tags：所有标签 + 笔记数 ─────────────────────────
-    #[tool(description = "列出所有标签，附带每个标签下的笔记数（按笔记数降序）。\
-                          已删除笔记不计入 count。")]
+    // ─── list_tags：所有标签 + 文档数 ─────────────────────────
+    #[tool(description = "列出所有标签，附带每个标签下的文档数（按文档数降序）。\
+                          已删除文档不计入 count。")]
     fn list_tags(&self) -> Result<CallToolResult, McpError> {
         let conn = self
             .db
@@ -692,9 +692,9 @@ impl KbServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    // ─── search_by_tag：按标签筛选笔记 ────────────────────────
-    #[tool(description = "按标签名筛选笔记列表，按更新时间降序。\
-                          自动过滤回收站 / 隐藏 / 加密笔记。")]
+    // ─── search_by_tag：按标签筛选文档 ────────────────────────
+    #[tool(description = "按标签名筛选文档列表，按更新时间降序。\
+                          自动过滤回收站 / 隐藏 / 加密文档。")]
     fn search_by_tag(
         &self,
         Parameters(args): Parameters<SearchByTagArgs>,
@@ -718,8 +718,8 @@ impl KbServer {
 
     // ─── get_backlinks：反向链接 ─────────────────────────────
     #[tool(
-        description = "获取目标笔记的所有反向链接（哪些笔记 [[链接]] 到了它）。\
-                          隐藏 / 已删除的源笔记不计入。"
+        description = "获取目标文档的所有反向链接（哪些文档 [[链接]] 到了它）。\
+                          隐藏 / 已删除的源文档不计入。"
     )]
     fn get_backlinks(
         &self,
@@ -739,7 +739,7 @@ impl KbServer {
 
     // ─── list_daily_notes：日记列表 ──────────────────────────
     #[tool(
-        description = "列出最近 N 天的日记（is_daily=1 的笔记），按 daily_date 降序。\
+        description = "列出最近 N 天的日记（is_daily=1 的文档），按 daily_date 降序。\
                           默认最近 7 天、最多 30 条。"
     )]
     fn list_daily_notes(
@@ -851,10 +851,10 @@ impl KbServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    // ─── list_templates：笔记模板库 ───────────────────────────
+    // ─── list_templates：文档模板库 ───────────────────────────
     #[tool(
-        description = "列出所有笔记模板（会议记录 / 读书笔记 / 周报 等内置 + 用户自建）。\
-                          配合 create_note_from_template 用来按模板建笔记。"
+        description = "列出所有文档模板（会议记录 / 读书文档 / 周报 等内置 + 用户自建）。\
+                          配合 create_note_from_template 用来按模板建文档。"
     )]
     fn list_templates(&self) -> Result<CallToolResult, McpError> {
         let conn = self
@@ -870,9 +870,9 @@ impl KbServer {
     }
 
     // ─── list_trash：回收站列表 ────────────────────────────────
-    #[tool(description = "列出回收站里的笔记（is_deleted=1，按删除时间倒序）。\
+    #[tool(description = "列出回收站里的文档（is_deleted=1，按删除时间倒序）。\
                           配合 restore_note_from_trash 还原。\
-                          隐藏 / 加密笔记不暴露。")]
+                          隐藏 / 加密文档不暴露。")]
     fn list_trash(
         &self,
         Parameters(args): Parameters<ListTrashArgs>,
@@ -890,9 +890,9 @@ impl KbServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    // ─── list_recent_notes：按更新时间最近的笔记 ──────────────
+    // ─── list_recent_notes：按更新时间最近的文档 ──────────────
     #[tool(
-        description = "列出最近更新的笔记（按 updated_at 降序），不限文件夹和标签。\
+        description = "列出最近更新的文档（按 updated_at 降序），不限文件夹和标签。\
                           用于「我最近写了啥」这类无关键词查询。\
                           自动过滤回收站 / 隐藏 / 加密。"
     )]
@@ -914,8 +914,8 @@ impl KbServer {
     }
 
     // ─── list_folders：文件夹结构 ──────────────────────────────
-    #[tool(description = "列出所有文件夹（含层级 parent_id 和未删除笔记数）。\
-                          按 sort_order 排序。LLM 决定把笔记放哪个文件夹前先看这个。")]
+    #[tool(description = "列出所有文件夹（含层级 parent_id 和未删除文档数）。\
+                          按 sort_order 排序。LLM 决定把文档放哪个文件夹前先看这个。")]
     fn list_folders(&self) -> Result<CallToolResult, McpError> {
         let conn = self
             .db
@@ -929,10 +929,10 @@ impl KbServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    // ─── list_notes_by_folder：按文件夹列笔记 ──────────────────
-    #[tool(description = "按文件夹 id 列笔记（folder_id=null 表示未分类）。\
+    // ─── list_notes_by_folder：按文件夹列文档 ──────────────────
+    #[tool(description = "按文件夹 id 列文档（folder_id=null 表示未分类）。\
                           可选 include_descendants 递归子文件夹。\
-                          自动过滤回收站 / 隐藏 / 加密笔记。")]
+                          自动过滤回收站 / 隐藏 / 加密文档。")]
     fn list_notes_by_folder(
         &self,
         Parameters(args): Parameters<ListNotesByFolderArgs>,
@@ -953,8 +953,8 @@ impl KbServer {
 
     // ─── ✏️ 写工具：move_notes_batch ───────────────────────────
     #[tool(
-        description = "批量把多条笔记移动到目标文件夹（folder_id=null 移到未分类）。\
-                          只改 folder_id，不动 updated_at（避免大量笔记被冒泡到最近更新）。\
+        description = "批量把多条文档移动到目标文件夹（folder_id=null 移到未分类）。\
+                          只改 folder_id，不动 updated_at（避免大量文档被冒泡到最近更新）。\
                           仅 --writable 模式可用。返回受影响行数。"
     )]
     fn move_notes_batch(
@@ -1107,7 +1107,7 @@ impl KbServer {
 
     // ─── ✏️ 写工具：create_note_from_template ───────────────────
     #[tool(
-        description = "按模板建笔记。title 不传则自动用「模板名 · YYYY-MM-DD」。\
+        description = "按模板建文档。title 不传则自动用「模板名 · YYYY-MM-DD」。\
                           仅 --writable 模式可用。返回 {id, title}。"
     )]
     fn create_note_from_template(
@@ -1136,7 +1136,7 @@ impl KbServer {
     }
 
     // ─── ✏️ 写工具：restore_note_from_trash ────────────────────
-    #[tool(description = "把回收站里的笔记还原（is_deleted: 1 → 0）。\
+    #[tool(description = "把回收站里的文档还原（is_deleted: 1 → 0）。\
                           仅 --writable 模式可用。")]
     fn restore_note_from_trash(
         &self,
@@ -1152,7 +1152,7 @@ impl KbServer {
             .map_err(|e| McpError::internal_error(format!("restore: {e}"), None))?;
         if affected == 0 {
             return Err(McpError::invalid_params(
-                format!("笔记 {} 不在回收站", args.id),
+                format!("文档 {} 不在回收站", args.id),
                 None,
             ));
         }
@@ -1164,8 +1164,8 @@ impl KbServer {
 
     // ─── ✏️ 写工具：delete_note（软删到回收站） ─────────────────
     #[tool(
-        description = "把笔记软删到回收站（is_deleted=1）。原数据仍在，可在主应用 UI 回收站恢复。\
-                          拒绝删除加密笔记。仅 --writable 模式可用。\
+        description = "把文档软删到回收站（is_deleted=1）。原数据仍在，可在主应用 UI 回收站恢复。\
+                          拒绝删除加密文档。仅 --writable 模式可用。\
                           这是 LLM 处理「创建错了」/「不要这条了」的标准撤销方式。"
     )]
     fn delete_note(
@@ -1182,7 +1182,7 @@ impl KbServer {
             .map_err(|e| McpError::internal_error(format!("delete_note: {e}"), None))?;
         if affected == 0 {
             return Err(McpError::invalid_params(
-                format!("笔记 {} 不存在或是加密笔记", args.id),
+                format!("文档 {} 不存在或是加密文档", args.id),
                 None,
             ));
         }
@@ -1194,7 +1194,7 @@ impl KbServer {
 
     // ─── ✏️ 写工具：remove_tag_from_note ─────────────────────────
     #[tool(
-        description = "撤回笔记的某个标签（仅删 note_tags 关联，不删 tags 表里的标签本身）。\
+        description = "撤回文档的某个标签（仅删 note_tags 关联，不删 tags 表里的标签本身）。\
                           仅 --writable 模式可用。LLM 处理「加错标签」时用。"
     )]
     fn remove_tag_from_note(
@@ -1307,7 +1307,7 @@ impl KbServer {
     }
 
     // ─── ✏️ 写工具：create_note ─────────────────────────────────
-    #[tool(description = "创建一条新笔记（仅 --writable 模式可用）。\
+    #[tool(description = "创建一条新文档（仅 --writable 模式可用）。\
                           自动同步 title_normalized / content_hash / FTS5 索引。\
                           返回 {id, title} JSON。")]
     fn create_note(
@@ -1335,8 +1335,8 @@ impl KbServer {
     }
 
     // ─── ✏️ 写工具：update_note ─────────────────────────────────
-    #[tool(description = "按 id 更新笔记。title / content / folder_id 都是可选，\
-                          只更新传入的字段。会拒绝改加密笔记。仅 --writable 模式可用。")]
+    #[tool(description = "按 id 更新文档。title / content / folder_id 都是可选，\
+                          只更新传入的字段。会拒绝改加密文档。仅 --writable 模式可用。")]
     fn update_note(
         &self,
         Parameters(args): Parameters<UpdateNoteArgs>,
@@ -1363,7 +1363,7 @@ impl KbServer {
         .map_err(|e| McpError::internal_error(format!("update_note: {e}"), None))?;
         if affected == 0 {
             return Err(McpError::invalid_params(
-                format!("笔记 {} 不存在或是加密笔记/已删除", args.id),
+                format!("文档 {} 不存在或是加密文档/已删除", args.id),
                 None,
             ));
         }
@@ -1375,7 +1375,7 @@ impl KbServer {
 
     // ─── ✏️ 写工具：add_tag_to_note ─────────────────────────────
     #[tool(
-        description = "给笔记加标签（标签不存在自动创建）。仅 --writable 模式可用。\
+        description = "给文档加标签（标签不存在自动创建）。仅 --writable 模式可用。\
                           返回 {tag_id, note_id, created_tag} JSON。"
     )]
     fn add_tag_to_note(
@@ -1405,17 +1405,17 @@ impl KbServer {
 }
 
 /// CLI 查询命令（kb-mcp 子命令用，#6）。只读查询，复用 MCP 工具**完全相同**的过滤逻辑
-/// （回收站 / 隐藏 / 加密笔记一律不暴露），不重写 SQL。
+/// （回收站 / 隐藏 / 加密文档一律不暴露），不重写 SQL。
 pub enum CliQuery {
-    /// 全文搜索笔记
+    /// 全文搜索文档
     Search { query: String, limit: usize },
-    /// 按 id 取单篇笔记全文
+    /// 按 id 取单篇文档全文
     Get { id: i64 },
     /// 列出所有标签
     Tags,
-    /// 最近更新的笔记
+    /// 最近更新的文档
     Recent { limit: usize },
-    /// 按标签名筛选笔记
+    /// 按标签名筛选文档
     SearchByTag { tag: String, limit: usize },
 }
 
@@ -1459,7 +1459,7 @@ impl ServerHandler for KbServer {
             .with_server_info(Implementation::new("kb-mcp", env!("CARGO_PKG_VERSION")))
             .with_protocol_version(ProtocolVersion::V_2024_11_05)
             .with_instructions(format!(
-                "本 MCP server 暴露本地知识库（笔记 / 标签 / 双链 / 任务 / 日记 / Prompt / 文件夹）。\
+                "本 MCP server 暴露本地知识库（文档 / 标签 / 双链 / 任务 / 日记 / Prompt / 文件夹）。\
                  读工具：search_notes / get_note / list_recent_notes / list_tags / search_by_tag / \
                  get_backlinks / list_daily_notes / list_tasks / list_subtasks / \
                  get_prompt / list_prompts / list_folders / list_notes_by_folder / \
@@ -1468,7 +1468,7 @@ impl ServerHandler for KbServer {
                  add_tag_to_note / remove_tag_from_note / create_task / update_task / \
                  create_folder / rename_folder / move_folder / reorder_folders / \
                  create_note_from_template / restore_note_from_trash（{}）。\
-                 默认过滤回收站、隐藏、加密笔记，保护隐私。",
+                 默认过滤回收站、隐藏、加密文档，保护隐私。",
                 if self.writable { "已启用" } else { "当前禁用，启动加 --writable 开启" }
             ))
     }
@@ -1546,7 +1546,7 @@ fn search_like(
     Ok(rows)
 }
 
-/// 取单条笔记的明文。加密笔记返回占位符。隐藏笔记返回 None。
+/// 取单条文档的明文。加密文档返回占位符。隐藏文档返回 None。
 fn fetch_note(conn: &Connection, id: i64) -> Result<Option<NoteDetail>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT id, title, content, folder_id, is_daily, daily_date,
@@ -1597,7 +1597,7 @@ fn fetch_note(conn: &Connection, id: i64) -> Result<Option<NoteDetail>, rusqlite
     }
 
     let safe_content = if is_encrypted {
-        "🔒 已加密笔记（kb-mcp 不暴露密文，请在主应用内解锁查看）".to_string()
+        "🔒 已加密文档（kb-mcp 不暴露密文，请在主应用内解锁查看）".to_string()
     } else {
         content
     };
@@ -1616,7 +1616,7 @@ fn fetch_note(conn: &Connection, id: i64) -> Result<Option<NoteDetail>, rusqlite
     }))
 }
 
-/// 列出所有标签 + 笔记数（已删除笔记不计入）
+/// 列出所有标签 + 文档数（已删除文档不计入）
 fn list_tags(conn: &Connection) -> Result<Vec<TagInfo>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT t.id, t.name, t.color, COUNT(nt.note_id) as note_count
@@ -1639,7 +1639,7 @@ fn list_tags(conn: &Connection) -> Result<Vec<TagInfo>, rusqlite::Error> {
     Ok(rows)
 }
 
-/// 按标签名筛选笔记（精确匹配 tag.name）
+/// 按标签名筛选文档（精确匹配 tag.name）
 fn search_by_tag(
     conn: &Connection,
     tag: &str,
@@ -1670,7 +1670,7 @@ fn search_by_tag(
     Ok(rows)
 }
 
-/// 反向链接：哪些笔记 [[链接]] 到了 target_id
+/// 反向链接：哪些文档 [[链接]] 到了 target_id
 /// 与主应用 database/links.rs::get_backlinks 保持一致逻辑（过滤 is_hidden / is_deleted）
 fn get_backlinks(conn: &Connection, target_id: i64) -> Result<Vec<BacklinkRef>, rusqlite::Error> {
     let mut stmt = conn.prepare(
@@ -1910,7 +1910,7 @@ fn list_templates(conn: &Connection) -> Result<Vec<TemplateInfo>, rusqlite::Erro
     Ok(rows)
 }
 
-/// 列出回收站笔记（is_deleted=1，过滤加密/隐藏）
+/// 列出回收站文档（is_deleted=1，过滤加密/隐藏）
 fn list_trash(conn: &Connection, limit: usize) -> Result<Vec<TrashItem>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT id, title, substr(content, 1, 140), updated_at
@@ -1935,7 +1935,7 @@ fn list_trash(conn: &Connection, limit: usize) -> Result<Vec<TrashItem>, rusqlit
     Ok(rows)
 }
 
-/// 按 updated_at 降序列最近笔记（不限文件夹/标签）
+/// 按 updated_at 降序列最近文档（不限文件夹/标签）
 fn list_recent_notes(conn: &Connection, limit: usize) -> Result<Vec<SearchHit>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT n.id, n.title, substr(n.content, 1, 140), n.updated_at, n.folder_id
@@ -1950,7 +1950,7 @@ fn list_recent_notes(conn: &Connection, limit: usize) -> Result<Vec<SearchHit>, 
     Ok(rows)
 }
 
-/// 列所有文件夹 + 直接子项笔记数（不递归）
+/// 列所有文件夹 + 直接子项文档数（不递归）
 fn list_folders(conn: &Connection) -> Result<Vec<FolderInfo>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT f.id, f.name, f.parent_id,
@@ -1975,10 +1975,10 @@ fn list_folders(conn: &Connection) -> Result<Vec<FolderInfo>, rusqlite::Error> {
     Ok(rows)
 }
 
-/// 按 folder_id 列笔记
+/// 按 folder_id 列文档
 /// - folder_id=None → folder_id IS NULL（未分类）
 /// - folder_id=Some(x) + recurse=false → 直接子项
-/// - folder_id=Some(x) + recurse=true → 递归收集子文件夹的所有笔记
+/// - folder_id=Some(x) + recurse=true → 递归收集子文件夹的所有文档
 fn list_notes_by_folder(
     conn: &Connection,
     folder_id: Option<i64>,
@@ -2079,7 +2079,7 @@ fn collect_descendant_folder_ids(
 
 // ─── 写操作（仅 writable 模式调用） ─────────────────────────────
 
-/// 创建笔记。同步维护 title_normalized + content_hash（FTS5 / word_count 由触发器自动）
+/// 创建文档。同步维护 title_normalized + content_hash（FTS5 / word_count 由触发器自动）
 /// 与主应用 database/notes.rs::create_note 保持字段一致性
 ///
 /// 🔴 必须写 `stable_uuid`：同步 manifest 用 `WHERE stable_uuid IS NOT NULL` 过滤，
@@ -2101,8 +2101,8 @@ fn create_note(
     Ok(conn.last_insert_rowid())
 }
 
-/// 更新笔记。任意字段为 None 表示不变。
-/// 拒绝改加密笔记 / 已删除笔记（WHERE 条件自动过滤）。
+/// 更新文档。任意字段为 None 表示不变。
+/// 拒绝改加密文档 / 已删除文档（WHERE 条件自动过滤）。
 /// 返回受影响行数。
 fn update_note(
     conn: &Connection,
@@ -2141,8 +2141,8 @@ fn update_note(
     conn.execute(&sql, &*bind_refs)
 }
 
-/// 批量移动笔记到目标文件夹。只改 folder_id，**不刷新 updated_at**
-/// （避免大量笔记被冒泡到"最近更新"列表前面，与主应用 database/notes.rs 行为一致）。
+/// 批量移动文档到目标文件夹。只改 folder_id，**不刷新 updated_at**
+/// （避免大量文档被冒泡到"最近更新"列表前面，与主应用 database/notes.rs 行为一致）。
 /// folder_id = None 表示移到未分类。
 fn move_notes_batch(
     conn: &Connection,
@@ -2309,7 +2309,7 @@ fn reorder_folders(conn: &mut Connection, ordered_ids: &[i64]) -> Result<(), Mcp
     Ok(())
 }
 
-/// 按模板创建笔记。title 不传则用「模板名 · YYYY-MM-DD」。
+/// 按模板创建文档。title 不传则用「模板名 · YYYY-MM-DD」。
 /// 内部复用 create_note 的字段维护（title_normalized + content_hash），
 /// 落库前先渲染 `{{date}} / {{weekday}} / {{title}} / ...` 等占位符。
 fn create_note_from_template(
@@ -2335,7 +2335,7 @@ fn create_note_from_template(
     Ok((id, final_title))
 }
 
-/// 渲染笔记模板内的 `{{date}}` / `{{weekday}}` 等占位符。
+/// 渲染文档模板内的 `{{date}}` / `{{weekday}}` 等占位符。
 /// 与主 crate `services/template.rs::render_variables` 保持一致 —— kb-core 不依赖
 /// 主 crate，所以这里独立维护一份；改一边记得改另一边。
 fn render_template_vars(content: &str, title: &str) -> String {
@@ -2361,7 +2361,7 @@ fn render_template_vars(content: &str, title: &str) -> String {
         .replace("{{title}}", title)
 }
 
-/// 把回收站里的笔记还原（is_deleted: 1 → 0）。
+/// 把回收站里的文档还原（is_deleted: 1 → 0）。
 fn restore_note_from_trash(conn: &Connection, id: i64) -> Result<usize, rusqlite::Error> {
     conn.execute(
         "UPDATE notes
@@ -2372,8 +2372,8 @@ fn restore_note_from_trash(conn: &Connection, id: i64) -> Result<usize, rusqlite
     )
 }
 
-/// 软删笔记（is_deleted=1，原数据保留，可在主应用回收站恢复）。
-/// 拒绝改加密笔记。返回受影响行数。
+/// 软删文档（is_deleted=1，原数据保留，可在主应用回收站恢复）。
+/// 拒绝改加密文档。返回受影响行数。
 fn soft_delete_note(conn: &Connection, id: i64) -> Result<usize, rusqlite::Error> {
     conn.execute(
         "UPDATE notes
@@ -2386,7 +2386,7 @@ fn soft_delete_note(conn: &Connection, id: i64) -> Result<usize, rusqlite::Error
     )
 }
 
-/// 撤回笔记的某个标签关联（不删 tags 表，只清 note_tags 关联）。
+/// 撤回文档的某个标签关联（不删 tags 表，只清 note_tags 关联）。
 /// 返回是否真删除了一行。
 fn remove_tag_from_note(
     conn: &Connection,
@@ -2475,7 +2475,7 @@ fn update_task(
     conn.execute(&sql, &*bind_refs)
 }
 
-/// 给笔记加标签。tag 不存在则创建。返回 (tag_id, created_tag)。
+/// 给文档加标签。tag 不存在则创建。返回 (tag_id, created_tag)。
 fn add_tag_to_note(
     conn: &Connection,
     note_id: i64,
@@ -2652,23 +2652,23 @@ mod tests {
         conn
     }
 
-    /// 回归：MCP 建的笔记缺 stable_uuid → 同步 manifest（WHERE stable_uuid IS NOT NULL）
-    /// 静默跳过 → 该笔记永远不同步。
+    /// 回归：MCP 建的文档缺 stable_uuid → 同步 manifest（WHERE stable_uuid IS NOT NULL）
+    /// 静默跳过 → 该文档永远不同步。
     #[test]
     fn create_note_fills_valid_unique_stable_uuid() {
         let conn = stable_uuid_test_conn();
-        let a = create_note(&conn, "笔记 A", "正文 A", None).unwrap();
-        let b = create_note(&conn, "笔记 B", "正文 B", Some(3)).unwrap();
+        let a = create_note(&conn, "文档 A", "正文 A", None).unwrap();
+        let b = create_note(&conn, "文档 B", "正文 B", Some(3)).unwrap();
 
         let get = |id: i64| -> Option<String> {
             conn.query_row("SELECT stable_uuid FROM notes WHERE id = ?1", [id], |r| r.get(0))
                 .unwrap()
         };
-        let ua = get(a).expect("MCP 创建的笔记必须带 stable_uuid");
-        let ub = get(b).expect("MCP 创建的笔记必须带 stable_uuid");
+        let ua = get(a).expect("MCP 创建的文档必须带 stable_uuid");
+        let ub = get(b).expect("MCP 创建的文档必须带 stable_uuid");
         assert_eq!(ua.len(), 36, "应为标准 UUID 文本，实际: {ua}");
         assert_eq!(ua.matches('-').count(), 4, "应为标准 UUID 文本，实际: {ua}");
-        assert_ne!(ua, ub, "两条笔记的 stable_uuid 不能相同");
+        assert_ne!(ua, ub, "两条文档的 stable_uuid 不能相同");
 
         let null_rows: i64 = conn
             .query_row("SELECT COUNT(*) FROM notes WHERE stable_uuid IS NULL", [], |r| r.get(0))

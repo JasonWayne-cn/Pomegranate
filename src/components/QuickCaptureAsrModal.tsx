@@ -3,7 +3,7 @@
  *
  * 流程：
  *   open → 自动 getUserMedia + 开始录音 → 用户点「停止」→ ASR 转写
- *   → 显示文字 + 3 个动作（保存为任务 / 保存为笔记 / 复制到剪贴板）
+ *   → 显示文字 + 3 个动作（保存为任务 / 保存为文档 / 复制到剪贴板）
  *
  * 与单点 MicButton 的区别：
  *   - 不依赖宿主输入框，自带文字结果区
@@ -241,13 +241,13 @@ export function QuickCaptureAsrModal({ open, onClose }: Props) {
     try {
       const title = text.trim().slice(0, 40);
       await noteApi.create({
-        title: title || "语音笔记",
+        title: title || "语音文档",
         content: text.trim(),
         folder_id: null,
       });
-      // 让左侧 NotesPanel / 笔记列表重拉，新建的语音笔记立即出现在「未分类」
+      // 让左侧 NotesPanel / 文档列表重拉，新建的语音文档立即出现在「未分类」
       useAppStore.getState().bumpNotesRefresh();
-      message.success("已保存为笔记");
+      message.success("已保存为文档");
       onClose();
     } catch (e) {
       message.error(`保存失败：${e}`);
@@ -378,7 +378,7 @@ export function QuickCaptureAsrModal({ open, onClose }: Props) {
               直接保存为任务
             </Button>
             <Button onClick={handleSaveNote} loading={savingNote} disabled={!text.trim()}>
-              保存为笔记
+              保存为文档
             </Button>
             <Button onClick={handleCopy} disabled={!text.trim()}>
               复制到剪贴板

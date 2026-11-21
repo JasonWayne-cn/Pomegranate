@@ -32,7 +32,7 @@ interface Props {
   /** 关闭回调 */
   onClose: () => void;
   /**
-   * 外部预填的查询词（如从搜索结果点进笔记时携带的关键词）。
+   * 外部预填的查询词（如从搜索结果点进文档时携带的关键词）。
    * 浮条打开时自动填入查询框并定位到首个命中；用户随后正常增删该词。
    */
   initialQuery?: string;
@@ -52,7 +52,7 @@ export function SearchReplaceBar({ editor, open, showReplace, onClose, initialQu
     perTerm: TermStat[];
   }>({ total: 0, current: -1, perTerm: [] });
   const queryInputRef = useRef<HTMLInputElement | null>(null);
-  // 上次已预填的 initialQuery：编辑器不随笔记 remount（路由无 key），用「上次词」
+  // 上次已预填的 initialQuery：编辑器不随文档 remount（路由无 key），用「上次词」
   // 而非布尔标记，才能在同一实例下「换个关键词再搜」时重新预填；用户手敲改词不受影响
   // （手敲只改本地 query，不动 initialQuery，effect 不重跑）。
   const lastSeededRef = useRef<string | undefined>(undefined);

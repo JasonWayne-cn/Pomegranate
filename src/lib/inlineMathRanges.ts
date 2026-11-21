@@ -2,7 +2,7 @@
  * 扫描一个 textblock 的文本，找出应转成行内公式的 `$..$` 范围。
  *
  * 从 TiptapEditor 的 migrateOpenMathStrings 抽出来，为的是能单测——它是整条
- * 「打开笔记时把 markdown 里的 $..$ 升级成 math 节点」链路里唯一容易出错的部分，
+ * 「打开文档时把 markdown 里的 $..$ 升级成 math 节点」链路里唯一容易出错的部分，
  * 而且出错的后果是**正文字符被吞进 latex 属性、从可见文本里消失**。
  *
  * 🔴 传进来的 text 必须是 `node.textBetween(0, node.content.size, undefined, () => "\n")`

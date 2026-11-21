@@ -145,15 +145,15 @@ impl Database {
     ) -> Result<Vec<SearchResult>, AppError> {
         // ?1 = MATCH 表达式，?2 = limit，故筛选条件的占位符从 ?3 起编号
         let (filter_sql, filter_binds) = build_filter_clause(filters, 3);
-        // 与 LIKE fallback 路径保持一致：过滤回收站 + 隐藏笔记 + 临时编辑笔记。
-        // 之前 FTS5 路径漏了 is_hidden = 0，会让 FTS5 命中的隐藏笔记泄露到主搜索结果里
+        // 与 LIKE fallback 路径保持一致：过滤回收站 + 隐藏文档 + 临时编辑文档。
+        // 之前 FTS5 路径漏了 is_hidden = 0，会让 FTS5 命中的隐藏文档泄露到主搜索结果里
         //
         // 排序：bm25 自定义权重，title 列权重 5.0、content 列 1.0。
         // FTS5 的 bm25() 分数越小越相关，ASC 让标题命中靠前。
         //
         // 时间衰减：bm25 + 久远天数 * 0.005。
-        // 例子：相关度差不多的两个笔记，相差 30 天 → 旧的得分 +0.15，足以让新的排前但不会
-        // 让相关度更高的老笔记被一篇刚改的边缘相关笔记盖掉（bm25 量级通常在 1~30）。
+        // 例子：相关度差不多的两个文档，相差 30 天 → 旧的得分 +0.15，足以让新的排前但不会
+        // 让相关度更高的老文档被一篇刚改的边缘相关文档盖掉（bm25 量级通常在 1~30）。
         // 未来想加访问频率加权也是从这里改 ORDER BY。
         let sql = format!(
             "SELECT n.id, n.title,
@@ -226,7 +226,7 @@ impl Database {
         // 中文加权 n-gram 展开（见 database::cjk）。
         //
         // 为什么不再是"按空格切 + 每段 LIKE %词%"：FTS5 的 unicode61 把连续汉字并成
-        // 一个长 token，用户搜「本地说明」而笔记里写的是「本地仓库说明」时，
+        // 一个长 token，用户搜「本地说明」而文档里写的是「本地仓库说明」时，
         // FTS 的前缀匹配（`本地说明*`）和这里的 `%本地说明%` **都会 miss** ——
         // 而这正是中文用户最常见的输入方式（不自觉加空格分词）。
         //
@@ -256,7 +256,7 @@ impl Database {
 
         // 标题命中表达式：每组整体模式命中即视为"标题命中"，排序优先。
         // 只看整体模式（每组第一个，权重最高的那个）—— 用 2-gram 判定标题命中
-        // 会让"标题里碰巧有两个字"的笔记冒到前面，反而不准。
+        // 会让"标题里碰巧有两个字"的文档冒到前面，反而不准。
         let title_hit_expr: String = match_sql
             .title_hit_params
             .iter()
@@ -267,7 +267,7 @@ impl Database {
         // 筛选条件的占位符编号接在 n-gram 模式与 limit 之后
         let (filter_sql, filter_binds) = build_filter_clause(filters, match_sql.next_index + 1);
 
-        // T-003: 过滤隐藏笔记；隐藏笔记在主搜索里完全不可见
+        // T-003: 过滤隐藏文档；隐藏文档在主搜索里完全不可见
         // ORDER BY：先按"标题命中(0) vs 仅内容命中(1)"分组，再按 updated_at DESC
         let sql = format!(
             "SELECT n.id, n.title, COALESCE(n.search_text, n.content), n.updated_at, n.folder_id,
@@ -324,7 +324,7 @@ impl Database {
 
         // 生成带高亮的 snippet
         //
-        // 🔴 高亮必须用**和召回同一套词元**：笔记是靠「本地」+「说明」两个 n-gram
+        // 🔴 高亮必须用**和召回同一套词元**：文档是靠「本地」+「说明」两个 n-gram
         // 命中的，若这里只拿用户原样输入的「本地说明」去 find，必然找不到
         // → 退化成"截前 140 字、零高亮"，用户看不出为什么这条被搜出来。
         // （对标项目正是栽在这里：召回用 n-gram、高亮用整句，中文高亮基本失效。）
@@ -364,7 +364,7 @@ impl Database {
     }
 }
 
-/// 挂载根 + POSIX 相对路径 → 平台绝对路径。普通笔记（root/rel 任一为空）返回 None。
+/// 挂载根 + POSIX 相对路径 → 平台绝对路径。普通文档（root/rel 任一为空）返回 None。
 fn external_abs_path(root: Option<String>, rel: Option<String>) -> Option<String> {
     let (root, rel) = (root?, rel?);
     let mut path = std::path::PathBuf::from(root);
@@ -515,7 +515,7 @@ mod tests {
         .id
     }
 
-    /// P1-1 的核心场景：用户搜「本地说明」，笔记里写的是「本地仓库说明」。
+    /// P1-1 的核心场景：用户搜「本地说明」，文档里写的是「本地仓库说明」。
     ///
     /// 改造前 FTS 前缀匹配（`本地说明*`）与 LIKE（`%本地说明%`）都会 miss ——
     /// 中文用户不会自觉加空格分词，这是最常见的召回缺口。
@@ -532,7 +532,7 @@ mod tests {
         );
     }
 
-    /// 反面：只碰巧撞上一个通用二字词的笔记不该被召回（及格线 = 2 的意义）
+    /// 反面：只碰巧撞上一个通用二字词的文档不该被召回（及格线 = 2 的意义）
     #[test]
     fn rejects_weak_single_bigram_match() {
         let db = temp_db();
@@ -594,8 +594,8 @@ mod tests {
         let db = temp_db();
         let f1 = db.create_folder("工作", None).unwrap().id;
         let f2 = db.create_folder("生活", None).unwrap().id;
-        let in_f1 = add_in_folder(&db, "本地仓库说明", "工作笔记", Some(f1));
-        let in_f2 = add_in_folder(&db, "本地仓库说明", "生活笔记", Some(f2));
+        let in_f1 = add_in_folder(&db, "本地仓库说明", "工作文档", Some(f1));
+        let in_f2 = add_in_folder(&db, "本地仓库说明", "生活文档", Some(f2));
 
         let filters = SearchFilters {
             folder_ids: Some(vec![f1]),
@@ -604,13 +604,13 @@ mod tests {
         let hits = db.search_notes_filtered("本地说明", 20, &filters).unwrap();
         let ids: Vec<i64> = hits.iter().map(|r| r.id).collect();
         assert!(ids.contains(&in_f1));
-        assert!(!ids.contains(&in_f2), "不该返回其它文件夹的笔记: {:?}", ids);
+        assert!(!ids.contains(&in_f2), "不该返回其它文件夹的文档: {:?}", ids);
     }
 
     #[test]
     fn filters_by_note_type() {
         let db = temp_db();
-        let md = add(&db, "本地仓库说明", "普通笔记");
+        let md = add(&db, "本地仓库说明", "普通文档");
         let wb = add(&db, "本地仓库说明白板", "白板");
         {
             let conn = db.conn.lock().unwrap();
@@ -633,8 +633,8 @@ mod tests {
     #[test]
     fn filters_by_updated_range() {
         let db = temp_db();
-        let old = add(&db, "本地仓库说明旧", "旧笔记");
-        let new = add(&db, "本地仓库说明新", "新笔记");
+        let old = add(&db, "本地仓库说明旧", "旧文档");
+        let new = add(&db, "本地仓库说明新", "新文档");
         {
             let conn = db.conn.lock().unwrap();
             conn.execute(
@@ -650,15 +650,15 @@ mod tests {
         let hits = db.search_notes_filtered("本地说明", 20, &filters).unwrap();
         let ids: Vec<i64> = hits.iter().map(|r| r.id).collect();
         assert!(ids.contains(&new));
-        assert!(!ids.contains(&old), "时间下界应排除旧笔记: {:?}", ids);
+        assert!(!ids.contains(&old), "时间下界应排除旧文档: {:?}", ids);
     }
 
-    /// 多标签是 AND：选了两个标签，笔记要**同时**含有才算命中
+    /// 多标签是 AND：选了两个标签，文档要**同时**含有才算命中
     #[test]
     fn filters_by_created_range() {
         let db = temp_db();
-        let old = add(&db, "本地仓库说明旧", "旧笔记");
-        let new = add(&db, "本地仓库说明新", "新笔记");
+        let old = add(&db, "本地仓库说明旧", "旧文档");
+        let new = add(&db, "本地仓库说明新", "新文档");
         {
             let conn = db.conn.lock().unwrap();
             conn.execute(
@@ -695,7 +695,7 @@ mod tests {
         assert!(!ids.contains(&new), "创建时间晚于上界不该返回: {:?}", ids);
     }
 
-    /// 创建时间与修改时间是两个独立维度：改过的老笔记创建时间不变
+    /// 创建时间与修改时间是两个独立维度：改过的老文档创建时间不变
     #[test]
     fn created_and_updated_ranges_are_independent() {
         let db = temp_db();
@@ -727,7 +727,7 @@ mod tests {
             .is_empty());
     }
 
-    /// FTS 通路：英文词，正文命中的笔记在「仅标题」下必须被排除
+    /// FTS 通路：英文词，正文命中的文档在「仅标题」下必须被排除
     #[test]
     fn title_only_limits_fts_path_to_title() {
         let db = temp_db();
@@ -756,7 +756,7 @@ mod tests {
             .iter()
             .map(|r| r.id)
             .collect();
-        assert_eq!(ids, vec![in_title], "仅标题时不该返回只有正文命中的笔记");
+        assert_eq!(ids, vec![in_title], "仅标题时不该返回只有正文命中的文档");
     }
 
     /// LIKE 兜底通路：不连续的中文查询走 n-gram，同样要被「仅标题」限定
@@ -788,7 +788,7 @@ mod tests {
             .iter()
             .map(|r| r.id)
             .collect();
-        assert_eq!(ids, vec![in_title], "仅标题时不该返回只有正文命中的笔记");
+        assert_eq!(ids, vec![in_title], "仅标题时不该返回只有正文命中的文档");
     }
 
     /// `title_only = Some(false)` 与不传等价（前端只在勾选时传 true，但 false 也不该出岔子）
@@ -868,12 +868,12 @@ mod tests {
         assert_eq!(legacy[0].id, filtered[0].id);
     }
 
-    /// 隐藏 / 临时 / 回收站笔记在主搜索里不可见（T-003）
+    /// 隐藏 / 临时 / 回收站文档在主搜索里不可见（T-003）
     #[test]
     fn respects_visibility_flags() {
         let db = temp_db();
-        let visible = add(&db, "本地仓库说明", "正常笔记");
-        let hidden = add(&db, "本地仓库说明私密", "隐藏笔记");
+        let visible = add(&db, "本地仓库说明", "正常文档");
+        let hidden = add(&db, "本地仓库说明私密", "隐藏文档");
         {
             let conn = db.conn.lock().unwrap();
             conn.execute("UPDATE notes SET is_hidden = 1 WHERE id = ?1", [hidden])
@@ -882,7 +882,7 @@ mod tests {
         let hits = db.search_notes("本地说明", 20).unwrap();
         let ids: Vec<i64> = hits.iter().map(|r| r.id).collect();
         assert!(ids.contains(&visible));
-        assert!(!ids.contains(&hidden), "隐藏笔记不该出现在搜索结果");
+        assert!(!ids.contains(&hidden), "隐藏文档不该出现在搜索结果");
     }
 
     /// 文档页正文检索：标题不含关键字、正文含关键字 → 仅当 search_content=true 才命中

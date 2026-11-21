@@ -73,7 +73,7 @@ export function OcrSection() {
     try {
       const title = `OCR 识别 ${new Date().toLocaleString()}`;
       await noteApi.create({ title, content: result });
-      message.success("已存为新笔记");
+      message.success("已存为新文档");
     } catch (e) {
       message.error(`保存失败: ${e}`);
     }
@@ -149,7 +149,7 @@ export function OcrSection() {
               />
               <Space className="mt-2">
                 <Button type="primary" onClick={() => void saveAsNote()} disabled={!result.trim()}>
-                  存为新笔记
+                  存为新文档
                 </Button>
                 <Button onClick={() => void copyResult()} disabled={!result}>
                   复制

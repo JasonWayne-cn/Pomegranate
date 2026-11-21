@@ -2,7 +2,7 @@ use crate::models::{SearchFilters, SearchResult};
 use crate::services::search::SearchService;
 use crate::state::AppState;
 
-/// 全文搜索笔记
+/// 全文搜索文档
 ///
 /// `filters` 可选（P1-2）：不传 = 不筛选，与旧行为一致。
 /// 前端只需传用户真正勾选的维度，其余字段省略即可。

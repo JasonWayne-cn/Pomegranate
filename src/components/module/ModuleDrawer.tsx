@@ -1,10 +1,16 @@
-import { Drawer, Tabs, theme as antdTheme } from "antd";
+import { lazy, Suspense, useMemo } from "react";
+import { Drawer, Skeleton, Tabs, theme as antdTheme } from "antd";
 import { BookOpen, Settings2 } from "lucide-react";
-import type { ModuleMeta } from "@/modules/types";
+import { moduleHasConfig } from "@/modules/registry";
+import type { ModuleFeatureTab, ModuleMeta } from "@/modules/types";
 import { ModuleConfigPanel } from "./ModuleConfigPanel";
 import { ModuleHelpPanel } from "./ModuleHelpPanel";
 
-export type ModuleDrawerTab = "config" | "help";
+/**
+ * 抽屉页签 key：内置 config / help，其余来自 ModuleMeta.featureTabs。
+ * 用 string 保持开放，模块新增功能页签无需改此处。
+ */
+export type ModuleDrawerTab = string;
 
 interface Props {
   meta: ModuleMeta | null;
@@ -33,6 +39,18 @@ export function ModuleDrawer({
   if (!meta) return null;
   const Icon = meta.icon;
 
+  // 没有配置面板的模块（如首页）不再显示「配置」页签
+  const hasConfigTab = moduleHasConfig(meta);
+  const featureTabs = meta.featureTabs ?? [];
+  const activeTabKey =
+    tab === "config" && !hasConfigTab ? "help" : tab ?? (hasConfigTab ? "config" : "help");
+  const activeTabLabel =
+    activeTabKey === "help"
+      ? "使用说明"
+      : activeTabKey === "config"
+        ? "配置"
+        : featureTabs.find((t) => t.key === activeTabKey)?.label ?? "";
+
   return (
     <Drawer
       open={!!tab}
@@ -44,7 +62,7 @@ export function ModuleDrawer({
           <Icon size={16} style={{ color: token.colorPrimary }} />
           {meta.label}
           <span style={{ color: token.colorTextSecondary, fontWeight: 400 }}>
-            · {tab === "help" ? "使用说明" : "配置"}
+            · {activeTabLabel}
           </span>
         </span>
       }
@@ -65,21 +83,25 @@ export function ModuleDrawer({
     >
       <Tabs
         className="module-drawer-tabs"
-        activeKey={tab ?? "config"}
+        activeKey={activeTabKey}
         onChange={(key) => onTabChange(key as ModuleDrawerTab)}
         items={[
-          {
-            key: "config",
-            label: (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <Settings2 size={15} />
-                配置
-              </span>
-            ),
-            children: (
-              <ModuleConfigPanel meta={meta} focusPanelId={focusPanelId} />
-            ),
-          },
+          ...(hasConfigTab
+            ? [
+                {
+                  key: "config",
+                  label: (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <Settings2 size={15} />
+                      配置
+                    </span>
+                  ),
+                  children: (
+                    <ModuleConfigPanel meta={meta} focusPanelId={focusPanelId} />
+                  ),
+                },
+              ]
+            : []),
           {
             key: "help",
             label: (
@@ -90,9 +112,41 @@ export function ModuleDrawer({
             ),
             children: <ModuleHelpPanel meta={meta} />,
           },
+          ...featureTabs.map((feature) => {
+            const FeatureIcon = feature.icon;
+            return {
+              key: feature.key,
+              label: (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <FeatureIcon size={15} />
+                  {feature.label}
+                </span>
+              ),
+              children: <FeatureTabPanel feature={feature} />,
+            };
+          }),
         ]}
         style={{ flex: 1, minHeight: 0 }}
       />
     </Drawer>
+  );
+}
+
+/** 功能页签：懒加载完整功能页（卡片复习 / 定时推送等） */
+function FeatureTabPanel({ feature }: { feature: ModuleFeatureTab }) {
+  const LazyPage = useMemo(() => lazy(feature.load), [feature.load]);
+
+  return (
+    <Suspense
+      fallback={
+        <div style={{ padding: 20 }}>
+          <Skeleton active paragraph={{ rows: 6 }} />
+        </div>
+      }
+    >
+      <div style={{ padding: "12px 20px", height: "100%", overflow: "auto" }}>
+        <LazyPage />
+      </div>
+    </Suspense>
   );
 }

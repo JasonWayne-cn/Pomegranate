@@ -266,7 +266,7 @@ fn focus_main(app: &AppHandle) {
     }
 }
 
-/// 剪贴板 → 新笔记的具体动作（从 lib.rs 的 handle_quick_capture 迁移过来）
+/// 剪贴板 → 新文档的具体动作（从 lib.rs 的 handle_quick_capture 迁移过来）
 fn action_quick_capture(app: AppHandle) {
     let text = match app.clipboard().read_text() {
         Ok(t) => t,
@@ -285,7 +285,7 @@ fn action_quick_capture(app: AppHandle) {
     let state = app.state::<AppState>();
     match QuickCaptureService::capture_from_text(&state.db, &text) {
         Ok(note) => {
-            log::info!("[quick_capture] 已创建笔记 #{}: {}", note.id, note.title);
+            log::info!("[quick_capture] 已创建文档 #{}: {}", note.id, note.title);
             let _ = app
                 .notification()
                 .builder()
@@ -295,7 +295,7 @@ fn action_quick_capture(app: AppHandle) {
             let _ = app.emit("quick_capture:note_created", note);
         }
         Err(e) => {
-            log::warn!("[quick_capture] 创建笔记失败: {}", e);
+            log::warn!("[quick_capture] 创建文档失败: {}", e);
             let _ = app
                 .notification()
                 .builder()

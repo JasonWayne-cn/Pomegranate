@@ -21,10 +21,10 @@ interface UnifiedEditorProps {
   /** 占位符文字 */
   placeholder?: string;
 
-  /** 笔记 ID */
+  /** 文档 ID */
   noteId?: number;
 
-  /** 确保笔记 ID 的回调 */
+  /** 确保文档 ID 的回调 */
   ensureNoteId?: () => Promise<number>;
 
   /** Wiki 链接点击回调 */

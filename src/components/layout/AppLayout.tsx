@@ -123,7 +123,7 @@ export function AppLayout() {
   const { token } = antdTheme.useToken();
 
   // Pop-out 窗口：window label 以 `popout-` 开头则进精简模式（复用 focusMode 的隐藏逻辑：
-  // 无侧边栏 / Header / Tabs，仅渲染 Outlet 的笔记编辑器）。
+  // 无侧边栏 / Header / Tabs，仅渲染 Outlet 的文档编辑器）。
   // Why label 而不是 URL query：`?` 在 Windows 路径里非法，会让 WebviewUrl::App 把 URL
   // 拼坏 → 白屏 + Win32 消息循环卡死（主窗冻结）。
   const isPopoutWindow = (() => {
@@ -134,7 +134,7 @@ export function AppLayout() {
 
   const location = useLocation();
   // 当前路由是否为"全页路由"（不属于任何 ActivityBar 视图，且本身有自己的左侧导航）。
-  // 这类路由下 SidePanel 必须强制隐藏——否则用户从笔记跳过来仍会看到笔记面板（bug）
+  // 这类路由下 SidePanel 必须强制隐藏——否则用户从文档跳过来仍会看到文档面板（bug）
   const isStandalonePage =
     location.pathname === "/settings" ||
     location.pathname.startsWith("/settings/") ||
@@ -214,7 +214,7 @@ export function AppLayout() {
   const navigate = useNavigate();
 
   // URL → activeView 单向同步：任意来源的 navigate（ActivityBar / 命令面板 /
-  // 快捷键 / 笔记列表跳转等）都会更新 store.activeView，保证 SidePanel 正确分发
+  // 快捷键 / 文档列表跳转等）都会更新 store.activeView，保证 SidePanel 正确分发
   useEffect(() => {
     const derived = deriveActiveViewFromPath(location.pathname);
     if (derived && derived !== useAppStore.getState().activeView) {
@@ -232,7 +232,7 @@ export function AppLayout() {
       try {
         const result = await importApi.openMarkdownFile(path);
         if (result.wasSynced) {
-          message.info("已根据最新 md 文件同步笔记内容");
+          message.info("已根据最新 md 文件同步文档内容");
         }
         useAppStore.getState().bumpNotesRefresh();
         navigate(`/notes/${result.noteId}`);
@@ -292,7 +292,7 @@ export function AppLayout() {
         if (e.payload.success) {
           const n = e.payload.stats?.notesCount;
           message.success(
-            typeof n === "number" ? `已同步 ${n} 条笔记到云端` : "同步成功"
+            typeof n === "number" ? `已同步 ${n} 条文档到云端` : "同步成功"
           );
         } else {
           message.error(`同步失败：${e.payload.error || "未知错误"}`);
@@ -300,7 +300,7 @@ export function AppLayout() {
       }
     ).then((fn) => unlisteners.push(fn));
 
-    // 全局快捷键「剪贴板 → 新笔记」捕获成功后的事件：刷新笔记列表 / 首页统计。
+    // 全局快捷键「剪贴板 → 新文档」捕获成功后的事件：刷新文档列表 / 首页统计。
     // 后端已经走系统通知反馈，这里只负责让 UI 跟上。
     listen("quick_capture:note_created", () => {
       useAppStore.getState().bumpNotesRefresh();
@@ -419,7 +419,7 @@ export function AppLayout() {
       e.preventDefault();
       navigate(1);
     }
-    // Ctrl/Cmd + N 新建笔记
+    // Ctrl/Cmd + N 新建文档
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
       e.preventDefault();
       createBlankAndOpen(null, navigate, { useDefaults: true });

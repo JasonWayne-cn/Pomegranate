@@ -1,11 +1,11 @@
 //! 历史日记导入 / 转换。
 //!
-//! 解决的问题：别的笔记软件导出的日记结构是 `日期文件夹/笔记文件.md`，
-//! 直接按普通 Markdown 导进来只会变成一堆普通笔记，日记页看不到 —— 用户"记了好多年的
-//! 日记转过来都成普通笔记了"。
+//! 解决的问题：别的文档软件导出的日记结构是 `日期文件夹/文档文件.md`，
+//! 直接按普通 Markdown 导进来只会变成一堆普通文档，日记页看不到 —— 用户"记了好多年的
+//! 日记转过来都成普通文档了"。
 //!
 //! 两个入口共用本模块的识别 + 合并逻辑：
-//!   ① **转换已导入的**：扫库里日期命名的文件夹，把其下笔记认领成日记（`scan_library` → `apply`）
+//!   ① **转换已导入的**：扫库里日期命名的文件夹，把其下文档认领成日记（`scan_library` → `apply`）
 //!   ② **导入时识别**：扫描阶段就标出每个文件的日期（`detect_date_from_relative_dir`），
 //!      导入时直接落成日记
 //!
@@ -13,13 +13,13 @@
 //!   · 一天多个文件 → **合并成一篇**，每段前加 `## 原标题` 分隔（不是丢弃、也不是各自成篇）
 //!   · 标题 → **保留原标题**（日记列表显示的就是 title，「工作记录」比「2020-05-15 的日记」有信息量）
 //!   · 文件夹 → 认领成日记后**摘出日期文件夹**（folder_id = NULL），空掉的日期文件夹顺手清掉。
-//!     早期版本是"原地不动"，想做成"日记页按日期看 + 笔记树保持原结构"的双保险，
+//!     早期版本是"原地不动"，想做成"日记页按日期看 + 文档树保持原结构"的双保险，
 //!     结果是有害的：`list_notes` 一律过滤 `is_daily = 0`，日期文件夹在用户眼里是空的，
-//!     删它时却被告知"还有 1 篇笔记"，确认后当天日记被扫进回收站（真实用户反馈）。
+//!     删它时却被告知"还有 1 篇文档"，确认后当天日记被扫进回收站（真实用户反馈）。
 //!     现在日记只由 daily_date 组织，归属关系不再自相矛盾。
 //!
 //! ⚠️ 认领是 `UPDATE is_daily=1, daily_date=?`，与 `get_or_create_daily` 里既有的
-//! "认领伪日记"是同一套路子（database/notes.rs），不新建笔记 —— 避免日记增殖。
+//! "认领伪日记"是同一套路子（database/notes.rs），不新建文档 —— 避免日记增殖。
 
 use std::collections::HashMap;
 
@@ -136,7 +136,7 @@ pub fn detect_date(relative_dir: &str, file_stem: &str) -> (Option<String>, bool
 
 // ─── 转换计划 / 结果模型 ────────────────────────────────────────
 
-/// 一天对应的转换候选（可能由多篇笔记合并而来）
+/// 一天对应的转换候选（可能由多篇文档合并而来）
 ///
 /// 同时派生 Deserialize：前端拿到 plan 后可能会**改动它再传回来**
 /// （比如用户在预览里勾掉某几天），所以 apply 收的是前端传回的 plan 而不是重新扫一遍。
@@ -145,7 +145,7 @@ pub fn detect_date(relative_dir: &str, file_stem: &str) -> (Option<String>, bool
 pub struct DailyCandidate {
     /// 目标日期 YYYY-MM-DD
     pub date: String,
-    /// 参与这一天的笔记 id（按标题排序，合并时按此顺序拼接）
+    /// 参与这一天的文档 id（按标题排序，合并时按此顺序拼接）
     pub note_ids: Vec<i64>,
     /// 对应标题，与 note_ids 同序，供前端预览
     pub titles: Vec<String>,
@@ -176,7 +176,7 @@ pub struct DailyConvertPlan {
 pub enum MultiFileStrategy {
     /// 合并成一篇，每段前加 `## 原标题`（默认）
     Merge,
-    /// 只认领一篇（文件名=日期的优先，否则第一篇），其余保持普通笔记
+    /// 只认领一篇（文件名=日期的优先，否则第一篇），其余保持普通文档
     KeepFirst,
     /// 跳过这些日期，不处理
     Skip,
@@ -213,7 +213,7 @@ impl Default for DailyConvertOptions {
 pub struct DailyConvertResult {
     /// 成功认领为日记的天数
     pub converted_days: usize,
-    /// 因合并而被并入其它笔记、随后删除的笔记数
+    /// 因合并而被并入其它文档、随后删除的文档数
     pub merged_notes: usize,
     /// 追加进已有日记的天数
     pub appended_days: usize,
@@ -227,10 +227,10 @@ pub struct DailyConvertResult {
 
 // ─── 合并 ───────────────────────────────────────────────────────
 
-/// 把多篇笔记的正文合并成一篇。
+/// 把多篇文档的正文合并成一篇。
 ///
 /// 每段前插一个 `<h2>原标题</h2>` 作分隔 —— 用 HTML 而不是 Markdown 的 `## `：
-/// 本项目笔记正文存的就是 HTML（编辑器是 Tiptap），存 `## ` 会被原样显示成字面量。
+/// 本项目文档正文存的就是 HTML（编辑器是 Tiptap），存 `## ` 会被原样显示成字面量。
 ///
 /// 首段是否也加标题由 `label_first` 控制：合并时加（否则读者不知道第一段来自哪个文件），
 /// 追加到已有日记时也加。
@@ -256,7 +256,7 @@ fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// 多篇笔记里挑一篇当"主"笔记（KeepFirst 策略用）。
+/// 多篇文档里挑一篇当"主"文档（KeepFirst 策略用）。
 ///
 /// 优先文件名/标题就是日期的那篇（`2020-05-20.md` 这种通常是导出软件生成的当天主文件），
 /// 否则取第一篇。返回在 `titles` 里的下标。
@@ -272,9 +272,9 @@ pub fn pick_primary_index(titles: &[String], date: &str) -> usize {
 pub struct DailyImportService;
 
 impl DailyImportService {
-    /// 扫描**已在库里**的笔记，找出「所在文件夹名是日期」的那些，生成转换计划。
+    /// 扫描**已在库里**的文档，找出「所在文件夹名是日期」的那些，生成转换计划。
     ///
-    /// 只看普通笔记（`is_daily = 0`）—— 已经是日记的不用再转。
+    /// 只看普通文档（`is_daily = 0`）—— 已经是日记的不用再转。
     /// 不改任何数据，纯查询；用户看完预览确认后才调 `apply`。
     pub fn scan_library(db: &Database) -> Result<DailyConvertPlan, AppError> {
         let rows = db.list_notes_with_folder_path()?;
@@ -359,7 +359,7 @@ impl DailyImportService {
         options: &DailyConvertOptions,
     ) -> Result<DailyConvertResult, AppError> {
         let mut result = DailyConvertResult::default();
-        // 认领成功的笔记 id —— 收尾时统一从日期文件夹里摘出来（见函数末尾）
+        // 认领成功的文档 id —— 收尾时统一从日期文件夹里摘出来（见函数末尾）
         let mut claimed_ids: Vec<i64> = Vec::new();
 
         // ① 单文件：直接认领
@@ -416,11 +416,11 @@ impl DailyImportService {
             }
         }
 
-        // ④ 收尾：把认领成日记的笔记从日期文件夹里摘出来，再清掉因此变空的日期文件夹。
+        // ④ 收尾：把认领成日记的文档从日期文件夹里摘出来，再清掉因此变空的日期文件夹。
         //
-        // 原先的取舍是"文件夹原地不动"（日记页按日期看 + 笔记树保持原结构，双保险），
-        // 真机反馈证明这个双保险是有害的：日记在笔记列表里被 `is_daily = 0` 过滤掉，
-        // 用户看到的是个空文件夹，删它时却被告知"还有 1 篇笔记"，确认后当天日记进了回收站。
+        // 原先的取舍是"文件夹原地不动"（日记页按日期看 + 文档树保持原结构，双保险），
+        // 真机反馈证明这个双保险是有害的：日记在文档列表里被 `is_daily = 0` 过滤掉，
+        // 用户看到的是个空文件夹，删它时却被告知"还有 1 篇文档"，确认后当天日记进了回收站。
         // 现在日记只由 daily_date 组织，日期文件夹空了就清掉，不再留下会误导人的空壳。
         // 失败只记 error 不整体失败 —— 认领本身已经成功，不该因为收尾没做成而回退。
         if !claimed_ids.is_empty() {
@@ -438,20 +438,20 @@ impl DailyImportService {
         Ok(result)
     }
 
-    /// 把一天里的多篇笔记合并进第一篇，其余移入回收站。
+    /// 把一天里的多篇文档合并进第一篇，其余移入回收站。
     ///
     /// 用回收站而不是硬删：合并是有损操作，用户反悔时还能从回收站捞回来。
-    /// 返回被并入的笔记数（不含主笔记）。
+    /// 返回被并入的文档数（不含主文档）。
     ///
     /// 🔴 必须用 `soft_delete_note`（UPDATE is_deleted=1）而**不是** `delete_note`
     /// —— 后者名字看着像软删，实际是 `DELETE FROM notes`（真删，回收站里找不到）。
-    /// 真机实测踩过：UI 承诺"可还原"，被合并的笔记却被永久删除。
+    /// 真机实测踩过：UI 承诺"可还原"，被合并的文档却被永久删除。
     fn merge_into_daily(db: &Database, cand: &DailyCandidate) -> Result<usize, AppError> {
         let mut parts: Vec<(String, String)> = Vec::new();
         for id in &cand.note_ids {
             let note = db
                 .get_note(*id)?
-                .ok_or_else(|| AppError::NotFound(format!("笔记 {} 不存在", id)))?;
+                .ok_or_else(|| AppError::NotFound(format!("文档 {} 不存在", id)))?;
             parts.push((note.title, note.content));
         }
         // label_first=true：合并后每段都带原标题，读者才分得清哪段来自哪个文件
@@ -469,7 +469,7 @@ impl DailyImportService {
         Ok(moved)
     }
 
-    /// 把待转换的笔记追加到该日期**已有的**日记末尾，源笔记移入回收站。
+    /// 把待转换的文档追加到该日期**已有的**日记末尾，源文档移入回收站。
     fn append_into_existing(db: &Database, cand: &DailyCandidate) -> Result<usize, AppError> {
         let existing_id = cand
             .existing_daily_id
@@ -482,7 +482,7 @@ impl DailyImportService {
         for id in &cand.note_ids {
             let note = db
                 .get_note(*id)?
-                .ok_or_else(|| AppError::NotFound(format!("笔记 {} 不存在", id)))?;
+                .ok_or_else(|| AppError::NotFound(format!("文档 {} 不存在", id)))?;
             parts.push((note.title, note.content));
         }
         // label_first=false：已有日记那段保持原样不加标题，只给追加进来的加
@@ -706,8 +706,8 @@ mod tests {
     /// 🔴 合并/追加只能走**软删**（进回收站），绝不能真删。
     ///
     /// 背景：`Database::delete_note` 名字看着像软删，实际是 `DELETE FROM notes`。
-    /// 第一版真机测试时误用了它 —— UI 上承诺"被并入的笔记移入回收站（可还原）"，
-    /// 实际却把笔记永久删了。这条测试盯住源码，防止以后又改回去。
+    /// 第一版真机测试时误用了它 —— UI 上承诺"被并入的文档移入回收站（可还原）"，
+    /// 实际却把文档永久删了。这条测试盯住源码，防止以后又改回去。
     #[test]
     fn merge_must_use_soft_delete_not_hard_delete() {
         let src = include_str!("daily_import.rs");
@@ -723,7 +723,7 @@ mod tests {
         );
         assert!(
             impl_part.contains("db.soft_delete_note("),
-            "应当调用 soft_delete_note 把被并入的笔记移入回收站"
+            "应当调用 soft_delete_note 把被并入的文档移入回收站"
         );
     }
 

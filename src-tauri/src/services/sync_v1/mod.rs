@@ -1,4 +1,4 @@
-//! T-024 同步 V1 — 单笔记粒度的增量同步
+//! T-024 同步 V1 — 单文档粒度的增量同步
 //!
 //! 模块结构：
 //! - `backend.rs` — `SyncBackend` trait（抽象远端读写：list / get / put / delete + manifest）

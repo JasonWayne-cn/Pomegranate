@@ -35,7 +35,7 @@ import { AttachmentPreviewModal } from "@/components/preview/AttachmentPreviewMo
  *
  * MVP 不做：
  * - 截止时间 / 提醒 / 重复 / 分类 完整编辑（点击只 toast「待开发」）
- * - 关联笔记 / 时间线
+ * - 关联文档 / 时间线
  * - 子任务拖拽排序
  */
 

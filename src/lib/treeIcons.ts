@@ -1,13 +1,13 @@
 /**
  * 侧边栏树节点图标辅助函数。
  *
- * 设计哲学：和 Obsidian 一致，让用户用 emoji 前缀给文件夹/笔记加图标，
+ * 设计哲学：和 Obsidian 一致，让用户用 emoji 前缀给文件夹/文档加图标，
  * 不引入"图标选择器 + 数据库字段"那一套重型 UI。
  *
  * 例：
  *   "🐳 Docker"        → emoji=🐳   rest="Docker"
  *   "Java"             → emoji=null rest="Java"  → 走 hash 配色
- *   "📚 我的读书笔记"   → emoji=📚   rest="我的读书笔记"
+ *   "📚 我的读书文档"   → emoji=📚   rest="我的读书文档"
  */
 
 /**

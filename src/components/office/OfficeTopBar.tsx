@@ -1,8 +1,8 @@
 /** Office 工作台顶栏：文件信息、保存状态、撤销/重做与文件操作。 */
 import { Button, Space, Tag, Tooltip, theme as antdTheme } from "antd";
 import {
+  ArrowLeft,
   ExternalLink,
-  FolderOpen,
   Redo2,
   Save,
   SaveAll,
@@ -16,7 +16,7 @@ interface OfficeTopBarProps {
   canUndo: boolean;
   canRedo: boolean;
   busy: boolean;
-  onOpen: () => void;
+  onBack: () => void;
   onSave: () => void;
   onSaveAs: () => void;
   onUndo: () => void;
@@ -37,7 +37,7 @@ export function OfficeTopBar({
   canUndo,
   canRedo,
   busy,
-  onOpen,
+  onBack,
   onSave,
   onSaveAs,
   onUndo,
@@ -62,11 +62,9 @@ export function OfficeTopBar({
         borderBottom: `1px solid ${token.colorBorderSecondary}`,
       }}
     >
-      <Tooltip title="打开文档">
-        <Button icon={<FolderOpen size={16} />} onClick={onOpen}>
-          打开
-        </Button>
-      </Tooltip>
+      <Button icon={<ArrowLeft size={16} />} onClick={onBack}>
+        返回
+      </Button>
 
       {session ? (
         <div className="flex min-w-0 items-center gap-2">

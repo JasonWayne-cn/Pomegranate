@@ -113,11 +113,11 @@ export default function GraphPage() {
     const p = ctx.state.payload;
     if (!p) return [];
     const items: ContextMenuEntry[] = [];
-    // 文件夹节点没有对应笔记；实体节点打开首个来源笔记
+    // 文件夹节点没有对应文档；实体节点打开首个来源文档
     if (p.nodeType === "note") {
       items.push({
         key: "open",
-        label: "打开笔记",
+        label: "打开文档",
         icon: <ExternalLink size={13} />,
         onClick: () => {
           ctx.close();
@@ -283,7 +283,7 @@ export default function GraphPage() {
           tagCount: n.tag_count,
           linkCount: n.link_count,
           folderColor: n.color,
-          // 文件夹范围外的关联笔记：弱化显示，提示"它不属于当前范围"
+          // 文件夹范围外的关联文档：弱化显示，提示"它不属于当前范围"
           isBoundary: !!n.is_boundary,
         },
       }));
@@ -308,7 +308,7 @@ export default function GraphPage() {
       },
       data: { nodes, edges },
       node: {
-        // 文件夹用方形（rect）、笔记用圆形（circle）——形状先于颜色区分两类节点
+        // 文件夹用方形（rect）、文档用圆形（circle）——形状先于颜色区分两类节点
         type: (d: any) =>
           d.data?.kind === "entity"
             ? "circle"
@@ -321,7 +321,7 @@ export default function GraphPage() {
               const degree = d.data?.degree || 0;
               return Math.max(22, Math.min(46, 22 + degree * 3));
             }
-            // 文件夹固定尺寸；笔记按链接数放大
+            // 文件夹固定尺寸；文档按链接数放大
             if (d.data?.nodeType === "folder") return 30;
             const linkCount = d.data?.linkCount || 0;
             return Math.max(20, Math.min(52, 20 + linkCount * 6));
@@ -332,7 +332,7 @@ export default function GraphPage() {
             // 文件夹优先用自定义颜色，否则中性填充
             if (d.data?.nodeType === "folder")
               return d.data?.folderColor || token.colorFillSecondary;
-            // 范围外边界笔记：不参与配色，弱化为背景色
+            // 范围外边界文档：不参与配色，弱化为背景色
             if (d.data?.isBoundary) return token.colorBgContainer;
             if (d.data?.isDaily) return token.colorWarning;
             if (d.data?.isPinned) return token.colorError;
@@ -432,7 +432,7 @@ export default function GraphPage() {
 
     graph.render();
 
-    // 双击：规则图谱的笔记 → 打开笔记；LLM 实体 → 打开首个来源笔记
+    // 双击：规则图谱的文档 → 打开文档；LLM 实体 → 打开首个来源文档
     graph.on("node:dblclick", (evt: any) => {
       const gid = String(evt.target?.id ?? "");
       if (mode === "llm") {

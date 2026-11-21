@@ -165,8 +165,8 @@ function showFatalDomFallback(e: unknown) {
 // 首屏前必须等完的三件事彼此无依赖（各读各的 store 键 / 后端状态，且都自行吞错），
 // 并行发出，省掉两次串行 IPC 往返：
 //   · 主题：首帧就用对的配色，避免闪色
-//   · 应用启动锁（仅主窗）：已开启则首帧即进入锁屏，避免笔记内容在锁屏出现前闪现一下；失败开放
-//   · 首页卡片的「隐藏（眼睛）」偏好：必须在 renderApp() 前读完，本该遮住的笔记/待办才不会先明文闪一帧
+//   · 应用启动锁（仅主窗）：已开启则首帧即进入锁屏，避免文档内容在锁屏出现前闪现一下；失败开放
+//   · 首页卡片的「隐藏（眼睛）」偏好：必须在 renderApp() 前读完，本该遮住的文档/待办才不会先明文闪一帧
 Promise.all([
   loadThemeFromStore(),
   IS_MAIN_WINDOW ? useAppStore.getState().initAppLock() : Promise.resolve(),
@@ -175,7 +175,7 @@ Promise.all([
   .then(async () => {
     // 启动后台拉一次系统信息（数据目录 / 版本等），不阻塞首屏
     useAppStore.getState().loadInstanceInfo();
-    // 拉一次"全局新建笔记"的默认文件夹 / 标签偏好，便于第一次按 Ctrl+N 就能用
+    // 拉一次"全局新建文档"的默认文件夹 / 标签偏好，便于第一次按 Ctrl+N 就能用
     useAppStore.getState().loadNoteDefaults();
     // 拉一次"启用的侧栏视图"配置（用户在设置里勾选的功能模块开关）
     void useAppStore.getState().loadEnabledViews();
@@ -186,14 +186,14 @@ Promise.all([
     // 拉一次内置 MCP 的"允许 AI 修改"开关，让设置页/AI 问答页 UI 与后端真相对齐
     void useAppStore.getState().loadAiWritable();
 
-    // 预热文件夹树：让 NotesPanel 第一次打开时直接命中缓存，避免"点笔记"时的等待
+    // 预热文件夹树：让 NotesPanel 第一次打开时直接命中缓存，避免"点文档"时的等待
     // 用 requestIdleCallback 在浏览器空闲时跑，不和首屏渲染抢线程
     const winIdle = window as Window & {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void;
     };
     const triggerPrefetch = () => useAppStore.getState().prefetchFolders();
     // 顺便 prefetch 最常用的 NotesPanel chunk —— SidePanel 已 React.lazy 化，
-    // 这里主动把 chunk 拉下来，首次点笔记图标时 Suspense fallback 几乎不会显示。
+    // 这里主动把 chunk 拉下来，首次点文档图标时 Suspense fallback 几乎不会显示。
     const prefetchNotesPanelChunk = () =>
       import("@/components/layout/panels/NotesPanel").catch(() => {});
     if (typeof winIdle.requestIdleCallback === "function") {

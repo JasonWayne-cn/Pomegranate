@@ -179,10 +179,10 @@
 }
 
 /* 衬线标题 —— 只作用于「应用界面」的 h1/h2（页面标题、统计卡片数字等）。
-   `:not(.tiptap *)` 把笔记正文里的标题排除在外：那里的字体归用户的
+   `:not(.tiptap *)` 把文档正文里的标题排除在外：那里的字体归用户的
    「正文字体 / 标题字体」偏好管，主题不该越权（此前带 !important 的写法会让
    用户在设置里选的标题字体在暖色主题下完全失效，且 H1/H2 变宋体、H3+ 仍是黑体，
-   同一篇笔记里字体割裂）。 */
+   同一篇文档里字体割裂）。 */
 [data-theme="light-warm"] h1:not(.tiptap *),
 [data-theme="light-warm"] h2:not(.tiptap *),
 [data-theme="light-warm"] .ant-statistic-content-value {
@@ -778,7 +778,7 @@ body.has-custom-bg .ant-layout-content .ant-card {
   backdrop-filter: blur(14px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(14px) saturate(180%) !important;
   /* 半透明后面板边缘会糊进背景图，补描边 + 投影把它从背景里「托」出来。
-     ⚠️ 只写 border-color 不写 border：这批容器里有的本来就没边框（笔记列表、
+     ⚠️ 只写 border-color 不写 border：这批容器里有的本来就没边框（文档列表、
      回收站），写 `border: 1px solid` 会凭空给它们加一圈线，改变原有观感。
      border-width 为 0 时 border-color 是空操作，有边框的则被重新着色。 */
   border-color: var(--kb-surface-border, rgba(255, 255, 255, 0.12));

@@ -1,5 +1,5 @@
 /**
- * 笔记幻灯片演示模式（v1.12 引入）。
+ * 文档幻灯片演示模式（v1.12 引入）。
  *
  * 设计：
  * - 输入是 **markdown 字符串**（TiptapEditor onChange 给出的就是 markdown）
@@ -26,9 +26,9 @@ import { systemApi } from "@/lib/api";
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** 笔记 markdown 内容（与 editor.tsx 里 `content` 同源） */
+  /** 文档 markdown 内容（与 editor.tsx 里 `content` 同源） */
   html: string;
-  /** 笔记标题，仅用于左上角小字 */
+  /** 文档标题，仅用于左上角小字 */
   title: string;
 }
 
@@ -36,15 +36,15 @@ interface Props {
  * 把 markdown 按"水平分割线行"切片。
  *
  * CommonMark 规定：一行只含 3+ 个 `-` / `*` / `_`（可有前后空白）→ 渲染为 `<hr>`。
- * 我们按这个规则切（也是用户在笔记里写 `---` 想要的分页效果）。
+ * 我们按这个规则切（也是用户在文档里写 `---` 想要的分页效果）。
  *
  * 边界：
  * - 代码块内（` ``` `…` ``` ` 之间）的 `---` 不算分页符（CommonMark 也不当 hr）
  * - 空 markdown → 单页占位
- * - 连续两条分割线 → 中间空页保留（让用户看到自己的笔记结构）
+ * - 连续两条分割线 → 中间空页保留（让用户看到自己的文档结构）
  */
 function splitIntoSlides(md: string): string[] {
-  if (!md || !md.trim()) return ["*（笔记为空）*"];
+  if (!md || !md.trim()) return ["*（文档为空）*"];
 
   const HR_LINE = /^[ \t]{0,3}(?:-[ \t]*){3,}[ \t]*$|^[ \t]{0,3}(?:\*[ \t]*){3,}[ \t]*$|^[ \t]{0,3}(?:_[ \t]*){3,}[ \t]*$/;
   const CODE_FENCE = /^[ \t]{0,3}(`{3,}|~{3,})/;
@@ -98,7 +98,7 @@ export function SlideshowView({ open, onClose, html, title }: Props) {
   // 拦截幻灯片内的链接点击 → 分发给系统程序打开，而非让 WebView 整页导航。
   //
   // 幻灯片内容用 MarkdownContent（react-markdown）渲染,链接是原生 <a href>;
-  // 笔记里调过列宽的表格 / SafeLink 经 rehypeRaw 也还原成 <a>。在 Tauri WebView 里
+  // 文档里调过列宽的表格 / SafeLink 经 rehypeRaw 也还原成 <a>。在 Tauri WebView 里
   // 点 <a> 会让整个 WebView 跳走（tauri-apps/tauri#2791），React 应用连同幻灯片
   // 一起被销毁，无法 Esc 回退 —— 即用户反馈的「跳转后回不到幻灯片模式」。
   //
@@ -218,7 +218,7 @@ export function SlideshowView({ open, onClose, html, title }: Props) {
         }}
       >
         <span className="truncate" title={title}>
-          📽 {title || "未命名笔记"}
+          📽 {title || "未命名文档"}
         </span>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 11 }}>
@@ -287,10 +287,10 @@ export function SlideshowView({ open, onClose, html, title }: Props) {
             加大字号方便投屏。MarkdownContent 内部走 react-markdown + remark-gfm，
             原生支持表格 / 删除线 / 任务列表 / wiki link 文本（如需 wiki 跳转可后续补）。
 
-            rehypeRaw：笔记里调过列宽的表格会被 TableWithMarkdown 序列化成**原始 HTML**
+            rehypeRaw：文档里调过列宽的表格会被 TableWithMarkdown 序列化成**原始 HTML**
             （<table class="tiptap-table">…，见 TiptapEditor.tsx），同理 SafeLink 也是 <a>。
             react-markdown 默认不解析内嵌 HTML，会把标签当纯文本逐字显示（演示模式 bug）。
-            这里局部启用 rehype-raw 让内嵌 HTML 正常渲染。仅对用户自己的笔记开启，
+            这里局部启用 rehype-raw 让内嵌 HTML 正常渲染。仅对用户自己的文档开启，
             不动全局 MarkdownContent 默认行为（AI 回复仍不解析 HTML，避免 XSS 面）。 */}
         <div
           ref={contentRef}

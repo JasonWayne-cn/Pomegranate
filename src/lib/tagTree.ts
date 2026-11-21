@@ -16,7 +16,7 @@ export type TagTreeSelectNode = {
  *
  * 用于：
  * - 新建标签弹窗（左侧 TagsPanel）的"父标签"下拉
- * - 笔记编辑器顶栏的"添加标签"多选
+ * - 文档编辑器顶栏的"添加标签"多选
  */
 export function buildTagTreeSelectData(tags: Tag[]): TagTreeSelectNode[] {
   const byId = new Map<number, Tag>();

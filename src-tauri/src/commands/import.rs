@@ -23,7 +23,7 @@ pub fn scan_markdown_folder(
 /// - `root_path`: 扫描根路径；传了才能按相对目录重建文件夹树
 /// - `preserve_root`: 是否在目标下多套一层"源根目录名"
 /// - `policy`: 遇到已存在文件的处理策略（Skip / Duplicate），省略按 Skip
-/// - `daily_mode`: 按「日期文件夹/笔记.md」结构识别为日记，省略 = 关（保持原行为）
+/// - `daily_mode`: 按「日期文件夹/文档.md」结构识别为日记，省略 = 关（保持原行为）
 #[tauri::command]
 pub async fn import_selected_files(
     state: tauri::State<'_, AppState>,
@@ -52,7 +52,7 @@ pub async fn import_selected_files(
     .await
     .map_err(|e| e.to_string())?;
 
-    // 导入完成后增量索引新笔记
+    // 导入完成后增量索引新文档
     for note_id in result.note_ids.iter().chain(result.existing_note_ids.iter()) {
         crate::services::index_queue::enqueue_note(*note_id);
     }
@@ -60,7 +60,7 @@ pub async fn import_selected_files(
     Ok(result)
 }
 
-/// 打开单个 Markdown 文件：读取 → 创建新笔记 → 返回 note id
+/// 打开单个 Markdown 文件：读取 → 创建新文档 → 返回 note id
 ///
 /// 用于"打开 md 文件"按钮和文件关联双击，前端拿到 id 后跳转到 /notes/:id
 ///

@@ -12,16 +12,16 @@ use crate::models::{ExportProgress, ExportResult, SingleExportResult};
 pub struct ExportService;
 
 impl ExportService {
-    /// 导出笔记为 Markdown 文件
+    /// 导出文档为 Markdown 文件
     ///
     /// 行为：在用户选定的 `output_dir` 下自动创建一层 `知识库导出_YYYYMMDD_HHmmss/`
     /// 作为实际导出根目录，避免散落污染目标目录。
     ///
     /// - `output_dir`: 用户选择的父目录
     /// - `instance_data_dir`: 当前实例的数据根目录（用于资产路径校验，防越权拷贝）
-    /// - `folder_id`: 可选，仅导出指定文件夹的笔记；None 表示导出全部
+    /// - `folder_id`: 可选，仅导出指定文件夹的文档；None 表示导出全部
     /// - `recursive`: `folder_id` 有值时是否连子文件夹一起导出。
-    ///   旧调用方（设置页）曾只能导直属笔记，用户选父文件夹时子目录的笔记会**静默丢失**；
+    ///   旧调用方（设置页）曾只能导直属文档，用户选父文件夹时子目录的文档会**静默丢失**；
     ///   这里与「对此文件夹问 AI」对齐到同一个子树口径（`bfs_descendant_ids`）。
     pub fn export_notes<R: Runtime, E: Emitter<R>>(
         db: &Database,
@@ -65,7 +65,7 @@ impl ExportService {
                 }
             }
 
-            // 2. 查询笔记
+            // 2. 查询文档
             let notes: Vec<(i64, String, String, Option<i64>, bool, Option<String>)> = {
                 let (sql, params_vec): (String, Vec<Box<dyn rusqlite::types::ToSql>>) =
                     if let Some(fid) = folder_id {
@@ -182,7 +182,7 @@ impl ExportService {
             }
 
             log::debug!(
-                "导出笔记 #{}: {} -> {:?} (拷贝资产 {})",
+                "导出文档 #{}: {} -> {:?} (拷贝资产 {})",
                 id,
                 title,
                 file_path,
@@ -203,14 +203,14 @@ impl ExportService {
         Ok(result)
     }
 
-    /// 导出单篇笔记为 Markdown 文件
+    /// 导出单篇文档为 Markdown 文件
     ///
     /// 两种模式：
     /// - `single_file = false`（原行为）：在 `parent_dir` 下建一层 `{标题}/` 子目录，
     ///   里面放 `{标题}.md` + `assets/`（图片/附件拷贝为相对文件）。重名目录加 `_1`/`_2`。
     /// - `single_file = true`：**不建任何目录**，把图片/附件 base64 内嵌进正文后，
     ///   直接在 `parent_dir` 下写一个 `{标题}.md`（重名文件加 `_1`/`_2`）。
-    ///   满足"直接导出文件、不生成文件夹"。纯文字笔记两种模式都只产出一个 .md。
+    ///   满足"直接导出文件、不生成文件夹"。纯文字文档两种模式都只产出一个 .md。
     pub fn export_single_note(
         db: &Database,
         instance_data_dir: &Path,
@@ -224,7 +224,7 @@ impl ExportService {
             let mut stmt =
                 conn.prepare("SELECT title, content FROM notes WHERE id = ?1 AND is_deleted = 0")?;
             stmt.query_row([note_id], |row| Ok((row.get(0)?, row.get(1)?)))
-                .map_err(|_| AppError::NotFound(format!("笔记 {} 不存在", note_id)))?
+                .map_err(|_| AppError::NotFound(format!("文档 {} 不存在", note_id)))?
         };
 
         let parent = Path::new(parent_dir);
@@ -319,7 +319,7 @@ fn sanitize_filename(name: &str) -> String {
 
 // ───────── 资产导出（图片 + 附件） ─────────
 
-/// 把笔记 content 中所有指向本地资产的 URL 拷贝到 `<export_dir>/<basename>.assets/`，
+/// 把文档 content 中所有指向本地资产的 URL 拷贝到 `<export_dir>/<basename>.assets/`，
 /// 并把 URL 重写为相对路径。返回 `(新 content, 实际拷贝的资产数)`
 ///
 /// 处理范围：
@@ -327,7 +327,7 @@ fn sanitize_filename(name: &str) -> String {
 /// - 附件：`file:///...`（编辑器拖入附件时以此协议插入）
 ///
 /// 安全策略：仅拷贝 `instance_data_dir` 之下的文件（防越权读取系统文件）；
-/// 同一物理路径在同一笔记里多次出现只拷一份；多张同名不同路径的资产自动加序号去重。
+/// 同一物理路径在同一文档里多次出现只拷一份；多张同名不同路径的资产自动加序号去重。
 fn rewrite_assets_for_export(
     content: &str,
     export_dir: &Path,

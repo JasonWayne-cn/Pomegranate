@@ -703,7 +703,7 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
   //
   // deepseek-r1 / qwq / qwen3 这类推理模型，经本地 Ollama / LM Studio / 多数中转
   // 走的都是把 <think>…</think> 直接塞在正文通道里（只有部分服务端会分离到
-  // reasoning_content 字段）。写作辅助的结果要整段替换进笔记，思考过程必须在
+  // reasoning_content 字段）。写作辅助的结果要整段替换进文档，思考过程必须在
   // 这一层摘掉——下面展示、复制、插入统一只认 applyText。
   const {
     content: applyText,
@@ -744,7 +744,7 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
    * text 和 nodeJSON，保证图片不丢。
    *
    * ⚠️ 插入的是 `applyText`（已剥掉 <think> 思考过程）而不是原始 `result`——
-   * 推理模型的思考过程写进笔记就是污染。
+   * 推理模型的思考过程写进文档就是污染。
    */
   function applyResult(mode: PromptOutputMode) {
     if (!applyText) return;
@@ -1173,7 +1173,7 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
                   <Brain size={11} />
                   {thinkingOpen
                     ? "AI 正在思考…"
-                    : `思考过程（${thinking.length} 字，不会写入笔记）`}
+                    : `思考过程（${thinking.length} 字，不会写入文档）`}
                 </button>
                 {thinkExpanded && (
                   <div

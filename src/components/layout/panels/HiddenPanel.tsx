@@ -6,12 +6,12 @@ import { folderApi, hiddenApi } from "@/lib/api";
 import type { Folder } from "@/types";
 
 /**
- * HiddenPanel —— "隐藏笔记"视图的侧边栏。
+ * HiddenPanel —— "隐藏文档"视图的侧边栏。
  *
- * 设计：扁平的目录列表（不展示子目录层级），每项 = 一个含隐藏笔记的目录。
+ * 设计：扁平的目录列表（不展示子目录层级），每项 = 一个含隐藏文档的目录。
  * 选中态走 URL：`/hidden`（全部）/ `/hidden?folder=uncategorized` / `/hidden?folder=N`。
  *
- * 点哪一项 → 主区按目录过滤；查询时只看当前目录的隐藏笔记，不递归子目录。
+ * 点哪一项 → 主区按目录过滤；查询时只看当前目录的隐藏文档，不递归子目录。
  */
 
 type FolderEntry = {
@@ -30,7 +30,7 @@ export function HiddenPanel() {
 
   // 全文件夹 id→name 映射，用来给 listFolderIds 拿到的 id 反查名字
   const [folderMap, setFolderMap] = useState<Map<number, string>>(new Map());
-  // 后端返回的"含隐藏笔记的 folder ids"（null = 未分类）
+  // 后端返回的"含隐藏文档的 folder ids"（null = 未分类）
   const [hiddenFolderIds, setHiddenFolderIds] = useState<(number | null)[]>([]);
 
   async function loadFolderIds() {
@@ -68,7 +68,7 @@ export function HiddenPanel() {
 
   const entries = useMemo<FolderEntry[]>(() => {
     const list: FolderEntry[] = [
-      { key: "all", label: "全部隐藏笔记", icon: <Layers size={14} /> },
+      { key: "all", label: "全部隐藏文档", icon: <Layers size={14} /> },
     ];
     let hasUncategorized = false;
     const namedIds: number[] = [];
@@ -118,7 +118,7 @@ export function HiddenPanel() {
       >
         <EyeOff size={15} style={{ color: token.colorPrimary }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: token.colorText }}>
-          隐藏笔记
+          隐藏文档
         </span>
         <span
           style={{
@@ -179,7 +179,7 @@ export function HiddenPanel() {
             className="text-center py-6"
             style={{ color: token.colorTextQuaternary, fontSize: 12 }}
           >
-            还没有隐藏的笔记
+            还没有隐藏的文档
           </div>
         )}
       </div>

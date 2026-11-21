@@ -20,7 +20,7 @@ import { TagColorPicker } from "@/components/TagColorPicker";
 import { useAppStore } from "@/store";
 import type { Tag, Note, PageResult } from "@/types";
 
-/** 笔记列表单行高度估算（title + 一行 snippet） */
+/** 文档列表单行高度估算（title + 一行 snippet） */
 const NOTE_ROW_HEIGHT = 62;
 
 const { Title, Text, Paragraph } = Typography;
@@ -28,7 +28,7 @@ const { Title, Text, Paragraph } = Typography;
 /**
  * TagsPage —— Activity Bar 模式下"标签"视图的主区。
  *
- * 重构后只负责：展示 URL `?tagId=...` 选中标签下的笔记列表 + 重命名/删除。
+ * 重构后只负责：展示 URL `?tagId=...` 选中标签下的文档列表 + 重命名/删除。
  * 标签列表、筛选、新建已搬入 src/components/layout/panels/TagsPanel.tsx。
  */
 function DesktopTagsPage() {
@@ -55,7 +55,7 @@ function DesktopTagsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form] = Form.useForm<{ name: string; color: string }>();
 
-  // 虚拟滚动容器：某些热门标签可能关联几百条笔记
+  // 虚拟滚动容器：某些热门标签可能关联几百条文档
   const notesScrollRef = useRef<HTMLDivElement | null>(null);
   const notesVirtualizer = useVirtualizer({
     count: notes.items.length,
@@ -158,19 +158,19 @@ function DesktopTagsPage() {
             description={
               allTags.length === 0
                 ? "还没有任何标签。左侧面板点 + 新建一个。"
-                : "在左侧选择一个标签，查看它关联的笔记"
+                : "在左侧选择一个标签，查看它关联的文档"
             }
           />
         </Card>
       )}
 
-      {/* 选中态：笔记列表 + 操作 */}
+      {/* 选中态：文档列表 + 操作 */}
       {selectedTag && (
         <Card
           title={
             <span className="flex items-center gap-2">
               <NotebookText size={16} />
-              关联笔记
+              关联文档
               <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
                 共 {notes.total} 条
               </Text>
@@ -187,7 +187,7 @@ function DesktopTagsPage() {
               </Button>
               <Popconfirm
                 title="确认删除此标签？"
-                description="删除标签不会删除关联的笔记"
+                description="删除标签不会删除关联的文档"
                 onConfirm={() => handleDelete(selectedTag)}
               >
                 <Button size="small" danger icon={<Trash2 size={14} />}>
@@ -199,7 +199,7 @@ function DesktopTagsPage() {
           loading={notesLoading}
         >
           {notes.items.length > 0 ? (
-            // 虚拟滚动：只渲染可见行，热门标签（几百条笔记）切换也保持流畅
+            // 虚拟滚动：只渲染可见行，热门标签（几百条文档）切换也保持流畅
             // 注：用 contain:content 而不是 contain:strict — 后者含 size 规则
             // 会让仅设 maxHeight 的容器被计算为 0 高度导致一条不渲染
             <div
@@ -270,7 +270,7 @@ function DesktopTagsPage() {
               </div>
             </div>
           ) : (
-            <EmptyState description="该标签下暂无笔记" />
+            <EmptyState description="该标签下暂无文档" />
           )}
         </Card>
       )}

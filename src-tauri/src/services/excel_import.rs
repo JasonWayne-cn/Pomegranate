@@ -1,12 +1,12 @@
-//! Excel / ODS / CSV 导入为笔记（仅桌面端：依赖 calamine）。
+//! Excel / ODS / CSV 导入为文档（仅桌面端：依赖 calamine）。
 //!
-//! 一个文件 = 一篇笔记：标题取文件名，正文按工作表分段、每段一张 GFM 表格，
-//! 原文件拷进 `sources/` 并记为笔记的源文件（编辑器顶部可一键用系统应用打开）。
+//! 一个文件 = 一篇文档：标题取文件名，正文按工作表分段、每段一张 GFM 表格，
+//! 原文件拷进 `sources/` 并记为文档的源文件（编辑器顶部可一键用系统应用打开）。
 //!
 //! # 为什么正文要限行
 //!
-//! 几千行的表整张转 markdown 塞进笔记，编辑器渲染和全文索引都会明显变慢，
-//! 而笔记正文本来就不是看大表的地方。所以每个工作表只放前 [`MAX_ROWS_PER_SHEET`] 行，
+//! 几千行的表整张转 markdown 塞进文档，编辑器渲染和全文索引都会明显变慢，
+//! 而文档正文本来就不是看大表的地方。所以每个工作表只放前 [`MAX_ROWS_PER_SHEET`] 行，
 //! 被截掉的行数**明确写进正文**（不静默丢），完整数据留在源文件里。
 
 use std::path::Path;
@@ -30,9 +30,9 @@ pub const EXCEL_EXTENSIONS: [&str; 7] = ["xlsx", "xls", "xlsm", "xlsb", "ods", "
 #[serde(rename_all = "camelCase")]
 pub struct ExcelImportResult {
     pub source_path: String,
-    /// 成功：对应的笔记 id；失败：None
+    /// 成功：对应的文档 id；失败：None
     pub note_id: Option<i64>,
-    /// 成功：笔记标题；失败：None
+    /// 成功：文档标题；失败：None
     pub title: Option<String>,
     /// 失败时的错误消息
     pub error: Option<String>,
@@ -43,7 +43,7 @@ pub struct ExcelImportResult {
 pub struct ExcelImportService;
 
 impl ExcelImportService {
-    /// 导入单个表格文件，返回新笔记和被截断的工作表名。
+    /// 导入单个表格文件，返回新文档和被截断的工作表名。
     pub fn import_one(
         app_data_dir: &Path,
         db: &Database,
@@ -95,20 +95,20 @@ impl ExcelImportService {
             folder_id,
         })?;
 
-        // 原文件落盘失败不让导入失败：笔记已建好，只是少了「打开源文件」入口（同 PDF 导入）
+        // 原文件落盘失败不让导入失败：文档已建好，只是少了「打开源文件」入口（同 PDF 导入）
         match SourceFileService::attach(app_data_dir, note.id, source, &ext) {
             Ok(rel) => db.set_note_source_file(note.id, Some(&rel), Some(&ext))?,
-            Err(e) => log::warn!("表格源文件拷贝失败（笔记已建）: {}", e),
+            Err(e) => log::warn!("表格源文件拷贝失败（文档已建）: {}", e),
         }
 
         let note = db
             .get_note(note.id)?
-            .ok_or_else(|| AppError::NotFound("刚创建的笔记查询失败".into()))?;
+            .ok_or_else(|| AppError::NotFound("刚创建的文档查询失败".into()))?;
         Ok((note, truncated_sheets))
     }
 
-    /// 只抽取表格为 Markdown（不创建笔记、不复制源文件）。
-    /// 供外部目录挂载的影子笔记索引复用。
+    /// 只抽取表格为 Markdown（不创建文档、不复制源文件）。
+    /// 供外部目录挂载的影子文档索引复用。
     pub fn extract_markdown(source_path: &str) -> Result<(String, Vec<String>), AppError> {
         let source = Path::new(source_path);
         if !source.exists() {
@@ -190,7 +190,7 @@ impl ExcelImportService {
     }
 }
 
-/// 把各工作表渲染成笔记正文（Markdown），返回 (正文, 被截断的工作表名)。
+/// 把各工作表渲染成文档正文（Markdown），返回 (正文, 被截断的工作表名)。
 ///
 /// 正文是 Markdown 而不是 HTML：编辑器用 tiptap-markdown 加载，GFM 管道表格可直接还原成表格。
 pub fn render_note_markdown(
@@ -366,7 +366,7 @@ mod tests {
     }
 
     #[test]
-    fn csv_端到端_建笔记_落盘源文件_记源文件类型() {
+    fn csv_端到端_建文档_落盘源文件_记源文件类型() {
         let dir = temp_dir("e2e");
         let db = Database::init(dir.join("test.db").to_str().unwrap()).expect("init test db");
         let csv = dir.join("销售报表.csv");
@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn 不支持的扩展名和不存在的文件都报错而不是建空笔记() {
+    fn 不支持的扩展名和不存在的文件都报错而不是建空文档() {
         let dir = temp_dir("err");
         let db = Database::init(dir.join("test.db").to_str().unwrap()).expect("init test db");
         let txt = dir.join("a.txt");

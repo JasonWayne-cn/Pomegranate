@@ -34,18 +34,18 @@ interface Props {
 const KIND_OPTIONS: { value: DataviewKind; label: string; hint: string }[] = [
   {
     value: "recent-notes",
-    label: "最近修改的笔记",
+    label: "最近修改的文档",
     hint: "按 updated_at 倒序展示",
   },
   {
     value: "notes-by-tag",
-    label: "按标签筛选笔记",
-    hint: "选择一个标签，列出挂着该标签的笔记",
+    label: "按标签筛选文档",
+    hint: "选择一个标签，列出挂着该标签的文档",
   },
   {
     value: "notes-by-folder",
-    label: "文件夹下的笔记",
-    hint: "选择一个文件夹，递归列出子孙文件夹的所有笔记",
+    label: "文件夹下的文档",
+    hint: "选择一个文件夹，递归列出子孙文件夹的所有文档",
   },
   {
     value: "pending-tasks",

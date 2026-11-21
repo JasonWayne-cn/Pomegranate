@@ -67,8 +67,8 @@ const CORE_MODULES = [
   },
   {
     icon: <FileText size={16} className="text-slate-500" />,
-    label: "笔记",
-    desc: "笔记 CRUD / 文件夹",
+    label: "文档",
+    desc: "文档 CRUD / 文件夹",
   },
   {
     icon: <Search size={16} className="text-slate-500" />,
@@ -78,7 +78,7 @@ const CORE_MODULES = [
   {
     icon: <Trash2 size={16} className="text-slate-500" />,
     label: "回收站",
-    desc: "已删除笔记 30 天保留",
+    desc: "已删除文档 30 天保留",
   },
   {
     icon: <InfoIcon size={16} className="text-slate-500" />,
@@ -111,16 +111,9 @@ const OPTIONS: OptionMeta[] = [
     defaultOff: true,
   },
   {
-    view: "graph",
-    label: "文档关系",
-    desc: "可视化文档之间的双向链接",
-    icon: <GitFork size={16} className="text-cyan-600" />,
-    iconBg: "bg-cyan-100",
-  },
-  {
     view: "ai",
     label: "AI 问答",
-    desc: "和 AI 对话，让它读你的笔记",
+    desc: "和 AI 对话，让它读你的文档",
     icon: <Bot size={16} className="text-[#FA8C16]" />,
     iconBg: "bg-orange-100",
   },
@@ -133,8 +126,8 @@ const OPTIONS: OptionMeta[] = [
   },
   {
     view: "hidden",
-    label: "隐藏笔记",
-    desc: "PIN 锁保护的私密笔记空间",
+    label: "隐藏文档",
+    desc: "PIN 锁保护的私密文档空间",
     icon: <EyeOff size={16} className="text-red-600" />,
     iconBg: "bg-red-100",
   },
@@ -179,7 +172,7 @@ const DASH_ITEM_META: DashItemMeta[] = [
   },
   {
     key: "total_notes",
-    label: "笔记总数",
+    label: "文档总数",
     icon: <HomeIcon size={16} className="text-slate-500" />,
   },
   {
@@ -258,7 +251,7 @@ export default function FeatureTogglePage() {
         <p className="text-xs leading-relaxed text-blue-800">
           关闭后入口隐藏，但<strong>数据保留</strong>，重新开启即可恢复。
           <br />
-          核心模块（主页 / 笔记 / 搜索 / 回收站 / 关于）不可关闭。
+          核心模块（主页 / 文档 / 搜索 / 回收站 / 关于）不可关闭。
         </p>
       </div>
 

@@ -392,7 +392,7 @@ body,
   transition: none !important;
 }
 
-/* ─── 笔记编辑器页面布局（Typora 风格） ────────── */
+/* ─── 文档编辑器页面布局（Typora 风格） ────────── */
 
 /* editor-page 用 absolute 占满整个 Content（含 padding），需父级 position:relative。
    两个绕不开的约束同时满足：
@@ -446,7 +446,7 @@ body,
      原值 40vh / 20vh 离反向链接 / 字数统计区过远，最终降到 10vh。 */
   padding: 24px 48px 10vh;
   width: 100%;
-  /* 与笔记列表页 (max-w-4xl mx-auto) 视觉对齐：内容居中、两侧露出主题背景，
+  /* 与文档列表页 (max-w-4xl mx-auto) 视觉对齐：内容居中、两侧露出主题背景，
      让编辑页与列表页有一致的"背景边界"观感。大纲打开时 editor-body 切换为
      grid 布局（主列 + 200px 大纲），本规则仅约束主列内宽度，不影响 grid。 */
   max-width: 56rem;
@@ -1030,7 +1030,7 @@ body,
   text-decoration: underline;
 }
 
-/* 笔记 Tab 栏的滚动容器 — 隐藏 webkit 滚动条 */
+/* 文档 Tab 栏的滚动容器 — 隐藏 webkit 滚动条 */
 .tabbar-scroller::-webkit-scrollbar {
   display: none;
 }
@@ -1185,7 +1185,7 @@ body,
 .ai-markdown > *:first-child { margin-top: 0; }
 .ai-markdown > *:last-child { margin-bottom: 0; }
 
-/* ─── 笔记列表视图：去掉 Table 行分割线 ───────────────
+/* ─── 文档列表视图：去掉 Table 行分割线 ───────────────
    把表格行做成"无横线纯白卡片"，和分页条共享连续白底。
    只在 .notes-list-flat 下生效，避免影响其他页面的 Table。 */
 .notes-list-flat .ant-table-tbody > tr > td {
@@ -2100,4 +2100,18 @@ body,
   height: 100%;
   overflow: auto;
   padding: 16px 20px 24px;
+}
+
+/* Office 工作台：电子表格紧凑模式（缩小单元格内边距与字号） */
+.office-sheet-table .ant-table-thead > tr > th {
+  padding: 3px 6px !important;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.office-sheet-table .ant-table-tbody > tr > td {
+  padding: 1px 6px !important;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
 }

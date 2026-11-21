@@ -1,11 +1,11 @@
 /**
- * 撤销历史隔离的回归测试 —— 对应「在 A 笔记改了东西，切到 B 按 Ctrl+Z，B 的正文变成
+ * 撤销历史隔离的回归测试 —— 对应「在 A 文档改了东西，切到 B 按 Ctrl+Z，B 的正文变成
  * A 撤销前的内容」这个数据丢失 bug。
  *
  * 为什么不直接测 TiptapEditor：Tiptap 的 Editor 必须有 EditorView，而 EditorView 要真实
  * DOM；本项目 vitest 跑在 node 环境（见 vitest.config.ts），没有 jsdom。所以这里退一步，
  * 用最小 schema 把那条路径的**核心机制**复刻出来：
- *   - 「切笔记」= 一条整篇 replaceWith 事务（@tiptap/core 的 setContent 就是这么做的，
+ *   - 「切文档」= 一条整篇 replaceWith 事务（@tiptap/core 的 setContent 就是这么做的，
  *     它只设了 preventUpdate，没设 addToHistory:false）
  *   - 「清空历史」= 把 history 插件换成新实例后 reconfigure（TiptapEditor 里的
  *     resetEditorHistory 通过 editor.unregisterPlugin/registerPlugin 走的正是这条路）
@@ -43,9 +43,9 @@ function typeText(state: EditorState, text: string): EditorState {
 }
 
 /**
- * 模拟切笔记：整篇替换正文（等价于 editor.commands.setContent）。
+ * 模拟切文档：整篇替换正文（等价于 editor.commands.setContent）。
  *
- * 先 closeHistory 关掉上一个 history group —— 真实场景里，用户在 A 笔记编辑和切到 B 之间
+ * 先 closeHistory 关掉上一个 history group —— 真实场景里，用户在 A 文档编辑和切到 B 之间
  * 必然停顿超过 newGroupDelay（默认 500ms），这两步天然是两组；而测试里事务是瞬间连发的，
  * 不显式关组就会被并进同一组，一次 undo 把两步一起撤掉，反而看不出「撤销掉的正是加载 B
  * 这一步」这个关键现象。
@@ -82,28 +82,28 @@ function textOf(state: EditorState): string {
 }
 
 describe("编辑器撤销历史", () => {
-  it("整篇替换正文默认会进 undo 栈 —— 这正是撤销串笔记的成因", () => {
-    // 在 A 笔记里编辑
-    let state = createState("A 笔记");
+  it("整篇替换正文默认会进 undo 栈 —— 这正是撤销串文档的成因", () => {
+    // 在 A 文档里编辑
+    let state = createState("A 文档");
     state = typeText(state, "：改了一笔");
-    expect(textOf(state)).toBe("A 笔记：改了一笔");
+    expect(textOf(state)).toBe("A 文档：改了一笔");
 
-    // 切到 B 笔记（整篇替换）
-    state = replaceWholeDoc(state, "B 笔记");
-    expect(textOf(state)).toBe("B 笔记");
+    // 切到 B 文档（整篇替换）
+    state = replaceWholeDoc(state, "B 文档");
+    expect(textOf(state)).toBe("B 文档");
     expect(undoDepth(state)).toBeGreaterThan(0);
 
     // 在 B 里按 Ctrl+Z：撤销掉的是「加载 B」这一步，正文倒退成 A 撤销前的内容
     undo(state, (tr) => {
       state = state.apply(tr);
     });
-    expect(textOf(state)).toBe("A 笔记：改了一笔");
+    expect(textOf(state)).toBe("A 文档：改了一笔");
   });
 
   it("替换后清空历史 —— 撤销不再倒灌上一篇的内容", () => {
-    let state = createState("A 笔记");
+    let state = createState("A 文档");
     state = typeText(state, "：改了一笔");
-    state = replaceWholeDoc(state, "B 笔记");
+    state = replaceWholeDoc(state, "B 文档");
 
     // 修复点：整篇内容换掉之后清空撤销历史
     state = resetHistory(state);
@@ -114,25 +114,25 @@ describe("编辑器撤销历史", () => {
       state = state.apply(tr);
     });
     expect(handled).toBe(false);
-    expect(textOf(state)).toBe("B 笔记");
+    expect(textOf(state)).toBe("B 文档");
   });
 
-  it("切走前存档、切回来还原 —— 回到原笔记仍能撤销自己的编辑", () => {
-    // 锁住「按笔记存档 EditorState」这个方案成立的前提：EditorState 是不可变的，
+  it("切走前存档、切回来还原 —— 回到原文档仍能撤销自己的编辑", () => {
+    // 锁住「按文档存档 EditorState」这个方案成立的前提：EditorState 是不可变的，
     // 存档之后在它之上做的整篇替换、清空历史，都只产生新实例，动不到手里这份快照。
-    let state = createState("A 笔记");
+    let state = createState("A 文档");
     state = typeText(state, "：改了一笔");
 
     // 切走 A —— 连 doc、撤销栈、光标一起存档（组件里还会记一份 markdown 指纹）
     const snapshot = { state, markdown: textOf(state) };
 
     // 去 B：整篇替换 + 清空历史，B 里撤销不会碰到 A 的东西
-    state = replaceWholeDoc(state, "B 笔记");
+    state = replaceWholeDoc(state, "B 文档");
     state = resetHistory(state);
     expect(undoDepth(state)).toBe(0);
 
     // 切回 A：正文与存档时逐字一致 → 整份 state 原样还原
-    expect(snapshot.markdown).toBe("A 笔记：改了一笔");
+    expect(snapshot.markdown).toBe("A 文档：改了一笔");
     state = snapshot.state;
     expect(undoDepth(state)).toBeGreaterThan(0);
 
@@ -140,22 +140,22 @@ describe("编辑器撤销历史", () => {
     undo(state, (tr) => {
       state = state.apply(tr);
     });
-    expect(textOf(state)).toBe("A 笔记");
+    expect(textOf(state)).toBe("A 文档");
   });
 
-  it("清空历史后，在当前笔记里的编辑仍可正常撤销", () => {
-    let state = createState("A 笔记");
-    state = replaceWholeDoc(state, "B 笔记");
+  it("清空历史后，在当前文档里的编辑仍可正常撤销", () => {
+    let state = createState("A 文档");
+    state = replaceWholeDoc(state, "B 文档");
     state = resetHistory(state);
 
     // 切过来之后才做的编辑，属于 B 自己的历史
     state = typeText(state, "：在 B 里写的");
-    expect(textOf(state)).toBe("B 笔记：在 B 里写的");
+    expect(textOf(state)).toBe("B 文档：在 B 里写的");
     expect(undoDepth(state)).toBe(1);
 
     undo(state, (tr) => {
       state = state.apply(tr);
     });
-    expect(textOf(state)).toBe("B 笔记");
+    expect(textOf(state)).toBe("B 文档");
   });
 });

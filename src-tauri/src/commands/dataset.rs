@@ -13,7 +13,7 @@ use crate::state::AppState;
 
 /// 把 Excel/CSV 附件解析入库为若干数据集，返回入库个数。
 ///
-/// `rel` 是相对 data_dir 的附件路径（笔记 content 里 `kb-asset://` 后那段）。
+/// `rel` 是相对 data_dir 的附件路径（文档 content 里 `kb-asset://` 后那段）。
 /// 重复调用 = 整体替换该文件已有的数据集（源文件改一行都可能让结构全变）。
 /// `force` 缺省为 false：文件哈希没变时直接跳过，避免白白重解析 + 重插几千行。
 #[tauri::command(async)]

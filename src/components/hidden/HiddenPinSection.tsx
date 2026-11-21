@@ -20,10 +20,10 @@ const { Text } = Typography;
 type ModalMode = null | "set" | "change" | "clear";
 
 /**
- * 设置页"隐藏笔记访问保护"区块。
+ * 设置页"隐藏文档访问保护"区块。
  *
  * 与 Vault 设置完全独立 —— 这里只是 UX 门禁，挡随手访问 /hidden 入口；
- * 隐藏笔记内容在数据库里仍是明文，需强加密请用 Vault。
+ * 隐藏文档内容在数据库里仍是明文，需强加密请用 Vault。
  */
 export function HiddenPinSection() {
   const [hasPin, setHasPin] = useState<boolean | null>(null);
@@ -58,7 +58,7 @@ export function HiddenPinSection() {
       title={
         <span className="flex items-center gap-2">
           <EyeOff size={16} />
-          隐藏笔记访问保护
+          隐藏文档访问保护
         </span>
       }
     >
@@ -77,7 +77,7 @@ export function HiddenPinSection() {
             )}
           </Space>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            设置 PIN 后，点左下角「隐藏笔记」需先输入 PIN 才能进入。这是 UX
+            设置 PIN 后，点左下角「隐藏文档」需先输入 PIN 才能进入。这是 UX
             门禁不是加密，数据库里仍是明文；如需真加密请用编辑器右上角的「加密保险库」。
           </Text>
         </div>
@@ -185,7 +185,7 @@ function SetPinModal({ isChange, onClose, onDone }: SetPinModalProps) {
   return (
     <Modal
       open
-      title={isChange ? "修改隐藏笔记 PIN" : "启用隐藏笔记 PIN"}
+      title={isChange ? "修改隐藏文档 PIN" : "启用隐藏文档 PIN"}
       okText={isChange ? "保存" : "启用"}
       cancelText="取消"
       confirmLoading={submitting}
@@ -283,7 +283,7 @@ function ClearPinModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
   return (
     <Modal
       open
-      title="清除隐藏笔记 PIN"
+      title="清除隐藏文档 PIN"
       okText="清除"
       okButtonProps={{ danger: true }}
       cancelText="取消"
@@ -296,7 +296,7 @@ function ClearPinModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
       <Alert
         type="warning"
         showIcon
-        message="清除后，点「隐藏笔记」将不再需要 PIN"
+        message="清除后，点「隐藏文档」将不再需要 PIN"
         className="mb-3"
       />
       <Input.Password

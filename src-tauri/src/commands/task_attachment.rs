@@ -51,7 +51,7 @@ pub fn add_task_attachment_from_path(
 /// 下载外链图片为任务附件（从网页复制图文时，HTML 里的 `<img src="https://...">`）。
 ///
 /// 走 Rust 侧下载而不是前端 fetch：WebView 受 CORS / 防盗链限制，
-/// `fetch_image_bytes` 会按 host 注入 Referer（与笔记粘贴外链图片同一套逻辑）。
+/// `fetch_image_bytes` 会按 host 注入 Referer（与文档粘贴外链图片同一套逻辑）。
 #[tauri::command]
 pub async fn add_task_attachment_from_url(
     state: State<'_, AppState>,

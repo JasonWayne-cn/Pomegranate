@@ -4,8 +4,8 @@
  * 背景：deepseek-r1 / qwq / qwen3 这类推理模型，只有一部分服务端会把思考放进
  * 独立的 `reasoning_content` 字段（后端 ai.rs 的聊天路径已按该字段单独发
  * `ai:reasoning` 事件）；本地 Ollama / LM Studio / 多数中转是直接把
- * `<think>…</think>` 塞在 `delta.content` 里的。笔记编辑器的 AI 写作辅助会把
- * 结果整段替换进正文，思考过程混进去等于污染笔记，必须在插入前摘出来。
+ * `<think>…</think>` 塞在 `delta.content` 里的。文档编辑器的 AI 写作辅助会把
+ * 结果整段替换进正文，思考过程混进去等于污染文档，必须在插入前摘出来。
  *
  * 为什么放前端而不是 Rust 侧：`AiWriteMenu` 手里的 `result` 是**累积后的完整
  * 字符串**，标签被 SSE 分片切成两半（"<thi" + "nk>"）的问题天然消失，不需要
@@ -50,7 +50,7 @@ const PARTIAL_TAIL_RE = /<\s*\/?\s*([a-zA-Z]*)$/;
 const TAG_LIST = TAG_NAMES.split("|");
 
 export interface ThinkingSplit {
-  /** 去掉思考块后的正文——这才是可以替换/追加进笔记的内容 */
+  /** 去掉思考块后的正文——这才是可以替换/追加进文档的内容 */
   content: string;
   /** 摘出来的思考过程（多段以空行连接），供 UI 折叠展示 */
   thinking: string;
