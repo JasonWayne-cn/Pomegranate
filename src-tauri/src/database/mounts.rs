@@ -1114,7 +1114,7 @@ mod tests {
 
         // 文档列表只保留文本类外部笔记
         let (notes, total) = db
-            .list_notes(None, None, 1, 100, false, true, None, false)
+            .list_notes(None, None, 1, 100, false, true, None, false, false)
             .unwrap();
         assert_eq!(total, 1, "索引-only 文档不应计入文档总数");
         assert_eq!(notes.len(), 1);
@@ -1122,7 +1122,7 @@ mod tests {
 
         // 文档树模式：显式 include_external_docs 时包含二进制文档
         let (with_docs, total_with_docs) = db
-            .list_notes(None, None, 1, 100, false, true, None, true)
+            .list_notes(None, None, 1, 100, false, true, None, true, false)
             .unwrap();
         assert_eq!(total_with_docs, 2, "文档树应包含 PDF 影子文档");
         assert!(

@@ -570,6 +570,7 @@ impl Database {
         include_descendants: bool,
         sort_by: Option<&str>,
         include_external_docs: bool,
+        search_content: bool,
     ) -> Result<(Vec<Note>, usize), AppError> {
         // 先在锁外算好 folder_id 列表（涉及另一次 query，避免锁内嵌套）
         // include_descendants=true 时把 root 子树所有 ID 一起塞进 IN 子句
@@ -632,8 +633,30 @@ impl Database {
 
         if let Some(kw) = keyword {
             if !kw.is_empty() {
-                conditions.push(format!("title LIKE ?{}", param_values.len() + 1));
-                param_values.push(Box::new(format!("%{}%", kw)));
+                if search_content {
+                    // 正文检索：标题 + 正文的加权 n-gram 匹配（与全局搜索共用 cjk 逻辑）。
+                    // 外部二进制文档的正文即抽取文本；白板走 search_text。
+                    let groups = crate::database::cjk::expand_query(kw);
+                    match crate::database::cjk::build_match_sql(
+                        &groups,
+                        param_values.len() + 1,
+                        "title",
+                        "COALESCE(search_text, content)",
+                    ) {
+                        Some(m) => {
+                            conditions.push(m.where_sql);
+                            for b in m.binds {
+                                param_values.push(Box::new(b));
+                            }
+                        }
+                        // 纯符号 / 空白查询：无有效检索词 → 明确返回空集
+                        None => conditions.push("1 = 0".to_string()),
+                    }
+                } else {
+                    // 默认仅标题检索
+                    conditions.push(format!("title LIKE ?{}", param_values.len() + 1));
+                    param_values.push(Box::new(format!("%{}%", kw)));
+                }
             }
         }
 
@@ -1070,6 +1093,7 @@ impl Database {
         include_descendants: bool,
         sort_by: Option<&str>,
         include_external_docs: bool,
+        search_content: bool,
     ) -> Result<Vec<i64>, AppError> {
         let folder_ids: Option<Vec<i64>> = if let Some(fid) = folder_id {
             if include_descendants {
@@ -1120,8 +1144,30 @@ impl Database {
 
         if let Some(kw) = keyword {
             if !kw.is_empty() {
-                conditions.push(format!("title LIKE ?{}", param_values.len() + 1));
-                param_values.push(Box::new(format!("%{}%", kw)));
+                if search_content {
+                    // 正文检索：标题 + 正文的加权 n-gram 匹配（与全局搜索共用 cjk 逻辑）。
+                    // 外部二进制文档的正文即抽取文本；白板走 search_text。
+                    let groups = crate::database::cjk::expand_query(kw);
+                    match crate::database::cjk::build_match_sql(
+                        &groups,
+                        param_values.len() + 1,
+                        "title",
+                        "COALESCE(search_text, content)",
+                    ) {
+                        Some(m) => {
+                            conditions.push(m.where_sql);
+                            for b in m.binds {
+                                param_values.push(Box::new(b));
+                            }
+                        }
+                        // 纯符号 / 空白查询：无有效检索词 → 明确返回空集
+                        None => conditions.push("1 = 0".to_string()),
+                    }
+                } else {
+                    // 默认仅标题检索
+                    conditions.push(format!("title LIKE ?{}", param_values.len() + 1));
+                    param_values.push(Box::new(format!("%{}%", kw)));
+                }
             }
         }
 

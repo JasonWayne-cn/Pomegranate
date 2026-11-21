@@ -730,6 +730,8 @@ export interface NoteQuery {
   sort_by?: "default" | "custom" | "created" | "title";
   /** 是否包含外部二进制文档（PDF/Word/Excel）；文档树传 true */
   include_external_docs?: boolean;
+  /** true 时 keyword 同时匹配标题与正文；默认只匹配标题 */
+  search_content?: boolean;
 }
 
 // ─── 文件夹 ───────────────────────────────────

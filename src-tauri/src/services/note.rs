@@ -190,6 +190,7 @@ impl NoteService {
             query.include_descendants.unwrap_or(true),
             query.sort_by.as_deref(),
             query.include_external_docs.unwrap_or(false),
+            query.search_content.unwrap_or(false),
         )
     }
 
@@ -217,6 +218,7 @@ impl NoteService {
             query.include_descendants.unwrap_or(true),
             query.sort_by.as_deref(),
             query.include_external_docs.unwrap_or(false),
+            query.search_content.unwrap_or(false),
         )?;
 
         Ok(PageResult {

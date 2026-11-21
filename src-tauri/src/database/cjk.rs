@@ -191,6 +191,73 @@ pub fn expand_query(query: &str) -> Vec<TokenPatterns> {
         .collect()
 }
 
+/// 一条「标题 + 正文」加权匹配 SQL 及其绑定参数。
+///
+/// 供全局搜索（`search_like`）与文档列表正文检索（`list_notes`）共用，
+/// 避免两处各写一套导致召回口径漂移。
+#[derive(Debug, Clone)]
+pub struct MatchSql {
+    /// 组间 AND、组内「加权累加 >= 及格线」的 WHERE 片段（可直接拼进 WHERE）。
+    pub where_sql: String,
+    /// 每组整体模式（第一个 pattern）的占位符编号，供"标题命中优先"排序复用。
+    pub title_hit_params: Vec<usize>,
+    /// 按占位符顺序绑定的 `%term%` 字符串。
+    pub binds: Vec<String>,
+    /// 下一个可用占位符编号。
+    pub next_index: usize,
+}
+
+/// 根据 token 组生成匹配 SQL。
+///
+/// - `start_index`：第一个占位符编号（如列表查询里已有 folder 参数时为 2）。
+/// - `title_expr` / `body_expr`：SQL 列表达式（如 `title`、`COALESCE(search_text, content)`；
+///   调用方自行决定是否加表别名前缀）。
+///
+/// token 组为空时返回 `None`（调用方应视为"无可检索词"）。
+pub fn build_match_sql(
+    groups: &[TokenPatterns],
+    start_index: usize,
+    title_expr: &str,
+    body_expr: &str,
+) -> Option<MatchSql> {
+    if groups.is_empty() {
+        return None;
+    }
+    let mut binds: Vec<String> = Vec::new();
+    let mut where_parts: Vec<String> = Vec::new();
+    let mut title_hit_params: Vec<usize> = Vec::new();
+    let mut ph = start_index;
+
+    for g in groups {
+        // 每组第一个 pattern 是「整体词」，作为标题命中判定的锚点
+        title_hit_params.push(ph);
+        let mut score_parts: Vec<String> = Vec::new();
+        for p in &g.patterns {
+            binds.push(format!("%{}%", p.term));
+            score_parts.push(format!(
+                "(CASE WHEN {title} LIKE ?{ph} OR {body} LIKE ?{ph} THEN {w} ELSE 0 END)",
+                title = title_expr,
+                body = body_expr,
+                ph = ph,
+                w = p.weight,
+            ));
+            ph += 1;
+        }
+        where_parts.push(format!(
+            "(({}) >= {})",
+            score_parts.join(" + "),
+            g.threshold
+        ));
+    }
+
+    Some(MatchSql {
+        where_sql: where_parts.join(" AND "),
+        title_hit_params,
+        binds,
+        next_index: ph,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

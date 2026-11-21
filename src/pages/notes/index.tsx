@@ -4,6 +4,7 @@ import {
   Table,
   Button,
   Input,
+  Checkbox,
   Space,
   Typography,
   message,
@@ -42,6 +43,7 @@ import {
   ChevronDown,
   ExternalLink,
   Copy,
+  X,
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { ColumnsType } from "antd/es/table";
@@ -565,7 +567,7 @@ function FolderChangeCell({
 /** 桌面版原 NoteListPage（保留全部 1300+ 行实现） */
 function DesktopNoteListPage() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { token } = antdTheme.useToken();
 
   /** 外部 PDF/Word/Excel 进 Office 工作台；普通笔记进编辑器。 */
@@ -588,6 +590,22 @@ function DesktopNoteListPage() {
   const [sortBy, setSortBy] = useState<"default" | "custom" | "created" | "title">(
     "default",
   );
+  /** 文档页搜索：是否同时检索正文（默认仅标题，偏好持久化） */
+  const [searchContent, setSearchContent] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("notes.searchContent") === "1";
+    } catch {
+      return false;
+    }
+  });
+  /** 文档页搜索：是否递归子文件夹（默认否，保持"只列直属"；偏好持久化） */
+  const [searchRecursive, setSearchRecursive] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("notes.searchRecursive") === "1";
+    } catch {
+      return false;
+    }
+  });
   /** 列表视图下选中的笔记 id，切换到其他视图/翻页自动清空 */
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   /** 批量移动 Popover 的开关 */
@@ -599,6 +617,26 @@ function DesktopNoteListPage() {
   const [folderMap, setFolderMap] = useState<Map<number, string>>(new Map());
   // 原始文件夹树，供"目录"列的 Popover 选择器用
   const [folders, setFolders] = useState<Folder[]>([]);
+
+  /** 当前选中的文件夹名；null 表示"全库"（未选文件夹） */
+  const selectedFolderName = useMemo(() => {
+    if (!folderId) return null;
+    if (folderId === "uncategorized") return "未分类";
+    const fid = Number(folderId);
+    return Number.isFinite(fid) ? folderMap.get(fid) ?? "文件夹" : "文件夹";
+  }, [folderId, folderMap]);
+
+  /** 退出文件夹选中，回到全库（保留其它查询参数，如关键字） */
+  const exitFolderSelection = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const sp = new URLSearchParams(prev);
+        sp.delete("folder");
+        return sp;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
 
   /**
    * 当前目录的子文件夹。
@@ -612,6 +650,31 @@ function DesktopNoteListPage() {
     if (!Number.isFinite(id)) return [];
     return findFolderNode(folders, id)?.children ?? [];
   }, [folders, folderId]);
+
+  /** 当前目录的父目录 id（顶层目录为 null） */
+  const parentFolderId = useMemo(() => {
+    if (!folderId || folderId === "uncategorized") return null;
+    const id = Number(folderId);
+    if (!Number.isFinite(id)) return null;
+    return findFolderNode(folders, id)?.parent_id ?? null;
+  }, [folders, folderId]);
+
+  /** 父目录名称（用于「返回上级」按钮文案） */
+  const parentFolderName =
+    parentFolderId != null ? folderMap.get(parentFolderId) ?? null : null;
+
+  /** 返回上级目录（保留关键字等其它查询参数） */
+  const goToParentFolder = useCallback(() => {
+    if (parentFolderId == null) return;
+    setSearchParams(
+      (prev) => {
+        const sp = new URLSearchParams(prev);
+        sp.set("folder", String(parentFolderId));
+        return sp;
+      },
+      { replace: true },
+    );
+  }, [parentFolderId, setSearchParams]);
 
   // 依赖全局 foldersRefreshTick：Sidebar 新建/改名/删文件夹后自动重建 id→name 映射
   const foldersRefreshTick = useAppStore((s) => s.foldersRefreshTick);
@@ -639,6 +702,12 @@ function DesktopNoteListPage() {
     loadNotes(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortBy]);
+
+  // 搜索模式（正文检索 / 含子文件夹）变化时，若已有搜索词则立即重搜
+  useEffect(() => {
+    if (keyword.trim()) loadNotes(1, keyword);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchContent, searchRecursive]);
 
   // 模块设置中心：读取「文档 → 默认排序」，并在抽屉保存后即时应用。
   // 读取失败或值不合法时保持页面默认排序，不打断列表加载。
@@ -705,14 +774,15 @@ function DesktopNoteListPage() {
               ? Number(folderId)
               : undefined,
           uncategorized: isUncategorized || undefined,
-          // 点击某个目录时只列直属文档；子文件夹以入口按钮单独展示，
-          // 不把子孙文件夹里的文档平铺进列表。
+          // 选中目录时默认只列直属文档；勾选「含子文件夹」才递归子孙目录。
           include_descendants:
-            !isUncategorized && folderId ? false : undefined,
+            !isUncategorized && folderId ? searchRecursive : undefined,
           // 只 list 视图才让用户切换 sort_by；卡片/时间线沿用默认
           sort_by: viewMode === "list" ? sortBy : undefined,
           // 与左侧文档树一致：显示挂载目录里的 PDF/Word/Excel
           include_external_docs: true,
+          // 默认仅标题检索；勾选「正文检索」时标题 + 正文（复用中文加权匹配）
+          search_content: searchContent,
         });
         setData(result);
       } catch (e) {
@@ -721,7 +791,7 @@ function DesktopNoteListPage() {
         setLoading(false);
       }
     },
-    [viewMode, keyword, folderId, listPageSize, sortBy],
+    [viewMode, keyword, folderId, listPageSize, sortBy, searchContent, searchRecursive],
   );
 
   const handleDelete = useCallback(
@@ -1328,9 +1398,27 @@ function DesktopNoteListPage() {
         className="flex items-center justify-between mb-2 flex-shrink-0"
         data-tour="notes-toolbar"
       >
-        <Title level={3} style={{ margin: 0, lineHeight: "32px" }}>
-          文档
-        </Title>
+        <div className="flex min-w-0 items-center gap-1">
+          <Title
+            level={3}
+            ellipsis
+            style={{ margin: 0, lineHeight: "32px", minWidth: 0 }}
+          >
+            文档（{selectedFolderName ?? "全库"}）
+          </Title>
+          {folderId && (
+            <Tooltip title="退出文件夹，查看全库">
+              <Button
+                type="text"
+                size="small"
+                icon={<X size={16} />}
+                aria-label="退出文件夹"
+                onClick={exitFolderSelection}
+                style={{ flexShrink: 0 }}
+              />
+            </Tooltip>
+          )}
+        </div>
         <Space align="center">
           <Segmented
             value={viewMode}
@@ -1360,7 +1448,7 @@ function DesktopNoteListPage() {
       >
         <Input
           size="large"
-          placeholder="搜索文档标题..."
+          placeholder={searchContent ? "搜索标题或正文..." : "搜索文档标题..."}
           prefix={<Search size={16} />}
           suffix={
             <MicButton
@@ -1381,6 +1469,59 @@ function DesktopNoteListPage() {
           搜索
         </Button>
       </div>
+
+      {/* 搜索模式：正文检索 / 含子文件夹（后者仅选中目录时可用） */}
+      <div
+        className="mb-2 flex flex-shrink-0 flex-wrap items-center gap-4"
+        style={{ fontSize: 12 }}
+      >
+        <Checkbox
+          checked={searchContent}
+          onChange={(e) => {
+            const v = e.target.checked;
+            setSearchContent(v);
+            try {
+              localStorage.setItem("notes.searchContent", v ? "1" : "0");
+            } catch {
+              /* localStorage 不可用时忽略 */
+            }
+          }}
+        >
+          正文检索
+        </Checkbox>
+        {folderId && folderId !== "uncategorized" && (
+          <Checkbox
+            checked={searchRecursive}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setSearchRecursive(v);
+              try {
+                localStorage.setItem("notes.searchRecursive", v ? "1" : "0");
+              } catch {
+                /* localStorage 不可用时忽略 */
+              }
+            }}
+          >
+            含子文件夹
+          </Checkbox>
+        )}
+      </div>
+
+      {/* 返回上级目录：进入子文件夹后回退到父目录（顶层目录不显示） */}
+      {parentFolderId != null && (
+        <div
+          className="mb-2 flex flex-shrink-0 items-center"
+          data-tour="notes-parent-folder"
+        >
+          <Button
+            size="small"
+            icon={<CornerUpLeft size={13} />}
+            onClick={goToParentFolder}
+          >
+            返回上级{parentFolderName ? `：${parentFolderName}` : ""}
+          </Button>
+        </div>
+      )}
 
       {/* 当前目录的子文件夹入口：主区文档列表只展示直属文档 */}
       {childFolders.length > 0 && (

@@ -237,63 +237,35 @@ impl Database {
             return Ok(Vec::new());
         }
 
-        // 每个模式一个占位符，按顺序编号；同一个模式在 title / 正文里复用同一编号
-        let mut patterns: Vec<String> = Vec::new();
-        // 每组的 (占位符起始下标, 组内模式数, 该组权重, 及格线)
-        let mut group_meta: Vec<(usize, usize, Vec<i32>, i32)> = Vec::new();
-        for g in &groups {
-            let start = patterns.len();
-            let weights: Vec<i32> = g.patterns.iter().map(|p| p.weight).collect();
-            patterns.extend(g.patterns.iter().map(|p| format!("%{}%", p.term)));
-            group_meta.push((start, g.patterns.len(), weights, g.threshold));
-        }
-
         // 正文用 COALESCE(search_text, content) 而不是裸 content —— 白板的 content 是
         // Excalidraw JSON，直接 LIKE 会让「strokeColor」「appState」这类属性名命中每一块白板。
         // 与 FTS 路径（fts_body 生成列，见 schema v53）保持同一口径。
         const BODY: &str = "COALESCE(n.search_text, n.content)";
 
-        // 仅标题时只看 title：条件里去掉正文那一半，其余加权累加逻辑完全不变
+        // 仅标题时只在 title 上匹配：正文表达式换成恒 NULL，title 条件与其余加权逻辑不变
         let title_only = filters.title_only == Some(true);
+        let body_expr = if title_only { "NULL" } else { BODY };
 
-        // 每组生成一个"加权累加 >= 及格线"的条件，组间 AND
-        let where_clauses: Vec<String> = group_meta
-            .iter()
-            .map(|(start, count, weights, threshold)| {
-                let score: String = (0..*count)
-                    .map(|i| {
-                        let ph = start + i + 1;
-                        if title_only {
-                            format!(
-                                "(CASE WHEN n.title LIKE ?{ph} THEN {w} ELSE 0 END)",
-                                ph = ph,
-                                w = weights[i],
-                            )
-                        } else {
-                            format!(
-                                "(CASE WHEN n.title LIKE ?{ph} OR {BODY} LIKE ?{ph} THEN {w} ELSE 0 END)",
-                                ph = ph,
-                                w = weights[i],
-                            )
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" + ");
-                format!("(({}) >= {})", score, threshold)
-            })
-            .collect();
+        // 加权匹配 SQL 由 cjk 模块统一生成（与文档列表正文检索共用，避免口径漂移）
+        let match_sql = match super::cjk::build_match_sql(&groups, 1, "n.title", body_expr) {
+            Some(m) => m,
+            None => return Ok(Vec::new()),
+        };
+        let patterns = match_sql.binds;
+        let where_clauses = match_sql.where_sql;
 
-        // 标题命中表达式：任一模式出现在 title 中即视为"标题命中"，排序优先。
+        // 标题命中表达式：每组整体模式命中即视为"标题命中"，排序优先。
         // 只看整体模式（每组第一个，权重最高的那个）—— 用 2-gram 判定标题命中
         // 会让"标题里碰巧有两个字"的笔记冒到前面，反而不准。
-        let title_hit_expr: String = group_meta
+        let title_hit_expr: String = match_sql
+            .title_hit_params
             .iter()
-            .map(|(start, _, _, _)| format!("n.title LIKE ?{}", start + 1))
+            .map(|ph| format!("n.title LIKE ?{}", ph))
             .collect::<Vec<_>>()
             .join(" OR ");
 
         // 筛选条件的占位符编号接在 n-gram 模式与 limit 之后
-        let (filter_sql, filter_binds) = build_filter_clause(filters, patterns.len() + 2);
+        let (filter_sql, filter_binds) = build_filter_clause(filters, match_sql.next_index + 1);
 
         // T-003: 过滤隐藏笔记；隐藏笔记在主搜索里完全不可见
         // ORDER BY：先按"标题命中(0) vs 仅内容命中(1)"分组，再按 updated_at DESC
@@ -308,9 +280,9 @@ impl Database {
              ORDER BY _title_score ASC, n.updated_at DESC
              LIMIT ?{}",
             title_hit_expr,
-            where_clauses.join(" AND "),
+            where_clauses,
             filter_sql,
-            patterns.len() + 1
+            match_sql.next_index
         );
 
         let mut stmt = conn.prepare(&sql)?;
@@ -911,5 +883,47 @@ mod tests {
         let ids: Vec<i64> = hits.iter().map(|r| r.id).collect();
         assert!(ids.contains(&visible));
         assert!(!ids.contains(&hidden), "隐藏笔记不该出现在搜索结果");
+    }
+
+    /// 文档页正文检索：标题不含关键字、正文含关键字 → 仅当 search_content=true 才命中
+    #[test]
+    fn list_notes_content_search_matches_body_only() {
+        let db = temp_db();
+        let target = add(
+            &db,
+            "09-3dcs-vr-perceived-quality-2025",
+            "<p>基于3DCS的VR虚拟感知质量技术 在汽车开发中的应用</p>",
+        );
+
+        // 默认：仅标题，标题不含「基于」→ 不命中
+        let (title_hits, _) = db
+            .list_notes(None, Some("基于3DCS"), 1, 20, false, true, None, true, false)
+            .unwrap();
+        assert!(
+            !title_hits.iter().any(|n| n.id == target),
+            "仅标题检索不该命中正文内容"
+        );
+
+        // 开启正文检索：命中
+        let (body_hits, total) = db
+            .list_notes(None, Some("基于3DCS"), 1, 20, false, true, None, true, true)
+            .unwrap();
+        assert!(
+            body_hits.iter().any(|n| n.id == target),
+            "正文检索应命中该文档"
+        );
+        assert_eq!(total, body_hits.len());
+    }
+
+    /// 正文检索遇到纯符号查询应返回空集，不能退化为全量
+    #[test]
+    fn list_notes_content_search_punctuation_returns_empty() {
+        let db = temp_db();
+        add(&db, "文档", "正文");
+        let (hits, total) = db
+            .list_notes(None, Some("!!!@@@"), 1, 20, false, true, None, true, true)
+            .unwrap();
+        assert!(hits.is_empty(), "纯符号查询不应返回任何文档");
+        assert_eq!(total, 0);
     }
 }

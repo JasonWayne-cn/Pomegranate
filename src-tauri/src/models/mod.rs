@@ -293,6 +293,10 @@ pub struct NoteQuery {
     /// 文档树需要展示这些文件；主文档列表默认不传，保持旧行为。
     #[serde(default)]
     pub include_external_docs: Option<bool>,
+    /// true 时 `keyword` 同时匹配标题与正文；false/None 只匹配标题（默认，保持旧行为）。
+    /// 正文匹配复用全局搜索的中文加权 n-gram 逻辑。
+    #[serde(default)]
+    pub search_content: Option<bool>,
 }
 
 // ─── 文件夹 ───────────────────────────────────
