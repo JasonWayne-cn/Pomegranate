@@ -322,6 +322,34 @@ fn wrap_template(
         TemplateLayout::Web => "",
         TemplateLayout::Document => "\n  @page { size: A4; margin: 2.54cm; }",
     };
+    // 基准字号：Web 用 px（浏览器阅读）；Document 用 pt —— WPS 会把 px 错写进
+    // `w:sz`（16px → 6pt）。文档版式的字号覆盖在模板末尾，这里先把基准换掉。
+    let body_font_size_css = match layout {
+        TemplateLayout::Web => "font-size: 16px;",
+        TemplateLayout::Document => "font-size: 11pt;",
+    };
+    // Word / WPS 的 HTML 导入器**按错误比例把 px 写进 `w:sz`**：模板里的
+    // `body { font-size: 16px }` 会变成 `w:sz=12`（6pt），正文小到看不清；
+    // 而 `<pre>` 会落到 12pt 的 HTML Preformatted 样式，反而比正文大。
+    // 文档版式统一改用 pt（Word 的原生单位），并按编辑器基准 15px ≈ 11.25pt
+    // 对齐：正文 11pt、代码 10pt。Web 版式仍保留 px，不参与 Word 映射。
+    // 必须放在模板 CSS 的最后，靠级联覆盖前面的 px/em 声明。
+    let document_type_css = match layout {
+        TemplateLayout::Web => "",
+        TemplateLayout::Document => {
+            r#"
+  /* ── Document 版式：Word / WPS 字号覆盖（pt）── */
+  body, p, li, td, th, blockquote, .tiptap-callout { font-size: 11pt; }
+  h1 { font-size: 21pt; }
+  h2 { font-size: 17pt; }
+  h3 { font-size: 14pt; }
+  h4 { font-size: 12.5pt; }
+  h5 { font-size: 11pt; }
+  h6 { font-size: 10.5pt; }
+  pre, pre code, code { font-size: 10pt; }
+  .kb-code-caption { font-size: 9.5pt; }"#
+        }
+    };
     // markdown 路径的首元素恒为模板自己插的这个 h1，直接打上归零 class；
     // 前端 DOM 路径的首/末元素由 `editorDomToSelfContainedHtml` 负责标记（它才知道是哪个）
     let title_html = if insert_title {
@@ -357,7 +385,7 @@ fn wrap_template(
     font-family: {body_font};
     color: var(--fg);
     line-height: 1.7;{page_css}
-    font-size: 16px;
+    {body_font_size_css}
   }}
   h1, h2, h3, h4, h5, h6 {{
     margin: 1.6em 0 0.6em;
@@ -369,6 +397,11 @@ fn wrap_template(
   h3 {{ font-size: 1.25em; }}
   h4 {{ font-size: 1em; }}
   p {{ margin: 0.8em 0; }}
+  /* 任务列表：导出前已拍平成「☑/☐ + 文本」段落（见前端 normalizeTaskLists），
+     这里只控制紧凑间距；不再依赖 <ul>/<li>，避免 WPS 多画一层 bullet。 */
+  .kb-task-list {{ margin: 0.5em 0; }}
+  .kb-task-item {{ margin: 0.2em 0; }}
+  .kb-task-mark {{ color: var(--muted); }}
   a {{ color: var(--link); text-decoration: none; }}
   a:hover {{ text-decoration: underline; }}
   /* 公式：markdown 重渲路径输出 .math-inline/.math-display（TeX 文本）；
@@ -400,6 +433,29 @@ fn wrap_template(
     line-height: 1.5;
   }}
   pre code {{ background: transparent; padding: 0; font-size: 0.92em; }}
+  /* 代码块命名（编辑器 NodeView 的「未命名（可选）」输入框）。
+     工具栏本身由前端剥离，只把用户真正填写的命名以 caption 形式带出来。
+     Word / WPS 的 HTML 导入器更认简单 class 选择器，因此不用伪类。 */
+  .kb-code-caption {{
+    margin: 0.8em 0 0.3em;
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--muted);
+  }}
+  /* 编辑器自定义 Callout：模板 CSS 与编辑器 CSS 是两份来源，这里补最小可读样式。
+     用实色而不是 color-mix/rgba——Word / WPS 的 HTML 导入器对半透明背景支持不稳。
+     图标按钮（.tiptap-callout-icon）已在前端剥离，不参与导出。 */
+  .tiptap-callout {{
+    margin: 1em 0;
+    padding: 8px 14px;
+    border-left: 4px solid #1677ff;
+    background: #f2f7ff;
+  }}
+  .tiptap-callout.tiptap-callout-tip {{ border-left-color: #52c41a; background: #f4fbf0; }}
+  .tiptap-callout.tiptap-callout-warning {{ border-left-color: #faad14; background: #fff9eb; }}
+  .tiptap-callout.tiptap-callout-danger {{ border-left-color: #ff4d4f; background: #fff2f0; }}
+  .tiptap-callout-body > :first-child {{ margin-top: 0; }}
+  .tiptap-callout-body > :last-child {{ margin-bottom: 0; }}
   blockquote {{
     margin: 1em 0;
     padding: 0.4em 16px;
@@ -418,7 +474,10 @@ fn wrap_template(
     padding: 8px 12px;
     text-align: left;
   }}
-  th {{ background: var(--bg-code); font-weight: 600; }}
+  /* 表头默认居中：编辑器里 <th> 走浏览器 UA 默认居中，模板之前把 th 与 td
+     统一设成左对齐，把表头也拉左了（用户报的表头居中丢失）。
+     单元格若带内联 text-align，仍以内联为准。 */
+  th {{ text-align: center; background: var(--bg-code); font-weight: 600; }}
   img {{ max-width: 100%; height: auto; border-radius: 4px; }}
   hr {{
     border: none;
@@ -476,7 +535,7 @@ fn wrap_template(
      ⚠️ 必须用 class 而非 `:first-child` —— 实测 WPS/Word 的 HTML 导入器**不支持伪类**
      （拿子选择器 + 伪类写归零规则，段前间距纹丝不动），但认 class 选择器与内联 style。 */
   .kb-doc-first {{ margin-top: 0; }}
-  .kb-doc-last {{ margin-bottom: 0; }}
+  .kb-doc-last {{ margin-bottom: 0; }}{document_type_css}
 </style>
 {katex_style}
 </head>
@@ -492,7 +551,9 @@ fn wrap_template(
         body = body,
         page_css = page_css,
         at_page_css = at_page_css,
+        body_font_size_css = body_font_size_css,
         katex_style = katex_style,
+        document_type_css = document_type_css,
     )
 }
 
@@ -716,6 +777,48 @@ mod tests {
             !html.contains("kb-hnum"),
             "markdown 路径不可能产出编号，这正是需要前端 DOM 路径的原因"
         );
+    }
+
+    /// 文档版式必须用 pt：Word / WPS 的 HTML 导入器会把 `16px` 写成 `w:sz=12`
+    /// （6pt），正文小到看不清；`<pre>` 又会落到 12pt 的 HTML Preformatted。
+    #[test]
+    fn document_layout_uses_pt_typography() {
+        let (html, _i, _m) = HtmlExportService::render_html_from_body(
+            "标题",
+            "<p>正文</p><pre><code>x</code></pre><table><tr><th>表头</th></tr></table>",
+            Path::new("/nonexistent"),
+            None,
+            TemplateLayout::Document,
+        );
+
+        assert!(
+            html.contains("body, p, li, td, th, blockquote, .tiptap-callout { font-size: 11pt; }"),
+            "文档版式正文字号应为 11pt"
+        );
+        assert!(
+            html.contains("pre, pre code, code { font-size: 10pt; }"),
+            "文档版式代码字号应比正文小一号（10pt）"
+        );
+        assert!(html.contains("h2 { font-size: 17pt; }"));
+        assert!(
+            html.contains("th { text-align: center;"),
+            "表头应居中，不能沿用 td 的左对齐"
+        );
+    }
+
+    /// Web 版式保留 px（16px 更适合浏览器阅读），但表头居中同样要生效。
+    #[test]
+    fn web_layout_keeps_px_typography_and_centered_header() {
+        let (html, _i, _m) = HtmlExportService::render_html_from_body(
+            "标题",
+            "<p>正文</p><table><tr><th>表头</th></tr></table>",
+            Path::new("/nonexistent"),
+            None,
+            TemplateLayout::Web,
+        );
+        assert!(html.contains("font-size: 16px;"), "Web 版式应保留 16px 基准");
+        assert!(!html.contains("font-size: 21pt;"), "Web 版式不应注入文档 pt 覆盖");
+        assert!(html.contains("th { text-align: center;"));
     }
 
     /// 不传字体 = 老行为：模板自带的通用中文链，且不给标题额外加 font-family

@@ -35,6 +35,7 @@ import { relativeTime, stripHtml } from "@/lib/utils";
 import { editorDomToSelfContainedHtml, printEditorContent } from "@/lib/printNote";
 import { useModuleConfig } from "@/hooks/useModuleConfig";
 import { TiptapEditor } from "@/components/editor";
+import { getHeadingNumberEntries } from "@/components/editor/HeadingNumber";
 import { EditorOutline } from "@/components/editor/EditorOutline";
 import { EditorStats } from "@/components/editor/EditorStats";
 import { TagColorPicker } from "@/components/TagColorPicker";
@@ -1483,8 +1484,34 @@ function DesktopNoteEditorPage() {
     }
   }
 
-  /** Word 引擎提示：转换器保真高，内置生成器会简化复杂版式。 */
+  /**
+   * 导出用的结构化文档模型：editor.getJSON() + 标题自动编号。
+   *
+   * 标题编号只活在 ProseMirror decoration 里，JSON 本身没有；按 heading 顺序
+   * 单独传给后端，由结构化渲染器补到标题文本前。
+   */
+  function buildExportBodyJson():
+    | { doc: Record<string, unknown>; headingNumbers: string[] }
+    | undefined {
+    if (!editorInstance) return undefined;
+    try {
+      return {
+        doc: editorInstance.getJSON() as Record<string, unknown>,
+        headingNumbers: getHeadingNumberEntries(editorInstance.state).map(
+          (entry) => entry.label ?? "",
+        ),
+      };
+    } catch (e) {
+      console.warn("[export] 生成结构化 JSON 失败，退回 HTML / Markdown:", e);
+      return undefined;
+    }
+  }
+
+  /** Word 引擎提示：结构化导出最一致，转换器次之，内置生成器会简化复杂版式。 */
   function wordEngineHint(engine: WordExportResult["engine"]): string {
+    if (engine === "structured") {
+      return "按编辑器文档模型结构化生成，标题/列表/表格/代码块与复杂版式一致性更高";
+    }
     return engine === "converter"
       ? "使用本机 Office / WPS / LibreOffice 转换，版式保真度较高"
       : "未检测到 Office / WPS / LibreOffice，已使用内置生成器（复杂版式可能简化）";
@@ -1501,8 +1528,16 @@ function DesktopNoteEditorPage() {
     // 实时 DOM 内嵌图片/附件需要时间，先给 loading 再生成
     const hideLoading = message.loading("正在生成 Word…", 0);
     try {
+      // 结构化 JSON 优先（含复杂版式）；HTML 作为后端回退（转换器路径）保留。
+      const bodyJson = buildExportBodyJson();
       const bodyHtml = await buildExportBodyHtml();
-      const result = await exportApi.exportSingleToWord(noteId, filePath, bodyHtml);
+      const result = await exportApi.exportSingleToWord(
+        noteId,
+        filePath,
+        bodyHtml,
+        bodyJson?.doc,
+        bodyJson?.headingNumbers,
+      );
       hideLoading();
       const parts = [
         `嵌入图片 ${result.imagesEmbedded} 张`,
@@ -1570,8 +1605,8 @@ function DesktopNoteEditorPage() {
             </p>
           </div>
         ),
-        okText: "打开所在文件夹",
-        onOk: () => revealItemInDir(result.filePath).catch(() => {}),
+        okText: "打开文件",
+        onOk: () => openPath(result.filePath).catch(() => {}),
         closable: true,
       });
     } catch (e) {

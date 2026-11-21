@@ -107,7 +107,12 @@ pub fn export_single_note_to_word(
     // 前端编辑器实时 DOM（已内嵌资源）。给了就用它，能带上只活在渲染层的
     // 标题自动编号；不给则退回 markdown 重渲（批量导出等场景）。
     body_html: Option<String>,
-    // 用户设置里的正文 / 标题字体；只在转换器路径生效（见 service 注释）
+    // 编辑器文档模型（editor.getJSON()）。有它时优先走结构化原生渲染，
+    // 保留 callout / 分栏 / 代码块命名 / 表格列宽等语义。
+    body_json: Option<serde_json::Value>,
+    // 与文档中 heading 顺序一一对应的自动编号标签（空串 = 无编号）
+    heading_numbers: Option<Vec<String>>,
+    // 用户设置里的正文 / 标题字体
     fonts: Option<ExportFonts>,
 ) -> Result<WordExportResult, String> {
     let note = state
@@ -125,6 +130,8 @@ pub fn export_single_note_to_word(
         &target,
         &assets_root,
         body_html.as_deref(),
+        body_json.as_ref(),
+        heading_numbers.as_deref(),
         fonts.as_ref(),
     )
     .map_err(|e| e.to_string())

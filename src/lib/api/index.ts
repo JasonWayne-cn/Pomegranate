@@ -1226,13 +1226,22 @@ export const exportApi = {
    *
    *  `bodyHtml`：编辑器实时 DOM（用 printNote 的 editorDomToSelfContainedHtml 生成）。
    *  传了就用它，导出物才会带上**标题自动编号** —— 编号是 ProseMirror widget
-   *  decoration，不写进 doc / .md，后端拿 markdown 重渲永远看不到。省略则退回旧管线。 */
-  exportSingleToWord: (id: number, targetPath: string, bodyHtml?: string) =>
+   *  decoration，不写进 doc / .md，后端拿 markdown 重渲永远看不到。省略则退回旧管线。
+   *  `bodyJson`：editor.getJSON() 的文档模型，后端优先用它做结构化原生渲染；
+   *  `headingNumbers` 与 JSON 中的 heading 顺序一一对应（空串 = 无编号）。 */
+  exportSingleToWord: (
+    id: number,
+    targetPath: string,
+    bodyHtml?: string,
+    bodyJson?: unknown,
+    headingNumbers?: string[],
+  ) =>
     invoke<WordExportResult>("export_single_note_to_word", {
       id,
       targetPath,
       bodyHtml,
-      // 字体只在「系统转换器」路径生效；无转换器时后端回退原生 docx，仍是 Word 默认样式
+      bodyJson,
+      headingNumbers,
       fonts: currentExportFonts(),
     }),
   /** T-020 导出单条笔记为 HTML（单文件，图片内嵌 base64）。`bodyHtml` 同上 */

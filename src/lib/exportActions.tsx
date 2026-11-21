@@ -62,14 +62,26 @@ export async function exportNoteAsMarkdown(id: number) {
  * `bodyHtml`：编辑器实时 DOM。只有编辑器里能拿到 —— 标题自动编号是 ProseMirror 的
  * widget decoration，不写进 .md，后端重渲看不到它。侧边栏/列表页没有实时 DOM，省略即可。
  */
-export async function exportNoteAsWord(id: number, title: string, bodyHtml?: string) {
+export async function exportNoteAsWord(
+  id: number,
+  title: string,
+  bodyHtml?: string,
+  bodyJson?: unknown,
+  headingNumbers?: string[],
+) {
   const filePath = await save({
     defaultPath: `${safeFileName(title)}.docx`,
     filters: [{ name: "Word", extensions: ["docx"] }],
   });
   if (!filePath) return;
   try {
-    const r = await exportApi.exportSingleToWord(id, filePath, bodyHtml);
+    const r = await exportApi.exportSingleToWord(
+      id,
+      filePath,
+      bodyHtml,
+      bodyJson,
+      headingNumbers,
+    );
     const parts = [`嵌入图片 ${r.imagesEmbedded} 张`];
     if (r.imagesMissing > 0) parts.push(`${r.imagesMissing} 张缺失，已用占位符替代`);
     if (r.attachmentsCopied > 0) {

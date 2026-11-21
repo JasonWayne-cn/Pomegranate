@@ -45,6 +45,142 @@ fn gfm_options(enable_math: bool) -> Options {
 /// 到达深度上限后直接按纯文本落盘，杜绝无限递归。
 const MAX_HTML_FLUSH_DEPTH: u32 = 4;
 
+/// 原生 docx 的列表编号 ID（对应 `build_numberings` 里的 Numbering 实例）
+pub(crate) const BULLET_NUM_ID: usize = 1;
+pub(crate) const ORDERED_NUM_ID: usize = 2;
+
+/// 原生 docx 的样式表。
+///
+/// docx-rs 默认只生成一个空的 Normal 样式；`Paragraph::style("Heading2")` 在
+/// styles.xml 里找不到定义时，Word 会静默回退成正文 —— 标题没有字号/加粗/
+/// 大纲级别，导航窗格与目录也看不到。这里显式补齐：
+/// - Normal 默认 11pt（与编辑器 15px ≈ 11.25pt 对齐）
+/// - Heading1–6：字号、加粗、outlineLvl（Word 导航/目录依赖它）
+/// - Title：文档大标题
+/// 字号单位是半磅（`sz`），21pt = 42。
+fn build_styles(state: &RenderState) -> Styles {
+    build_styles_for_fonts(state.body_font.as_deref(), state.heading_font.as_deref())
+}
+
+/// 与 [`build_styles`] 相同，但字体从参数传入 —— 结构化 JSON 渲染器没有
+/// [`RenderState`]，直接复用它。
+pub(crate) fn build_styles_for_fonts(
+    body_font: Option<&str>,
+    heading_font: Option<&str>,
+) -> Styles {
+    let mut styles = Styles::new().default_size(22); // 11pt
+    if let Some(font) = body_font {
+        styles = styles.default_fonts(
+            RunFonts::new()
+                .east_asia(font.to_string())
+                .ascii(font.to_string()),
+        );
+    }
+
+    // 与编辑器 15px 基准对应的标题字号：h1 21pt / h2 17pt / h3 14pt /
+    // h4 12.5pt / h5 11pt / h6 10.5pt
+    let heading_sizes = [42usize, 34, 28, 25, 22, 21];
+    for (index, size) in heading_sizes.iter().enumerate() {
+        let mut style = Style::new(format!("Heading{}", index + 1), StyleType::Paragraph)
+            .name(format!("heading {}", index + 1))
+            .based_on("Normal")
+            .next("Normal")
+            .q_format(true)
+            .size(*size)
+            .bold()
+            .outline_lvl(index);
+        if let Some(font) = heading_font {
+            style = style.fonts(
+                RunFonts::new()
+                    .east_asia(font.to_string())
+                    .ascii(font.to_string()),
+            );
+        }
+        styles = styles.add_style(style);
+    }
+
+    let mut title = Style::new("Title", StyleType::Paragraph)
+        .name("Title")
+        .based_on("Normal")
+        .next("Normal")
+        .q_format(true)
+        .size(48)
+        .bold();
+    if let Some(font) = heading_font {
+        title = title.fonts(
+            RunFonts::new()
+                .east_asia(font.to_string())
+                .ascii(font.to_string()),
+        );
+    }
+    styles.add_style(title)
+}
+
+/// 原生 docx 的列表编号定义：bullet（numId=1）/ decimal（numId=2），各 3 级。
+pub(crate) fn build_numberings() -> Numberings {
+    let mut bullet = AbstractNumbering::new(0);
+    let mut ordered = AbstractNumbering::new(1);
+    let bullet_marks = ["•", "◦", "▪"];
+
+    for level in 0..3usize {
+        let indent = ((level as i32) + 1) * 360;
+        bullet = bullet.add_level(
+            Level::new(
+                level,
+                Start::new(1),
+                NumberFormat::new("bullet"),
+                LevelText::new(bullet_marks[level]),
+                LevelJc::new("left"),
+            )
+            .indent(
+                Some(indent),
+                Some(SpecialIndentType::Hanging(360)),
+                None,
+                None,
+            ),
+        );
+        ordered = ordered.add_level(
+            Level::new(
+                level,
+                Start::new(1),
+                NumberFormat::new("decimal"),
+                LevelText::new(format!("%{}.", level + 1)),
+                LevelJc::new("left"),
+            )
+            .indent(
+                Some(indent),
+                Some(SpecialIndentType::Hanging(360)),
+                None,
+                None,
+            ),
+        );
+    }
+
+    Numberings::new()
+        .add_abstract_numbering(bullet)
+        .add_numbering(Numbering::new(BULLET_NUM_ID, 0))
+        .add_abstract_numbering(ordered)
+        .add_numbering(Numbering::new(ORDERED_NUM_ID, 1))
+}
+
+/// 原生 docx 的表格边框：浅灰细线，与导出模板一致。
+pub(crate) fn table_borders() -> TableBorders {
+    TableBorders::new()
+        .set(TableBorder::new(TableBorderPosition::Top).size(4).color("D0D7DE"))
+        .set(TableBorder::new(TableBorderPosition::Left).size(4).color("D0D7DE"))
+        .set(TableBorder::new(TableBorderPosition::Bottom).size(4).color("D0D7DE"))
+        .set(TableBorder::new(TableBorderPosition::Right).size(4).color("D0D7DE"))
+        .set(TableBorder::new(TableBorderPosition::InsideH).size(4).color("D0D7DE"))
+        .set(TableBorder::new(TableBorderPosition::InsideV).size(4).color("D0D7DE"))
+}
+
+/// 创建一个带样式表与列表编号的 docx（原生两路共用）。
+fn new_docx(state: &RenderState) -> Docx {
+    Docx::new()
+        .styles(build_styles(state))
+        .numberings(build_numberings())
+}
+
 /// 导出结果
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,7 +192,8 @@ pub struct WordExportResult {
     pub attachments_copied: usize,
     /// 转换器路径中直接内嵌进 docx 的非图片附件数（data: 链接）
     pub attachments_inlined: usize,
-    /// 实际使用的生成引擎：`converter`（本机 Office/WPS/LibreOffice）或 `native`（内置生成器）
+    /// 实际使用的生成引擎：`structured`（编辑器 JSON 结构化渲染）/
+    /// `converter`（本机 Office/WPS/LibreOffice）/ `native`（HTML/Markdown 兜底）
     pub engine: String,
 }
 
@@ -72,21 +209,57 @@ impl WordExportService {
     ///
     /// 这样：装了 Office/WPS/LibreOffice 的机器拿到高保真结果，裸机也至少能把
     /// 文字 + 表格 + 图片 + 列表导出来，不再「只剩标题」。
-    /// `body_html`：前端传来的**编辑器实时 DOM**（已内嵌资源）。给了就用它替代
-    /// markdown 重渲 —— 只有这样才能带上标题自动编号（widget decoration 不进 .md）。
-    /// 传 None 走老路（批量导出等拿不到前端渲染的场景）。
+    /// `body_html`：前端传来的**编辑器实时 DOM**（已内嵌资源）。转换器路径与
+    /// 原生 HTML 回退都用它；传 None 走 markdown 重渲（批量导出等场景）。
     ///
-    /// `fonts`：用户在设置里选的正文 / 标题字体。**只有转换器路径能跟随**——它走的是
-    /// HTML 模板，字体写在 CSS 里；原生 docx 回退路径的字体分散在十几处 Run 上，
-    /// 不在本次范围内，回退时仍是 Word 默认样式。
+    /// `body_json`：`editor.getJSON()` 的文档模型。**有它时优先走结构化渲染**
+    /// （`export_word_json`），保留 callout / 分栏 / 代码块命名 / 表格列宽等语义；
+    /// 结构化失败才回退转换器 / HTML。
+    ///
+    /// `heading_numbers`：与 JSON 里 heading 顺序一一对应的自动编号标签。
+    ///
+    /// `fonts`：用户在设置里选的正文 / 标题字体；结构化与转换器路径都会跟随。
     pub fn export_single_best_effort(
         title: &str,
         content: &str,
         target_path: &Path,
         assets_root: &Path,
         body_html: Option<&str>,
+        body_json: Option<&serde_json::Value>,
+        heading_numbers: Option<&[String]>,
         fonts: Option<&ExportFonts>,
     ) -> Result<WordExportResult, AppError> {
+        // 1) 编辑器文档模型优先：结构化渲染保留 callout / 分栏 / 代码块命名 /
+        //    表格列宽等语义，且不依赖本机是否安装 Office。
+        if let Some(json) = body_json {
+            match serde_json::from_value::<crate::services::export_word_json::PmNode>(
+                json.clone(),
+            ) {
+                Ok(doc) => {
+                    let numbers: &[String] = heading_numbers.unwrap_or(&[]);
+                    match crate::services::export_word_json::export_single_from_json(
+                        title,
+                        &doc,
+                        numbers,
+                        target_path,
+                        assets_root,
+                        fonts,
+                    ) {
+                        Ok(result) => return Ok(result),
+                        Err(e) => log::warn!(
+                            "Word 导出：结构化 JSON 渲染失败，回退系统转换器 / HTML：{}",
+                            e
+                        ),
+                    }
+                }
+                Err(e) => log::warn!(
+                    "Word 导出：body_json 解析失败，回退系统转换器 / HTML：{}",
+                    e
+                ),
+            }
+        }
+
+        // 2) 本机 Office / WPS / LibreOffice：HTML 模板转换（无 JSON 的场景）
         if converter::detect_converter() != DocConverter::None {
             match Self::export_via_converter(
                 title,
@@ -146,6 +319,11 @@ impl WordExportService {
         // inline_assets 会再跑一遍图片内嵌，对已是 data: 的资源是幂等的。
         let (html, _, attachments_inlined) = HtmlExportService::inline_assets(&html, assets_root);
 
+        // 列表项内的 <p> 拍平：Word / WPS 会把 <li> 与其中的 <p> 当成两个段落，
+        // 生成「空编号段 + 普通段」导致编号翻倍。前端 DOM 路径已拍平，这里兜底
+        // markdown 重渲路径（松散列表会被 pulldown-cmark 输出成 <li><p>）。
+        let html = flatten_list_item_paragraphs(&html);
+
         // 临时工作目录用纯 ASCII 路径与文件名，规避部分转换器对非 ASCII 路径的兼容问题
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -203,10 +381,10 @@ impl WordExportService {
         assets_root: &Path,
         fonts: Option<&ExportFonts>,
     ) -> Result<WordExportResult, AppError> {
-        let mut docx = Docx::new();
         let mut state = RenderState::new(assets_root.to_path_buf()).with_fonts(fonts);
+        let mut docx = new_docx(&state);
 
-        // 标题（H1 大字号）
+        // 标题（Title 样式：24pt 加粗）
         if !title.is_empty() {
             let mut title_run = Run::new().add_text(title).size(48).bold();
             if let Some(family) = state.heading_font.clone() {
@@ -215,7 +393,7 @@ impl WordExportService {
                 );
             }
             docx = docx.add_paragraph(
-                Paragraph::new().style("Heading1").add_run(title_run),
+                Paragraph::new().style("Title").add_run(title_run),
             );
         }
 
@@ -265,8 +443,8 @@ impl WordExportService {
         assets_root: &Path,
         fonts: Option<&ExportFonts>,
     ) -> Result<WordExportResult, AppError> {
-        let mut docx = Docx::new();
         let mut state = RenderState::new(assets_root.to_path_buf()).with_fonts(fonts);
+        let mut docx = new_docx(&state);
         state.html_buffer = body_html.to_string();
         flush_html_buffer(&mut state, &mut docx)?;
         state.flush_paragraph(&mut docx);
@@ -289,7 +467,7 @@ impl WordExportService {
     }
 
     /// 把内存中的 docx 写盘（转换器/原生两路共用）。
-    fn write_docx(docx: Docx, target_path: &Path) -> Result<(), AppError> {
+    pub(crate) fn write_docx(docx: Docx, target_path: &Path) -> Result<(), AppError> {
         let file = std::fs::File::create(target_path)?;
         docx.build()
             .pack(file)
@@ -318,8 +496,6 @@ struct RenderState {
     in_blockquote: bool,
     /// 列表层级（嵌套深度）+ 当前是有序列表？
     list_stack: Vec<bool>,
-    /// 当前列表项编号（按层级）
-    list_counters: Vec<u32>,
     /// 表格状态
     in_table: bool,
     table_rows: Vec<TableRow>,
@@ -360,7 +536,6 @@ impl RenderState {
             code_block_content: String::new(),
             in_blockquote: false,
             list_stack: Vec::new(),
-            list_counters: Vec::new(),
             in_table: false,
             table_rows: Vec::new(),
             current_row_cells: Vec::new(),
@@ -402,23 +577,23 @@ impl RenderState {
             p = p.style(style);
         }
         if self.in_blockquote {
-            // 引用：左缩进 + 灰色 + 斜体感
+            // 引用：左缩进 + 左侧竖线 + 浅灰底（与导出模板一致）
             p = p.indent(Some(720), None, None, None);
+            p.property = p
+                .property
+                .set_border(
+                    ParagraphBorder::new(ParagraphBorderPosition::Left)
+                        .size(18)
+                        .color("D0D7DE")
+                        .space(8),
+                )
+                .shading(Shading::new().fill("F6F8FA"));
         }
-        // 列表前缀（手动加，简化版）
+        // 列表：用 numbering.xml 的真编号（Word 自动处理序号与悬挂缩进）
         if let Some(&ordered) = self.list_stack.last() {
-            let depth = self.list_stack.len();
-            let indent = (depth as i32) * 360;
-            p = p.indent(Some(indent), None, None, None);
-            let prefix = if ordered {
-                let n = self.list_counters.last().copied().unwrap_or(1);
-                format!("{}. ", n)
-            } else {
-                "• ".to_string()
-            };
-            // 在第一个 run 前插一个 prefix run
-            let prefix_run = Run::new().add_text(prefix);
-            self.pending_runs.insert(0, prefix_run);
+            let level = self.list_stack.len().saturating_sub(1);
+            let num_id = if ordered { ORDERED_NUM_ID } else { BULLET_NUM_ID };
+            p = p.numbering(NumberingId::new(num_id), IndentLevel::new(level));
         }
         for r in self.pending_runs.drain(..) {
             p = p.add_run(r);
@@ -451,12 +626,15 @@ impl RenderState {
             r = r.color("6b7280").italic();
         }
         if self.code > 0 {
-            r = r.fonts(
-                RunFonts::new()
-                    .east_asia("Courier New")
-                    .ascii("Courier New"),
-            );
-            r = r.color("c7254e");
+            // 行内代码继承正文颜色，只加等宽字体 + 浅灰底纹（与编辑器一致）
+            r = r
+                .fonts(
+                    RunFonts::new()
+                        .east_asia("Cascadia Code")
+                        .ascii("Cascadia Code"),
+                )
+                .size(20)
+                .shading(Shading::new().fill("F6F8FA"));
         }
         if self.link_url.is_some() {
             r = r.color("0563c1").underline("single");
@@ -477,7 +655,7 @@ impl RenderState {
 ///
 /// 跳过 CSS 关键字与平台别名（`system-ui` / `-apple-system` / `BlinkMacSystemFont` 等），
 /// 它们不是可写入 OOXML 的字体名。
-fn primary_font_family(stack: Option<&str>) -> Option<String> {
+pub(crate) fn primary_font_family(stack: Option<&str>) -> Option<String> {
     let stack = stack?.trim();
     for raw in stack.split(',') {
         let name = raw.trim().trim_matches('"').trim_matches('\'').trim();
@@ -553,6 +731,22 @@ fn flush_html_buffer(state: &mut RenderState, docx: &mut Docx) -> Result<(), App
     state.flush_paragraph(docx);
     state.html_flush_depth -= 1;
     Ok(())
+}
+
+/// 把列表项开头的直接 `<p>…</p>` 拍平成 `<li>…`。
+///
+/// 与前端 `flattenListItemParagraphs` 同因：Word / WPS 的 HTML 导入器会把
+/// `<li>` 翻译成一个**空的编号段落**，再把里面的 `<p>` 翻译成普通段落 ——
+/// 4 项列表会显示成 1~8，文本还掉到编号下一行。
+///
+/// 前端实时 DOM 路径已经拍平；这里兜底 markdown 重渲路径：松散列表会被
+/// pulldown-cmark 输出成 `<li>\n<p>…</p>\n</li>`。只处理**紧跟在 `<li>` 后**的
+/// 第一个 `<p>`，嵌套列表与其他块结构保持原样；对已拍平的 HTML 是幂等的。
+fn flatten_list_item_paragraphs(html: &str) -> String {
+    let Ok(re) = regex::Regex::new(r"(?s)<li>\s*<p>(.*?)</p>") else {
+        return html.to_string();
+    };
+    re.replace_all(html, "<li>${1}").into_owned()
 }
 
 /// 极简去标签：把 `<...>` 全部抹掉，仅保留可见文本。
@@ -645,22 +839,25 @@ fn handle_event(event: Event, state: &mut RenderState, docx: &mut Docx) -> Resul
         }
         Event::End(TagEnd::CodeBlock) => {
             state.flush_paragraph(docx); // 先冲掉之前的内容
-                                         // 整个代码块当作一个等宽字体段落，灰底（手工 shading）
+                                         // 每行一个段落；底纹放在**段落**上（整行浅灰），
+                                         // Run 级 shading 只会在文字背后上色，看起来是断开的色块。
             let content = std::mem::take(&mut state.code_block_content);
             for line in content.lines() {
-                let p = Paragraph::new()
+                let text = if line.is_empty() { " " } else { line };
+                let mut p = Paragraph::new()
                     .add_run(
                         Run::new()
-                            .add_text(line)
+                            .add_text(text)
                             .fonts(
                                 RunFonts::new()
-                                    .east_asia("Courier New")
-                                    .ascii("Courier New"),
+                                    .east_asia("Cascadia Code")
+                                    .ascii("Cascadia Code"),
                             )
-                            .size(20)
-                            .shading(Shading::new().fill("F6F8FA")),
+                            .size(20),
                     )
-                    .indent(Some(360), None, None, None);
+                    .indent(Some(360), None, None, None)
+                    .keep_lines(true);
+                p.property = p.property.shading(Shading::new().fill("F6F8FA"));
                 *docx = std::mem::take(docx).add_paragraph(p);
             }
             state.in_code_block = false;
@@ -675,23 +872,15 @@ fn handle_event(event: Event, state: &mut RenderState, docx: &mut Docx) -> Resul
         }
 
         // ── 列表 ──
-        Event::Start(Tag::List(start)) => {
-            state.list_stack.push(start.is_some());
-            state.list_counters.push(start.unwrap_or(1) as u32);
+        Event::Start(Tag::List(_start)) => {
+            state.list_stack.push(_start.is_some());
         }
         Event::End(TagEnd::List(_)) => {
             state.list_stack.pop();
-            state.list_counters.pop();
         }
         Event::Start(Tag::Item) => {}
         Event::End(TagEnd::Item) => {
             state.flush_paragraph(docx);
-            // 有序列表自增
-            if let Some(true) = state.list_stack.last() {
-                if let Some(c) = state.list_counters.last_mut() {
-                    *c += 1;
-                }
-            }
         }
 
         // ── 图片 ──
@@ -736,7 +925,7 @@ fn handle_event(event: Event, state: &mut RenderState, docx: &mut Docx) -> Resul
         Event::End(TagEnd::Table) => {
             if !state.table_rows.is_empty() {
                 let rows = std::mem::take(&mut state.table_rows);
-                let table = Table::new(rows);
+                let table = Table::new(rows).set_borders(table_borders());
                 *docx = std::mem::take(docx).add_table(table);
                 // 表格后插一个空段，避免下一个块紧贴表格底
                 *docx = std::mem::take(docx).add_paragraph(Paragraph::new());
@@ -780,7 +969,12 @@ fn handle_event(event: Event, state: &mut RenderState, docx: &mut Docx) -> Resul
             if state.in_table_head {
                 run = run.bold();
             }
-            let mut cell = TableCell::new().add_paragraph(Paragraph::new().add_run(run));
+            let mut para = Paragraph::new().add_run(run);
+            if state.in_table_head {
+                // 与编辑器 / 服务端模板保持一致：表头默认居中
+                para = para.align(AlignmentType::Center);
+            }
+            let mut cell = TableCell::new().add_paragraph(para);
             if state.in_table_head {
                 cell = cell.shading(Shading::new().fill("F2F2F2"));
             }
@@ -838,7 +1032,7 @@ fn handle_event(event: Event, state: &mut RenderState, docx: &mut Docx) -> Resul
 /// - `kb-asset://...` / `asset://localhost/...` / `file://...` / 绝对 / 相对路径
 ///   （统一交给 `asset_path::resolve_content_url`）
 /// - 跳过 `http(s)://` 外链（避免迁移 docx 时拉外网）
-fn resolve_image(url: &str, data_dir: &Path) -> Option<Vec<u8>> {
+pub(crate) fn resolve_image(url: &str, data_dir: &Path) -> Option<Vec<u8>> {
     // data: URL
     if let Some(stripped) = url.strip_prefix("data:") {
         if let Some(idx) = stripped.find(";base64,") {
@@ -870,7 +1064,7 @@ const DEFAULT_H_EMU: u32 = 3_000_000;
 ///
 /// 流程：读图片像素尺寸 → 按 96 DPI 转 EMU → 超过 MAX_WIDTH / MAX_HEIGHT 则等比缩。
 /// 头解析失败时返回默认 4:3 矩形（兼容旧行为，避免崩）。
-fn compute_image_emu(bytes: &[u8]) -> (u32, u32) {
+pub(crate) fn compute_image_emu(bytes: &[u8]) -> (u32, u32) {
     let Some((w_px, h_px)) = read_image_dimensions(bytes) else {
         return (DEFAULT_W_EMU, DEFAULT_H_EMU);
     };
@@ -892,12 +1086,45 @@ fn compute_image_emu(bytes: &[u8]) -> (u32, u32) {
     (w_emu as u32, h_emu as u32)
 }
 
+/// 按编辑器里拖拽后的 `width` / `height`（px）换算 EMU，仍受 A4 可用宽高上限约束。
+/// 只给一个维度时按原图比例补另一个维度。
+pub(crate) fn image_emu_for_attrs(
+    bytes: &[u8],
+    width_px: Option<u32>,
+    height_px: Option<u32>,
+) -> (u32, u32) {
+    let orig = read_image_dimensions(bytes).filter(|(w, h)| *w > 0 && *h > 0);
+    let (base_w, base_h) = match (width_px, height_px) {
+        (Some(w), Some(h)) if w > 0 && h > 0 => (w as u64, h as u64),
+        (Some(w), _) if w > 0 => match orig {
+            Some((ow, oh)) => (w as u64, (w as u64) * oh as u64 / ow as u64),
+            None => (w as u64, (w as u64) * 3 / 4),
+        },
+        (_, Some(h)) if h > 0 => match orig {
+            Some((ow, oh)) => ((h as u64) * ow as u64 / oh as u64, h as u64),
+            None => ((h as u64) * 4 / 3, h as u64),
+        },
+        _ => return compute_image_emu(bytes),
+    };
+    let mut w_emu = base_w * EMU_PER_PIXEL;
+    let mut h_emu = base_h * EMU_PER_PIXEL;
+    if w_emu > MAX_WIDTH_EMU {
+        h_emu = h_emu * MAX_WIDTH_EMU / w_emu;
+        w_emu = MAX_WIDTH_EMU;
+    }
+    if h_emu > MAX_HEIGHT_EMU {
+        w_emu = w_emu * MAX_HEIGHT_EMU / h_emu;
+        h_emu = MAX_HEIGHT_EMU;
+    }
+    (w_emu as u32, h_emu as u32)
+}
+
 /// 极简图片头解析：返回 (width_px, height_px)。
 ///
 /// 仅识别 PNG / JPEG / GIF / BMP / WebP（覆盖编辑器里常见的所有格式）。
 /// 不调用 image 解码 crate —— 只读 header 几十字节、零依赖、几乎零开销。
 /// 不识别时返回 None，调用方走默认尺寸兜底。
-fn read_image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+pub(crate) fn read_image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     if bytes.len() < 12 {
         return None;
     }
@@ -1024,50 +1251,67 @@ fn pack_attachments(
     data_dir: &Path,
     docx: &mut Docx,
 ) -> Result<usize, AppError> {
-    // 1. 用 pulldown-cmark 事件流收集 (链接文字, 绝对路径)，比手写 markdown 正则稳
+    let links = collect_markdown_attachment_links(markdown, data_dir);
+    pack_attachment_list(links, target_path, docx)
+}
+
+/// 用 pulldown-cmark 事件流收集 markdown 里的本地附件链接（图片不在此列）。
+fn collect_markdown_attachment_links(
+    markdown: &str,
+    data_dir: &Path,
+) -> Vec<(String, PathBuf)> {
     let mut links: Vec<(String, PathBuf)> = Vec::new();
     let mut seen: HashSet<PathBuf> = HashSet::new();
-    {
-        let parser = Parser::new(markdown);
-        let mut cur: Option<(String, String)> = None; // (url, 累积文字)
-        for ev in parser {
-            match ev {
-                Event::Start(Tag::Link { dest_url, .. }) => {
-                    cur = Some((dest_url.into_string(), String::new()));
+    let parser = Parser::new(markdown);
+    let mut cur: Option<(String, String)> = None; // (url, 累积文字)
+    for ev in parser {
+        match ev {
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                cur = Some((dest_url.into_string(), String::new()));
+            }
+            Event::Text(t) => {
+                if let Some((_, ref mut txt)) = cur {
+                    txt.push_str(&t);
                 }
-                Event::Text(t) => {
-                    if let Some((_, ref mut txt)) = cur {
-                        txt.push_str(&t);
-                    }
-                }
-                Event::End(TagEnd::Link) => {
-                    if let Some((url, txt)) = cur.take() {
-                        if let Some(abs) = resolve_content_url(&url, data_dir) {
-                            if let Ok(canon) = abs.canonicalize() {
-                                if canon.is_file() && seen.insert(canon.clone()) {
-                                    let label = if txt.trim().is_empty() {
-                                        canon
-                                            .file_name()
-                                            .map(|n| n.to_string_lossy().into_owned())
-                                            .unwrap_or_else(|| "附件".to_string())
-                                    } else {
-                                        txt.trim().to_string()
-                                    };
-                                    links.push((label, canon));
-                                }
+            }
+            Event::End(TagEnd::Link) => {
+                if let Some((url, txt)) = cur.take() {
+                    if let Some(abs) = resolve_content_url(&url, data_dir) {
+                        if let Ok(canon) = abs.canonicalize() {
+                            if canon.is_file() && seen.insert(canon.clone()) {
+                                let label = if txt.trim().is_empty() {
+                                    canon
+                                        .file_name()
+                                        .map(|n| n.to_string_lossy().into_owned())
+                                        .unwrap_or_else(|| "附件".to_string())
+                                } else {
+                                    txt.trim().to_string()
+                                };
+                                links.push((label, canon));
                             }
                         }
                     }
                 }
-                _ => {}
             }
+            _ => {}
         }
     }
+    links
+}
+
+/// 把 `(label, 绝对路径)` 列表拷到 `<target>.attachments/`，并在文档末尾追加清单。
+///
+/// markdown 路径与结构化 JSON 路径共用（后者从 link mark 里收集同样的列表）。
+pub(crate) fn pack_attachment_list(
+    links: Vec<(String, PathBuf)>,
+    target_path: &Path,
+    docx: &mut Docx,
+) -> Result<usize, AppError> {
     if links.is_empty() {
         return Ok(0);
     }
 
-    // 2. 拷贝到 <target 同级>/<stem>.attachments/
+    // 拷贝到 <target 同级>/<stem>.attachments/
     let parent = target_path.parent().unwrap_or_else(|| Path::new("."));
     let stem = target_path
         .file_stem()
@@ -1295,6 +1539,187 @@ mod tests {
         std::env::temp_dir().join(format!("kb_export_word_test_{}_{}.docx", tag, nanos))
     }
 
+    /// 回归：WPS 会把 `<li><p>` 拆成「空编号段 + 普通段」，4 项列表变 1~8。
+    /// 拍平后每个列表项只应保留一个段。
+    #[test]
+    fn flatten_li_paragraphs_fixes_double_numbering() {
+        let html = "<ol>\n<li>\n<p>第一项</p>\n</li>\n<li><p>第二项</p></li>\n</ol>";
+        let out = flatten_list_item_paragraphs(html);
+        assert!(out.contains("<li>第一项"), "第一项应被拍平: {out}");
+        assert!(out.contains("<li>第二项"), "第二项应被拍平: {out}");
+        assert!(!out.contains("<li>\n<p>"), "不应残留 <li> 换行后的 <p>: {out}");
+        assert!(!out.contains("<li><p>"), "不应残留紧邻的 <p>: {out}");
+    }
+
+    #[test]
+    fn flatten_li_paragraphs_is_idempotent_and_keeps_nested_lists() {
+        let flat = "<li>text</li>";
+        assert_eq!(flatten_list_item_paragraphs(flat), flat);
+
+        let nested = "<li>\n<p>父项</p>\n<ul>\n<li><p>子项</p></li>\n</ul>\n</li>";
+        let out = flatten_list_item_paragraphs(nested);
+        assert!(out.contains("<li>父项"));
+        assert!(out.contains("<li>子项"));
+        assert!(out.contains("<ul>"), "嵌套列表应保留");
+    }
+
+    /// 真实转换器链路（需要本机 Office / WPS / LibreOffice，默认忽略）：
+    /// `<li><p>` 必须被拍平，否则 2 项列表会生成 4 个编号段（编号跳到 1~4）。
+    /// 手动验证：`cargo test services::export_word::tests::converter_export_flattens_list -- --ignored --nocapture`
+    #[test]
+    #[ignore = "需要本机安装 Office / WPS / LibreOffice"]
+    fn converter_export_flattens_list_items() {
+        if converter::detect_converter() == DocConverter::None {
+            eprintln!("未检测到转换器，跳过");
+            return;
+        }
+        let assets = std::env::temp_dir();
+        let body = "<ol><li><p>第一项</p></li><li><p>第二项</p></li></ol>";
+        let target = tmp_docx("list_items");
+        let result = WordExportService::export_single_best_effort(
+            "标题",
+            "",
+            &target,
+            &assets,
+            Some(body),
+            None,
+            None,
+            None,
+        )
+        .expect("列表导出应成功");
+        assert_eq!(result.engine, "converter");
+
+        let xml = docx_document_xml(&target);
+        assert_eq!(
+            xml.matches("<w:numPr>").count(),
+            2,
+            "每个列表项只应有一个编号段（实际可能被拆成空编号段 + 普通段）"
+        );
+        assert!(xml.contains("第一项") && xml.contains("第二项"));
+
+        let _ = std::fs::remove_file(&target);
+    }
+
+    /// 在 styles.xml 里按样式名取 `w:sz`（半磅值）。
+    fn style_size_half_points(styles: &str, name: &str) -> Option<u32> {
+        let style_re = regex::Regex::new(r"(?s)<w:style [^>]*>.*?</w:style>").ok()?;
+        let sz_re = regex::Regex::new(r#"<w:sz w:val="(\d+)""#).ok()?;
+        for m in style_re.find_iter(styles) {
+            let block = m.as_str();
+            if block.contains(&format!(r#"w:name w:val="{}""#, name)) {
+                return sz_re
+                    .captures(block)?
+                    .get(1)?
+                    .as_str()
+                    .parse::<u32>()
+                    .ok();
+            }
+        }
+        None
+    }
+
+    /// 真实转换器链路（需要本机 Office / WPS / LibreOffice，默认忽略）：
+    /// 文档版式必须使用 pt 字号（正文 11pt / 代码 10pt），表头必须居中。
+    /// 手动验证：`cargo test services::export_word::tests::converter_export_typography -- --ignored --nocapture`
+    #[test]
+    #[ignore = "需要本机安装 Office / WPS / LibreOffice"]
+    fn converter_export_typography_and_header_alignment() {
+        if converter::detect_converter() == DocConverter::None {
+            eprintln!("未检测到转换器，跳过");
+            return;
+        }
+        let assets = std::env::temp_dir();
+        let body = r#"<div class="tiptap">
+<p>正文段落，应导出为 11pt。</p>
+<pre><code>let x = 1;</code></pre>
+<table><tr><th>模式</th><th>行为</th></tr><tr><td>演示模式</td><td>自动切段</td></tr></table>
+</div>"#;
+        let target = tmp_docx("typography");
+        WordExportService::export_single_best_effort(
+            "标题",
+            "",
+            &target,
+            &assets,
+            Some(body),
+            None,
+            None,
+            None,
+        )
+        .expect("导出应成功");
+
+        let styles = docx_styles_xml(&target);
+        assert_eq!(
+            style_size_half_points(&styles, "Normal (Web)"),
+            Some(22),
+            "正文应为 11pt（w:sz=22），而不是 px 误映射出的 6pt"
+        );
+        assert_eq!(
+            style_size_half_points(&styles, "HTML Preformatted"),
+            Some(20),
+            "代码块应为 10pt（w:sz=20），不能比正文还大"
+        );
+
+        let xml = docx_document_xml(&target);
+        let pos = xml.find("模式").expect("表头文字应存在");
+        let start = xml[..pos].rfind("<w:p ").expect("应能定位表头段落");
+        let end = xml[pos..].find("</w:p>").map(|e| pos + e + 6).unwrap();
+        assert!(
+            xml[start..end].contains(r#"<w:jc w:val="center"/>"#),
+            "表头应居中：{}",
+            &xml[start..end]
+        );
+
+        let _ = std::fs::remove_file(&target);
+    }
+
+    /// 真实转换器链路（默认忽略）：前端归一化后的任务列表是
+    /// `<div class="kb-task-list"><p class="kb-task-item">☑ <s>…</s></p>`。
+    /// 这里锁住「不生成 bullet/编号」与「已完成项保留删除线」两个契约。
+    #[test]
+    #[ignore = "需要本机安装 Office / WPS / LibreOffice"]
+    fn converter_export_normalized_task_list() {
+        if converter::detect_converter() == DocConverter::None {
+            eprintln!("未检测到转换器，跳过");
+            return;
+        }
+        let assets = std::env::temp_dir();
+        let body = r#"<div class="kb-task-list">
+<p class="kb-task-item"><span class="kb-task-mark">☑ </span><s>已完成任务</s></p>
+<p class="kb-task-item"><span class="kb-task-mark">☐ </span>未完成任务</p>
+</div>"#;
+        let target = tmp_docx("task_list");
+        WordExportService::export_single_best_effort(
+            "标题",
+            "",
+            &target,
+            &assets,
+            Some(body),
+            None,
+            None,
+            None,
+        )
+        .expect("任务列表导出应成功");
+
+        let xml = docx_document_xml(&target);
+        assert!(
+            !xml.contains("<w:numPr>"),
+            "归一化后的任务项不应生成 bullet/编号"
+        );
+        assert!(
+            xml.contains("<w:strike/>"),
+            "已勾选任务应保留删除线（<s> → w:strike）"
+        );
+        let pos = xml.find("已完成任务").expect("任务文字应存在");
+        let start = xml[..pos].rfind("<w:p ").expect("应能定位段落");
+        let end = xml[pos..].find("</w:p>").map(|e| pos + e + 6).unwrap();
+        assert!(
+            xml[start..end].contains("☑"),
+            "标记与文字应在同一段，而不是拆成多行"
+        );
+
+        let _ = std::fs::remove_file(&target);
+    }
+
     /// 回归：tiptap 表格带列宽会序列化成 `<table>` HTML 块。
     /// 旧实现把所有 Event::Html 丢弃 → 表格内容全丢（用户报的「只剩标题」）。
     /// 现在原生路径应把 HTML 表格经 html2md 还原，文档体积明显大于纯标题。
@@ -1351,6 +1776,94 @@ mod tests {
         let _ = std::fs::remove_file(&target);
     }
 
+    /// 原生路径必须给 Heading2 真实样式定义（字号 + outlineLvl），否则 Word
+    /// 找不到样式会回退正文，导航/目录里什么都没有。
+    #[test]
+    fn native_export_defines_heading_styles_with_outline() {
+        let assets = std::env::temp_dir();
+        let target = tmp_docx("heading_styles");
+        WordExportService::export_single("标题", "## 小标题\n\n正文", &target, &assets)
+            .expect("标题导出应成功");
+
+        let styles = docx_styles_xml(&target);
+        assert!(
+            styles.contains(r#"w:styleId="Heading2""#),
+            "styles.xml 应定义 Heading2"
+        );
+        assert!(
+            styles.contains(r#"w:outlineLvl w:val="1""#),
+            "Heading2 应带大纲级别，供导航/目录使用"
+        );
+        assert_eq!(
+            style_size_half_points(&styles, "heading 2"),
+            Some(34),
+            "Heading2 应为 17pt（w:sz=34）"
+        );
+
+        let xml = docx_document_xml(&target);
+        assert!(
+            xml.contains(r#"w:pStyle w:val="Heading2""#),
+            "正文标题段应引用 Heading2"
+        );
+
+        let _ = std::fs::remove_file(&target);
+    }
+
+    /// 原生列表必须用 numbering.xml 的真编号（Word 可自动续号/降级缩进），
+    /// 而不是手写「• / 1.」前缀。
+    #[test]
+    fn native_export_lists_use_word_numbering() {
+        let assets = std::env::temp_dir();
+        let md = "- 苹果\n- 香蕉\n\n1. 第一\n2. 第二\n";
+        let target = tmp_docx("numbering");
+        WordExportService::export_single("标题", md, &target, &assets).expect("列表导出应成功");
+
+        let xml = docx_document_xml(&target);
+        assert_eq!(
+            xml.matches("<w:numPr>").count(),
+            4,
+            "4 个列表项应各带一个 numPr"
+        );
+        assert!(xml.contains(r#"<w:numId w:val="1" />"#), "无序列表应使用 numId=1");
+        assert!(xml.contains(r#"<w:numId w:val="2" />"#), "有序列表应使用 numId=2");
+        assert!(!xml.contains("• "), "不应再手写 bullet 前缀");
+
+        let numbering = docx_numbering_xml(&target);
+        assert!(
+            numbering.contains(r#"w:numFmt w:val="bullet""#),
+            "numbering.xml 应包含 bullet 定义"
+        );
+        assert!(
+            numbering.contains(r#"w:numFmt w:val="decimal""#),
+            "numbering.xml 应包含 decimal 定义"
+        );
+
+        let _ = std::fs::remove_file(&target);
+    }
+
+    /// 代码块底纹必须落在段落属性 `pPr` 上，Word 才会整行铺灰；
+    /// 写在 run 上只会在文字背后上色。
+    #[test]
+    fn native_export_code_block_uses_paragraph_shading() {
+        let assets = std::env::temp_dir();
+        let target = tmp_docx("code_shading");
+        WordExportService::export_single("标题", "```rust\nlet x = 1;\n```\n", &target, &assets)
+            .expect("代码块导出应成功");
+
+        let xml = docx_document_xml(&target);
+        let pos = xml.find("let x = 1;").expect("代码文字应存在");
+        let start = xml[..pos].rfind("<w:p ").expect("应能定位代码段落");
+        let end = xml[pos..].find("</w:p>").map(|e| pos + e + 6).unwrap();
+        let para = &xml[start..end];
+        let ppr_end = para.find("</w:pPr>").expect("段落应有 pPr");
+        let ppr = &para[..ppr_end];
+        assert!(ppr.contains("<w:shd"), "底纹应在段落属性上：{ppr}");
+        assert!(ppr.contains("F6F8FA"), "代码块底纹应为 F6F8FA");
+        assert!(para.contains(r#"<w:sz w:val="20""#), "代码字号应为 10pt");
+
+        let _ = std::fs::remove_file(&target);
+    }
+
     /// 「裸机」场景（既无 LibreOffice 也无 Word/WPS COM）：`export_single_best_effort`
     /// 会回退到本函数，且**只拿 markdown 重渲**——笔记正文里的图片是 `kb-asset://<rel>`，
     /// 必须能顺着 assets_root 解析到真实文件并嵌进 docx。
@@ -1402,6 +1915,32 @@ mod tests {
         let mut doc = zip.by_name("word/document.xml").expect("应包含 document.xml");
         let mut xml = String::new();
         doc.read_to_string(&mut xml).expect("读取 document.xml");
+        xml
+    }
+
+    /// 读取 docx 里的 `word/styles.xml`（断言字号用）
+    fn docx_styles_xml(path: &Path) -> String {
+        use std::io::Read;
+        let file = std::fs::File::open(path).expect("docx 应存在");
+        let mut zip = zip::ZipArchive::new(file).expect("docx 应是 zip");
+        let mut styles = zip.by_name("word/styles.xml").expect("应包含 styles.xml");
+        let mut xml = String::new();
+        styles.read_to_string(&mut xml).expect("读取 styles.xml");
+        xml
+    }
+
+    /// 读取 docx 里的 `word/numbering.xml`（断言列表编号定义用）
+    fn docx_numbering_xml(path: &Path) -> String {
+        use std::io::Read;
+        let file = std::fs::File::open(path).expect("docx 应存在");
+        let mut zip = zip::ZipArchive::new(file).expect("docx 应是 zip");
+        let mut numbering = zip
+            .by_name("word/numbering.xml")
+            .expect("应包含 numbering.xml");
+        let mut xml = String::new();
+        numbering
+            .read_to_string(&mut xml)
+            .expect("读取 numbering.xml");
         xml
     }
 
@@ -1499,10 +2038,21 @@ mod tests {
         let target = tmp_docx("styles");
         WordExportService::export_single("标题", md, &target, &assets).expect("样式导出应成功");
 
-        let xml = docx_document_xml(&target).to_lowercase();
+        let raw = docx_document_xml(&target);
+        assert!(
+            raw.contains("<w:tblBorders"),
+            "表格应有完整边框"
+        );
+        assert!(raw.contains("D0D7DE"), "表格边框应为浅灰 D0D7DE");
+
+        let xml = raw.to_lowercase();
         assert!(xml.contains("6b7280"), "引用应为灰色");
         assert!(xml.contains("f6f8fa"), "代码块应有浅灰底纹");
         assert!(xml.contains("f2f2f2"), "表头应有底纹");
+        assert!(
+            xml.contains(r#"w:jc w:val="center""#),
+            "表头应与编辑器一致居中"
+        );
 
         let _ = std::fs::remove_file(&target);
     }

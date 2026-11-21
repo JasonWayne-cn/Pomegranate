@@ -1710,8 +1710,8 @@ export interface WordExportResult {
   attachmentsCopied: number;
   /** 转换器路径中直接内嵌为 data: 链接的非图片附件数 */
   attachmentsInlined: number;
-  /** 实际使用的生成引擎：converter = 本机 Office/WPS/LibreOffice；native = 内置生成器 */
-  engine: "converter" | "native";
+  /** 实际使用的生成引擎：structured = 编辑器 JSON 结构化渲染；converter = 本机 Office/WPS/LibreOffice；native = HTML/Markdown 兜底 */
+  engine: "structured" | "converter" | "native";
 }
 
 /** T-020 HTML 导出结果（单文件，图片 + 非图片附件均内嵌） */

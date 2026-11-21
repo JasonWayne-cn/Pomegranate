@@ -41,6 +41,8 @@ pub mod export_merge;
 pub mod doc_extract;
 #[cfg(desktop)]
 pub mod export_word;
+#[cfg(desktop)]
+pub mod export_word_json;
 pub mod folder;
 pub mod folder_watch;
 pub mod hash;

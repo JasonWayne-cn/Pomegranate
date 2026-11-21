@@ -56,6 +56,179 @@ export interface SelfContainedProgress {
 }
 
 /**
+ * 收集代码块命名（NodeView 工具栏里的 antd Input 的 `value`）。
+ *
+ * 为什么必须从**原 DOM** 读：`cloneNode(true)` 只复制 HTML 属性，不复制 input 的
+ * `value` property。等工具栏被剥掉之后，用户填的命名就再也拿不到了。
+ * 返回顺序与 DOM 里的 `.code-block-enhanced` 一致，供克隆后按序回填。
+ */
+function collectCodeBlockTitles(root: HTMLElement): string[] {
+  return Array.from(root.querySelectorAll(".code-block-enhanced")).map((block) => {
+    const el = block.querySelector<HTMLInputElement>(".code-block-title");
+    if (!el) return "";
+    const value = el.tagName === "INPUT" ? el.value : el.textContent ?? "";
+    return value.trim();
+  });
+}
+
+/**
+ * 把列表项里的直接 `<p>` 拍平到 `<li>` 上（`<li><p>文本</p></li>` → `<li>文本</li>`）。
+ *
+ * 起因：Tiptap 的列表项结构是 `<li><p>…</p></li>`，而 Word / WPS 的 HTML 导入器
+ * 会把 `<li>` 翻译成一个**空的编号段落**，再把里面的 `<p>` 翻译成普通段落 ——
+ * 结果每个列表项占两段、编号按段落递增（4 项会显示成 1~8），文本也掉到编号下一行。
+ * 扁平化后才会得到正常的「编号 + 文本」单段。
+ *
+ * 只处理直接子 `<p>`：嵌套列表、任务列表复选框等结构保持原样。一个列表项里有
+ * 多个 `<p>` 时用 `<br>` 连接，避免被合并成一行。
+ */
+function flattenListItemParagraphs(root: HTMLElement): void {
+  root.querySelectorAll("li").forEach((li) => {
+    const paragraphs = Array.from(li.children).filter(
+      (el): el is HTMLParagraphElement => el.tagName === "P",
+    );
+    paragraphs.forEach((p, index) => {
+      if (index > 0) {
+        li.insertBefore(document.createElement("br"), p);
+      }
+      while (p.firstChild) {
+        li.insertBefore(p.firstChild, p);
+      }
+      p.remove();
+    });
+  });
+}
+
+/**
+ * 把任务列表（`ul[data-type="taskList"]`）拍平成「☑/☐ + 文本」的普通段落。
+ *
+ * 为什么不能保留 `<ul><li><label><input/><div><p>` 原结构：
+ * - WPS 会把 `<li>` 转成一个 bullet 段，把 `<div>/<p>` 再转成另一个段 ——
+ *   用户看到的就是「• / 空方框 / 文本」三行，外加多余的 bullet；
+ * - 勾选状态的删除线只存在于编辑器 CSS（`[data-checked="true"] > div`），
+ *   导出的 HTML 不带这条 CSS，Word 里就没有删除线；
+ * - `<del>` 在 WPS 里会直接丢内容，必须用 `<s>`（实测映射为 `w:strike`）。
+ *
+ * 处理：整个任务列表替换成 `<div class="kb-task-list">`，每项一个
+ * `<p class="kb-task-item">`；已勾选文本包在 `<s>` 里，复选框换成 ☑/☐ 文本标记。
+ * 嵌套任务列表按缩进展开到父项之后。
+ */
+function normalizeTaskLists(root: HTMLElement): void {
+  // 只处理最外层任务列表，嵌套的在 emitTaskItems 里递归
+  root.querySelectorAll('ul[data-type="taskList"]').forEach((list) => {
+    if (list.parentElement?.closest('ul[data-type="taskList"]')) return;
+    const container = document.createElement("div");
+    container.className = "kb-task-list";
+    emitTaskItems(list, container, 0);
+    list.replaceWith(container);
+  });
+}
+
+/** 递归输出任务项：父项 → 嵌套任务项（缩进加深） */
+function emitTaskItems(list: Element, out: HTMLElement, depth: number): void {
+  Array.from(list.children).forEach((li) => {
+    if (li.tagName !== "LI") return;
+    const checked = li.getAttribute("data-checked") === "true";
+
+    const item = document.createElement("p");
+    item.className = "kb-task-item";
+    if (depth > 0) item.style.paddingLeft = `${depth * 1.5}em`;
+
+    const mark = document.createElement("span");
+    mark.className = "kb-task-mark";
+    mark.textContent = checked ? "☑ " : "☐ ";
+    item.appendChild(mark);
+
+    const text = document.createElement("span");
+    text.className = "kb-task-text";
+    moveTaskItemText(li, text);
+    if (checked) {
+      // 用 <s> 而不是 CSS line-through：WPS 只认 <s>（<del> 会丢内容）
+      const strike = document.createElement("s");
+      strike.appendChild(text);
+      item.appendChild(strike);
+    } else {
+      item.appendChild(text);
+    }
+    out.appendChild(item);
+
+    // 嵌套内容：任务列表递归拍平，普通列表 / 代码块 / 表格等原样保留，
+    // 避免因为替换掉外层 <ul> 把任务项里的子块一起丢掉。
+    const contentDiv = li.querySelector(":scope > div");
+    if (contentDiv) {
+      Array.from(contentDiv.children).forEach((child) => {
+        if (child.tagName === "P") return; // 文本已搬进 item
+        if (child.matches('ul[data-type="taskList"]')) {
+          emitTaskItems(child, out, depth + 1);
+          return;
+        }
+        if (child instanceof HTMLElement) {
+          child.style.marginLeft = `${(depth + 1) * 1.5}em`;
+        }
+        out.appendChild(child);
+      });
+    }
+  });
+}
+
+/** 任务项里属于「块级内容」的标签：不搬进文本 span，留给外层原样保留 */
+const TASK_ITEM_BLOCK_TAGS = new Set([
+  "LABEL",
+  "INPUT",
+  "UL",
+  "OL",
+  "PRE",
+  "TABLE",
+  "FIGURE",
+  "BLOCKQUOTE",
+  "DIV",
+  "HR",
+]);
+
+/** 把任务项自己的文本内容搬到 target（跳过 label / input / 块级内容） */
+function moveTaskItemText(li: Element, target: HTMLElement): void {
+  const source = li.querySelector(":scope > div") ?? li;
+  const paragraphs = Array.from(source.children).filter(
+    (el): el is HTMLParagraphElement => el.tagName === "P",
+  );
+  if (paragraphs.length > 0) {
+    paragraphs.forEach((p, i) => {
+      if (i > 0) target.appendChild(document.createElement("br"));
+      while (p.firstChild) target.appendChild(p.firstChild);
+    });
+    return;
+  }
+  // 没有 <p> 时只搬内联内容；块级元素留在原处，交给 emitTaskItems 原样保留。
+  Array.from(source.childNodes).forEach((node) => {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as Element;
+      if (TASK_ITEM_BLOCK_TAGS.has(el.tagName)) return;
+    }
+    target.appendChild(node);
+  });
+}
+
+/**
+ * 把代码块命名以 caption 形式补回克隆 DOM。
+ *
+ * 工具栏整体不导出（语言/字号/换行都是编辑控件），但用户填的命名是正文内容；
+ * 直接丢掉会让「代码块命名」在 Word 里凭空消失。用 textContent 创建节点，
+ * 避免命名里的 `<` `>` `&` 被当成 HTML 解析。
+ */
+function applyCodeBlockCaptions(root: HTMLElement, titles: string[]): void {
+  const blocks = Array.from(root.querySelectorAll(".code-block-enhanced"));
+  blocks.forEach((block, i) => {
+    const title = titles[i]?.trim();
+    const pre = block.querySelector("pre");
+    if (!title || !pre) return;
+    const caption = document.createElement("div");
+    caption.className = "kb-code-caption";
+    caption.textContent = title;
+    pre.parentNode?.insertBefore(caption, pre);
+  });
+}
+
+/**
  * 判断克隆出的编辑器 DOM 是否已经以「与笔记标题相同」的一级标题开头。
  *
  * 很多笔记习惯把标题手写成正文首个 `# 标题`。这种情况下再在顶部插标题就会
@@ -93,8 +266,11 @@ export async function editorDomToSelfContainedHtml(
   titleClass = "",
   onProgress?: (p: SelfContainedProgress) => void,
 ): Promise<string> {
-  // 1. 克隆真实渲染 DOM（.tiptap.ProseMirror 节点，含 callout / 分栏 / 编号 widget）
-  const clone = (editor.view.dom as HTMLElement).cloneNode(true) as HTMLElement;
+  // 1. 克隆真实渲染 DOM（.tiptap.ProseMirror 节点，含 callout / 分栏 / 编号 widget）。
+  //    代码块命名只存在于 input.value，克隆会丢，先从原 DOM 抓出来。
+  const sourceDom = editor.view.dom as HTMLElement;
+  const codeTitles = collectCodeBlockTitles(sourceDom);
+  const clone = sourceDom.cloneNode(true) as HTMLElement;
 
   // 2. 顶部插入标题（作为 .tiptap 的首个子节点，命中 .tiptap h1 同款样式）。
   //    正文若本身就以同名 H1 开头（用户把标题手写进了正文），跳过插入，
@@ -111,8 +287,14 @@ export async function editorDomToSelfContainedHtml(
     clone.insertAdjacentHTML("afterbegin", `<h1${cls}>${safeTitle}</h1>`);
   }
 
-  // 3. 剥掉编辑态专属、不参与排版的交互元素（含末尾的 ProseMirror 空段落）
+  // 3. 任务列表先拍平成「☑/☐ + 文本」，再处理普通列表的 <li><p>。
+  //    两步都会去掉 WPS 生成的多余 bullet / 空编号段。
+  normalizeTaskLists(clone);
+  flattenListItemParagraphs(clone);
+  // 剥掉编辑态专属、不参与排版的交互元素（含末尾的 ProseMirror 空段落）
   stripEditingArtifacts(clone);
+  // 3.1 代码块命名不是控件而是内容：工具栏删掉后，以 caption 形式补回
+  applyCodeBlockCaptions(clone, codeTitles);
 
   // 3.5 标记首/末块，让导出模板把它们的外边距归零。
   //     Word / WPS 会把 CSS margin 翻译成段落「段前/段后间距」，首个 h1 的
@@ -394,9 +576,23 @@ function stripEditingArtifacts(root: HTMLElement): void {
     ".tiptap-toolbar", // 格式工具栏（理论上不在 view.dom 内，保险起见）
     ".kb-ai-bar", // 划词 AI 浮条
     ".tiptap-video-toolbar", // 视频节点的播放/加时间戳控制条
+    ".tiptap-embed-video-toolbar", // 嵌入视频的地址栏/操作条
+    // 代码块 NodeView 的编辑控件：语言下拉、字号、自动换行、复制按钮、行号侧栏。
+    // 它们没有语义内容，导出时必须剥掉，否则会被 html2md 拍平成正文（用户报的
+    // 「代码段的小标题栏作为文字导入 Word」）。
+    ".code-block-toolbar",
+    ".code-block-line-gutter",
+    // 分栏 / 折叠 / callout / 图片的 NodeView 控件
+    ".tiptap-columns-bar",
+    ".tiptap-column-del",
+    ".tiptap-callout-icon",
+    ".tiptap-toggle-arrow",
+    ".kb-image-toolbar",
+    ".mermaid-preview__fullscreen-btn",
     ".ProseMirror-gapcursor", // 块间空隙光标
     ".ProseMirror-separator", // 零宽分隔符
     "[data-node-view-toolbar]", // 通用节点视图工具栏约定
+    "[data-export-ignore]", // 新增 NodeView 控件的统一约定：标了这个就不导出
   ];
   root.querySelectorAll(selectors.join(",")).forEach((el) => el.remove());
   // 去掉 contenteditable 标记，避免某些内核在打印时渲染编辑边框

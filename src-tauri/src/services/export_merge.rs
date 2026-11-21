@@ -124,6 +124,8 @@ impl MergeExportService {
                     target_path,
                     instance_data_dir,
                     None,
+                    None,
+                    None,
                     fonts,
                 )?;
                 Ok(MergeExportResult {
