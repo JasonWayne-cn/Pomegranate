@@ -818,6 +818,8 @@ function DesktopNoteEditorPage() {
         setTitle(noteData.title);
         setContent(noteData.content);
         setDirty(false);
+        // 干净加载：同时复位标签脏标记，避免标签残留 true 导致"打开未改却提示未保存"
+        setTabDirty(noteId, false);
         // 草稿已和 DB 一致（其他场景 clear 漏了），主动清掉
         if (draft) clearDraft(noteId);
       }
@@ -929,6 +931,29 @@ function DesktopNoteEditorPage() {
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
+
+  /**
+   * 编辑器就绪回调。
+   *
+   * 除把实例交给大纲/打印等使用外，在首帧稳定后把「编辑器自身的 Markdown 序列化」
+   * 作为脏基线：tiptap-markdown 反序列化再序列化会与库/源文件里的原文存在排版差异
+   * （列表符号、硬换行、围栏代码块收尾等），这类差异不是用户修改，若按原文比较
+   * 就会在"打开即关"时误报未保存。基线对齐后，只有真正的编辑才会落进 dirty。
+   */
+  const handleEditorReady = useCallback(
+    (ed: unknown | null) => {
+      setEditorInstance(ed);
+      if (!ed) return;
+      // 仅当当前是干净状态、且没有待恢复草稿时才对基线（避免把未保存内容当成已保存）
+      window.setTimeout(() => {
+        if (dirtyRef.current) return;
+        if (getDraft(noteId)) return;
+        const md = readEditorMarkdown(ed);
+        if (typeof md === "string") savedRef.current.content = md;
+      }, 0);
+    },
+    [noteId, getDraft],
+  );
 
   // 跨窗口同步：另一个 webview（主窗 ↔ popout）保存了同一 id 的笔记后，
   // 这里通过 Tauri 全局事件 `note:updated` 收到通知。Zustand store 是 per-webview 的，
@@ -2068,7 +2093,7 @@ function DesktopNoteEditorPage() {
               setAiSelection(selected);
               setAiDrawerOpen(true);
             }}
-            onEditorReady={setEditorInstance}
+            onEditorReady={handleEditorReady}
           />
 
           {/* 反向链接 */}
