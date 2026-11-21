@@ -41,6 +41,16 @@ export interface ModuleConfigField {
   placeholder?: string;
   /** 标记为 true 时，保存后提示需要重启或重新进入页面 */
   requiresRestart?: boolean;
+  /**
+   * 表单列宽：1 = 半宽（与相邻半宽字段并排一行），缺省 = 整行。
+   * 只有在同一 schema 面板里**相邻**的两个 span:1 字段才会排在同行。
+   */
+  span?: 1 | 2;
+  /**
+   * 改动立即生效并持久化（不等底部「保存」）。
+   * 用于纯展示类开关：用户切换后应当马上看到界面变化。
+   */
+  instantApply?: boolean;
 }
 
 export interface ModulePanelComponentProps {

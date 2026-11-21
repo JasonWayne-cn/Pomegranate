@@ -178,6 +178,34 @@ export function ModuleConfigPanel({ meta, focusPanelId }: Props) {
     }
   }
 
+  /**
+   * 纯展示类开关（instantApply）：改动即写入 app_config 并广播，
+   * 让文件夹树/编辑器等界面立刻跟随，不必等底部「保存」。
+   */
+  async function persistInstantFields(changed: Record<string, unknown>) {
+    for (const key of Object.keys(changed)) {
+      const field = allSchemaFields.find(
+        (f) => f.key === key && f.instantApply,
+      );
+      if (!field) continue;
+      try {
+        await moduleConfigApi.setMany([
+          {
+            key: resolveStorageKey(meta, field),
+            value: serializeFieldValue(field, form.getFieldValue(key)),
+          },
+        ]);
+        window.dispatchEvent(
+          new CustomEvent(MODULE_CONFIG_CHANGED_EVENT, {
+            detail: { view: meta.view },
+          }),
+        );
+      } catch (e) {
+        message.error(`保存失败：${e}`);
+      }
+    }
+  }
+
   function handleReset() {
     form.setFieldsValue(buildFormValues(meta, activeSchemaFields, {}));
     message.info("已恢复默认值，点击「保存」后生效");
@@ -206,9 +234,23 @@ export function ModuleConfigPanel({ meta, focusPanelId }: Props) {
             style={{ marginBottom: 16 }}
             styles={{ body: { paddingBottom: 4 } }}
           >
-            {(panel.fields ?? []).map((field) => (
-              <FieldItem key={field.key} field={field} />
-            ))}
+            {/* 两列网格：span:1 的相邻字段自动并排一行，其余字段整行铺满 */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                columnGap: 16,
+              }}
+            >
+              {(panel.fields ?? []).map((field) => (
+                <div
+                  key={field.key}
+                  style={{ gridColumn: field.span === 1 ? "span 1" : "1 / -1" }}
+                >
+                  <FieldItem field={field} />
+                </div>
+              ))}
+            </div>
           </Card>
         ))}
 
@@ -231,6 +273,7 @@ export function ModuleConfigPanel({ meta, focusPanelId }: Props) {
       form={form}
       layout="vertical"
       disabled={saving}
+      onValuesChange={(changed) => void persistInstantFields(changed)}
       style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}
     >
       {hasGroups ? (
@@ -346,6 +389,8 @@ function FieldItem({ field }: { field: ModuleConfigField }) {
         <Select
           options={field.options}
           placeholder={field.placeholder ?? "请选择"}
+          // 与同行的 number 输入框等宽（都撑满所在的半宽列）
+          style={{ width: "100%" }}
         />
       );
       break;
@@ -355,7 +400,9 @@ function FieldItem({ field }: { field: ModuleConfigField }) {
           min={field.min}
           max={field.max}
           step={field.step}
-          addonAfter={field.unit}
+          // 用 suffix 而非 addonAfter：addonAfter 会多包一层 group wrapper，
+          // 宽度不吃 100%，导致与同行 Select 不等宽
+          suffix={field.unit}
           style={{ width: "100%" }}
           placeholder={field.placeholder}
         />

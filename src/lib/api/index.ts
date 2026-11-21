@@ -172,6 +172,7 @@ import type {
   NoteSnapshot,
   SnapshotUsage,
   NoteExcerpt,
+  HiddenFolderCount,
 } from "@/types";
 
 /** 系统相关 API */
@@ -603,6 +604,9 @@ export const hiddenApi = {
   /** 返回有隐藏文档的 folder_id 列表；含 null 表示有"未分类"的隐藏文档 */
   listFolderIds: () =>
     invoke<(number | null)[]>("list_hidden_folder_ids"),
+  /** 按文件夹统计隐藏文档数量；folderId 为 null 表示"未分类" */
+  listFolderCounts: () =>
+    invoke<HiddenFolderCount[]>("list_hidden_folder_counts"),
 };
 
 /**

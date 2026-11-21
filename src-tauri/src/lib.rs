@@ -1116,6 +1116,7 @@ pub fn run() {
             commands::notes::set_note_hidden,
             commands::notes::list_hidden_notes,
             commands::notes::list_hidden_folder_ids,
+            commands::notes::list_hidden_folder_counts,
             // 隐藏文档 PIN（UX 门禁，非真加密）
             commands::hidden_pin::is_hidden_pin_set,
             commands::hidden_pin::set_hidden_pin,

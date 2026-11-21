@@ -853,6 +853,14 @@ pub struct PageResult<T: Serialize> {
     pub page_size: usize,
 }
 
+/// 某个文件夹下的隐藏文档数量（folder_id 为 None = "未分类"）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HiddenFolderCount {
+    pub folder_id: Option<i64>,
+    pub count: i64,
+}
+
 /// 批量恢复文档的结果
 ///
 /// `to_root` = 其中有多少条因原文件夹已不存在而落到了根目录。

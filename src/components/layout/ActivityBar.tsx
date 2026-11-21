@@ -12,7 +12,6 @@ import {
   Presentation,
   Trash2,
   Settings,
-  EyeOff,
 } from "lucide-react";
 import { useAppStore } from "@/store";
 import type { ActiveView } from "@/store";
@@ -47,12 +46,13 @@ interface ActivityItem {
 }
 
 /**
- * 主视图按"用户意图"分四组，组与组之间渲染分隔线：
+ * 主视图按"用户意图"分三组，组与组之间渲染分隔线：
  *   1. 概览：首页（每次启动看一眼）
  *   2. 创作 / 工作流：文档 / 每日笔记 / 待办（日常高频写入）
- *   3. AI 辅助：AI 问答 / 隐藏文档（提示词已并入 AI 问答的配置抽屉）
+ *   3. AI 辅助：AI 问答（提示词已并入 AI 问答的配置抽屉）
  *
  * 搜索不再占侧栏：首页搜索框以模态窗展示结果。
+ * 隐藏文档也不再占侧栏：入口是文档页搜索框前的眼睛图标。
  *
  * 标签是文档模块的子功能（入口在「文档」模块配置中），不再单独占一格。
  * 卡片复习 / 定时推送不再占侧栏：入口在首页顶部齿轮打开的「首页」设置抽屉。
@@ -71,7 +71,6 @@ const MAIN_GROUPS: ActivityItem[][] = [
   // AI 辅助
   [
     { view: "ai", route: "/ai", label: "AI 问答", icon: <Bot size={18} /> },
-    { view: "hidden", route: "/hidden", label: "隐藏文档", icon: <EyeOff size={18} /> },
   ],
 ];
 

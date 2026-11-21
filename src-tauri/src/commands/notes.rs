@@ -176,6 +176,14 @@ pub fn list_hidden_folder_ids(
     NoteService::list_hidden_folder_ids(&state.db).map_err(|e| e.to_string())
 }
 
+/// 按文件夹统计隐藏文档数量（None=未分类）
+#[tauri::command(async)]
+pub fn list_hidden_folder_counts(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::models::HiddenFolderCount>, String> {
+    NoteService::list_hidden_folder_counts(&state.db).map_err(|e| e.to_string())
+}
+
 /// 列出「临时编辑」文档（分页）—— 用于侧栏「临时文件」面板
 #[tauri::command(async)]
 pub fn list_scratch_notes(

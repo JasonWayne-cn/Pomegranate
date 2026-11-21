@@ -25,6 +25,8 @@ import {
   FolderOpen,
   FolderSync,
   ChevronsDownUp,
+  EyeOff,
+  Files,
   Search,
   LayoutTemplate,
   ExternalLink,
@@ -40,12 +42,14 @@ import Markdown from "react-markdown";
 import { useAppStore } from "@/store";
 import { MicButton } from "@/components/MicButton";
 import { useTabsStore } from "@/store/tabs";
+import { useModuleConfig } from "@/hooks/useModuleConfig";
 import {
   folderApi,
   importApi,
   noteApi,
   sourceFileApi,
   trashApi,
+  hiddenPinApi,
 } from "@/lib/api";
 import type { Folder, Note, ScannedFile } from "@/types";
 import { officePathForSource } from "@/lib/office/formats";
@@ -53,6 +57,7 @@ import { parseEmojiPrefix } from "@/lib/treeIcons";
 import { FileTypeIcon } from "@/components/FileTypeIcon";
 import { FolderCreateButton } from "@/components/FolderCreateButton";
 import { NewNoteButton } from "@/components/NewNoteButton";
+import { HiddenPinUnlockModal } from "@/components/hidden/HiddenPinUnlockModal";
 import { TemplatePickerModal } from "@/components/TemplatePickerModal";
 import {
   createBlankAndOpen,
@@ -169,14 +174,25 @@ function foldersToTreeData(
   creatingUnderKey: string | null,
   notesByFolder: Map<number, Note[]>,
   tabTitleByNoteId: Map<number, string>,
+  showNoteCount: boolean,
+  showNotes: boolean,
   depth: number = 0,
 ): EnrichedNode[] {
   return folders.map((f) => {
     const subFolders: EnrichedNode[] = f.children.length
-      ? foldersToTreeData(f.children, creatingUnderKey, notesByFolder, tabTitleByNoteId, depth + 1)
+      ? foldersToTreeData(
+          f.children,
+          creatingUnderKey,
+          notesByFolder,
+          tabTitleByNoteId,
+          showNoteCount,
+          showNotes,
+          depth + 1,
+        )
       : [];
 
-    const noteLeaves: EnrichedNode[] = (notesByFolder.get(f.id) ?? [])
+    // 关闭「显示文件」时树上只留文件夹结构
+    const noteLeaves: EnrichedNode[] = (!showNotes ? [] : (notesByFolder.get(f.id) ?? []))
       .slice(0, NOTES_PER_FOLDER_LIMIT)
       .map((n) => ({
         key: noteKey(n.id),
@@ -200,7 +216,8 @@ function foldersToTreeData(
 
     return {
       key: String(f.id),
-      title: f.name,
+      // 文档树数量格式：参考文献[4]（设置里可关闭，只显示文件夹名）
+      title: showNoteCount ? `${f.name}[${f.note_count}]` : f.name,
       // 显式 isLeaf:false：children 为 undefined 时 antd Tree 会推断成叶子，
       // 拖拽落在叶子上会被当成"同级排序"，无法 drop-into 折叠的空文件夹。
       isLeaf: false,
@@ -298,6 +315,52 @@ export function NotesPanel() {
     [tabs],
   );
   const { token } = antdTheme.useToken();
+
+  // 文档模块常规设置：是否在文件夹名后显示文档总数
+  const { values: notesConfig } = useModuleConfig("notes", {
+    show_folder_note_count: true,
+  });
+  const showFolderNoteCount = notesConfig.show_folder_note_count !== false;
+
+  // 文档结构树是否显示文件（关闭时只显示文件夹层级），偏好持久化
+  const [showFilesInTree, setShowFilesInTree] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("notes.showFilesInTree") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  function toggleShowFilesInTree() {
+    setShowFilesInTree((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("notes.showFilesInTree", next ? "1" : "0");
+      } catch {
+        /* 忽略持久化失败 */
+      }
+      return next;
+    });
+  }
+
+  /** 隐藏文档 PIN 解锁框（入口在标题栏搜索图标前） */
+  const [hiddenUnlockOpen, setHiddenUnlockOpen] = useState(false);
+
+  /** 打开隐藏文档：已设 PIN 且会话未解锁时先弹解锁框 */
+  function handleOpenHidden() {
+    if (useAppStore.getState().isHiddenUnlocked()) {
+      navigate("/hidden");
+      return;
+    }
+    void (async () => {
+      try {
+        if (await hiddenPinApi.isSet()) setHiddenUnlockOpen(true);
+        else navigate("/hidden");
+      } catch (e) {
+        console.warn("[hidden-pin] isSet 查询失败，跳过验证:", e);
+        navigate("/hidden");
+      }
+    })();
+  }
 
   // 文件夹直属文档缓存（按 folderId 索引）。
   // 展开时按需加载；notesRefreshTick 变化时清空已加载的项触发重拉。
@@ -1654,6 +1717,8 @@ export function NotesPanel() {
       creatingUnderKey,
       notesByFolder,
       tabTitleByNoteId,
+      showFolderNoteCount,
+      showFilesInTree,
     );
     // 末尾追加"未分类"虚拟根节点：folder_id IS NULL 的文档直接挂在这里。
     // 这样未分类文档也能参与 antd Tree 的拖拽（拖到任意文件夹会触发 handleDrop
@@ -1670,15 +1735,26 @@ export function NotesPanel() {
         isLeaf: true,
         data: { isNote: true, note: n },
       }));
-    folderTree.push({
-      key: UNCATEGORIZED_KEY,
-      title: uncatTitle,
-      isLeaf: false,
-      children: uncatChildren.length ? uncatChildren : undefined,
-      data: { isNote: false, isChild: false, isExternal: false },
-    });
+    // 「未分类」不是文件夹：关闭「显示文件」时一并隐藏
+    if (showFilesInTree) {
+      folderTree.push({
+        key: UNCATEGORIZED_KEY,
+        title: uncatTitle,
+        isLeaf: false,
+        children: uncatChildren.length ? uncatChildren : undefined,
+        data: { isNote: false, isChild: false, isExternal: false },
+      });
+    }
     return folderTree;
-  }, [folders, creatingUnderKey, notesByFolder, tabTitleByNoteId, uncategorizedNotes]);
+  }, [
+    folders,
+    creatingUnderKey,
+    notesByFolder,
+    tabTitleByNoteId,
+    uncategorizedNotes,
+    showFolderNoteCount,
+    showFilesInTree,
+  ]);
 
   return (
     <div
@@ -1713,14 +1789,22 @@ export function NotesPanel() {
               title="预览文件"
             />
           </Tooltip>
+          <FolderCreateButton iconOnly />
+          <NewNoteButton iconOnly />
           <Button
             type="text"
             size="small"
             icon={<ChevronsDownUp size={14} />}
             onClick={() => {
-              // 折叠/展开全部文件夹（state 走 store，自动 persist）
+              // 折叠 / 展开全部文件夹（state 走 store，自动 persist）。
+              // 用"文件夹是否全部折叠"判断，而不是 expandedKeys.length：
+              // 「未分类」节点展开时 expandedKeys 非空，会让折叠后永远走不到展开分支。
               const store = useAppStore.getState();
-              if (expandedKeys.length === 0) {
+              const collapsedSet = new Set(store.notesCollapsedFolderKeys);
+              const allCollapsed =
+                allFolderKeys.length > 0 &&
+                allFolderKeys.every((k) => collapsedSet.has(k));
+              if (allCollapsed) {
                 store.clearNotesCollapsedFolders();
               } else {
                 store.setNotesAllFoldersCollapsed(allFolderKeys);
@@ -1729,10 +1813,49 @@ export function NotesPanel() {
             style={{ width: 24, height: 24, padding: 0 }}
             title="折叠/展开全部"
           />
-          <FolderCreateButton iconOnly />
-          <NewNoteButton iconOnly />
+          <Tooltip
+            title={showFilesInTree ? "隐藏文件（仅显示文件夹）" : "显示文件"}
+            mouseEnterDelay={0.3}
+          >
+            <Button
+              type="text"
+              size="small"
+              aria-label={showFilesInTree ? "隐藏文件" : "显示文件"}
+              icon={
+                <Files
+                  size={14}
+                  style={{
+                    color: showFilesInTree
+                      ? token.colorPrimary
+                      : token.colorTextTertiary,
+                  }}
+                />
+              }
+              onClick={toggleShowFilesInTree}
+              style={{ width: 24, height: 24, padding: 0 }}
+            />
+          </Tooltip>
+          <Tooltip title="隐藏文档" mouseEnterDelay={0.3}>
+            <Button
+              type="text"
+              size="small"
+              icon={<EyeOff size={14} />}
+              aria-label="隐藏文档"
+              onClick={handleOpenHidden}
+              style={{ width: 24, height: 24, padding: 0 }}
+            />
+          </Tooltip>
         </div>
       </div>
+
+      <HiddenPinUnlockModal
+        open={hiddenUnlockOpen}
+        onSuccess={() => {
+          setHiddenUnlockOpen(false);
+          navigate("/hidden");
+        }}
+        onCancel={() => setHiddenUnlockOpen(false)}
+      />
 
       {/* 文件夹小节 —— 兼任 OS 文件拖入区（.md/.txt → 新建文档） */}
       <div

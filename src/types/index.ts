@@ -736,6 +736,12 @@ export interface NoteQuery {
 
 // ─── 文件夹 ───────────────────────────────────
 
+/** 某文件夹下的隐藏文档数量（folderId 为 null = 未分类） */
+export interface HiddenFolderCount {
+  folderId: number | null;
+  count: number;
+}
+
 /** 文件夹（树形结构） */
 export interface Folder {
   id: number;

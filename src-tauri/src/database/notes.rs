@@ -1,7 +1,7 @@
 use rusqlite::{params, params_from_iter, OptionalExtension};
 
 use crate::error::AppError;
-use crate::models::{DailyEntry, Note, NoteInput};
+use crate::models::{DailyEntry, HiddenFolderCount, Note, NoteInput};
 
 use super::Database;
 
@@ -951,6 +951,32 @@ impl Database {
         )?;
         let rows = stmt
             .query_map([], |row| row.get::<_, Option<i64>>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// 按文件夹统计隐藏文档数量（None = 未分类）。
+    ///
+    /// 与 [`Self::list_hidden_folder_ids`] 同一套过滤条件（未删除 + 隐藏），
+    /// 供隐藏文档页左侧目录树显示"该目录下隐藏文档数"。
+    pub fn list_hidden_folder_counts(&self) -> Result<Vec<HiddenFolderCount>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT folder_id, COUNT(*) FROM notes
+             WHERE is_deleted = 0 AND is_hidden = 1
+             GROUP BY folder_id
+             ORDER BY folder_id IS NULL DESC, folder_id ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(HiddenFolderCount {
+                    folder_id: row.get(0)?,
+                    count: row.get(1)?,
+                })
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }

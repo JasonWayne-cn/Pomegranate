@@ -2139,6 +2139,9 @@ function DesktopNoteEditorPage() {
               setAiDrawerOpen(true);
             }}
             onEditorReady={handleEditorReady}
+            // 文档正文底部不再重复显示字数/字符/阅读时长：
+            // 字数统计已挪到顶部 MetaBar（可在模块设置里开关）
+            showFooterStats={false}
           />
 
           {/* 反向链接 */}

@@ -1,6 +1,6 @@
 use crate::database::Database;
 use crate::error::AppError;
-use crate::models::{Note, NoteImageRef, NoteInput, NoteQuery, PageResult};
+use crate::models::{HiddenFolderCount, Note, NoteImageRef, NoteInput, NoteQuery, PageResult};
 use crate::services::mount::MountService;
 use crate::services::sync_v1::attachment_scan::extract_local_refs;
 
@@ -263,6 +263,11 @@ impl NoteService {
     /// 列出所有"含至少一篇隐藏文档"的 folder_id（含 None=未分类）
     pub fn list_hidden_folder_ids(db: &Database) -> Result<Vec<Option<i64>>, AppError> {
         db.list_hidden_folder_ids()
+    }
+
+    /// 按文件夹统计隐藏文档数量（None=未分类）
+    pub fn list_hidden_folder_counts(db: &Database) -> Result<Vec<HiddenFolderCount>, AppError> {
+        db.list_hidden_folder_counts()
     }
 
     /// 列出"临时编辑"文档（以临时方式打开的外部 .md）—— 用于「临时文件」面板

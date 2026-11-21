@@ -3,7 +3,6 @@ import {
   Calendar,
   CheckSquare,
   Bot,
-  EyeOff,
   Boxes,
 } from "lucide-react";
 import { useAppStore, OPTIONAL_VIEWS, type ActiveView } from "@/store";
@@ -41,19 +40,13 @@ const MODULES: ModuleMeta[] = [
     desc: "和 AI 对话，让它读你的文档给出建议",
     icon: <Bot size={16} />,
   },
-  {
-    view: "hidden",
-    label: "隐藏文档",
-    desc: "PIN 锁保护的私密文档空间",
-    icon: <EyeOff size={16} />,
-  },
 ];
 
 /**
  * 已移出侧边栏的可选模块：入口收进首页设置抽屉的页签，
  * 仍保留在 OPTIONAL_VIEWS（enabledViews 还被编辑器菜单等逻辑使用）。
  */
-const NON_SIDEBAR_VIEWS: ActiveView[] = ["cards", "push"];
+const NON_SIDEBAR_VIEWS: ActiveView[] = ["cards", "push", "hidden"];
 
 // 开发期对齐检查：MODULES 与 store.OPTIONAL_VIEWS 字段同步
 if (import.meta.env.DEV) {
