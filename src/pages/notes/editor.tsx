@@ -1605,8 +1605,8 @@ function DesktopNoteEditorPage() {
             </p>
           </div>
         ),
-        okText: "打开文件",
-        onOk: () => openPath(result.filePath).catch(() => {}),
+        okText: "打开所在文件夹",
+        onOk: () => revealItemInDir(result.filePath).catch(() => {}),
         closable: true,
       });
     } catch (e) {
