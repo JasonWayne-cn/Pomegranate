@@ -967,6 +967,85 @@ export interface GraphData {
   edges: GraphEdge[];
 }
 
+// ─── LLM 文档图谱（P1） ───────────────────────
+
+export interface LlmGraphNode {
+  id: number;
+  name: string;
+  entity_type: string;
+  description: string;
+  note_ids: number[];
+  degree: number;
+}
+
+export interface LlmGraphEdge {
+  source: number;
+  target: number;
+  description: string;
+  keywords: string;
+  note_ids: number[];
+}
+
+export interface LlmGraphData {
+  nodes: LlmGraphNode[];
+  edges: LlmGraphEdge[];
+  /** 本次结果覆盖的笔记数 */
+  note_count: number;
+  /** 来源笔记标题（去重，最多 20 条） */
+  note_titles: string[];
+}
+
+export interface LlmExtractResult {
+  note_id: number;
+  entity_count: number;
+  relation_count: number;
+  chunks: number;
+  model_id: string;
+  prompt_version: number;
+}
+
+export interface LlmExtractionStatus {
+  note_id: number;
+  status: string;
+  entity_count: number;
+  relation_count: number;
+  model_id: string;
+  prompt_version: number;
+  error: string | null;
+  updated_at: string;
+}
+
+export interface LlmExtractBatchItem {
+  note_id: number;
+  ok: boolean;
+  error: string | null;
+  result: LlmExtractResult | null;
+}
+
+/** 实体关联的文档（相关文档列表） */
+export interface LlmEntityNote {
+  note_id: number;
+  note_title: string;
+  entity_type: string;
+  description: string;
+}
+
+/** 抽取进度事件（llm-graph:progress） */
+export interface LlmGraphProgress {
+  scope: "note" | "folder" | string;
+  phase: "note-start" | "chunk" | "note-done" | "note-error" | string;
+  note_id: number;
+  note_title: string;
+  note_index: number;
+  note_total: number;
+  chunk: number;
+  chunks: number;
+  elapsed_ms: number;
+  entities: number;
+  relations: number;
+  error: string | null;
+}
+
 // ─── AI 知识问答 ─────────────────────────────
 
 /** AI 模型配置 */

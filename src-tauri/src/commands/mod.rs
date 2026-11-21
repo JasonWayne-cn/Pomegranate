@@ -21,6 +21,7 @@ pub mod hidden_pin;
 pub mod image;
 pub mod import;
 pub mod links;
+pub mod llm_graph;
 pub mod mcp;
 pub mod mount;
 // 移动端检查更新（仅 Android/iOS）

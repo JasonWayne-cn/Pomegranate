@@ -1198,6 +1198,13 @@ pub fn run() {
             commands::links::search_link_targets,
             commands::links::find_note_id_by_title_loose,
             commands::links::get_graph_data,
+            // LLM 文档图谱（P1）
+            commands::llm_graph::extract_note_llm_graph,
+            commands::llm_graph::extract_folder_llm_graph,
+            commands::llm_graph::get_llm_graph_data,
+            commands::llm_graph::get_llm_entity_notes,
+            commands::llm_graph::get_llm_extraction_status,
+            commands::llm_graph::delete_note_llm_graph,
             // AI Provider 注册表
             commands::ai_provider::list_ai_providers,
             commands::ai_provider::get_active_provider,

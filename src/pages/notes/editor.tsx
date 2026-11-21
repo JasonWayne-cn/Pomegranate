@@ -20,7 +20,7 @@ import {
   App as AntdApp,
   theme as antdTheme,
 } from "antd";
-import { ArrowLeft, Save, Trash2, Pin, FolderOpen, Tags, Link2, Share, Maximize2, Minimize2, FileText as FileTextIcon, ChevronRight, ChevronDown, CornerUpLeft, Folder as FolderIcon, Eye, EyeOff, Lock, Unlock, MessageSquare, ListTree, Network, ExternalLink, Printer } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Pin, FolderOpen, Tags, Link2, Share, Maximize2, Minimize2, FileText as FileTextIcon, ChevronRight, ChevronDown, CornerUpLeft, Folder as FolderIcon, Eye, EyeOff, Lock, Unlock, MessageSquare, ListTree, Network, ExternalLink, Printer, GitBranch } from "lucide-react";
 import { CloseCircleFilled } from "@ant-design/icons";
 import { useAppStore } from "@/store";
 import { useTabsStore } from "@/store/tabs";
@@ -43,6 +43,7 @@ import { MicButton } from "@/components/MicButton";
 import { NoteAiDrawer } from "@/components/ai/NoteAiDrawer";
 import { AttachmentPreviewModal } from "@/components/preview/AttachmentPreviewModal";
 import { MindMapView } from "@/components/notes/MindMapView";
+import { NoteGraphView } from "@/components/notes/NoteGraphView";
 import type { Note, Tag, Folder, NoteLink, MountNoteStatus, WordExportResult } from "@/types";
 
 const { Text } = Typography;
@@ -687,6 +688,9 @@ function DesktopNoteEditorPage() {
   // latest 字段：handleMove 写入最新宽度，handleUp 关闭时读出落库（避免闭包陷阱）
   const splitterDragRef = useRef<{ startX: number; startWidth: number; latest: number } | null>(null);
 
+  /** 单文档 LLM 图谱：编辑器右侧分栏（与思维导图互斥，宽度共用） */
+  const [graphPanelOpen, setGraphPanelOpen] = useState(false);
+
   /** 右侧大纲宽度（像素，持久化到 localStorage；双击分隔条还原到默认） */
   const OUTLINE_DEFAULT_WIDTH = 200;
   const [outlineWidth, setOutlineWidth] = useState<number>(() => {
@@ -745,7 +749,8 @@ function DesktopNoteEditorPage() {
    * 思维导图打开时自动暂时隐藏大纲——三栏（编辑器+大纲+导图）会挤压编辑可读宽度。
    * 不动用户在 store 里的偏好；mindMapOpen 切回 false 后大纲自动恢复。
    */
-  const effectiveOutlineVisible = outlineVisible && !mindMapOpen;
+  const effectiveOutlineVisible =
+    outlineVisible && !mindMapOpen && !graphPanelOpen;
 
   // 同名消歧 Modal 状态
   const [disambigOpen, setDisambigOpen] = useState(false);
@@ -1838,8 +1843,8 @@ function DesktopNoteEditorPage() {
           </Tooltip>
           <Tooltip
             title={
-              mindMapOpen
-                ? "思维导图打开期间大纲已暂时隐藏（关闭导图后恢复）"
+              mindMapOpen || graphPanelOpen
+                ? "右侧面板打开期间大纲已暂时隐藏（关闭面板后恢复）"
                 : outlineVisible
                   ? "隐藏大纲"
                   : "显示大纲"
@@ -1849,13 +1854,28 @@ function DesktopNoteEditorPage() {
               type={effectiveOutlineVisible ? "primary" : "default"}
               icon={<ListTree size={16} />}
               onClick={toggleOutline}
-              disabled={mindMapOpen}
+              disabled={mindMapOpen || graphPanelOpen}
             />
           </Tooltip>
           <Tooltip title="思维导图（只读视图）">
             <Button
               icon={<Network size={16} />}
-              onClick={() => setMindMapOpen(true)}
+              onClick={() => {
+                setGraphPanelOpen(false);
+                setMindMapOpen(true);
+              }}
+            />
+          </Tooltip>
+          <Tooltip title="文档图谱（右侧分栏）">
+            <Button
+              type={graphPanelOpen ? "primary" : "default"}
+              icon={<GitBranch size={16} />}
+              title="查看文档图谱"
+              onClick={() => {
+                if (!Number.isFinite(noteId)) return;
+                setMindMapOpen(false);
+                setGraphPanelOpen((v) => !v);
+              }}
             />
           </Tooltip>
           {/* popout 窗口里再点这个按钮没有意义（同 id 只会前置已存在窗口），直接隐藏 */}
@@ -2224,6 +2244,67 @@ function DesktopNoteEditorPage() {
             onClose={() => setMindMapOpen(false)}
             markdown={content}
             title={title}
+          />
+        </div>
+      )}
+
+      {/* 文档图谱分栏拖拽手柄 */}
+      {graphPanelOpen && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖动调整右侧面板宽度"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            splitterDragRef.current = {
+              startX: e.clientX,
+              startWidth: mindMapWidth,
+              latest: mindMapWidth,
+            };
+            const handleMove = (ev: MouseEvent) => {
+              const ref = splitterDragRef.current;
+              if (!ref) return;
+              const delta = ref.startX - ev.clientX;
+              const next = Math.max(320, Math.min(1200, ref.startWidth + delta));
+              ref.latest = next;
+              setMindMapWidth(next);
+            };
+            const handleUp = () => {
+              window.removeEventListener("mousemove", handleMove);
+              window.removeEventListener("mouseup", handleUp);
+              const ref = splitterDragRef.current;
+              if (ref) {
+                localStorage.setItem("editor.mindMapWidth", String(ref.latest));
+                splitterDragRef.current = null;
+              }
+            };
+            window.addEventListener("mousemove", handleMove);
+            window.addEventListener("mouseup", handleUp);
+          }}
+          style={{
+            width: 6,
+            cursor: "col-resize",
+            background: "transparent",
+            flexShrink: 0,
+          }}
+          className="hover:bg-blue-500/30 active:bg-blue-500/50 transition-colors"
+        />
+      )}
+
+      {/* 文档图谱分栏：仅 graphPanelOpen 时挂载 */}
+      {graphPanelOpen && (
+        <div
+          style={{
+            width: mindMapWidth,
+            flexShrink: 0,
+            minWidth: 320,
+            height: "100%",
+          }}
+        >
+          <NoteGraphView
+            open={graphPanelOpen}
+            noteId={noteId}
+            onClose={() => setGraphPanelOpen(false)}
           />
         </div>
       )}

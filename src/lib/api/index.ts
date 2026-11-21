@@ -42,6 +42,11 @@ import type {
   NoteLinkSummary,
   WikiLinkSuggestItem,
   GraphData,
+  LlmGraphData,
+  LlmExtractResult,
+  LlmExtractionStatus,
+  LlmExtractBatchItem,
+  LlmEntityNote,
   AiModel,
   AiModelInput,
   AiModelTestResult,
@@ -795,6 +800,38 @@ export const linkApi = {
   /** 文档关系数据。folderId 为空 = 全库；传文件夹 id = 该文件夹及子文件夹范围 */
   getGraphData: (folderId?: number | null) =>
     invoke<GraphData>("get_graph_data", { folderId: folderId ?? null }),
+};
+
+/** LLM 文档图谱 API（P1） */
+export const llmGraphApi = {
+  /** 聚合后的实体-关系图。folderId 为空 = 全库 */
+  getGraphData: (folderId?: number | null, maxNodes?: number, noteId?: number | null) =>
+    invoke<LlmGraphData>("get_llm_graph_data", {
+      folderId: folderId ?? null,
+      noteId: noteId ?? null,
+      maxNodes: maxNodes ?? null,
+    }),
+  /** 抽取单篇笔记 */
+  extractNote: (noteId: number) =>
+    invoke<LlmExtractResult>("extract_note_llm_graph", { noteId }),
+  /** 批量抽取作用域内最近更新的笔记（默认 20 篇） */
+  extractFolder: (folderId?: number | null, limit?: number) =>
+    invoke<LlmExtractBatchItem[]>("extract_folder_llm_graph", {
+      folderId: folderId ?? null,
+      limit: limit ?? null,
+    }),
+  /** 查询单篇抽取状态 */
+  getStatus: (noteId: number) =>
+    invoke<LlmExtractionStatus | null>("get_llm_extraction_status", { noteId }),
+  /** 删除单篇 LLM 图谱数据 */
+  deleteNote: (noteId: number) =>
+    invoke<void>("delete_note_llm_graph", { noteId }),
+  /** 查询包含指定实体的文档 */
+  getEntityNotes: (name: string, limit?: number) =>
+    invoke<LlmEntityNote[]>("get_llm_entity_notes", {
+      name,
+      limit: limit ?? null,
+    }),
 };
 
 /** 标签 API */

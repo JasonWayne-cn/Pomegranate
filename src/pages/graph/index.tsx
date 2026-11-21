@@ -7,7 +7,9 @@ import {
   Segmented,
   Tooltip,
   Button,
+  message,
 } from "antd";
+import { listen } from "@tauri-apps/api/event";
 import {
   Maximize2,
   Minimize2,
@@ -17,13 +19,17 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { Graph } from "@antv/g6";
-import { linkApi } from "@/lib/api";
-import type { GraphData } from "@/types";
+import { linkApi, llmGraphApi } from "@/lib/api";
+import type { GraphData, LlmGraphData, LlmGraphProgress } from "@/types";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import {
   ContextMenuOverlay,
   type ContextMenuEntry,
 } from "@/components/ui/ContextMenuOverlay";
+import {
+  ExtractionProgress,
+  entityTypeColor,
+} from "@/components/graph/LlmGraphUi";
 
 export default function GraphPage() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -40,8 +46,23 @@ export default function GraphPage() {
     return Number.isFinite(id) && id > 0 ? id : null;
   }, [searchParams]);
 
-  const [loading, setLoading] = useState(true);
+  // ?note=<id> → 单篇文档图谱（强制 LLM 模式）
+  const noteId = useMemo<number | null>(() => {
+    const raw = searchParams.get("note");
+    if (!raw) return null;
+    const id = Number(raw);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  }, [searchParams]);
+
+  const [mode, setMode] = useState<"rule" | "llm">(
+    noteId != null ? "llm" : "rule",
+  );
+  const [ruleLoading, setRuleLoading] = useState(true);
+  const [llmLoading, setLlmLoading] = useState(false);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [llmData, setLlmData] = useState<LlmGraphData | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [progress, setProgress] = useState<LlmGraphProgress | null>(null);
   const [layout, setLayout] = useState<string>("d3-force");
 
   // 当前作用域文件夹名（从返回的 folder 节点里取；拿不到时退化为 id）
@@ -53,20 +74,46 @@ export default function GraphPage() {
     return node?.title ?? `文件夹 #${folderId}`;
   }, [folderId, graphData]);
 
+  // LLM 图谱作用域标题：单篇文档优先，其次文件夹，最后全库
+  const llmScopeTitle = useMemo(() => {
+    if (noteId != null) {
+      const title = llmData?.note_titles[0];
+      return `文档「${title ?? `#${noteId}`}」图谱`;
+    }
+    if (folderId != null) {
+      return `文件夹「${scopeFolder ?? `#${folderId}`}」图谱`;
+    }
+    if (llmData && llmData.note_count === 1 && llmData.note_titles[0]) {
+      return `文档「${llmData.note_titles[0]}」图谱`;
+    }
+    return "全库图谱";
+  }, [noteId, folderId, scopeFolder, llmData]);
+
+  const llmSourceHint = useMemo(() => {
+    if (!llmData || llmData.note_count === 0) return null;
+    const titles = llmData.note_titles.slice(0, 3);
+    const more = llmData.note_count - titles.length;
+    const suffix = titles.length
+      ? `（${titles.join("、")}${more > 0 ? ` 等 ${more} 篇` : ""}）`
+      : "";
+    return `来源：${llmData.note_count} 篇文档${suffix}`;
+  }, [llmData]);
+
   // ─── 节点右键菜单 ────────────────────────────
   // gid = G6 节点 id（带 n/f 前缀）；realId = 数据库真实 id；nodeType 决定菜单项
   const ctx = useContextMenu<{
     gid: string;
     realId: number;
-    nodeType: "note" | "folder";
+    nodeType: "note" | "folder" | "entity";
     title: string;
+    noteIds?: number[];
   }>();
 
   const menuItems: ContextMenuEntry[] = useMemo(() => {
     const p = ctx.state.payload;
     if (!p) return [];
     const items: ContextMenuEntry[] = [];
-    // 文件夹节点没有对应笔记，不显示"打开笔记"
+    // 文件夹节点没有对应笔记；实体节点打开首个来源笔记
     if (p.nodeType === "note") {
       items.push({
         key: "open",
@@ -75,6 +122,16 @@ export default function GraphPage() {
         onClick: () => {
           ctx.close();
           navigate(`/notes/${p.realId}`);
+        },
+      });
+    } else if (p.nodeType === "entity" && p.noteIds?.length) {
+      items.push({
+        key: "open-source",
+        label: "打开来源文档",
+        icon: <ExternalLink size={13} />,
+        onClick: () => {
+          ctx.close();
+          navigate(`/notes/${p.noteIds![0]}`);
         },
       });
     }
@@ -98,8 +155,13 @@ export default function GraphPage() {
   }, [ctx.state.payload, navigate]);
 
   useEffect(() => {
-    loadGraphData();
-  }, [folderId]);
+    if (mode === "rule") {
+      void loadRuleGraphData();
+    } else {
+      void loadLlmGraphData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folderId, noteId, mode]);
 
   // 给 G6 画布容器原生挂 contextmenu capture-phase listener，吞 WebView 默认菜单。
   // G6 v5 的 canvas 内部会拦截 contextmenu 不冒泡到 React 外层 div，所以
@@ -114,21 +176,62 @@ export default function GraphPage() {
     return () => el.removeEventListener("contextmenu", handler, true);
   }, []);
 
-  async function loadGraphData() {
-    setLoading(true);
+  async function loadRuleGraphData() {
+    setRuleLoading(true);
     try {
       const data = await linkApi.getGraphData(folderId);
       setGraphData(data);
     } catch (e) {
-      console.error("加载图谱数据失败:", e);
+      console.error("加载文档关系失败:", e);
     } finally {
-      setLoading(false);
+      setRuleLoading(false);
+    }
+  }
+
+  async function loadLlmGraphData() {
+    setLlmLoading(true);
+    try {
+      const data = await llmGraphApi.getGraphData(folderId, 3000, noteId);
+      setLlmData(data);
+    } catch (e) {
+      console.error("加载 LLM 图谱失败:", e);
+    } finally {
+      setLlmLoading(false);
+    }
+  }
+
+  async function handleExtract() {
+    setExtracting(true);
+    setProgress(null);
+    const unlisten = await listen<LlmGraphProgress>(
+      "llm-graph:progress",
+      (e) => setProgress(e.payload),
+    );
+    try {
+      if (noteId != null) {
+        const r = await llmGraphApi.extractNote(noteId);
+        message.success(
+          `文档抽取完成：${r.entity_count} 个实体 / ${r.relation_count} 条关系`,
+        );
+      } else {
+        const items = await llmGraphApi.extractFolder(folderId, 20);
+        const ok = items.filter((i) => i.ok).length;
+        message.success(`抽取完成：${ok}/${items.length} 篇成功`);
+      }
+      await loadLlmGraphData();
+    } catch (e) {
+      message.error(String(e));
+    } finally {
+      unlisten();
+      setExtracting(false);
+      window.setTimeout(() => setProgress(null), 1500);
     }
   }
 
   // 渲染图谱
   useEffect(() => {
-    if (!containerRef.current || !graphData || graphData.nodes.length === 0) {
+    const active = mode === "llm" ? llmData : graphData;
+    if (!containerRef.current || !active || active.nodes.length === 0) {
       return;
     }
 
@@ -138,31 +241,61 @@ export default function GraphPage() {
       graphRef.current = null;
     }
 
-    // note 节点 id 加 `n` 前缀、folder 加 `f` 前缀——两表自增 id 可能相同，必须区分
-    const nodes = graphData.nodes.map((n) => ({
-      id: (n.node_type === "folder" ? "f" : "n") + n.id,
-      data: {
-        label: n.title,
-        nodeType: n.node_type,
-        realId: n.id,
-        isDaily: n.is_daily,
-        isPinned: n.is_pinned,
-        tagCount: n.tag_count,
-        linkCount: n.link_count,
-        folderColor: n.color,
-        // 文件夹范围外的关联笔记：弱化显示，提示"它不属于当前范围"
-        isBoundary: !!n.is_boundary,
-      },
-    }));
+    let nodes: any[];
+    let edges: any[];
 
-    // 按 edge_type 给两端拼对应前缀：
-    //   link  n→n      folder_child  f→f      folder_note  f→n
-    const edges = graphData.edges.map((e, i) => ({
-      id: `edge-${i}`,
-      source: (e.edge_type === "link" ? "n" : "f") + e.source,
-      target: (e.edge_type === "folder_child" ? "f" : "n") + e.target,
-      data: { edgeType: e.edge_type },
-    }));
+    if (mode === "llm") {
+      // 实体节点 id 统一带 `e` 前缀
+      nodes = (llmData?.nodes ?? []).map((n) => ({
+        id: `e${n.id}`,
+        data: {
+          kind: "entity",
+          label: n.name,
+          entityType: n.entity_type,
+          description: n.description,
+          degree: n.degree,
+          noteIds: n.note_ids,
+          realId: n.id,
+        },
+      }));
+      edges = (llmData?.edges ?? []).map((e, i) => ({
+        id: `le-${i}`,
+        source: `e${e.source}`,
+        target: `e${e.target}`,
+        data: {
+          kind: "llm",
+          description: e.description,
+          keywords: e.keywords,
+          noteIds: e.note_ids,
+        },
+      }));
+    } else {
+      // note 节点 id 加 `n` 前缀、folder 加 `f` 前缀——两表自增 id 可能相同，必须区分
+      nodes = (graphData?.nodes ?? []).map((n) => ({
+        id: (n.node_type === "folder" ? "f" : "n") + n.id,
+        data: {
+          kind: "rule",
+          label: n.title,
+          nodeType: n.node_type,
+          realId: n.id,
+          isDaily: n.is_daily,
+          isPinned: n.is_pinned,
+          tagCount: n.tag_count,
+          linkCount: n.link_count,
+          folderColor: n.color,
+          // 文件夹范围外的关联笔记：弱化显示，提示"它不属于当前范围"
+          isBoundary: !!n.is_boundary,
+        },
+      }));
+      // 按 edge_type 给两端拼对应前缀：
+      //   link  n→n      folder_child  f→f      folder_note  f→n
+      edges = (graphData?.edges ?? []).map((e, i) => ({
+        id: `edge-${i}`,
+        source: (e.edge_type === "link" ? "n" : "f") + e.source,
+        target: (e.edge_type === "folder_child" ? "f" : "n") + e.target,
+        data: { kind: "rule", edgeType: e.edge_type },
+      }));
+    }
 
     const graph = new Graph({
       container: containerRef.current,
@@ -176,15 +309,26 @@ export default function GraphPage() {
       data: { nodes, edges },
       node: {
         // 文件夹用方形（rect）、笔记用圆形（circle）——形状先于颜色区分两类节点
-        type: (d: any) => (d.data?.nodeType === "folder" ? "rect" : "circle"),
+        type: (d: any) =>
+          d.data?.kind === "entity"
+            ? "circle"
+            : d.data?.nodeType === "folder"
+              ? "rect"
+              : "circle",
         style: {
           size: (d: any) => {
+            if (d.data?.kind === "entity") {
+              const degree = d.data?.degree || 0;
+              return Math.max(22, Math.min(46, 22 + degree * 3));
+            }
             // 文件夹固定尺寸；笔记按链接数放大
             if (d.data?.nodeType === "folder") return 30;
             const linkCount = d.data?.linkCount || 0;
             return Math.max(20, Math.min(52, 20 + linkCount * 6));
           },
           fill: (d: any) => {
+            if (d.data?.kind === "entity")
+              return entityTypeColor(d.data?.entityType || "", token);
             // 文件夹优先用自定义颜色，否则中性填充
             if (d.data?.nodeType === "folder")
               return d.data?.folderColor || token.colorFillSecondary;
@@ -196,6 +340,8 @@ export default function GraphPage() {
             return token.colorPrimaryBg;
           },
           stroke: (d: any) => {
+            if (d.data?.kind === "entity")
+              return entityTypeColor(d.data?.entityType || "", token);
             if (d.data?.nodeType === "folder")
               return d.data?.folderColor || token.colorBorder;
             if (d.data?.isBoundary) return token.colorTextQuaternary;
@@ -205,14 +351,20 @@ export default function GraphPage() {
           },
           // 边界节点用虚线描边，与范围内实心节点区分
           lineDash: (d: any) =>
-            d.data?.isBoundary ? [4, 3] : undefined,
+            d.data?.kind !== "entity" && d.data?.isBoundary ? [4, 3] : undefined,
           // 文件夹方块加圆角；圆形节点 radius 无副作用
           radius: (d: any) => (d.data?.nodeType === "folder" ? 6 : 0),
           lineWidth: 2,
           labelText: (d: any) => {
             const raw = d.data?.label || "";
-            const label = d.data?.nodeType === "folder" ? `📁 ${raw}` : raw;
-            return label.length > 12 ? label.slice(0, 12) + "..." : label;
+            const label =
+              d.data?.kind === "entity"
+                ? raw
+                : d.data?.nodeType === "folder"
+                  ? `📁 ${raw}`
+                  : raw;
+            const limit = d.data?.kind === "entity" ? 14 : 12;
+            return label.length > limit ? label.slice(0, limit) + "..." : label;
           },
           labelFontSize: 13,
           labelFontWeight: (d: any) =>
@@ -225,18 +377,31 @@ export default function GraphPage() {
       },
       edge: {
         style: {
-          // wiki 双链：实线带箭头、主题色；层级边：浅色虚线无箭头
+          // LLM 推断边：细实线带箭头；wiki 双链：实线带箭头；层级边：浅色虚线无箭头
           stroke: (d: any) =>
-            d.data?.edgeType === "link"
-              ? token.colorPrimary
-              : token.colorTextQuaternary,
-          strokeOpacity: (d: any) => (d.data?.edgeType === "link" ? 0.45 : 0.7),
-          lineWidth: (d: any) => (d.data?.edgeType === "link" ? 1.5 : 1),
+            d.data?.kind === "llm"
+              ? token.colorInfo
+              : d.data?.edgeType === "link"
+                ? token.colorPrimary
+                : token.colorTextQuaternary,
+          strokeOpacity: (d: any) =>
+            d.data?.kind === "llm"
+              ? 0.35
+              : d.data?.edgeType === "link"
+                ? 0.45
+                : 0.7,
+          lineWidth: (d: any) =>
+            d.data?.kind === "llm" ? 1 : d.data?.edgeType === "link" ? 1.5 : 1,
           lineDash: (d: any) =>
-            d.data?.edgeType === "link" ? undefined : [4, 4],
-          endArrow: (d: any) => d.data?.edgeType === "link",
+            d.data?.kind === "llm"
+              ? undefined
+              : d.data?.edgeType === "link"
+                ? undefined
+                : [4, 4],
+          endArrow: (d: any) => d.data?.kind === "llm" || d.data?.edgeType === "link",
           endArrowSize: 8,
-          endArrowFill: token.colorPrimary,
+          endArrowFill: (d: any) =>
+            d.data?.kind === "llm" ? token.colorInfo : token.colorPrimary,
         },
       },
       layout:
@@ -267,10 +432,17 @@ export default function GraphPage() {
 
     graph.render();
 
-    // 双击节点跳转到笔记（文件夹节点无对应笔记，双击忽略）
+    // 双击：规则图谱的笔记 → 打开笔记；LLM 实体 → 打开首个来源笔记
     graph.on("node:dblclick", (evt: any) => {
       const gid = String(evt.target?.id ?? "");
-      const node = graphData.nodes.find(
+      if (mode === "llm") {
+        const entity = llmData?.nodes.find((n) => `e${n.id}` === gid);
+        if (entity?.note_ids.length) {
+          navigate(`/notes/${entity.note_ids[0]}`);
+        }
+        return;
+      }
+      const node = graphData?.nodes.find(
         (n) => (n.node_type === "folder" ? "f" : "n") + n.id === gid,
       );
       if (node && node.node_type === "note") {
@@ -286,12 +458,29 @@ export default function GraphPage() {
       native?.preventDefault?.();
       const gid = String(evt?.target?.id ?? "");
       if (!gid) return;
-      const node = graphData.nodes.find(
+      const x = native?.clientX ?? evt?.client?.x ?? 0;
+      const y = native?.clientY ?? evt?.client?.y ?? 0;
+
+      if (mode === "llm") {
+        const entity = llmData?.nodes.find((n) => `e${n.id}` === gid);
+        if (!entity) return;
+        ctx.open(
+          { clientX: x, clientY: y },
+          {
+            gid,
+            realId: entity.id,
+            nodeType: "entity",
+            title: entity.name,
+            noteIds: entity.note_ids,
+          },
+        );
+        return;
+      }
+
+      const node = graphData?.nodes.find(
         (n) => (n.node_type === "folder" ? "f" : "n") + n.id === gid,
       );
       if (!node) return;
-      const x = native?.clientX ?? evt?.client?.x ?? 0;
-      const y = native?.clientY ?? evt?.client?.y ?? 0;
       ctx.open(
         { clientX: x, clientY: y },
         {
@@ -311,10 +500,14 @@ export default function GraphPage() {
         graphRef.current = null;
       }
     };
-  }, [graphData, layout, token]);
+  }, [graphData, llmData, mode, layout, token]);
 
-  /** 返回文档：保持在当前文件夹上下文 */
+  /** 返回文档：单篇回编辑器，文件夹保持上下文，全库回列表 */
   function backToDocs() {
+    if (noteId != null) {
+      navigate(`/notes/${noteId}`);
+      return;
+    }
     navigate(folderId ? `/notes?folder=${folderId}` : "/notes");
   }
 
@@ -327,8 +520,35 @@ export default function GraphPage() {
   }
 
   function handleRefresh() {
-    loadGraphData();
+    if (mode === "llm") {
+      void loadLlmGraphData();
+    } else {
+      void loadRuleGraphData();
+    }
   }
+
+  const activeData = mode === "llm" ? llmData : graphData;
+  const loading = mode === "llm" ? llmLoading : ruleLoading;
+  const nodeCount = activeData?.nodes.length ?? 0;
+  const edgeCount = activeData?.edges.length ?? 0;
+
+  // 工具栏紧凑作用域标签：只显示文件夹/文档名，其余信息悬停展示
+  const scopeLabel = useMemo(() => {
+    if (noteId != null) {
+      return `文档「${llmData?.note_titles[0] ?? `#${noteId}`}」`;
+    }
+    if (folderId != null) {
+      return `文件夹「${scopeFolder ?? `#${folderId}`}」`;
+    }
+    return "全库";
+  }, [noteId, folderId, scopeFolder, llmData]);
+
+  const scopeDetail = useMemo(() => {
+    const parts = [`${nodeCount} 个节点 / ${edgeCount} 条连线`];
+    if (mode === "llm" && llmSourceHint) parts.push(llmSourceHint);
+    if (folderId != null && noteId == null) parts.push("点击查看全库图谱");
+    return parts.join(" · ");
+  }, [nodeCount, edgeCount, mode, llmSourceHint, folderId, noteId]);
 
   if (loading) {
     return (
@@ -339,13 +559,16 @@ export default function GraphPage() {
           </Button>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <Spin size="large" tip="加载文档关系..." />
+          <Spin
+            size="large"
+            tip={mode === "llm" ? "加载 LLM 图谱..." : "加载文档关系..."}
+          />
         </div>
       </div>
     );
   }
 
-  if (!graphData || graphData.nodes.length === 0) {
+  if (!activeData || activeData.nodes.length === 0) {
     return (
       <div className="flex flex-col h-full">
         <div className="px-4 py-2 shrink-0">
@@ -353,14 +576,50 @@ export default function GraphPage() {
             返回文档
           </Button>
         </div>
-        <div className="flex-1 flex items-center justify-center">
+        <div className="flex-1 flex flex-col items-center justify-center gap-3">
+          {noteId == null && (
+            <Segmented
+              size="small"
+              value={mode}
+              options={[
+                { label: "规则关系", value: "rule" },
+                { label: "LLM 图谱", value: "llm" },
+              ]}
+              onChange={(v) => setMode(v as "rule" | "llm")}
+            />
+          )}
+          {mode === "llm" && (
+            <div
+              className="font-semibold text-base"
+              style={{ color: token.colorText }}
+            >
+              {llmScopeTitle}
+            </div>
+          )}
           <Empty
             description={
-              folderId == null
-                ? "暂无文档关系，请先创建文档并添加链接"
-                : "该文件夹下暂无文档或关联"
+              noteId != null
+                ? "该文档尚未生成 LLM 图谱，点击下方按钮开始抽取"
+                : mode === "llm"
+                  ? "尚无 LLM 图谱数据，点击下方按钮开始抽取"
+                  : folderId == null
+                    ? "暂无文档关系，请先创建文档并添加链接"
+                    : "该文件夹下暂无文档或关联"
             }
           />
+          {mode === "llm" && (
+            <Button
+              type="primary"
+              size="small"
+              loading={extracting}
+              onClick={handleExtract}
+            >
+              {noteId != null ? "抽取本文档" : "抽取当前范围"}
+            </Button>
+          )}
+          {extracting && progress && (
+            <ExtractionProgress progress={progress} token={token} />
+          )}
         </div>
       </div>
     );
@@ -389,42 +648,48 @@ export default function GraphPage() {
           >
             返回文档
           </Button>
-          <span
-            className="font-semibold text-base"
-            style={{ color: token.colorText }}
-          >
-            文档关系
-          </span>
-          {scopeFolder && (
+          <Tooltip title={scopeDetail}>
             <span
               className="text-xs px-1.5 py-0.5 rounded"
               style={{
-                color: token.colorPrimary,
-                background: token.colorPrimaryBg,
+                color: token.colorTextSecondary,
+                background: token.colorFillQuaternary,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                maxWidth: 260,
+                cursor:
+                  folderId != null && noteId == null ? "pointer" : "default",
               }}
-              title="当前只显示该文件夹及其子文件夹"
+              onClick={() => {
+                if (folderId != null && noteId == null) navigate("/graph");
+              }}
             >
-              📁 {scopeFolder}
+              {scopeLabel}
             </span>
-          )}
-          <span
-            className="text-xs"
-            style={{ color: token.colorTextSecondary }}
-          >
-            {graphData.nodes.length} 个节点 / {graphData.edges.length} 条连线
-          </span>
-          {scopeFolder && (
-            <button
-              className="text-xs hover:underline"
-              style={{ color: token.colorTextSecondary }}
-              onClick={() => navigate("/graph")}
-            >
-              查看全部
-            </button>
-          )}
+          </Tooltip>
         </div>
 
         <div className="flex items-center gap-2">
+          {noteId == null && (
+            <Segmented
+              size="small"
+              value={mode}
+              options={[
+                { label: "规则关系", value: "rule" },
+                { label: "LLM 图谱", value: "llm" },
+              ]}
+              onChange={(v) => setMode(v as "rule" | "llm")}
+            />
+          )}
+          {extracting && progress && (
+            <ExtractionProgress progress={progress} token={token} />
+          )}
+          {mode === "llm" && (
+            <Button size="small" loading={extracting} onClick={handleExtract}>
+              {noteId != null ? "抽取本文档" : "抽取当前范围"}
+            </Button>
+          )}
           <Segmented
             size="small"
             value={layout}
@@ -474,6 +739,8 @@ export default function GraphPage() {
           color: token.colorTextSecondary,
         }}
       >
+        {mode === "rule" ? (
+          <>
         <span className="flex items-center gap-1">
           <span
             className="inline-block w-2.5 h-2.5 rounded-full"
@@ -525,6 +792,31 @@ export default function GraphPage() {
           </span>
         )}
         <span style={{ marginLeft: "auto" }}>双击文档打开</span>
+          </>
+        ) : (
+          <>
+            <span style={{ marginRight: 4 }}>实体类型：</span>
+            {[
+              ["artifact", "产物"],
+              ["concept", "概念"],
+              ["method", "方法"],
+              ["data", "数据"],
+              ["person", "人物"],
+              ["content", "内容"],
+              ["organization", "组织"],
+              ["event", "事件"],
+            ].map(([type, label]) => (
+              <span key={type} className="flex items-center gap-1">
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-full"
+                  style={{ background: entityTypeColor(type, token) }}
+                />
+                {label}
+              </span>
+            ))}
+            <span style={{ marginLeft: "auto" }}>双击实体打开来源文档</span>
+          </>
+        )}
       </div>
 
       {/* 图谱画布 */}

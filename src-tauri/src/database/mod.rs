@@ -12,6 +12,7 @@ pub mod embedding;
 pub mod extensions;
 pub mod folders;
 pub mod links;
+pub mod llm_graph;
 pub mod mcp_servers;
 pub mod mounts;
 pub mod note_attachments;

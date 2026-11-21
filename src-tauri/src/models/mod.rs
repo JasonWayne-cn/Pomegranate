@@ -2928,3 +2928,104 @@ pub struct MountNoteStatus {
     /// 上次抽取时记录的源文件 mtime（秒）
     pub indexed_mtime: Option<i64>,
 }
+
+// ─── LLM 文档图谱（P1） ───────────────────────
+
+/// 聚合后的 LLM 图谱节点（按规范化名称跨笔记合并）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmGraphNode {
+    /// 前端展示用自增 id（仅本次查询内有效）
+    pub id: i64,
+    pub name: String,
+    pub entity_type: String,
+    pub description: String,
+    /// 该实体来源笔记 id（去重）
+    pub note_ids: Vec<i64>,
+    /// 在本次结果中的连接数
+    pub degree: i64,
+}
+
+/// 聚合后的 LLM 图谱边
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmGraphEdge {
+    pub source: i64,
+    pub target: i64,
+    pub description: String,
+    pub keywords: String,
+    pub note_ids: Vec<i64>,
+}
+
+/// LLM 图谱查询结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmGraphData {
+    pub nodes: Vec<LlmGraphNode>,
+    pub edges: Vec<LlmGraphEdge>,
+    /// 本次结果覆盖的笔记数
+    pub note_count: i64,
+    /// 来源笔记标题（去重，最多 20 条，用于 UI 显示作用域）
+    pub note_titles: Vec<String>,
+}
+
+/// 单篇笔记抽取结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmExtractResult {
+    pub note_id: i64,
+    pub entity_count: usize,
+    pub relation_count: usize,
+    pub chunks: usize,
+    pub model_id: String,
+    pub prompt_version: i32,
+}
+
+/// 单篇笔记抽取状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmExtractionStatus {
+    pub note_id: i64,
+    pub status: String,
+    pub entity_count: i64,
+    pub relation_count: i64,
+    pub model_id: String,
+    pub prompt_version: i32,
+    pub error: Option<String>,
+    pub updated_at: String,
+}
+
+/// 批量抽取的单项结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmExtractBatchItem {
+    pub note_id: i64,
+    pub ok: bool,
+    pub error: Option<String>,
+    pub result: Option<LlmExtractResult>,
+}
+
+/// 实体关联的文档（用于“相关文档”列表）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmEntityNote {
+    pub note_id: i64,
+    pub note_title: String,
+    pub entity_type: String,
+    pub description: String,
+}
+
+/// 抽取进度事件（llm-graph:progress）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmGraphProgress {
+    /// "note" | "folder"
+    pub scope: String,
+    /// "note-start" | "chunk" | "note-done" | "note-error"
+    pub phase: String,
+    pub note_id: i64,
+    pub note_title: String,
+    /// 1-based；单篇为 1
+    pub note_index: usize,
+    pub note_total: usize,
+    /// 当前分块（1-based；0 表示尚未开始）
+    pub chunk: usize,
+    pub chunks: usize,
+    /// 自本次抽取开始（单篇或批量）的耗时（毫秒）
+    pub elapsed_ms: u64,
+    pub entities: usize,
+    pub relations: usize,
+    pub error: Option<String>,
+}

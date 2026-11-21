@@ -24,6 +24,8 @@ pub mod excel_import;
 pub mod emergency_window;
 // 向量 RAG：远程 embedding 客户端（OpenAI 兼容 /v1/embeddings）
 pub mod embedding;
+// LLM 文档图谱：实体/关系抽取（P1）
+pub mod llm_graph;
 // Excel 解析仅桌面端：calamine 在 Android target 编译失败
 // （T-M013 移动端导入改单文件模式后再决定是否引入）
 #[cfg(desktop)]

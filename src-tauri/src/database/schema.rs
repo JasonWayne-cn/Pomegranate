@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 87;
+pub const SCHEMA_VERSION: i32 = 88;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -120,6 +120,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             84 => migrate_v84_to_v85(conn)?,
             85 => migrate_v85_to_v86(conn)?,
             86 => migrate_v86_to_v87(conn)?,
+            87 => migrate_v87_to_v88(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -3194,6 +3195,63 @@ fn migrate_v86_to_v87(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 87)?;
+    Ok(())
+}
+
+/// v87 -> v88: LLM 文档图谱（抽取结果缓存）
+///
+/// - `llm_graph_runs`：每篇笔记的抽取状态与内容 hash，用于跳过未变化笔记
+/// - `llm_graph_entities` / `llm_graph_relations`：按笔记存储的实体与关系，
+///   查询时按规范化名称跨笔记聚合；`norm_name` 为聚合键
+fn migrate_v87_to_v88(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v87 -> v88 (LLM 文档图谱)");
+
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS llm_graph_runs (
+            note_id        INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+            content_hash   TEXT NOT NULL,
+            model_id       TEXT NOT NULL,
+            prompt_version INTEGER NOT NULL DEFAULT 1,
+            status         TEXT NOT NULL DEFAULT 'done',
+            entity_count   INTEGER NOT NULL DEFAULT 0,
+            relation_count INTEGER NOT NULL DEFAULT 0,
+            error          TEXT,
+            updated_at     TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS llm_graph_entities (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_id     INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+            norm_name   TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            confidence  REAL,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            UNIQUE(note_id, norm_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_llm_ent_note ON llm_graph_entities(note_id);
+        CREATE INDEX IF NOT EXISTS idx_llm_ent_norm ON llm_graph_entities(norm_name);
+
+        CREATE TABLE IF NOT EXISTS llm_graph_relations (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_id      INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+            source_norm  TEXT NOT NULL,
+            target_norm  TEXT NOT NULL,
+            description  TEXT NOT NULL,
+            keywords     TEXT NOT NULL DEFAULT '',
+            confidence   REAL,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+            UNIQUE(note_id, source_norm, target_norm, description)
+        );
+        CREATE INDEX IF NOT EXISTS idx_llm_rel_note ON llm_graph_relations(note_id);
+        CREATE INDEX IF NOT EXISTS idx_llm_rel_source ON llm_graph_relations(source_norm);
+        CREATE INDEX IF NOT EXISTS idx_llm_rel_target ON llm_graph_relations(target_norm);
+        ",
+    )?;
+
+    set_version(conn, 88)?;
     Ok(())
 }
 
