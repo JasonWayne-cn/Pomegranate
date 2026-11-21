@@ -13,6 +13,10 @@ import {
 } from "lucide-react";
 import { folderApi, hiddenApi } from "@/lib/api";
 import { useModuleConfig } from "@/hooks/useModuleConfig";
+import {
+  HiddenUnlockCountdown,
+  HiddenUnlockTitle,
+} from "@/components/hidden/HiddenUnlockRemaining";
 import { DocSectionTabs } from "./DocSectionTabs";
 import { PanelSectionHeader } from "./PanelSectionHeader";
 import type { Folder, HiddenFolderCount, Note } from "@/types";
@@ -252,7 +256,9 @@ export function HiddenPanel() {
       {/* 视图标题（与文档面板共用同一高度，避免切换时跳动） */}
       <PanelSectionHeader>
         <div className="flex min-w-0 items-center gap-2" style={{ flex: 1 }}>
-        <EyeOff size={15} style={{ color: token.colorPrimary, flexShrink: 0 }} />
+        <Tooltip title={<HiddenUnlockTitle text="隐藏文档" />} mouseEnterDelay={0.3}>
+          <EyeOff size={15} style={{ color: token.colorPrimary, flexShrink: 0 }} />
+        </Tooltip>
         <span style={{ fontSize: 13, fontWeight: 600, color: token.colorText }}>
           隐藏文档
         </span>
@@ -267,6 +273,9 @@ export function HiddenPanel() {
         </span>
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <HiddenUnlockCountdown
+            style={{ marginRight: 4, color: token.colorTextTertiary }}
+          />
           <Button
             type="text"
             size="small"

@@ -58,6 +58,7 @@ import { FileTypeIcon } from "@/components/FileTypeIcon";
 import { FolderCreateButton } from "@/components/FolderCreateButton";
 import { NewNoteButton } from "@/components/NewNoteButton";
 import { HiddenPinUnlockModal } from "@/components/hidden/HiddenPinUnlockModal";
+import { HiddenUnlockTitle } from "@/components/hidden/HiddenUnlockRemaining";
 import { TemplatePickerModal } from "@/components/TemplatePickerModal";
 import {
   createBlankAndOpen,
@@ -1835,7 +1836,10 @@ export function NotesPanel() {
               style={{ width: 24, height: 24, padding: 0 }}
             />
           </Tooltip>
-          <Tooltip title="隐藏文档" mouseEnterDelay={0.3}>
+          <Tooltip
+            title={<HiddenUnlockTitle text="隐藏文档" />}
+            mouseEnterDelay={0.3}
+          >
             <Button
               type="text"
               size="small"
