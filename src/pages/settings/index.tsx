@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Card,
   Typography,
@@ -16,9 +16,10 @@ import {
   Tabs,
   ColorPicker,
   Slider,
+  Spin,
 } from "antd";
 import { SyncOutlined, PlusOutlined, PictureOutlined } from "@ant-design/icons";
-import { Trash2, Pencil, LayoutTemplate, Power, Palette, Cog, UserRound, Monitor, Rocket, Info, Layers } from "lucide-react";
+import { Trash2, Pencil, LayoutTemplate, Power, Palette, Cog, UserRound, Monitor, Rocket, Info, Layers, Plug, Package, Heart } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useLocation, useSearchParams } from "react-router-dom";
@@ -35,7 +36,11 @@ import { ShortcutsSection } from "@/components/settings/ShortcutsSection";
 import { AppLockSection } from "@/components/applock/AppLockSection";
 import { McpHttpSection } from "@/components/settings/McpHttpSection";
 import { TiptapEditor } from "@/components/editor";
-import { AboutDetails } from "@/pages/about";
+import { AboutDetails, CommunitySection, SponsorSection } from "@/pages/about";
+
+// 插件 / 扩展包管理按需加载：只有切到对应 Tab 才拉取，不影响设置页首屏
+const PluginsPage = lazy(() => import("@/pages/plugins"));
+const ExtensionsPage = lazy(() => import("@/pages/extensions"));
 
 const { Title, Text } = Typography;
 
@@ -71,6 +76,9 @@ function cancelIdle(handle: IdleHandle): void {
 
 const TAB_KEYS = {
   about: "about",
+  community: "community",
+  plugins: "plugins",
+  extensions: "extensions",
   appConfig: "app-config",
   extras: "extras",
   personal: "personal",
@@ -82,7 +90,8 @@ type TabKey = (typeof TAB_KEYS)[keyof typeof TAB_KEYS];
 
 function sectionIdToTab(sectionId: string): TabKey | null {
   if (/^settings-(data-dir|data-migration|sync|auto-save)$/.test(sectionId)) return TAB_KEYS.appConfig;
-  if (/^settings-(app-lock|mcp-http)$/.test(sectionId)) return TAB_KEYS.extras;
+  if (/^settings-app-lock$/.test(sectionId)) return TAB_KEYS.about;
+  if (/^settings-mcp-http$/.test(sectionId)) return TAB_KEYS.extras;
   if (/^settings-(templates|shortcuts)$/.test(sectionId)) return TAB_KEYS.personal;
   if (/^settings-appearance$/.test(sectionId)) return TAB_KEYS.display;
   if (/^settings-(update|startup|features)$/.test(sectionId)) return TAB_KEYS.startup;
@@ -416,7 +425,8 @@ function DesktopSettingsPage() {
   return (
     <div className="settings-tabs-page">
       <div style={{ marginBottom: 16 }}>
-        <Title level={3}>设置</Title>
+        {/* /about 与 /settings 共用本页：从「关于」入口进入时标题显示为「关于」 */}
+        <Title level={3}>{location.pathname.startsWith("/about") ? "关于" : "设置"}</Title>
       </div>
 
       <Tabs
@@ -426,24 +436,74 @@ function DesktopSettingsPage() {
         destroyInactiveTabPane={false}
         className="settings-tabs-shell"
         items={[
-          // ─── Tab 1: 应用信息（原「关于」，置于首位）──────────
+          // ─── Tab 1: 关于（系统信息 / 社区 / 赞赏 / 推荐，置于首位）────
           {
             key: TAB_KEYS.about,
-            label: <span className="flex items-center gap-2"><Info size={16} />应用信息</span>,
+            label: <span className="flex items-center gap-2"><Info size={16} />关于</span>,
             children: (
               <div className="settings-tabs-stack">
+                {/* 社区 / 赞赏已拆成独立 Tab */}
                 <AboutDetails
                   showHeader={false}
                   showAnchorNav={false}
                   showSettingsButton={false}
+                  sections={{ community: false, sponsor: false }}
                 />
+                <AppLockSection />
               </div>
             ),
           },
-          // ─── Tab 2: 应用配置 ──────────────────────────
+          // ─── Tab 2: 插件（原 ActivityBar 入口，移入此处）─────
+          {
+            key: TAB_KEYS.plugins,
+            label: <span className="flex items-center gap-2"><Plug size={16} />插件</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                <Suspense
+                  fallback={
+                    <div className="flex justify-center py-12">
+                      <Spin />
+                    </div>
+                  }
+                >
+                  <PluginsPage />
+                </Suspense>
+              </div>
+            ),
+          },
+          // ─── Tab 3: 扩展包（原 ActivityBar 入口，移入此处）───
+          {
+            key: TAB_KEYS.extensions,
+            label: <span className="flex items-center gap-2"><Package size={16} />扩展包</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                <Suspense
+                  fallback={
+                    <div className="flex justify-center py-12">
+                      <Spin />
+                    </div>
+                  }
+                >
+                  <ExtensionsPage />
+                </Suspense>
+              </div>
+            ),
+          },
+          // ─── Tab 4: 侧边栏（原「功能扩展」）──────────────
+          {
+            key: TAB_KEYS.extras,
+            label: <span className="flex items-center gap-2"><Layers size={16} />侧边栏</span>,
+            children: (
+              <div className="settings-tabs-stack">
+                <McpHttpSection />
+                <FeatureModulesSection title="侧边栏" />
+              </div>
+            ),
+          },
+          // ─── Tab 5: 应用设置 ──────────────────────────
           {
             key: TAB_KEYS.appConfig,
-            label: <span className="flex items-center gap-2"><Cog size={16} />应用配置</span>,
+            label: <span className="flex items-center gap-2"><Cog size={16} />应用设置</span>,
             children: (
               <div className="settings-tabs-stack">
                 <div id="settings-data-dir">
@@ -453,23 +513,20 @@ function DesktopSettingsPage() {
                 <div id="settings-sync">
                   <SyncTabs />
                 </div>
-
-                <AppLockSection />
               </div>
             ),
           },
-            // ─── Tab 3: 功能扩展 ──────────────────────────
+          // ─── Tab 6: 显示设置 ──────────────────────────
           {
-            key: TAB_KEYS.extras,
-            label: <span className="flex items-center gap-2"><Layers size={16} />功能扩展</span>,
+            key: TAB_KEYS.display,
+            label: <span className="flex items-center gap-2"><Monitor size={16} />显示设置</span>,
             children: (
               <div className="settings-tabs-stack">
-                <McpHttpSection />
-                <FeatureModulesSection title="侧边栏" />
+                <AppearanceSection />
               </div>
             ),
           },
-        // ─── Tab 4: 个性设置 ──────────────────────────
+          // ─── Tab 7: 个性设置 ──────────────────────────
           {
             key: TAB_KEYS.personal,
             label: <span className="flex items-center gap-2"><UserRound size={16} />个性设置</span>,
@@ -536,17 +593,18 @@ function DesktopSettingsPage() {
               </div>
             ),
           },
-          // ─── Tab 5: 显示设置 ──────────────────────────
+          // ─── Tab 8: 社区&支持（原关于页内两个板块）──────────
           {
-            key: TAB_KEYS.display,
-            label: <span className="flex items-center gap-2"><Monitor size={16} />显示设置</span>,
+            key: TAB_KEYS.community,
+            label: <span className="flex items-center gap-2"><Heart size={16} />社区&支持</span>,
             children: (
               <div className="settings-tabs-stack">
-                <AppearanceSection />
+                <CommunitySection />
+                <SponsorSection />
               </div>
             ),
           },
-          // ─── Tab 6: 更新启动 ──────────────────────────
+          // ─── Tab 9: 更新启动 ──────────────────────────
           {
             key: TAB_KEYS.startup,
             label: <span className="flex items-center gap-2"><Rocket size={16} />更新启动</span>,

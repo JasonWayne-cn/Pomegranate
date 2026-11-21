@@ -13,10 +13,7 @@ import {
   Layers,
   Bot,
   Bell,
-  Plug,
-  Package,
   Presentation,
-  FileText,
   Trash2,
   Info,
   EyeOff,
@@ -96,13 +93,15 @@ const PPT_ITEM: ActivityItem = {
   core: true,
 };
 
-/** 底部视图（放最下方，视觉上与主视图分组） */
+/**
+ * 底部视图（放最下方，视觉上与主视图分组）。
+ *
+ * 「插件」「扩展包」已并入设置页（关于入口）的 Tab，底部栏只保留高频入口。
+ */
 const BOTTOM_ITEMS: ActivityItem[] = [
-  { view: "plugins", route: "/plugins", label: "插件", icon: <Plug size={18} /> },
-  { view: "extensions", route: "/extensions", label: "扩展包", icon: <Package size={18} />, core: true },
   { view: "trash", route: "/trash", label: "回收站", icon: <Trash2 size={18} />, core: true },
-  // 「关于」承担原标题栏设置按钮的入口职责：直接打开设置页的关于 Tab
-  { view: "about", route: "/settings?tab=about", label: "关于", icon: <Info size={18} />, core: true },
+  // 「关于」页承载全部设置 Tab，默认落在「关于」Tab
+  { view: "about", route: "/about?tab=about", label: "关于", icon: <Info size={18} />, core: true },
 ];
 
 /** 路由 → ActiveView 的反查映射（用于根据 URL 推导高亮态） */
@@ -120,8 +119,6 @@ const ROUTE_TO_VIEW: Array<[string, ActiveView]> = [
   ["/research", "research"],
   ["/prompts", "prompts"],
   ["/push", "push"],
-  ["/plugins", "plugins"],
-  ["/extensions", "extensions"],
   ["/ppt", "ppt"],
   ["/hidden", "hidden"],
   ["/trash", "trash"],
@@ -207,6 +204,13 @@ export function ActivityBar() {
     // 此时点 ActivityBar 项会被误判成"点当前视图 → 仅折叠面板"，导致无法跳转。
     const onThisView = deriveActiveViewFromPath(location.pathname) === item.view;
     if (onThisView) {
+      // 「关于」页承载设置各 Tab：停留在其他 Tab 时再点图标回到默认「关于」Tab
+      if (item.view === "about") {
+        if (new URLSearchParams(location.search).get("tab") !== "about") {
+          navigate(item.route, { replace: true });
+        }
+        return;
+      }
       toggleSidePanel();
       return;
     }
@@ -457,7 +461,7 @@ export function ActivityBar() {
       style={{
         width: 64,
         // 必须撑满 Sider 高度，否则下方 flex:1 spacer 没有空间，
-        // 底部三项（插件 / 回收站 / 关于）会贴在主组按钮后面而不是钉在左下角
+        // 底部项（回收站 / 关于）会贴在主组按钮后面而不是钉在左下角
         height: "100%",
         flexShrink: 0,
         display: "flex",
@@ -472,49 +476,6 @@ export function ActivityBar() {
     >
       {MAIN_GROUPS.flat().filter(isVisible).map(renderItem)}
       {pptEnabled && renderItem(PPT_ITEM)}
-
-      {/* Office 工作台：开发模式入口，正式化后并入 ActiveView */}
-      {import.meta.env.DEV && (
-        <Tooltip title="Office 工作台（开发）" placement="right" mouseEnterDelay={0.15}>
-          <button
-            type="button"
-            onClick={() => startTransition(() => navigate("/office"))}
-            aria-label="Office 工作台（开发）"
-            className="activity-item"
-            style={{
-              width: 56,
-              height: 52,
-              borderRadius: 8,
-              border: "none",
-              cursor: "pointer",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 2,
-              padding: "4px 2px",
-              background: "transparent",
-              color: token.colorTextSecondary,
-              transition: "background .15s, color .15s",
-            }}
-          >
-            <FileText size={18} />
-            <span
-              style={{
-                fontSize: 10,
-                lineHeight: 1.1,
-                fontWeight: 400,
-                maxWidth: "100%",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Office
-            </span>
-          </button>
-        </Tooltip>
-      )}
 
       {/* 插件主区：按 group 分桶，桶之间用细分隔线区分；与内置导航之间也加一条 */}
       {groupedPluginItems.main.length > 0 && renderPluginDivider("plugin-top-divider")}

@@ -1,4 +1,4 @@
-import { createHashRouter, RouterProvider } from "react-router-dom";
+import { createHashRouter, Navigate, RouterProvider } from "react-router-dom";
 import { Suspense, lazy } from "react";
 import { Spin } from "antd";
 import { LayoutSwitch } from "@/components/layout/LayoutSwitch";
@@ -14,6 +14,7 @@ import TrashPage from "@/pages/trash";
 import DailyPage from "@/pages/daily";
 import SettingsPage from "@/pages/settings";
 import AboutPage from "@/pages/about";
+import { useIsMobile } from "@/hooks/useIsMobile";
 // 非首屏页面 — React.lazy 动态加载，减少主 bundle 体积
 const GraphPage = lazy(() => import("@/pages/graph"));
 const AiChatPage = lazy(() => import("@/pages/ai"));
@@ -24,9 +25,7 @@ const TasksPage = lazy(() => import("@/pages/tasks"));
 const MountsPage = lazy(() => import("@/pages/mounts"));
 const CardsPage = lazy(() => import("@/pages/cards"));
 const PromptsPage = lazy(() => import("@/pages/prompts"));
-const PluginsPage = lazy(() => import("@/pages/plugins"));
 const PluginPanelViewPage = lazy(() => import("@/pages/plugins/PluginPanelViewPage"));
-const ExtensionsPage = lazy(() => import("@/pages/extensions"));
 const PptPage = lazy(() => import("@/pages/ppt"));
 const ResearchPage = lazy(() => import("@/pages/research"));
 const HiddenPage = lazy(() => import("@/pages/hidden"));
@@ -44,6 +43,16 @@ const PushPopupPage = lazy(() => import("@/pages/push-popup"));
 const MindMapPopoutPage = lazy(() => import("@/pages/mindmap-popout"));
 const QuickAddPage = lazy(() => import("@/pages/quick-add"));
 const PrintPage = lazy(() => import("@/pages/print"));
+
+/**
+ * /about 入口分流：
+ * - 桌面端：设置内容已整体移到关于页，直接渲染设置 Tab 页面
+ * - 移动端：设置/关于是两套页面，保留原「关于」信息页
+ */
+function AboutRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <AboutPage /> : <SettingsPage />;
+}
 
 /** 懒加载页面统一 Suspense fallback */
 function LazyPage({ children }: { children: React.ReactNode }) {
@@ -148,16 +157,19 @@ const router = createHashRouter([
       { path: "ai", element: <LazyPage><AiChatPage /></LazyPage> },
       { path: "prompts", element: <LazyPage><PromptsPage /></LazyPage> },
       { path: "push", element: <LazyPage><PushPage /></LazyPage> },
-      { path: "plugins", element: <LazyPage><PluginsPage /></LazyPage> },
+      // 插件 / 扩展包管理已并入「关于」页（设置 Tab），旧地址重定向保持深链可用
+      { path: "plugins", element: <Navigate to="/about?tab=plugins" replace /> },
       { path: "plugin-view/:viewId", element: <LazyPage><PluginPanelViewPage /></LazyPage> },
-      { path: "extensions", element: <LazyPage><ExtensionsPage /></LazyPage> },
+      { path: "extensions", element: <Navigate to="/about?tab=extensions" replace /> },
       { path: "ppt", element: <LazyPage><PptPage /></LazyPage> },
       { path: "research", element: <LazyPage><ResearchPage /></LazyPage> },
       { path: "tasks", element: <LazyPage><TasksPage /></LazyPage> },
       { path: "task-session", element: <LazyPage><TaskSessionPage /></LazyPage> },
       { path: "cards", element: <LazyPage><CardsPage /></LazyPage> },
+      // 设置内容已并入「关于」页：桌面端两个入口共用同一套 Tab 页面
+      // （/settings 保留给移动端「我的」与旧深链，/about 为桌面关于入口的规范地址）
       { path: "settings", element: <SettingsPage /> },
-      { path: "about", element: <AboutPage /> },
+      { path: "about", element: <AboutRoute /> },
       { path: "quick-create", element: <LazyPage><QuickCreatePage /></LazyPage> },
       { path: "feature-toggle", element: <LazyPage><FeatureTogglePage /></LazyPage> },
       // P0 Spike：WebView 内 PPTX 引擎验证页（不进入侧边栏）

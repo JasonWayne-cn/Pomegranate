@@ -16,7 +16,6 @@ import {
   GitFork,
   Bot,
   Bell,
-  Plug,
   EyeOff,
   // 移动端 Dashboard 项 / Tab 选择器额外用到
   Home as HomeIcon,
@@ -131,13 +130,6 @@ const OPTIONS: OptionMeta[] = [
     desc: "定时让 AI 生成内容并推送到桌面",
     icon: <Bell size={16} className="text-amber-600" />,
     iconBg: "bg-amber-100",
-  },
-  {
-    view: "plugins",
-    label: "插件",
-    desc: "安装、启用和管理应用内插件",
-    icon: <Plug size={16} className="text-indigo-600" />,
-    iconBg: "bg-indigo-100",
   },
   {
     view: "hidden",

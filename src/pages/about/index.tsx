@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, Typography, Descriptions, Spin, message, Modal, Button, Tooltip, Image } from "antd";
 import { SyncOutlined, SettingOutlined } from "@ant-design/icons";
@@ -31,8 +31,12 @@ const ABOUT_NAV_ITEMS: { id: string; label: string }[] = [
   { id: "about-recommend", label: "推荐应用" },
 ];
 
-function AboutAnchorNav() {
-  const [activeId, setActiveId] = useState<string>(ABOUT_NAV_ITEMS[0].id);
+function AboutAnchorNav({
+  items: navItems,
+}: {
+  items: { id: string; label: string }[];
+}) {
+  const [activeId, setActiveId] = useState<string>(navItems[0]?.id ?? "");
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -46,12 +50,12 @@ function AboutAnchorNav() {
       },
       { rootMargin: "0px 0px -66% 0px", threshold: 0 },
     );
-    ABOUT_NAV_ITEMS.forEach((item) => {
+    navItems.forEach((item) => {
       const el = document.getElementById(item.id);
       if (el) observer.observe(el);
     });
     return () => observer.disconnect();
-  }, []);
+  }, [navItems]);
 
   function jumpTo(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -60,7 +64,7 @@ function AboutAnchorNav() {
   return (
     <aside className="anchor-page-nav">
       <ul>
-        {ABOUT_NAV_ITEMS.map((item) => (
+        {navItems.map((item) => (
           <li
             key={item.id}
             data-active={activeId === item.id || undefined}
@@ -74,6 +78,14 @@ function AboutAnchorNav() {
   );
 }
 
+/** 关于页各板块开关：设置页把「关于」拆成多个 Tab 时按需渲染 */
+export interface AboutSectionFlags {
+  system?: boolean;
+  community?: boolean;
+  sponsor?: boolean;
+  recommend?: boolean;
+}
+
 interface AboutDetailsProps {
   /** 显示页面标题与副标题 */
   showHeader?: boolean;
@@ -81,6 +93,8 @@ interface AboutDetailsProps {
   showAnchorNav?: boolean;
   /** 显示「前往设置」按钮 */
   showSettingsButton?: boolean;
+  /** 只渲染指定板块（默认全部） */
+  sections?: AboutSectionFlags;
 }
 
 /**
@@ -93,6 +107,7 @@ export function AboutDetails({
   showHeader = true,
   showAnchorNav = true,
   showSettingsButton = true,
+  sections,
 }: AboutDetailsProps) {
   const navigate = useNavigate();
   const [info, setInfo] = useState<SystemInfo | null>(null);
@@ -102,13 +117,35 @@ export function AboutDetails({
   const [dbChecking, setDbChecking] = useState(false);
   const updater = useUpdater();
 
+  const showSystem = sections?.system ?? true;
+  const showCommunity = sections?.community ?? true;
+  const showSponsor = sections?.sponsor ?? true;
+  const showRecommend = sections?.recommend ?? true;
+
+  const visibleNavItems = useMemo(
+    () =>
+      ABOUT_NAV_ITEMS.filter((item) => {
+        if (item.id === "about-system") return showSystem;
+        if (item.id === "about-community") return showCommunity;
+        if (item.id === "about-sponsor") return showSponsor;
+        if (item.id === "about-recommend") return showRecommend;
+        return true;
+      }),
+    [showSystem, showCommunity, showSponsor, showRecommend],
+  );
+
   useEffect(() => {
+    // 未渲染系统信息板块时（如「社区」「赞赏」独立 Tab）不发起 IPC
+    if (!showSystem) {
+      setLoading(false);
+      return;
+    }
     systemApi
       .getSystemInfo()
       .then(setInfo)
       .catch((e) => message.error(String(e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [showSystem]);
 
   async function handleOpenLogs() {
     try {
@@ -239,6 +276,7 @@ export function AboutDetails({
         </div>
       )}
 
+      {showSystem && (
       <Card id="about-system" title="系统信息">
         {loading ? (
           <div className="flex justify-center py-8">
@@ -312,7 +350,9 @@ export function AboutDetails({
           <Text type="danger">无法获取系统信息</Text>
         )}
       </Card>
+      )}
 
+      {showCommunity && (
       <Card id="about-community" title="社区">
         <Descriptions
           column={1}
@@ -382,8 +422,10 @@ export function AboutDetails({
           </Descriptions.Item>
         </Descriptions>
       </Card>
+      )}
 
       {/* 赞赏支持：本应用完全免费，扫码请作者喝杯咖啡 ☕ */}
+      {showSponsor && (
       <Card id="about-sponsor" title="赞赏支持">
         <div className="flex items-center gap-6 flex-wrap">
           <div className="flex flex-col items-center gap-1">
@@ -422,10 +464,13 @@ export function AboutDetails({
           </div>
         </div>
       </Card>
+      )}
 
-      <div id="about-recommend">
-        <RecommendCards />
-      </div>
+      {showRecommend && (
+        <div id="about-recommend">
+          <RecommendCards />
+        </div>
+      )}
     </div>
   );
 
@@ -433,9 +478,35 @@ export function AboutDetails({
 
   return (
     <div className="anchor-page-layout">
-      <AboutAnchorNav />
+      <AboutAnchorNav items={visibleNavItems} />
       {content}
     </div>
+  );
+}
+
+/**
+ * 「社区」「赞赏支持」独立板块包装。
+ * 设置页把这两块拆成单独的 Tab，但复用同一份内容，避免两处漂移。
+ */
+export function CommunitySection() {
+  return (
+    <AboutDetails
+      showHeader={false}
+      showAnchorNav={false}
+      showSettingsButton={false}
+      sections={{ system: false, sponsor: false, recommend: false }}
+    />
+  );
+}
+
+export function SponsorSection() {
+  return (
+    <AboutDetails
+      showHeader={false}
+      showAnchorNav={false}
+      showSettingsButton={false}
+      sections={{ system: false, community: false, recommend: false }}
+    />
   );
 }
 

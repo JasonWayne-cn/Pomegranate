@@ -6,7 +6,6 @@ import {
   GitBranch,
   Bot,
   Bell,
-  Plug,
   EyeOff,
   Boxes,
 } from "lucide-react";
@@ -62,12 +61,6 @@ const MODULES: ModuleMeta[] = [
     label: "定时推送",
     desc: "按计划让 AI 生成内容，并通过系统通知或弹窗推送",
     icon: <Bell size={16} />,
-  },
-  {
-    view: "plugins",
-    label: "插件",
-    desc: "安装、启用和管理应用内插件",
-    icon: <Plug size={16} />,
   },
   {
     view: "hidden",

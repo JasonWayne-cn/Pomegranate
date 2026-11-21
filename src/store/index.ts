@@ -885,7 +885,6 @@ export const OPTIONAL_VIEWS: readonly ActiveView[] = [
   "graph",
   "ai",
   "push",
-  "plugins",
   "hidden",
 ] as const;
 
