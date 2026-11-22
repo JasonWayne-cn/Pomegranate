@@ -55,7 +55,7 @@ interface ActivityItem {
  * 隐藏文档也不再占侧栏：入口是文档页搜索框前的眼睛图标。
  *
  * 标签是文档模块的子功能（入口在「文档」模块配置中），不再单独占一格。
- * 卡片复习 / 定时推送不再占侧栏：入口在首页顶部齿轮打开的「首页」设置抽屉。
+ * 卡片复习 / 定时推送不再占侧栏：分别收进「首页」与「AI 问答」的设置抽屉页签。
  *
  * 分组而非平铺的好处：用户扫一眼就能锁定意图所在区，比按使用频率排更省认知。
  */
@@ -465,6 +465,9 @@ export function ActivityBar() {
       }}
     >
       {MAIN_GROUPS.flat().filter(isVisible).map(renderItem)}
+      {/* AI 问答下方加一条分隔线，与后续入口（PPT / 插件）视觉分开 */}
+      {MAIN_GROUPS.flat().some((i) => i.view === "ai" && isVisible(i)) &&
+        renderPluginDivider("ai-divider")}
       {pptEnabled && renderItem(PPT_ITEM)}
 
       {/* 插件主区：按 group 分桶，桶之间用细分隔线区分；与内置导航之间也加一条 */}

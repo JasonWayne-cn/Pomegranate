@@ -40,19 +40,14 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
     helpFile: "home.md",
     // 首页不再提供独立配置页签；抽屉里只有使用说明与下列功能页签
     panels: [],
-    // 卡片复习 / 定时推送不再占侧边栏，收进首页设置抽屉的页签里
+    // 卡片复习不再占侧边栏，收进首页设置抽屉的页签里
+    // （定时推送归到「AI 问答」设置抽屉，见下方 ai.featureTabs）
     featureTabs: [
       {
         key: "cards",
         label: "卡片复习",
         icon: Layers,
         load: () => import("@/pages/cards"),
-      },
-      {
-        key: "push",
-        label: "定时推送",
-        icon: Bell,
-        load: () => import("@/pages/push"),
       },
     ],
   },
@@ -502,6 +497,15 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
           import("@/components/settings/PromptsSection").then((m) => ({
             default: m.PromptsSection,
           })),
+      },
+    ],
+    // 定时推送归到 AI 问答设置：它本质上是让 AI 跑提示词并推送结果
+    featureTabs: [
+      {
+        key: "push",
+        label: "定时推送",
+        icon: Bell,
+        load: () => import("@/pages/push"),
       },
     ],
   },
