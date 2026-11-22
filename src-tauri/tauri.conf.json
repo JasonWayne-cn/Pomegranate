@@ -39,7 +39,8 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://gitee.com/kadywen/Intelligent-NoteBook-release/raw/master/update.json"
+        "https://gitee.com/kadywen/Pomegranate-release/raw/master/update.json",
+        "https://github.com/JasonWayne-cn/Pomegranate-release/raw/main/update.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ5QjNCNEI0RjIyNDdCMTgKUldRWWV5VHl0TFN6U2VEWmpxeHpuYzYzZVlsRm1va3NNSXYvWit1ekl0VXFyMVNDcnFpa2ZRYzEK"
     }

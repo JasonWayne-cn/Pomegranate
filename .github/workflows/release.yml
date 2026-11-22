@@ -50,7 +50,7 @@ jobs:
             gh release create "$TAG" \
               --repo "$REPO" \
               --draft \
-              --title "知识库 $TAG" \
+              --title "Pomegranate $TAG" \
               --notes "See the assets to download and install this version."
             echo "Created draft release $TAG"
           fi
@@ -68,14 +68,6 @@ jobs:
         include:
           - platform: windows-latest           # platforms: windows
             args: '--bundles nsis'
-          - platform: macos-latest             # platforms: macos
-            args: '--bundles app,dmg'
-            target: aarch64-apple-darwin
-          - platform: macos-latest             # platforms: macos
-            args: '--bundles app,dmg'
-            target: x86_64-apple-darwin
-          - platform: ubuntu-22.04             # platforms: linux
-            args: '--bundles deb,appimage'
 
     runs-on: ${{ matrix.platform }}
 
@@ -142,7 +134,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: '知识库 ${{ github.ref_name }}'
+          releaseName: 'Pomegranate ${{ github.ref_name }}'
           releaseBody: 'See the assets to download and install this version.'
           releaseDraft: true
           prerelease: false
