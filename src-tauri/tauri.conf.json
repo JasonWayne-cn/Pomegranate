@@ -40,7 +40,7 @@
     "updater": {
       "endpoints": [
         "https://gitee.com/kadywen/Pomegranate-release/raw/master/update.json",
-        "https://github.com/JasonWayne-cn/Pomegranate-release/raw/main/update.json"
+        "https://github.com/JasonWayne-cn/Pomegranate/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgzMUQ2QjI5NjQ0MDhBMUEKUldRYWlrQmtLV3NkZzlaZEZxS0d3NXQvZVl3QkV1Tjc1akIzbjJ1ckFmODNwR2ZBTHN4L1JSSFYK"
     }
