@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "vite",
     "dev:clean": "kill-port 2010 & vite",
-    "build": "tsc && vite build",
-    "build:vite": "vite build",
+    "build": "tsc && node --max-old-space-size=8192 node_modules/vite/bin/vite.js build",
+    "build:vite": "node --max-old-space-size=8192 node_modules/vite/bin/vite.js build",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
