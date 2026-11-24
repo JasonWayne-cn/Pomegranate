@@ -596,8 +596,9 @@ function DesktopNoteListPage() {
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState(searchParams.get("keyword") || "");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
-  /** 列表视图每页条数，受分页组件 sizeChanger 控制；初始 12 */
-  const [listPageSize, setListPageSize] = useState(12);
+  /** 列表视图每页条数：持久化在 store（默认 30，上限 100） */
+  const listPageSize = useAppStore((s) => s.notesPageSize);
+  const setListPageSize = useAppStore((s) => s.setNotesPageSize);
   /** 列表排序模式（仅 list 视图生效）。"custom" 才启用拖拽排序 */
   const [sortBy, setSortBy] = useState<"default" | "custom" | "created" | "title">(
     "default",
@@ -620,6 +621,8 @@ function DesktopNoteListPage() {
   });
   /** 列表视图下选中的文档 id，切换到其他视图/翻页自动清空 */
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  /** 导出全部为 ZIP 的进行中状态 */
+  const [exportingZip, setExportingZip] = useState(false);
   /** 批量移动 Popover 的开关 */
   const [batchMoveOpen, setBatchMoveOpen] = useState(false);
 
@@ -844,6 +847,34 @@ function DesktopNoteListPage() {
     },
     [viewMode, keyword, folderId, listPageSize, sortBy, searchContent, searchRecursive],
   );
+
+  /** 导出全部笔记为单个 ZIP（保留文件夹层级，含图片 / 附件资源） */
+  async function handleExportAllZip() {
+    try {
+      const stamp = new Date().toISOString().slice(0, 10);
+      const target = await save({
+        defaultPath: `知识库导出_${stamp}.zip`,
+        filters: [{ name: "ZIP 压缩包", extensions: ["zip"] }],
+      });
+      if (!target) return;
+      setExportingZip(true);
+      const r = await exportApi.exportNotesZip(target, null, true);
+      if (r.exported > 0) {
+        message.success(
+          `已导出 ${r.exported} 篇文档${r.assetsCopied > 0 ? `，资源 ${r.assetsCopied} 个` : ""}`,
+        );
+      } else {
+        message.info("没有可导出的文档");
+      }
+      if (r.errors.length > 0) {
+        message.warning(`${r.errors.length} 篇导出失败`);
+      }
+    } catch (e) {
+      message.error(`导出失败: ${e}`);
+    } finally {
+      setExportingZip(false);
+    }
+  }
 
   const handleDelete = useCallback(
     async (id: number) => {
@@ -1739,7 +1770,8 @@ function DesktopNoteListPage() {
           className="flex-1 flex flex-col min-h-0 notes-list-flat"
           style={{
             background: token.colorBgContainer,
-            borderRadius: 8,
+            borderRadius: "var(--kb-radius-card)",
+            border: "1px solid var(--kb-border-card)",
             overflow: "hidden",
           }}
         >
@@ -1766,15 +1798,24 @@ function DesktopNoteListPage() {
                 ]}
               />
             </div>
-            {data.total > 0 && (
+            <div className="flex items-center gap-2">
               <Button
                 size="small"
-                icon={<Archive size={14} />}
-                onClick={handleTrashAll}
+                loading={exportingZip}
+                onClick={() => void handleExportAllZip()}
               >
-                全部移到回收站
+                导出全部
               </Button>
-            )}
+              {data.total > 0 && (
+                <Button
+                  size="small"
+                  icon={<Archive size={14} />}
+                  onClick={handleTrashAll}
+                >
+                  全部移到回收站
+                </Button>
+              )}
+            </div>
           </div>
           <div className="flex-1 min-h-0 overflow-auto" data-tour="notes-list">
             {dndEnabled ? (
@@ -1788,6 +1829,7 @@ function DesktopNoteListPage() {
                   strategy={verticalListSortingStrategy}
                 >
                   <Table
+                    className="notes-list-table"
                     columns={columns}
                     dataSource={data.items}
                     rowKey="id"
@@ -1816,6 +1858,7 @@ function DesktopNoteListPage() {
               </DndContext>
             ) : (
               <Table
+                className="notes-list-table"
                 columns={columns}
                 dataSource={data.items}
                 rowKey="id"
@@ -1849,7 +1892,7 @@ function DesktopNoteListPage() {
               total={data.total}
               showTotal={(total) => `共 ${total} 篇`}
               showSizeChanger
-              pageSizeOptions={["12", "20", "50", "100", "200"]}
+              pageSizeOptions={["12", "20", "30", "50", "100"]}
               onChange={(page, size) => {
                 setSelectedIds([]);
                 if (size !== listPageSize) {

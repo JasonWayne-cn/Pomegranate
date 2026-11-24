@@ -6,7 +6,6 @@ import { Search, Palette, ArrowLeft, ArrowRight, PanelLeftClose, PanelLeftOpen }
 import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { importApi } from "@/lib/api";
 import { useAppStore } from "@/store";
 import {
   SIDE_PANEL_MIN_WIDTH,
@@ -27,13 +26,12 @@ import { CommandPalette } from "@/components/ui/CommandPalette";
 import { QuickCaptureAsrModal } from "@/components/QuickCaptureAsrModal";
 import { AsrToggleController } from "@/components/AsrToggleController";
 import { ShortcutsPanel } from "@/components/ui/ShortcutsPanel";
-import { StarryBackground } from "@/components/ui/StarryBackground";
 import { createBlankAndOpen } from "@/lib/noteCreator";
 import { UpdateBadge } from "@/components/ui/UpdateBadge";
 import { UpdateModal } from "@/components/ui/UpdateModal";
 import { ExitConfirmListener } from "@/components/ui/ExitConfirmListener";
 import { CloseRequestedListener } from "@/components/ui/CloseRequestedListener";
-import { useUpdateChecker } from "@/hooks/useUpdateChecker";
+import { useUpdater } from "@/components/updater/UpdaterProvider";
 import { SyncStatusButton } from "./SyncStatusButton";
 import { TourEntry } from "@/components/onboarding/TourEntry";
 import { syncV1Api } from "@/lib/api";
@@ -144,7 +142,6 @@ export function AppLayout() {
   useEffect(() => {
     if (focusModeRaw && !isNoteEditorRoute) setFocusMode(false);
   }, [focusModeRaw, isNoteEditorRoute, setFocusMode]);
-
   // 当前路由是否为"全页路由"（不属于任何 ActivityBar 视图，且本身有自己的左侧导航）。
   // 这类路由下 SidePanel 必须强制隐藏——否则用户从文档跳过来仍会看到文档面板（bug）
   const isStandalonePage =
@@ -240,17 +237,9 @@ export function AppLayout() {
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
 
-    async function openByPath(path: string) {
-      try {
-        const result = await importApi.openMarkdownFile(path);
-        if (result.wasSynced) {
-          message.info("已根据最新 md 文件同步文档内容");
-        }
-        useAppStore.getState().bumpNotesRefresh();
-        navigate(`/notes/${result.noteId}`);
-      } catch (e) {
-        message.error(`打开 ${path} 失败: ${e}`);
-      }
+    function openByPath(path: string) {
+      // shell-first：交给打开中页面异步导入，避免这里阻塞白屏
+      navigate(`/notes/opening?path=${encodeURIComponent(path)}`);
     }
 
     // 启动时拉一次
@@ -346,8 +335,19 @@ export function AppLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [asrCaptureOpen, setAsrCaptureOpen] = useState(false);
-  const { update, phase, progress, modalOpen, openModal, closeModal, checkManually } =
-    useUpdateChecker();
+  // 更新状态来自 App 顶层 UpdaterProvider 的单例（Rust 侧只有一份状态，多窗口共享）
+  const updater = useUpdater();
+  const update = updater?.update ?? null;
+  const phase = updater?.phase ?? "idle";
+  const progress = updater?.progress ?? 0;
+  const modalOpen = updater?.modalOpen ?? false;
+  const openModal = updater?.openModal ?? (() => {});
+  const closeModal = updater?.closeModal ?? (() => {});
+  const checkManually =
+    updater?.checkManually ??
+    (async (): Promise<{ hasUpdate: boolean; error?: string }> => ({
+      hasUpdate: false,
+    }));
 
   // 启动时静默 pull：让用户从其他设备做的修改自动拉到本地，避免后续编辑产生冲突。
   // 只主窗（label === 'main'）跑一次：pop-out 子窗共用同一个 DB，没必要重复 pull。
@@ -461,7 +461,6 @@ export function AppLayout() {
         e.preventDefault();
       }}
     >
-      {activeTheme === "dark-starry" && <StarryBackground />}
       {!focusMode && (
         <Sider
           width={siderWidth}
@@ -664,7 +663,7 @@ export function AppLayout() {
         open={asrCaptureOpen}
         onClose={() => setAsrCaptureOpen(false)}
       />
-      <UpdateModal open={modalOpen} onClose={closeModal} update={update} />
+      <UpdateModal open={modalOpen} onClose={closeModal} />
       <ExitConfirmListener />
       <CloseRequestedListener />
       <AsrToggleController />

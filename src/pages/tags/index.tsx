@@ -10,6 +10,7 @@ import {
   Input,
   Popconfirm,
   message,
+  TreeSelect,
 } from "antd";
 import { Tags, NotebookText, Edit3, Trash2 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -17,6 +18,7 @@ import { tagApi } from "@/lib/api";
 import { contentToPreview, relativeTime } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { TagColorPicker } from "@/components/TagColorPicker";
+import { buildTagTreeSelectData } from "@/lib/tagTree";
 import { useAppStore } from "@/store";
 import type { Tag, Note, PageResult } from "@/types";
 
@@ -51,9 +53,13 @@ function DesktopTagsPage() {
   });
   const [notesLoading, setNotesLoading] = useState(false);
 
-  // 重命名弹窗
+  // 编辑弹窗（名称 / 颜色 / 父标签）
   const [modalOpen, setModalOpen] = useState(false);
-  const [form] = Form.useForm<{ name: string; color: string }>();
+  const [form] = Form.useForm<{
+    name: string;
+    color: string;
+    parentId: number | null;
+  }>();
 
   // 虚拟滚动容器：某些热门标签可能关联几百条文档
   const notesScrollRef = useRef<HTMLDivElement | null>(null);
@@ -68,6 +74,31 @@ function DesktopTagsPage() {
     () => allTags.find((t) => t.id === selectedId) ?? null,
     [allTags, selectedId],
   );
+
+  /** 父标签候选：排除自己及全部后代，避免形成环（后端仍会兜底校验） */
+  const parentOptions = useMemo(() => {
+    if (!selectedTag) return [];
+    const childrenMap = new Map<number, number[]>();
+    for (const t of allTags) {
+      if (t.parent_id != null) {
+        const arr = childrenMap.get(t.parent_id) ?? [];
+        arr.push(t.id);
+        childrenMap.set(t.parent_id, arr);
+      }
+    }
+    const blocked = new Set<number>([selectedTag.id]);
+    const stack = [selectedTag.id];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      for (const child of childrenMap.get(cur) ?? []) {
+        if (!blocked.has(child)) {
+          blocked.add(child);
+          stack.push(child);
+        }
+      }
+    }
+    return buildTagTreeSelectData(allTags.filter((t) => !blocked.has(t.id)));
+  }, [allTags, selectedTag]);
 
   useEffect(() => {
     loadAllTags();
@@ -104,11 +135,19 @@ function DesktopTagsPage() {
   }
 
   function openEditModal(tag: Tag) {
-    form.setFieldsValue({ name: tag.name, color: tag.color || "#1677ff" });
+    form.setFieldsValue({
+      name: tag.name,
+      color: tag.color || "var(--kb-primary)",
+      parentId: tag.parent_id ?? null,
+    });
     setModalOpen(true);
   }
 
-  async function handleSubmit(values: { name: string; color: string }) {
+  async function handleSubmit(values: {
+    name: string;
+    color: string;
+    parentId: number | null;
+  }) {
     if (!selectedTag) return;
     try {
       if (values.name !== selectedTag.name) {
@@ -116,6 +155,10 @@ function DesktopTagsPage() {
       }
       if ((values.color || null) !== (selectedTag.color || null)) {
         await tagApi.setColor(selectedTag.id, values.color || null);
+      }
+      const nextParent = values.parentId ?? null;
+      if (nextParent !== (selectedTag.parent_id ?? null)) {
+        await tagApi.setParent(selectedTag.id, nextParent);
       }
       message.success("已更新");
       setModalOpen(false);
@@ -293,7 +336,21 @@ function DesktopTagsPage() {
           >
             <Input placeholder="输入标签名称" />
           </Form.Item>
-          <Form.Item name="color" label="颜色" initialValue="#1677ff">
+          <Form.Item
+            name="parentId"
+            label="父标签"
+            tooltip="留空 = 顶层标签；不能选择自己或自己的子孙"
+          >
+            <TreeSelect
+              allowClear
+              placeholder="不选则为顶层标签"
+              treeData={parentOptions}
+              treeDefaultExpandAll
+              showSearch
+              treeNodeFilterProp="title"
+            />
+          </Form.Item>
+          <Form.Item name="color" label="颜色" initialValue="var(--kb-primary)">
             <TagColorPicker />
           </Form.Item>
         </Form>

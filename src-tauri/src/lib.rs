@@ -7,6 +7,9 @@ mod services;
 mod state;
 #[cfg(desktop)]
 mod tray;
+// 主窗口位置记忆：按显示器组合分别记住（替代 tauri-plugin-window-state 的单条记录）
+#[cfg(desktop)]
+mod window_memory;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -381,12 +384,10 @@ fn start_md_deliver_watcher(handle: tauri::AppHandle, app_data_dir: PathBuf) {
             last_mtime = std::fs::metadata(&path)
                 .and_then(|m| m.modified())
                 .unwrap_or(last_mtime);
-            // mtime 变化即视为"有人想唤起这个窗口"——把主窗前置
-            if let Some(win) = handle.get_webview_window("main") {
-                let _ = win.unminimize();
-                let _ = win.show();
-                let _ = win.set_focus();
-            }
+            // mtime 变化即视为"有人想唤起这个窗口"——把主窗前置。
+            // 走 window_memory::show_main：顺手把窗口纠回上次所在的显示器。
+            #[cfg(desktop)]
+            crate::window_memory::show_main(&handle, "投递 md");
         }
     });
 }
@@ -533,18 +534,10 @@ pub fn run() {
                 Some(vec!["--start-minimized"]),
             ))
             .plugin(tauri_plugin_updater::Builder::new().build())
-            .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-            // 窗口状态记忆：只跟踪 main 的尺寸/位置/最大化，避免弹窗按上次位置错位
-            .plugin(
-                tauri_plugin_window_state::Builder::default()
-                    .with_state_flags(
-                        tauri_plugin_window_state::StateFlags::SIZE
-                            | tauri_plugin_window_state::StateFlags::POSITION
-                            | tauri_plugin_window_state::StateFlags::MAXIMIZED,
-                    )
-                    .with_filter(|label| label == "main")
-                    .build(),
-            );
+            .plugin(tauri_plugin_global_shortcut::Builder::new().build());
+        // 窗口位置记忆不再用 tauri-plugin-window-state：它只有一条记录，多显示器切换时
+        // 会把「合盖只剩副屏」的位置盖掉「双屏在主屏」的选择。改由 window_memory 按
+        // 显示器组合分别记；旧插件的 `.window-state.json` 只在新记录为空时读一次打底。
     }
 
     builder
@@ -559,6 +552,19 @@ pub fn run() {
             // 仅桌面端：移动端 WebviewWindow 不提供 show/hide（系统管理可见性）
             #[cfg(desktop)]
             if let Some(window) = app.get_webview_window("main") {
+                // 位置记忆：按显示器组合分别记（见 window_memory）。必须在首次 show 之前
+                // 摆好位置，否则用户会看到窗口先居中再跳走。
+                // 旧插件 `.window-state.json` 只在这里读一次给新记录打底，之后不再写它。
+                let legacy = app
+                    .path()
+                    .app_config_dir()
+                    .ok()
+                    .and_then(|dir| std::fs::read_to_string(dir.join(".window-state.json")).ok());
+                crate::window_memory::init(
+                    app.handle(),
+                    true,
+                    crate::window_memory::Options { legacy, ..Default::default() },
+                );
                 let _ = window.show();
             }
 
@@ -993,6 +999,8 @@ pub fn run() {
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
+                    // 首次显示后补记一次所在屏：这个显示器组合没有历史记录时，这就是第一条
+                    crate::window_memory::capture_now(app.handle(), "启动显示后");
                 }
             }
 
@@ -1271,6 +1279,8 @@ pub fn run() {
             commands::daily::get_daily_neighbors,
             // 标签模块
             commands::tags::create_tag,
+            commands::tags::set_tag_parent,
+            commands::tags::reorder_tags,
             commands::tags::list_tags,
             commands::tags::rename_tag,
             commands::tags::set_tag_color,
@@ -1312,6 +1322,9 @@ pub fn run() {
             commands::ai::delete_ai_conversation,
             commands::ai::delete_ai_conversations_before,
             commands::ai::rename_ai_conversation,
+            commands::ai::pin_ai_conversation,
+            commands::ai::clone_ai_conversation,
+            commands::ai::fork_ai_conversation,
             commands::ai::update_ai_conversation_model,
             commands::ai::update_ai_conversation_agent_settings,
             commands::ai::list_ai_messages,
@@ -1371,6 +1384,7 @@ pub fn run() {
             commands::mount::mount_refresh_path,
             // 导出模块
             commands::export::export_notes,
+            commands::export::export_notes_zip,
             commands::export::export_single_note,
             // T-020 导出 Word / HTML
             // Word 导出仅桌面端（docx_rs 移动端编译失败）
@@ -1615,6 +1629,12 @@ pub fn run() {
         ])
         // ─── 窗口事件处理 ─────────────────────────
         .on_window_event(|window, event| {
+            // 位置记忆只处理主窗口；子窗口（popout / push-popup / emergency-* 等）
+            // 的几何各自由 builder 决定，不纳入本模块。
+            #[cfg(desktop)]
+            if window.label() == "main" {
+                crate::window_memory::on_window_event(window.app_handle(), event);
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 // 关闭决策只对主窗口生效（要读 app_config 里的 window.close_action）。
                 // 子窗口（emergency-*、migration-splash 等）的 close 应该自然完成，

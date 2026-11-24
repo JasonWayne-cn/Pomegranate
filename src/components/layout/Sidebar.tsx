@@ -44,7 +44,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FolderOutlined } from "@ant-design/icons";
 import type { DataNode } from "antd/es/tree";
 import { useAppStore } from "@/store";
-import { folderApi, importApi } from "@/lib/api";
+import { folderApi, importApi, noteApi } from "@/lib/api";
 import { extensionApi } from "@/lib/api/extension";
 import type { Folder, ScannedFile } from "@/types";
 import { NewNoteButton } from "@/components/NewNoteButton";
@@ -188,6 +188,8 @@ export function Sidebar() {
   );
 
   const [folders, setFolders] = useState<Folder[]>([]);
+  /** "未分类"文档总数（常驻虚拟文件夹行尾展示） */
+  const [uncategorizedTotal, setUncategorizedTotal] = useState(0);
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [showClipModal, setShowClipModal] = useState(false);
   const [folderExpanded, setFolderExpanded] = useState(true);
@@ -233,6 +235,22 @@ export function Sidebar() {
 
   useEffect(() => {
     loadFolders();
+  }, [foldersRefreshTick]);
+
+  // 未分类计数：单独取 total，不加载文档列表
+  useEffect(() => {
+    let cancelled = false;
+    noteApi
+      .list({ uncategorized: true, page: 1, page_size: 1, include_external_docs: true })
+      .then((r) => {
+        if (!cancelled) setUncategorizedTotal(r.total);
+      })
+      .catch(() => {
+        /* 计数失败不影响侧栏 */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [foldersRefreshTick]);
 
   // 首次加载后默认展开所有节点
@@ -959,6 +977,17 @@ export function Sidebar() {
             >
               <FolderIcon size={13} style={{ opacity: 0.6 }} />
               <span>未分类</span>
+              {uncategorizedTotal > 0 && (
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 11,
+                    opacity: 0.6,
+                  }}
+                >
+                  {uncategorizedTotal}
+                </span>
+              )}
             </div>
           </div>
         )}

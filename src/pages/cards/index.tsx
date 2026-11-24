@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Tabs,
   Card as AntCard,
   Button,
   Modal,
@@ -15,6 +14,8 @@ import {
   Table,
   Popconfirm,
   Tooltip,
+  Drawer,
+  Select,
   theme as antdTheme,
 } from "antd";
 import {
@@ -38,8 +39,8 @@ import {
 
 /** 4 个用户面向评分（排除 Manual=0） */
 type GradeRating = Rating.Again | Rating.Hard | Rating.Good | Rating.Easy;
-import { cardApi } from "@/lib/api";
-import type { Card, CardStats } from "@/types";
+import { cardApi, noteApi } from "@/lib/api";
+import type { Card, CardStats, Note } from "@/types";
 
 /**
  * 后端 Card → ts-fsrs Card。
@@ -84,8 +85,9 @@ function formatNextInterval(card: FsrsCard, now: Date): string {
 }
 
 function DesktopCardsPage() {
-  const [tab, setTab] = useState<"review" | "list">("review");
   const [stats, setStats] = useState<CardStats | null>(null);
+  const [listOpen, setListOpen] = useState(false);
+  const [reviewKey, setReviewKey] = useState(0);
 
   const refreshStats = useCallback(async () => {
     try {
@@ -99,6 +101,12 @@ function DesktopCardsPage() {
     void refreshStats();
   }, [refreshStats]);
 
+  const handleChanged = useCallback(() => {
+    void refreshStats();
+    // 新建卡片后让复习区重新拉一次队列（新卡可能立刻到期）
+    setReviewKey((k) => k + 1);
+  }, [refreshStats]);
+
   return (
     // 去掉 max-w + 自带的 px-6：横向留白统一交给 AppLayout Content 的 padding，
     // 否则这页会比别的列表页多缩进 24px
@@ -110,23 +118,126 @@ function DesktopCardsPage() {
 
       {stats && <StatsBar stats={stats} />}
 
-      <Tabs
-        activeKey={tab}
-        onChange={(k) => setTab(k as "review" | "list")}
-        items={[
-          {
-            key: "review",
-            label: `今日复习 ${stats?.dueToday ?? 0}`,
-            children: <ReviewTab onChanged={refreshStats} />,
-          },
-          {
-            key: "list",
-            label: `全部卡片 ${stats?.total ?? 0}`,
-            children: <ListTab onChanged={refreshStats} />,
-          },
-        ]}
-      />
+      <div className="grid gap-4 items-start md:grid-cols-[minmax(0,1fr)_300px]">
+        <ReviewTab key={reviewKey} onChanged={refreshStats} />
+
+        {/* 右侧常驻：快速新建 + 全部卡片入口 */}
+        <div className="flex flex-col gap-3">
+          <QuickCreateCard onSaved={handleChanged} />
+          <AntCard size="small" title="全部卡片">
+            <div className="flex items-center justify-between">
+              <span className="text-xs" style={{ opacity: 0.65 }}>
+                共 {stats?.total ?? 0} 张
+              </span>
+              <Button size="small" onClick={() => setListOpen(true)}>
+                管理
+              </Button>
+            </div>
+          </AntCard>
+        </div>
+      </div>
+
+      <Drawer
+        title="全部卡片"
+        placement="right"
+        width={760}
+        open={listOpen}
+        onClose={() => setListOpen(false)}
+        destroyOnHidden
+      >
+        <ListTab onChanged={handleChanged} />
+      </Drawer>
     </div>
+  );
+}
+
+// ─── 右侧快速新建 ──────────────────────────────────────────
+
+function QuickCreateCard({ onSaved }: { onSaved: () => void }) {
+  const [form] = Form.useForm<{ front: string; back: string; noteId?: number | null }>();
+  const [saving, setSaving] = useState(false);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [noteSearching, setNoteSearching] = useState(false);
+
+  async function searchNotes(keyword: string) {
+    setNoteSearching(true);
+    try {
+      const r = await noteApi.list({
+        page: 1,
+        page_size: 20,
+        keyword: keyword.trim() || undefined,
+      });
+      setNotes(r.items);
+    } catch {
+      /* 选择所属笔记失败不影响手写正反面 */
+    } finally {
+      setNoteSearching(false);
+    }
+  }
+
+  useEffect(() => {
+    void searchNotes("");
+  }, []);
+
+  async function handleSubmit() {
+    try {
+      const v = await form.validateFields();
+      setSaving(true);
+      await cardApi.create({
+        front: v.front,
+        back: v.back,
+        noteId: v.noteId ?? null,
+      });
+      message.success("已创建");
+      form.resetFields(["front", "back"]);
+      onSaved();
+    } catch (e) {
+      if ((e as { errorFields?: unknown }).errorFields) return;
+      message.error(`创建失败: ${e}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <AntCard size="small" title="快速新建卡片">
+      <Form form={form} layout="vertical" size="small">
+        <Form.Item
+          name="front"
+          label="正面"
+          rules={[{ required: true, message: "请输入正面" }]}
+        >
+          <Input.TextArea rows={2} placeholder="问题 / 提示" />
+        </Form.Item>
+        <Form.Item
+          name="back"
+          label="背面"
+          rules={[{ required: true, message: "请输入背面" }]}
+        >
+          <Input.TextArea rows={3} placeholder="答案" />
+        </Form.Item>
+        <Form.Item name="noteId" label="所属笔记">
+          <Select
+            allowClear
+            showSearch
+            placeholder="可选，关联到某篇文档"
+            filterOption={false}
+            loading={noteSearching}
+            onSearch={(v) => void searchNotes(v)}
+            options={notes.map((n) => ({ label: n.title || "未命名", value: n.id }))}
+          />
+        </Form.Item>
+        <Button
+          type="primary"
+          block
+          icon={<Plus size={14} />}
+          loading={saving}
+          onClick={() => void handleSubmit()}
+        >
+          创建
+        </Button>
+      </Form>
+    </AntCard>
   );
 }
 
@@ -249,7 +360,7 @@ function ReviewTab({ onChanged }: { onChanged: () => void }) {
     return (
       <Empty
         className="py-16"
-        description='暂无待复习卡片，先去"全部卡片" Tab 创建几张吧'
+        description="暂无待复习卡片，可用右侧「快速新建卡片」创建几张"
       />
     );
   }
@@ -318,17 +429,22 @@ function ReviewTab({ onChanged }: { onChanged: () => void }) {
         </div>
       ) : (
         <div className="grid grid-cols-4 gap-2 mt-6">
-          <RateBtn label="忘了" interval={previews?.again} color="#ff4d4f" onClick={() => rate(Rating.Again)} />
-          <RateBtn label="模糊" interval={previews?.hard} color="#fa8c16" onClick={() => rate(Rating.Hard)} />
-          <RateBtn label="还行" interval={previews?.good} color="#1677ff" onClick={() => rate(Rating.Good)} />
-          <RateBtn label="记牢了" interval={previews?.easy} color="#52c41a" onClick={() => rate(Rating.Easy)} />
+          <RateBtn hint="1" label="重来" interval={previews?.again} color="#ff4d4f" onClick={() => rate(Rating.Again)} />
+          <RateBtn hint="2" label="困难" interval={previews?.hard} color="#fa8c16" onClick={() => rate(Rating.Hard)} />
+          <RateBtn hint="3" label="良好" interval={previews?.good} color="var(--kb-primary)" onClick={() => rate(Rating.Good)} />
+          <RateBtn hint="4" label="简单" interval={previews?.easy} color="#52c41a" onClick={() => rate(Rating.Easy)} />
         </div>
       )}
 
-      {/* 空格键翻面 */}
-      <SpaceShortcut
-        enabled={!showBack && !!current}
-        onSpace={() => setShowBack(true)}
+      <div className="mt-2 text-center text-xs" style={{ opacity: 0.55 }}>
+        空格翻面 · 显示答案后按 1–4 评分
+      </div>
+
+      <ReviewShortcuts
+        showBack={showBack}
+        hasCard={!!current}
+        onReveal={() => setShowBack(true)}
+        onRate={(r) => void rate(r)}
       />
     </div>
   );
@@ -336,11 +452,13 @@ function ReviewTab({ onChanged }: { onChanged: () => void }) {
 
 function RateBtn({
   label,
+  hint,
   interval,
   color,
   onClick,
 }: {
   label: string;
+  hint?: string;
   interval?: string;
   color: string;
   onClick: () => void;
@@ -352,26 +470,80 @@ function RateBtn({
       style={{ height: 64, borderColor: color, color }}
     >
       <div className="flex flex-col items-center gap-0.5">
-        <span style={{ fontWeight: 600 }}>{label}</span>
+        <span style={{ fontWeight: 600 }}>
+          {label}
+          {hint && <span style={{ marginLeft: 6, opacity: 0.45 }}>{hint}</span>}
+        </span>
         {interval && <span className="text-xs opacity-70">{interval}</span>}
       </div>
     </Button>
   );
 }
 
-/** 监听空格键翻面：仅 enabled 时生效 */
-function SpaceShortcut({ enabled, onSpace }: { enabled: boolean; onSpace: () => void }) {
+/**
+ * 复习键盘快捷键：
+ * - 未翻面：空格翻面
+ * - 已翻面：数字键 1–4 对应 重来 / 困难 / 良好 / 简单
+ *
+ * 输入框 / 文本域 / contentEditable 内一律不拦截，避免在右侧快速新建里
+ * 打字时误评分。带修饰键（Ctrl/Alt/Meta）的组合键也放行。
+ */
+function ReviewShortcuts({
+  showBack,
+  hasCard,
+  onReveal,
+  onRate,
+}: {
+  showBack: boolean;
+  hasCard: boolean;
+  onReveal: () => void;
+  onRate: (rating: GradeRating) => void;
+}) {
   useEffect(() => {
-    if (!enabled) return;
+    function isTypingTarget(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) return false;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target.isContentEditable
+      ) {
+        return true;
+      }
+      return !!target.closest("input, textarea, [contenteditable='true']");
+    }
+
     function onKey(e: KeyboardEvent) {
-      if (e.code === "Space" && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+      if (!hasCard) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTypingTarget(e.target)) return;
+
+      if (!showBack) {
+        if (e.code === "Space") {
+          e.preventDefault();
+          onReveal();
+        }
+        return;
+      }
+
+      const map: Record<string, GradeRating | undefined> = {
+        Digit1: Rating.Again,
+        Numpad1: Rating.Again,
+        Digit2: Rating.Hard,
+        Numpad2: Rating.Hard,
+        Digit3: Rating.Good,
+        Numpad3: Rating.Good,
+        Digit4: Rating.Easy,
+        Numpad4: Rating.Easy,
+      };
+      const rating = map[e.code];
+      if (rating != null) {
         e.preventDefault();
-        onSpace();
+        onRate(rating);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [enabled, onSpace]);
+  }, [showBack, hasCard, onReveal, onRate]);
   return null;
 }
 

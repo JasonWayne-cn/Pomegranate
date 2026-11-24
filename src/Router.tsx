@@ -8,6 +8,7 @@ import { RouteErrorFallback } from "@/components/ui/ErrorBoundary";
 import HomePage from "@/pages/home";
 import NoteListPage from "@/pages/notes";
 import NoteEditorPage from "@/pages/notes/editor";
+import OpeningNotePage from "@/pages/notes/opening";
 import SearchPage from "@/pages/search";
 import TagsPage from "@/pages/tags";
 import TrashPage from "@/pages/trash";
@@ -145,6 +146,8 @@ const router = createHashRouter([
       { index: true, element: <HomePage /> },
       { path: "notes", element: <NoteListPage /> },
       { path: "mounts", element: <LazyPage><MountsPage /></LazyPage> },
+      // 外部 .md shell-first 打开页：必须排在 notes/:id 之前
+      { path: "notes/opening", element: <OpeningNotePage /> },
       { path: "notes/:id", element: <NoteEditorPage /> },
       // 白板本质是 note_type='whiteboard' 的文档
       { path: "whiteboard/:id", element: <LazyPage><WhiteboardPage /></LazyPage> },

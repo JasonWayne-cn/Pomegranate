@@ -10,6 +10,7 @@ import {
   message,
   Spin,
   Tooltip,
+  Checkbox,
   theme as antdTheme,
 } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
@@ -23,7 +24,7 @@ import {
   CalendarCheck,
 } from "lucide-react";
 import { CloseCircleFilled } from "@ant-design/icons";
-import { dailyApi, linkApi, noteApi, templateApi } from "@/lib/api";
+import { dailyApi, linkApi, noteApi, templateApi, taskApi } from "@/lib/api";
 import { useModuleConfig } from "@/hooks/useModuleConfig";
 import { todayYmd } from "@/lib/utils";
 import { MicButton } from "@/components/MicButton";
@@ -36,7 +37,159 @@ import { PlanTodayModal } from "@/components/ai/PlanTodayModal";
 import { DailyImportModal } from "@/components/DailyImportModal";
 import { LinkStatusBar } from "@/components/editor/LinkStatusBar";
 import { NoteAiDrawer } from "@/components/ai/NoteAiDrawer";
-import type { Note } from "@/types";
+import type { Note, Task } from "@/types";
+
+/**
+ * 日记右侧「今日待办」：当天到期 + 当天完成的任务。
+ *
+ * 复用任务服务（taskApi），失败只影响本面板，不阻断日记编辑。
+ * 直接勾选完成任务；输入框可快速添加当天到期的新任务。
+ */
+function DailyTasksPanel({ date }: { date: string }) {
+  const { token } = antdTheme.useToken();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newTitle, setNewTitle] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setTasks(await taskApi.list());
+    } catch (e) {
+      console.warn("[daily] 加载待办失败:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // status: 0=未完成 / 1=已完成 / 2=已放弃（放弃的不再计入当日待办）
+  const dueTasks = tasks.filter(
+    (t) => t.status === 0 && t.due_date?.slice(0, 10) === date,
+  );
+  const doneTasks = tasks.filter(
+    (t) => t.status === 1 && t.completed_at?.slice(0, 10) === date,
+  );
+
+  async function toggle(task: Task) {
+    try {
+      await taskApi.toggleStatus(task.id);
+      useAppStore.getState().bumpTasksListRefresh();
+      void load();
+    } catch (e) {
+      message.error(`更新待办失败: ${e}`);
+    }
+  }
+
+  async function addTask() {
+    const title = newTitle.trim();
+    if (!title) return;
+    setAdding(true);
+    try {
+      await taskApi.create({ title, due_date: date });
+      setNewTitle("");
+      useAppStore.getState().bumpTasksListRefresh();
+      void load();
+    } catch (e) {
+      message.error(`添加待办失败: ${e}`);
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  const isToday = date === todayStr();
+  const total = dueTasks.length + doneTasks.length;
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${token.colorBorderSecondary}`,
+        borderRadius: 8,
+        background: token.colorBgContainer,
+        padding: 12,
+        fontSize: 12,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+        }}
+      >
+        <span style={{ fontWeight: 600, fontSize: 13 }}>
+          {isToday ? "今日待办" : "当日待办"}
+        </span>
+        <span style={{ color: token.colorTextTertiary }}>
+          {loading ? "…" : `${doneTasks.length}/${total}`}
+        </span>
+      </div>
+
+      {loading ? (
+        <div style={{ color: token.colorTextTertiary, padding: "4px 0" }}>
+          加载中…
+        </div>
+      ) : total === 0 ? (
+        <div style={{ color: token.colorTextTertiary, padding: "4px 0" }}>
+          当天没有到期的待办
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {dueTasks.map((t) => (
+            <Checkbox
+              key={t.id}
+              checked={false}
+              onChange={() => void toggle(t)}
+            >
+              <span style={{ fontSize: 12 }}>{t.title}</span>
+            </Checkbox>
+          ))}
+          {doneTasks.map((t) => (
+            <Checkbox
+              key={t.id}
+              checked
+              onChange={() => void toggle(t)}
+            >
+              <span
+                style={{
+                  fontSize: 12,
+                  color: token.colorTextTertiary,
+                  textDecoration: "line-through",
+                }}
+              >
+                {t.title}
+              </span>
+            </Checkbox>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+        <Input
+          size="small"
+          value={newTitle}
+          placeholder="添加当天待办…"
+          onChange={(e) => setNewTitle(e.target.value)}
+          onPressEnter={() => void addTask()}
+        />
+        <Button
+          size="small"
+          type="primary"
+          loading={adding}
+          disabled={!newTitle.trim()}
+          onClick={() => void addTask()}
+        >
+          添加
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 
 /** 格式化日期为中文显示 */
@@ -558,8 +711,9 @@ function DesktopDailyPage() {
       <div
         className="editor-body"
         ref={editorBodyRef}
-        data-outline={outlineVisible ? "on" : undefined}
+        data-outline={outlineVisible ? "on" : "off"}
         data-outline-pos={outlineVisible ? outlinePosition : undefined}
+        data-tasks="on"
         style={
           outlineVisible
             ? {
@@ -570,7 +724,10 @@ function DesktopDailyPage() {
                     ? `${outlineWidth}px 6px minmax(0, 1fr)`
                     : `minmax(0, 1fr) 6px ${outlineWidth}px`,
               }
-            : undefined
+            : {
+                // 大纲关闭但「今日待办」常驻右栏
+                gridTemplateColumns: "minmax(0, 1fr) 260px",
+              }
         }
       >
         <div className="editor-content-area" data-tour="daily-editor">
@@ -714,16 +871,20 @@ function DesktopDailyPage() {
           />
         )}
 
-        {/* 大纲面板：sticky 跟随滚动；标题数 < 2 时 EditorOutline 内部自显空态提示 */}
-        {outlineVisible && (
-          <aside className="editor-outline-aside">
+        {/* 右侧栏：今日待办常驻；大纲在开启时叠在下方 */}
+        <aside
+          className="editor-outline-aside"
+          style={{ display: "flex", flexDirection: "column", gap: 12 }}
+        >
+          <DailyTasksPanel date={date} />
+          {outlineVisible && (
             <EditorOutline
               editor={editorInstance}
               scrollRoot={editorBodyRef.current}
               onHide={toggleOutline}
             />
-          </aside>
-        )}
+          )}
+        </aside>
       </div>
 
       {/* 链接状态条：与文档编辑器同款，常驻底部不随正文滚动。

@@ -7,13 +7,28 @@ use crate::services::mount::MountService;
 pub struct TagService;
 
 impl TagService {
-    /// 创建标签
-    pub fn create(db: &Database, name: &str, color: Option<&str>) -> Result<Tag, AppError> {
+    /// 创建标签（可指定父标签 id 形成树形结构）
+    pub fn create(
+        db: &Database,
+        name: &str,
+        color: Option<&str>,
+        parent_id: Option<i64>,
+    ) -> Result<Tag, AppError> {
         let name = name.trim();
         if name.is_empty() {
             return Err(AppError::InvalidInput("标签名称不能为空".into()));
         }
-        db.create_tag(name, color, None)
+        db.create_tag(name, color, parent_id)
+    }
+
+    /// 设置标签的父标签（None = 提升为顶层）；DAO 内部校验自引用 / 环 / 父级存在性
+    pub fn set_parent(db: &Database, id: i64, parent_id: Option<i64>) -> Result<(), AppError> {
+        db.set_tag_parent(id, parent_id)
+    }
+
+    /// 批量重排同级标签的 sort_order
+    pub fn reorder(db: &Database, ordered_ids: &[i64]) -> Result<(), AppError> {
+        db.set_tag_sort_orders(ordered_ids)
     }
 
     /// 获取所有标签

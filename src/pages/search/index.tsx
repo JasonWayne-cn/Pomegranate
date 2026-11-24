@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Input,
@@ -24,6 +24,9 @@ import {
   History,
   Trash2,
   X as XIcon,
+  Folder as FolderIcon,
+  Tag as TagIcon,
+  FileText,
 } from "lucide-react";
 import dayjs from "dayjs";
 import {
@@ -32,7 +35,7 @@ import {
   writeSearchUrl,
   type SearchUrlState,
 } from "@/lib/searchUrlState";
-import { searchApi, taskApi, folderApi, tagApi } from "@/lib/api";
+import { searchApi, taskApi, folderApi, tagApi, noteApi } from "@/lib/api";
 import { useModuleConfig } from "@/hooks/useModuleConfig";
 import { MicButton } from "@/components/MicButton";
 import { useAppStore } from "@/store";
@@ -43,6 +46,7 @@ import type {
   SearchFilters,
   Folder,
   Tag,
+  Note,
   NoteType,
 } from "@/types";
 
@@ -66,6 +70,115 @@ function collectSubtreeIds(folders: Folder[], targetIds: number[]): number[] {
   };
   walk(folders, false);
   return [...out];
+}
+
+/** 把文件夹树拍平成带层级的线性列表（空关键词发现区用） */
+function flattenFolders(
+  nodes: Folder[],
+  depth = 0,
+): Array<{ folder: Folder; depth: number }> {
+  const out: Array<{ folder: Folder; depth: number }> = [];
+  for (const n of nodes) {
+    out.push({ folder: n, depth });
+    const children = (n as Folder & { children?: Folder[] }).children;
+    if (children?.length) out.push(...flattenFolders(children, depth + 1));
+  }
+  return out;
+}
+
+/** 发现区卡片：带标题与右上角动作的等宽栏 */
+function DiscoveryCard({
+  icon,
+  title,
+  extra,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  extra?: ReactNode;
+  children: ReactNode;
+}) {
+  const { token } = antdTheme.useToken();
+  return (
+    <div
+      style={{
+        border: `1px solid ${token.colorBorderSecondary}`,
+        borderRadius: 10,
+        background: token.colorBgContainer,
+        padding: 12,
+        minHeight: 160,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+          fontSize: 13,
+          fontWeight: 600,
+          color: token.colorText,
+        }}
+      >
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          {icon}
+          {title}
+        </span>
+        {extra}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** 发现区行：图标 + 名称 + 计数，支持层级缩进 */
+function DiscoveryRow({
+  icon,
+  label,
+  count,
+  depth = 0,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  count?: number;
+  depth?: number;
+  onClick: () => void;
+}) {
+  const { token } = antdTheme.useToken();
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className="flex items-center gap-2 rounded"
+      style={{
+        padding: "3px 6px",
+        paddingLeft: 6 + depth * 12,
+        cursor: "pointer",
+        fontSize: 12,
+        color: token.colorTextSecondary,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = token.colorFillTertiary;
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "transparent";
+      }}
+    >
+      {icon}
+      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {label}
+      </span>
+      {count != null && count > 0 && <span style={{ opacity: 0.6 }}>{count}</span>}
+    </div>
+  );
 }
 
 /**
@@ -182,6 +295,8 @@ export function DesktopSearchPage({
   const [showFilters, setShowFilters] = useState(() => hasActiveFilters(initialUrl));
   const [folders, setFolders] = useState<Folder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  /** 空关键词发现区：最近修改的文档 */
+  const [discoverNotes, setDiscoverNotes] = useState<Note[]>([]);
   const [pickedFolders, setPickedFolders] = useState<number[]>(initialUrl.folders);
   const [pickedTags, setPickedTags] = useState<number[]>(initialUrl.tags);
   const [pickedTypes, setPickedTypes] = useState<NoteType[]>(initialUrl.types);
@@ -211,6 +326,37 @@ export function DesktopSearchPage({
     folderApi.list().then(setFolders).catch(() => {});
     tagApi.list().then(setTags).catch(() => {});
   }, [showFilters, folders.length, tags.length]);
+
+  // 空关键词发现区：标签 / 文件夹 / 最近修改文档。三者并行拉取，任一失败不阻塞其他列。
+  useEffect(() => {
+    if (searched || query.trim()) return;
+    let cancelled = false;
+    if (folders.length === 0) {
+      folderApi
+        .list()
+        .then((list) => {
+          if (!cancelled) setFolders(list);
+        })
+        .catch(() => {});
+    }
+    if (tags.length === 0) {
+      tagApi
+        .list()
+        .then((list) => {
+          if (!cancelled) setTags(list);
+        })
+        .catch(() => {});
+    }
+    noteApi
+      .list({ page: 1, page_size: 8, include_external_docs: true })
+      .then((r) => {
+        if (!cancelled) setDiscoverNotes(r.items);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [searched, query, folders.length, tags.length]);
 
   /** 组装成后端要的 filters（规则见 buildSearchFilters） */
   const filters = useMemo<SearchFilters | undefined>(
@@ -688,12 +834,147 @@ export function DesktopSearchPage({
           <Spin size="large" tip="搜索中..." />
         </div>
       ) : !searched ? (
-        <div className="flex flex-col items-center py-12">
-          <SearchIcon size={48} style={{ opacity: 0.15 }} />
-          <Text type="secondary" className="mt-4" style={{ fontSize: 14 }}>
-            输入关键词同时搜索文档与待办
-          </Text>
+        activeFilterCount > 0 ? (
+          <div className="flex flex-col items-center py-12">
+            <SearchIcon size={48} style={{ opacity: 0.15 }} />
+            <Text type="secondary" className="mt-4" style={{ fontSize: 14 }}>
+              输入关键词，按当前筛选条件搜索
+            </Text>
+          </div>
+        ) : (
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}
+        >
+          {/* 标签：按引用文档数降序，点击进入标签范围 */}
+          <DiscoveryCard
+            icon={<TagIcon size={14} />}
+            title="标签"
+            extra={
+              <a
+                style={{ fontSize: 12 }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate("/tags");
+                }}
+                href="#"
+              >
+                全部
+              </a>
+            }
+          >
+            {tags.length === 0 ? (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                暂无标签
+              </Text>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {[...tags]
+                  .sort((a, b) => b.note_count - a.note_count)
+                  .slice(0, 12)
+                  .map((t) => (
+                    <span
+                      key={t.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        // 同步写入现有筛选条件，返回本页时仍保留范围
+                        setPickedTags([t.id]);
+                        setShowFilters(true);
+                        navigate(`/tags?tagId=${t.id}`);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setPickedTags([t.id]);
+                          setShowFilters(true);
+                          navigate(`/tags?tagId=${t.id}`);
+                        }
+                      }}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        height: 24,
+                        padding: "0 8px",
+                        borderRadius: 12,
+                        border: `1px solid ${token.colorBorder}`,
+                        background: token.colorBgContainer,
+                        color: token.colorTextSecondary,
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {t.name}
+                      {t.note_count > 0 && (
+                        <span style={{ opacity: 0.55 }}>{t.note_count}</span>
+                      )}
+                    </span>
+                  ))}
+              </div>
+            )}
+          </DiscoveryCard>
+
+          {/* 文件夹：保留层级缩进，点击直接进入对应目录 */}
+          <DiscoveryCard
+            icon={<FolderIcon size={14} />}
+            title="文件夹"
+            extra={
+              <a
+                style={{ fontSize: 12 }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate("/notes");
+                }}
+                href="#"
+              >
+                全部
+              </a>
+            }
+          >
+            {folders.length === 0 ? (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                暂无文件夹
+              </Text>
+            ) : (
+              flattenFolders(folders)
+                .slice(0, 12)
+                .map(({ folder, depth }) => (
+                  <DiscoveryRow
+                    key={folder.id}
+                    icon={<FolderIcon size={12} />}
+                    label={folder.name}
+                    count={folder.note_count}
+                    depth={depth}
+                    onClick={() => {
+                      setPickedFolders([folder.id]);
+                      setShowFilters(true);
+                      navigate(`/notes?folder=${folder.id}`);
+                    }}
+                  />
+                ))
+            )}
+          </DiscoveryCard>
+
+          {/* 最近修改：直接打开文档 */}
+          <DiscoveryCard icon={<FileText size={14} />} title="最近修改">
+            {discoverNotes.length === 0 ? (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                暂无文档
+              </Text>
+            ) : (
+              discoverNotes.map((n) => (
+                <DiscoveryRow
+                  key={n.id}
+                  icon={<FileText size={12} />}
+                  label={n.title || "未命名"}
+                  onClick={() => navigate(`/notes/${n.id}`)}
+                />
+              ))
+            )}
+          </DiscoveryCard>
         </div>
+        )
       ) : totalHits === 0 ? (
         <Empty
           description={`未找到与 "${query}" 相关的内容`}

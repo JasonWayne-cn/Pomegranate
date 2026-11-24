@@ -132,6 +132,8 @@ function folderSignature(list: Folder[]): string {
         f.parent_id ?? "",
         f.sort_order,
         f.note_count,
+        f.office_count ?? 0,
+        f.pdf_count ?? 0,
         f.mount_id ?? "",
         f.color ?? "",
         folderSignature(f.children),
@@ -161,7 +163,13 @@ function collectAllKeys(folders: Folder[]): string[] {
 type TreeNoteData = { isNote: true; note: Note };
 /** isChild：是否为子文件夹（非根级），用于 renderTitle 加视觉小点区分层级 */
 /** isExternal：外部挂载镜像文件夹，图标改用 FolderSync */
-type TreeFolderData = { isNote: false; isChild: boolean; isExternal: boolean };
+/** folder：目录树悬停提示要读各类型计数；「未分类」虚拟根没有 folder */
+type TreeFolderData = {
+  isNote: false;
+  isChild: boolean;
+  isExternal: boolean;
+  folder: Folder | null;
+};
 type TreeNodeData = TreeNoteData | TreeFolderData;
 type EnrichedNode = DataNode & { data?: TreeNodeData };
 
@@ -175,7 +183,6 @@ function foldersToTreeData(
   creatingUnderKey: string | null,
   notesByFolder: Map<number, Note[]>,
   tabTitleByNoteId: Map<number, string>,
-  showNoteCount: boolean,
   showNotes: boolean,
   depth: number = 0,
 ): EnrichedNode[] {
@@ -186,7 +193,6 @@ function foldersToTreeData(
           creatingUnderKey,
           notesByFolder,
           tabTitleByNoteId,
-          showNoteCount,
           showNotes,
           depth + 1,
         )
@@ -217,15 +223,25 @@ function foldersToTreeData(
 
     return {
       key: String(f.id),
-      // 文档树数量格式：参考文献[4]（设置里可关闭，只显示文件夹名）
-      title: showNoteCount ? `${f.name}[${f.note_count}]` : f.name,
+      // 文档树只显示文件夹名；文档 / Office / PDF 计数改为悬停提示
+      title: f.name,
       // 显式 isLeaf:false：children 为 undefined 时 antd Tree 会推断成叶子，
       // 拖拽落在叶子上会被当成"同级排序"，无法 drop-into 折叠的空文件夹。
       isLeaf: false,
       children: children.length ? children : undefined,
-      data: { isNote: false, isChild: depth > 0, isExternal: f.mount_id != null },
+      data: {
+        isNote: false,
+        isChild: depth > 0,
+        isExternal: f.mount_id != null,
+        folder: f,
+      },
     };
   });
+}
+
+/** 文件夹悬停提示：文档[n]，Office[m]，PDF[k] */
+function folderTooltip(f: Folder): string {
+  return `文档 ${f.note_count}，Office ${f.office_count ?? 0}，PDF ${f.pdf_count ?? 0}`;
 }
 
 /** 在文件夹树中按 id 查找名称 */
@@ -377,6 +393,8 @@ export function NotesPanel() {
   const uncategorizedExpanded = useAppStore((s) => s.notesUncategorizedExpanded);
   const setUncategorizedExpanded = useAppStore((s) => s.setNotesUncategorizedExpanded);
   const [uncategorizedNotes, setUncategorizedNotes] = useState<Note[]>([]);
+  /** 未分类文档总数（与已加载条数解耦：收起时也能显示真实数量） */
+  const [uncategorizedTotal, setUncategorizedTotal] = useState(0);
   const loadingUncategorizedRef = useRef(false);
 
   /** 拉某个文件夹的直属文档（include_descendants=false） */
@@ -426,6 +444,7 @@ export function NotesPanel() {
       setUncategorizedNotes((prev) =>
         sameNoteHeaders(prev, r.items) ? prev : r.items,
       );
+      setUncategorizedTotal(r.total);
     } catch (e) {
       console.warn("[notes-panel] 加载未分类文档失败:", e);
     } finally {
@@ -544,16 +563,12 @@ export function NotesPanel() {
   }
 
   /** md / txt 预览后可按原「打开 md」流程导入为新文档 */
-  async function handlePreviewImport() {
+  function handlePreviewImport() {
     if (!filePreview) return;
-    try {
-      const result = await importApi.openMarkdownFile(filePreview.path);
-      setFilePreview(null);
-      useAppStore.getState().bumpNotesRefresh();
-      navigate(`/notes/${result.noteId}`);
-    } catch (e) {
-      message.error(`导入失败：${e}`);
-    }
+    const path = filePreview.path;
+    setFilePreview(null);
+    // shell-first：先到打开中页面，导入在那边异步完成
+    navigate(`/notes/opening?path=${encodeURIComponent(path)}`);
   }
 
   const [contextMenu, setContextMenu] = useState<{
@@ -566,6 +581,11 @@ export function NotesPanel() {
 
   /** OS 文件拖拽到面板时的高亮态（只对包含 Files 的 dataTransfer 生效，不干扰 Tree 内部拖拽） */
   const [fileDragOver, setFileDragOver] = useState(false);
+  /** 拖入文件夹的批量导入进度（null = 未在导入） */
+  const [folderImportProgress, setFolderImportProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
   // 扫描文件夹导入的预览弹窗状态
   const [importPreview, setImportPreview] = useState<{
@@ -680,6 +700,27 @@ export function NotesPanel() {
       void loadUncategorizedNotes();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notesRefreshTick]);
+
+  // 未分类总数：不展开也要显示。只取 total，不把整页文档塞进内存。
+  useEffect(() => {
+    let cancelled = false;
+    noteApi
+      .list({
+        uncategorized: true,
+        page: 1,
+        page_size: 1,
+        include_external_docs: true,
+      })
+      .then((r) => {
+        if (!cancelled) setUncategorizedTotal(r.total);
+      })
+      .catch(() => {
+        /* 计数失败不影响树本身 */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [notesRefreshTick]);
 
   // 切换"未分类"展开：展开时第一次进入要拉数据；折叠不卸载缓存（下次展开秒开）
@@ -1523,6 +1564,141 @@ export function NotesPanel() {
     }
   }
 
+  // ─── 拖入文件夹：按相对路径建目录树并导入 ─────────────────
+
+  /** 递归读取目录项；把可导入的文本文件连同相对路径一起收集 */
+  async function walkDirectoryEntry(
+    entry: FileSystemDirectoryEntry,
+    rel: string[],
+    out: Array<{ rel: string[]; file: File }>,
+  ): Promise<void> {
+    const reader = entry.createReader();
+    // readEntries 单次最多返回 100 条，必须循环读到空数组为止
+    for (;;) {
+      const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => {
+        reader.readEntries(resolve, reject);
+      });
+      if (batch.length === 0) break;
+      for (const child of batch) {
+        const nextRel = [...rel, child.name];
+        if (child.isDirectory) {
+          await walkDirectoryEntry(
+            child as FileSystemDirectoryEntry,
+            nextRel,
+            out,
+          );
+        } else if (child.isFile) {
+          const file = await new Promise<File>((resolve, reject) => {
+            (child as FileSystemFileEntry).file(resolve, reject);
+          });
+          if (isDroppedTextFile(file)) {
+            out.push({ rel: nextRel, file });
+          }
+        }
+      }
+    }
+  }
+
+  /** 在现有文件夹树里找某父目录下同名子文件夹（create 撞名时兜底复用） */
+  function findChildFolderId(parentId: number | null, name: string): number | null {
+    const findNode = (list: Folder[], id: number): Folder | null => {
+      for (const f of list) {
+        if (f.id === id) return f;
+        const hit = findNode(f.children ?? [], id);
+        if (hit) return hit;
+      }
+      return null;
+    };
+    const siblings =
+      parentId == null ? folders : findNode(folders, parentId)?.children ?? [];
+    return siblings.find((f) => f.name === name)?.id ?? null;
+  }
+
+  /**
+   * 拖入文件夹：WebView 拿不到 OS 绝对路径，改用 FileSystemEntry 递归遍历，
+   * 按相对路径逐级 `folderApi.create` 建树，再把文本文件读出来建文档。
+   *
+   * 限制：不处理图片等附件（Markdown 内的相对图片链接不会被打包），
+   * 需要完整资源保留时仍建议走右键「导入 Markdown 文件夹…」的路径方案。
+   */
+  async function handleOsDirsDropped(dirs: FileSystemDirectoryEntry[]) {
+    const targetFolderId =
+      selectedKey && !isNoteKey(selectedKey) ? Number(selectedKey) : null;
+
+    const collected: Array<{ rel: string[]; file: File }> = [];
+    const scanKey = "notes-folder-scan";
+    message.loading({ key: scanKey, content: "扫描文件夹…", duration: 0 });
+    try {
+      for (const dir of dirs) {
+        await walkDirectoryEntry(dir, [], collected);
+      }
+    } catch (e) {
+      message.destroy(scanKey);
+      message.error(`扫描文件夹失败: ${e}`);
+      return;
+    }
+    message.destroy(scanKey);
+
+    if (collected.length === 0) {
+      message.info("文件夹下没有 .md / .txt 文件");
+      return;
+    }
+
+    setFolderImportProgress({ done: 0, total: collected.length });
+    const folderIdByPath = new Map<string, number | null>();
+    folderIdByPath.set("", targetFolderId);
+    let ok = 0;
+    const errors: string[] = [];
+
+    try {
+      for (let i = 0; i < collected.length; i++) {
+        const { rel, file } = collected[i];
+        try {
+          let parentId = targetFolderId;
+          let pathKey = "";
+          for (const seg of rel.slice(0, -1)) {
+            pathKey = pathKey ? `${pathKey}/${seg}` : seg;
+            if (!folderIdByPath.has(pathKey)) {
+              try {
+                const created = await folderApi.create(seg, parentId ?? undefined);
+                folderIdByPath.set(pathKey, created.id);
+              } catch {
+                // 同名文件夹已存在：复用现有 id，拿不到则退到父级
+                folderIdByPath.set(
+                  pathKey,
+                  findChildFolderId(parentId, seg),
+                );
+              }
+            }
+            parentId = folderIdByPath.get(pathKey) ?? parentId;
+          }
+          const content = await file.text();
+          const title =
+            file.name.replace(/\.(md|markdown|txt)$/i, "").trim() || "未命名";
+          await noteApi.create({ title, content, folder_id: parentId });
+          ok++;
+        } catch (e) {
+          errors.push(`${rel.join("/")}: ${e}`);
+        }
+        if ((i + 1) % 5 === 0 || i + 1 === collected.length) {
+          setFolderImportProgress({ done: i + 1, total: collected.length });
+        }
+      }
+    } finally {
+      setFolderImportProgress(null);
+    }
+
+    if (ok > 0) {
+      message.success(`已按目录层级导入 ${ok} 篇文档`);
+      useAppStore.getState().bumpNotesRefresh();
+      useAppStore.getState().bumpFoldersRefresh();
+    }
+    if (errors.length > 0) {
+      console.warn("[notes-panel drop] 文件夹导入失败:", errors);
+      message.warning(`${errors.length} 个文件失败`);
+    }
+  }
+
   // ─── 自定义节点渲染 ─────────────────────────
 
   function renderTitle(node: DataNode): React.ReactNode {
@@ -1645,9 +1821,21 @@ export function NotesPanel() {
             strokeWidth={2}
             style={{ flexShrink: 0, color: token.colorTextSecondary }}
           />
-          <span className="truncate" style={{ color: token.colorTextSecondary }}>
+        <span className="truncate" style={{ color: token.colorTextSecondary }}>
             {display}
           </span>
+          {uncategorizedTotal > 0 && (
+            <span
+              style={{
+                marginLeft: "auto",
+                flexShrink: 0,
+                fontSize: 11,
+                color: token.colorTextTertiary,
+              }}
+            >
+              {uncategorizedTotal}
+            </span>
+          )}
         </span>
       );
     }
@@ -1655,10 +1843,13 @@ export function NotesPanel() {
     // 文件夹：emoji 优先；否则用 hash 配色的填充文件夹图标
     // 子文件夹（非根级）在图标中央叠一个小白点，让用户一眼区分层级
     const folderData = (node as EnrichedNode).data;
+    const folder = folderData && folderData.isNote === false ? folderData.folder : null;
     const isChildFolder =
       folderData && folderData.isNote === false && folderData.isChild;
     const isExternalFolder =
       folderData && folderData.isNote === false && folderData.isExternal;
+    const hoverTitle =
+      folder && showFolderNoteCount ? folderTooltip(folder) : name;
     return (
       <span
         className="flex items-center gap-1.5 w-full"
@@ -1666,7 +1857,7 @@ export function NotesPanel() {
           e.stopPropagation();
           handleTitleClick(key);
         }}
-        title={name}
+        title={hoverTitle}
         style={ctxStyle}
       >
         {emoji ? (
@@ -1707,6 +1898,18 @@ export function NotesPanel() {
           <FolderFilled style={{ flexShrink: 0, color: token.colorPrimary }} />
         )}
         <span className="truncate">{display}</span>
+        {folder && showFolderNoteCount && folder.note_count > 0 && (
+          <span
+            style={{
+              marginLeft: "auto",
+              flexShrink: 0,
+              fontSize: 11,
+              color: token.colorTextTertiary,
+            }}
+          >
+            {folder.note_count}
+          </span>
+        )}
       </span>
     );
   }
@@ -1718,16 +1921,13 @@ export function NotesPanel() {
       creatingUnderKey,
       notesByFolder,
       tabTitleByNoteId,
-      showFolderNoteCount,
       showFilesInTree,
     );
     // 末尾追加"未分类"虚拟根节点：folder_id IS NULL 的文档直接挂在这里。
     // 这样未分类文档也能参与 antd Tree 的拖拽（拖到任意文件夹会触发 handleDrop
     // 跨 folder 移动逻辑），不需要单独写一套 HTML5 drag 系统。
     const uncatTitle =
-      uncategorizedNotes.length > 0
-        ? `未分类 ${uncategorizedNotes.length}`
-        : "未分类";
+      uncategorizedTotal > 0 ? `未分类 ${uncategorizedTotal}` : "未分类";
     const uncatChildren: EnrichedNode[] = uncategorizedNotes
       .slice(0, NOTES_PER_FOLDER_LIMIT)
       .map((n) => ({
@@ -1743,7 +1943,7 @@ export function NotesPanel() {
         title: uncatTitle,
         isLeaf: false,
         children: uncatChildren.length ? uncatChildren : undefined,
-        data: { isNote: false, isChild: false, isExternal: false },
+        data: { isNote: false, isChild: false, isExternal: false, folder: null },
       });
     }
     return folderTree;
@@ -1753,7 +1953,7 @@ export function NotesPanel() {
     notesByFolder,
     tabTitleByNoteId,
     uncategorizedNotes,
-    showFolderNoteCount,
+    uncategorizedTotal,
     showFilesInTree,
   ]);
 
@@ -1852,6 +2052,21 @@ export function NotesPanel() {
         </div>
       </div>
 
+      {/* 拖入文件夹导入进度 */}
+      {folderImportProgress && (
+        <div
+          className="px-3 py-1.5 shrink-0"
+          style={{
+            fontSize: 12,
+            color: token.colorTextSecondary,
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            background: token.colorFillQuaternary,
+          }}
+        >
+          正在导入 {folderImportProgress.done} / {folderImportProgress.total}
+        </div>
+      )}
+
       <HiddenPinUnlockModal
         open={hiddenUnlockOpen}
         onSuccess={() => {
@@ -1893,16 +2108,18 @@ export function NotesPanel() {
           e.preventDefault();
           e.stopPropagation();
 
-          // 同步检查 —— DataTransfer 在 await 之后就失效，必须在这里拿到 items
-          // 目的：文件夹拖入在 WebView 里拿不到 OS 路径（items 的 FileSystemDirectoryEntry
-          // 只给 fullPath 相对值），引导用户改走右键菜单那条已工作的路径
-          const hasDirectory = Array.from(e.dataTransfer.items ?? []).some((it) => {
-            if (it.kind !== "file") return false;
+          // 同步取 items —— DataTransfer 在 await 之后就失效
+          const dirEntries: FileSystemDirectoryEntry[] = [];
+          for (const it of Array.from(e.dataTransfer.items ?? [])) {
+            if (it.kind !== "file") continue;
             const entry = it.webkitGetAsEntry?.();
-            return entry?.isDirectory === true;
-          });
-          if (hasDirectory) {
-            message.info("拖文件夹请改用右键菜单『导入 Markdown 文件夹…』（能保留目录层级 + 扫描去重）");
+            if (entry?.isDirectory) {
+              dirEntries.push(entry as FileSystemDirectoryEntry);
+            }
+          }
+          // 拖入文件夹：递归读目录 → 按相对路径建文件夹树 → 逐篇导入
+          if (dirEntries.length > 0) {
+            void handleOsDirsDropped(dirEntries);
             return;
           }
 
@@ -2162,8 +2379,8 @@ export function NotesPanel() {
                 maxHeight: "60vh",
                 padding: "12px 16px",
                 borderRadius: 6,
-                background: "var(--color-bg-elevated, #fafafa)",
-                border: "1px solid var(--color-border-secondary, #e8e8e8)",
+                background: "var(--kb-bg-elevated)",
+                border: "1px solid var(--color-border-secondary, var(--kb-border))",
                 fontSize: 14,
                 lineHeight: 1.7,
               }}
@@ -2178,8 +2395,8 @@ export function NotesPanel() {
                 margin: 0,
                 padding: "12px 16px",
                 borderRadius: 6,
-                background: "var(--color-bg-elevated, #fafafa)",
-                border: "1px solid var(--color-border-secondary, #e8e8e8)",
+                background: "var(--kb-bg-elevated)",
+                border: "1px solid var(--color-border-secondary, var(--kb-border))",
                 fontSize: 13,
                 lineHeight: 1.6,
                 whiteSpace: "pre-wrap",

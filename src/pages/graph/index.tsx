@@ -17,10 +17,39 @@ import {
   ExternalLink,
   Crosshair,
   ArrowLeft,
+  X as XIcon,
 } from "lucide-react";
 import { Graph } from "@antv/g6";
-import { linkApi, llmGraphApi } from "@/lib/api";
-import type { GraphData, LlmGraphData, LlmGraphProgress } from "@/types";
+import { linkApi, llmGraphApi, noteApi, tagApi, folderApi } from "@/lib/api";
+import { contentToPreview } from "@/lib/utils";
+import type {
+  GraphData,
+  LlmGraphData,
+  LlmGraphProgress,
+  Folder,
+} from "@/types";
+
+/** 单击节点后弹出的卡片数据 */
+type SelectedNode =
+  | { kind: "note"; gid: string; id: number; title: string }
+  | { kind: "folder"; gid: string; id: number; title: string }
+  | {
+      kind: "entity";
+      gid: string;
+      id: number;
+      name: string;
+      entityType: string;
+      description: string;
+      noteIds: number[];
+      degree: number;
+    };
+
+/** 笔记节点卡片的异步补充信息 */
+type NoteExtra = {
+  summary: string;
+  folderId: number | null;
+  tags: string[];
+};
 import { useContextMenu } from "@/hooks/useContextMenu";
 import {
   ContextMenuOverlay,
@@ -64,6 +93,77 @@ export default function GraphPage() {
   const [extracting, setExtracting] = useState(false);
   const [progress, setProgress] = useState<LlmGraphProgress | null>(null);
   const [layout, setLayout] = useState<string>("d3-force");
+  /** 单击节点后的卡片（G6 画布右上角浮层） */
+  const [selected, setSelected] = useState<SelectedNode | null>(null);
+  const [noteExtra, setNoteExtra] = useState<NoteExtra | null>(null);
+  /** 文件夹 id → 名称（卡片里展示文档所在目录） */
+  const [folders, setFolders] = useState<Folder[]>([]);
+
+  useEffect(() => {
+    folderApi
+      .list()
+      .then(setFolders)
+      .catch(() => {
+        /* 文件夹名只用于展示，失败不影响图谱 */
+      });
+  }, []);
+
+  const folderName = useMemo(() => {
+    const map = new Map<number, string>();
+    const walk = (list: Folder[]) => {
+      for (const f of list) {
+        map.set(f.id, f.name);
+        if (f.children?.length) walk(f.children);
+      }
+    };
+    walk(folders);
+    return (id: number | null): string | null =>
+      id == null ? "未分类" : map.get(id) ?? `文件夹 #${id}`;
+  }, [folders]);
+
+  async function loadNoteExtra(id: number) {
+    setNoteExtra(null);
+    try {
+      const [note, tags] = await Promise.all([
+        noteApi.get(id),
+        tagApi.getNoteTags(id).catch(() => [] as Array<{ name: string }>),
+      ]);
+      setNoteExtra({
+        summary: contentToPreview(note.content).slice(0, 160),
+        folderId: note.folder_id,
+        tags: tags.map((t) => t.name),
+      });
+    } catch {
+      // 详情拉取失败时卡片仍展示标题
+    }
+  }
+
+  /** 居中 + 高亮 + 缩放夹取，避免 focusElement 后过度放大 / 缩小 */
+  function focusAndHighlight(gid: string) {
+    const g = graphRef.current;
+    if (!g) return;
+    try {
+      g.setElementState(gid, ["selected"]);
+    } catch {
+      /* 不同 G6 版本状态 API 不同，失败不影响定位 */
+    }
+    try {
+      g.focusElement(gid);
+    } catch {
+      try {
+        g.fitCenter();
+      } catch {
+        /* 忽略 */
+      }
+    }
+    try {
+      const z = g.getZoom();
+      const clamped = Math.max(0.6, Math.min(1.6, z));
+      if (Math.abs(clamped - z) > 0.01) g.zoomTo(clamped);
+    } catch {
+      /* 忽略 */
+    }
+  }
 
   // 当前作用域文件夹名（从返回的 folder 节点里取；拿不到时退化为 id）
   const scopeFolder = useMemo(() => {
@@ -141,13 +241,8 @@ export default function GraphPage() {
       icon: <Crosshair size={13} />,
       onClick: () => {
         ctx.close();
-        // G6 v5：把指定节点移到视图中心
-        try {
-          graphRef.current?.focusElement(p.gid);
-        } catch {
-          // focusElement 可能在某些版本叫 focus；失败时退到 fitCenter
-          graphRef.current?.fitCenter();
-        }
+        // 居中 + 高亮，并把缩放夹在合理范围
+        focusAndHighlight(p.gid);
       },
     });
     return items;
@@ -315,6 +410,16 @@ export default function GraphPage() {
             : d.data?.nodeType === "folder"
               ? "rect"
               : "circle",
+        // 定位时的高亮态：加粗描边 + 光晕，便于在全图中找到目标
+        state: {
+          selected: {
+            lineWidth: 3,
+            stroke: token.colorPrimary,
+            halo: true,
+            haloStroke: token.colorPrimary,
+            haloLineWidth: 10,
+          },
+        },
         style: {
           size: (d: any) => {
             if (d.data?.kind === "entity") {
@@ -421,7 +526,8 @@ export default function GraphPage() {
             : { type: layout },
       behaviors: [
         "drag-canvas",
-        "zoom-canvas",
+        // 限制缩放范围，避免定位后无限放大 / 缩小到看不清
+        { type: "zoom-canvas", range: [0.3, 3] },
         "drag-element",
         {
           type: "click-select",
@@ -447,6 +553,39 @@ export default function GraphPage() {
       );
       if (node && node.node_type === "note") {
         navigate(`/notes/${node.id}`);
+      }
+    });
+
+    // 单击：弹出节点卡片（标题 / 摘要 / 标签 / 所在文件夹 / 打开 / 定位）
+    graph.on("node:click", (evt: any) => {
+      const gid = String(evt.target?.id ?? "");
+      if (!gid) return;
+
+      if (mode === "llm") {
+        const entity = llmData?.nodes.find((n) => `e${n.id}` === gid);
+        if (!entity) return;
+        setSelected({
+          kind: "entity",
+          gid,
+          id: entity.id,
+          name: entity.name,
+          entityType: entity.entity_type,
+          description: entity.description,
+          noteIds: entity.note_ids,
+          degree: entity.degree,
+        });
+        return;
+      }
+
+      const node = graphData?.nodes.find(
+        (n) => (n.node_type === "folder" ? "f" : "n") + n.id === gid,
+      );
+      if (!node) return;
+      if (node.node_type === "note") {
+        setSelected({ kind: "note", gid, id: node.id, title: node.title });
+        void loadNoteExtra(node.id);
+      } else {
+        setSelected({ kind: "folder", gid, id: node.id, title: node.title });
       }
     });
 
@@ -820,11 +959,33 @@ export default function GraphPage() {
       </div>
 
       {/* 图谱画布 */}
-      <div
-        ref={containerRef}
-        className="flex-1"
-        style={{ minHeight: 0, background: token.colorBgLayout }}
-      />
+      <div className="flex-1" style={{ position: "relative", minHeight: 0 }}>
+        <div
+          ref={containerRef}
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: token.colorBgLayout,
+          }}
+        />
+        {selected && (
+          <GraphNodeCard
+            selected={selected}
+            noteExtra={noteExtra}
+            folderName={folderName}
+            token={token}
+            onClose={() => setSelected(null)}
+            onFocus={() => focusAndHighlight(selected.gid)}
+            onOpen={() => {
+              if (selected.kind === "note") navigate(`/notes/${selected.id}`);
+              else if (selected.kind === "folder")
+                navigate(`/notes?folder=${selected.id}`);
+              else if (selected.noteIds.length)
+                navigate(`/notes/${selected.noteIds[0]}`);
+            }}
+          />
+        )}
+      </div>
 
       <ContextMenuOverlay
         open={!!ctx.state.payload}
@@ -833,6 +994,165 @@ export default function GraphPage() {
         items={menuItems}
         onClose={ctx.close}
       />
+    </div>
+  );
+}
+
+/**
+ * 节点卡片：单击节点后浮在画布右上角。
+ *
+ * 文档节点展示标题 / 所在文件夹 / 标签 / 摘要；实体节点展示类型 / 描述 /
+ * 来源文档数；文件夹节点只展示名称。所有类型都提供「定位」按钮（居中 + 高亮）。
+ */
+function GraphNodeCard({
+  selected,
+  noteExtra,
+  folderName,
+  token,
+  onClose,
+  onFocus,
+  onOpen,
+}: {
+  selected: SelectedNode;
+  noteExtra: NoteExtra | null;
+  folderName: (id: number | null) => string | null;
+  token: ReturnType<typeof antdTheme.useToken>["token"];
+  onClose: () => void;
+  onFocus: () => void;
+  onOpen: () => void;
+}) {
+  const title = selected.kind === "entity" ? selected.name : selected.title;
+  const canOpen = selected.kind !== "entity" || selected.noteIds.length > 0;
+  const metaStyle = {
+    fontSize: 12,
+    color: token.colorTextSecondary,
+    marginTop: 6,
+  } as const;
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 12,
+        right: 12,
+        width: 300,
+        maxHeight: "70%",
+        overflow: "auto",
+        background: token.colorBgElevated,
+        border: `1px solid ${token.colorBorderSecondary}`,
+        borderRadius: 10,
+        boxShadow: token.boxShadowSecondary,
+        padding: 12,
+        zIndex: 10,
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontWeight: 600,
+            fontSize: 14,
+            wordBreak: "break-word",
+          }}
+        >
+          {title}
+        </div>
+        <button
+          type="button"
+          aria-label="关闭"
+          onClick={onClose}
+          style={{
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            color: token.colorTextTertiary,
+            padding: 2,
+          }}
+        >
+          <XIcon size={14} />
+        </button>
+      </div>
+
+      {selected.kind === "note" && (
+        <>
+          <div style={metaStyle}>
+            文档 · {noteExtra ? folderName(noteExtra.folderId) : "加载中…"}
+          </div>
+          {noteExtra && noteExtra.tags.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+              {noteExtra.tags.map((tag) => (
+                <span
+                  key={tag}
+                  style={{
+                    fontSize: 11,
+                    padding: "0 6px",
+                    height: 20,
+                    lineHeight: "20px",
+                    borderRadius: 10,
+                    background: token.colorFillTertiary,
+                    color: token.colorTextSecondary,
+                  }}
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+          {noteExtra?.summary && (
+            <div
+              style={{
+                fontSize: 12,
+                color: token.colorTextTertiary,
+                marginTop: 8,
+                lineHeight: 1.5,
+              }}
+            >
+              {noteExtra.summary}
+            </div>
+          )}
+        </>
+      )}
+
+      {selected.kind === "folder" && <div style={metaStyle}>文件夹</div>}
+
+      {selected.kind === "entity" && (
+        <>
+          <div style={metaStyle}>
+            实体 · {selected.entityType} · 关联度 {selected.degree}
+          </div>
+          {selected.description && (
+            <div
+              style={{
+                fontSize: 12,
+                color: token.colorTextTertiary,
+                marginTop: 8,
+                lineHeight: 1.5,
+              }}
+            >
+              {selected.description}
+            </div>
+          )}
+          <div style={metaStyle}>来源文档 {selected.noteIds.length} 篇</div>
+        </>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        {canOpen && (
+          <Button
+            size="small"
+            type="primary"
+            icon={<ExternalLink size={13} />}
+            onClick={onOpen}
+          >
+            {selected.kind === "entity" ? "打开来源文档" : "打开"}
+          </Button>
+        )}
+        <Button size="small" icon={<Crosshair size={13} />} onClick={onFocus}>
+          定位
+        </Button>
+      </div>
     </div>
   );
 }

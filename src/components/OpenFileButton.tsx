@@ -80,19 +80,11 @@ export function OpenFileButton({
   }
 
   /** 确认预览 → 导入 */
-  async function confirmImport() {
+  function confirmImport() {
     if (!pendingPath) return;
     setPreviewOpen(false);
-    try {
-      const result = await importApi.openMarkdownFile(pendingPath);
-      if (result.wasSynced) {
-        message.info("已根据最新 md 文件同步文档内容");
-      }
-      useAppStore.getState().bumpNotesRefresh();
-      navigate(`/notes/${result.noteId}`);
-    } catch (e) {
-      message.error(`导入失败: ${e}`);
-    }
+    // shell-first：先到打开中页面，导入在那边异步完成
+    navigate(`/notes/opening?path=${encodeURIComponent(pendingPath)}`);
     setPendingPath(null);
     setPreviewContent("");
   }
@@ -113,12 +105,8 @@ export function OpenFileButton({
       });
       const path = Array.isArray(picked) ? picked[0] : picked;
       if (!path) return;
-      const result = await importApi.openMarkdownFile(path);
-      if (result.wasSynced) {
-        message.info("已根据最新 md 文件同步文档内容");
-      }
-      useAppStore.getState().bumpNotesRefresh();
-      navigate(`/notes/${result.noteId}`);
+      // shell-first：先到打开中页面，导入在那边异步完成
+      navigate(`/notes/opening?path=${encodeURIComponent(path)}`);
     } catch (e) {
       message.error(`打开失败: ${e}`);
     }
@@ -347,8 +335,8 @@ function PreviewModal({
           maxHeight: "60vh",
           padding: "12px 16px",
           borderRadius: 6,
-          background: "var(--color-bg-elevated, #fafafa)",
-          border: "1px solid var(--color-border-secondary, #e8e8e8)",
+          background: "var(--kb-bg-elevated)",
+          border: "1px solid var(--color-border-secondary, var(--kb-border))",
           fontSize: 14,
           lineHeight: 1.7,
         }}

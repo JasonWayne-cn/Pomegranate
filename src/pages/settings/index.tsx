@@ -24,11 +24,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import type { Update } from "@tauri-apps/plugin-updater";
 import type { NoteTemplate, NoteTemplateInput } from "@/types";
-import { systemApi, updaterApi, templateApi, autostartApi, configApi } from "@/lib/api";
+import { systemApi, templateApi, autostartApi, configApi } from "@/lib/api";
 import { useAppStore } from "@/store";
-import { UpdateModal } from "@/components/ui/UpdateModal";
+import { useUpdater } from "@/components/updater/UpdaterProvider";
 import { SyncTabs } from "@/components/settings/SyncTabs";
 import { DataDirSection } from "@/components/settings/DataDirSection";
 import { FeatureModulesSection } from "@/components/settings/FeatureModulesSection";
@@ -97,6 +96,54 @@ function sectionIdToTab(sectionId: string): TabKey | null {
   if (/^settings-(update|startup|features)$/.test(sectionId)) return TAB_KEYS.startup;
   if (/^settings-/.test(sectionId)) return TAB_KEYS.about;
   return null;
+}
+
+/** ─── 笔记列表偏好 ───────────────────────────────────── */
+
+function NotesListSection() {
+  const notesRowSpacing = useAppStore((s) => s.notesRowSpacing);
+  const notesPageSize = useAppStore((s) => s.notesPageSize);
+  const setNotesRowSpacing = useAppStore((s) => s.setNotesRowSpacing);
+  const setNotesPageSize = useAppStore((s) => s.setNotesPageSize);
+
+  return (
+    <Card
+      id="settings-notes-list"
+      title={<span className="flex items-center gap-2"><Layers size={16} />笔记列表</span>}
+    >
+      <div className="flex items-center justify-between py-1">
+        <div>
+          <div>行距</div>
+          <Text type="secondary" style={{ fontSize: 12 }}>同时影响侧栏文件夹树与文档列表的行高。</Text>
+        </div>
+        <Radio.Group
+          size="small"
+          optionType="button"
+          buttonStyle="solid"
+          value={notesRowSpacing}
+          onChange={(e) => setNotesRowSpacing(e.target.value)}
+          options={[
+            { label: "紧凑", value: "compact" },
+            { label: "标准", value: "standard" },
+            { label: "宽松", value: "comfortable" },
+          ]}
+        />
+      </div>
+      <div className="flex items-center justify-between py-1" style={{ marginTop: 8 }}>
+        <div>
+          <div>每页条数</div>
+          <Text type="secondary" style={{ fontSize: 12 }}>文档列表默认每页 30 条，最大 100 条。</Text>
+        </div>
+        <Select
+          size="small"
+          style={{ width: 90 }}
+          value={notesPageSize}
+          onChange={setNotesPageSize}
+          options={[12, 20, 30, 50, 100].map((v) => ({ label: String(v), value: v }))}
+        />
+      </div>
+    </Card>
+  );
 }
 
 /** ─── 外观自定义组件 ─────────────────────────────────── */
@@ -211,8 +258,7 @@ function AppearanceSection() {
 }/** 插件设置 Tab 的 DOM 挂载器（参考 PluginPanelViewPage 模式） */
 function DesktopSettingsPage() {
   const [checking, setChecking] = useState(false);
-  const [update, setUpdate] = useState<Update | null>(null);
-  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const updater = useUpdater();
   const [appVersion, setAppVersion] = useState("0.1.0");
 
   // 模板管理状态
@@ -235,17 +281,15 @@ function DesktopSettingsPage() {
   );
 
   async function handleCheckUpdate() {
+    if (!updater) return;
     setChecking(true);
     try {
-      const result = await updaterApi.checkUpdate();
-      if (result) {
-        setUpdate(result);
-        setUpdateModalOpen(true);
-      } else {
+      const r = await updater.checkManually();
+      if (r.error) {
+        message.warning(`检查更新失败: ${r.error}`);
+      } else if (!r.hasUpdate) {
         message.success("当前已是最新版本");
       }
-    } catch (e) {
-      message.warning(`检查更新失败: ${String(e)}`);
     } finally {
       setChecking(false);
     }
@@ -521,6 +565,7 @@ function DesktopSettingsPage() {
             label: <span className="flex items-center gap-2"><Monitor size={16} />显示设置</span>,
             children: (
               <div className="settings-tabs-stack">
+                <NotesListSection />
                 <AppearanceSection />
               </div>
             ),
@@ -752,11 +797,6 @@ function DesktopSettingsPage() {
         </Form>
       </Modal>
 
-      <UpdateModal
-        open={updateModalOpen}
-        onClose={() => setUpdateModalOpen(false)}
-        update={update}
-      />
     </div>
   );
 }

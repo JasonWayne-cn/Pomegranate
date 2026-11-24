@@ -59,6 +59,8 @@ struct FolderRow {
     parent_id: Option<i64>,
     sort_order: i32,
     note_count: usize,
+    office_count: usize,
+    pdf_count: usize,
     mount_id: Option<i64>,
 }
 
@@ -86,6 +88,8 @@ impl Database {
             sort_order: 0,
             children: vec![],
             note_count: 0,
+            office_count: 0,
+            pdf_count: 0,
             mount_id: None,
         })
     }
@@ -355,7 +359,15 @@ impl Database {
 
         let mut stmt = conn.prepare(
             "SELECT f.id, f.name, f.parent_id, f.sort_order,
-                    (SELECT COUNT(*) FROM notes WHERE folder_id = f.id AND ext_index_only = 0) as note_count,
+                    (SELECT COUNT(*) FROM notes n
+                       WHERE n.folder_id = f.id AND n.is_deleted = 0 AND n.ext_index_only = 0) AS note_count,
+                    (SELECT COUNT(*) FROM notes n
+                       WHERE n.folder_id = f.id AND n.is_deleted = 0 AND n.ext_index_only = 1
+                         AND lower(COALESCE(n.source_file_type, '')) IN
+                             ('docx','docm','doc','pptx','pptm','xlsx','xls','xlsm','xlsb','ods','csv','tsv')) AS office_count,
+                    (SELECT COUNT(*) FROM notes n
+                       WHERE n.folder_id = f.id AND n.is_deleted = 0 AND n.ext_index_only = 1
+                         AND lower(COALESCE(n.source_file_type, '')) = 'pdf') AS pdf_count,
                     f.mount_id
              FROM folders f ORDER BY f.sort_order, f.name",
         )?;
@@ -368,7 +380,9 @@ impl Database {
                     parent_id: row.get(2)?,
                     sort_order: row.get(3)?,
                     note_count: row.get(4)?,
-                    mount_id: row.get(5)?,
+                    office_count: row.get(5)?,
+                    pdf_count: row.get(6)?,
+                    mount_id: row.get(7)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -377,20 +391,37 @@ impl Database {
     }
 }
 
-/// 将平铺的文件夹列表构建为树形结构
+/// 将平铺的文件夹列表构建为树形结构。
+///
+/// 计数在这里做一次自底向上汇总：SQL 只统计直属文档，父文件夹的
+/// note_count / office_count / pdf_count 再加上所有子文件夹的汇总值。
+/// 单次查询 + O(n) 遍历，避免对每个文件夹各发一条递归 SQL（N+1）。
 fn build_folder_tree(rows: &[FolderRow]) -> Vec<Folder> {
     // 递归构建：找到所有 parent_id == target 的节点
     fn build_children(rows: &[FolderRow], parent_id: Option<i64>) -> Vec<Folder> {
         rows.iter()
             .filter(|r| r.parent_id == parent_id)
-            .map(|r| Folder {
-                id: r.id,
-                name: r.name.clone(),
-                parent_id: r.parent_id,
-                sort_order: r.sort_order,
-                children: build_children(rows, Some(r.id)),
-                note_count: r.note_count,
-                mount_id: r.mount_id,
+            .map(|r| {
+                let children = build_children(rows, Some(r.id));
+                let mut note_count = r.note_count;
+                let mut office_count = r.office_count;
+                let mut pdf_count = r.pdf_count;
+                for c in &children {
+                    note_count += c.note_count;
+                    office_count += c.office_count;
+                    pdf_count += c.pdf_count;
+                }
+                Folder {
+                    id: r.id,
+                    name: r.name.clone(),
+                    parent_id: r.parent_id,
+                    sort_order: r.sort_order,
+                    children,
+                    note_count,
+                    office_count,
+                    pdf_count,
+                    mount_id: r.mount_id,
+                }
             })
             .collect()
     }

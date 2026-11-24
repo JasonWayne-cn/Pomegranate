@@ -51,18 +51,19 @@ impl WriteBackService {
         note_id: i64,
         force: bool,
     ) -> Result<WriteBackResult, AppError> {
-        // 1. 拉文档 content + source_file_path/type
-        let (content, source_path, source_type) = {
+        // 1. 拉文档 title + content + source_file_path/type
+        let (title, content, source_path, source_type) = {
             let conn = db.conn_lock()?;
             let mut stmt = conn.prepare(
-                "SELECT content, source_file_path, source_file_type
+                "SELECT title, content, source_file_path, source_file_type
                  FROM notes WHERE id = ?1 AND is_deleted = 0",
             )?;
             stmt.query_row([note_id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(1)?,
                     row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
                 ))
             })
             .map_err(|_| AppError::NotFound(format!("文档 {} 不存在", note_id)))?
@@ -135,6 +136,10 @@ impl WriteBackService {
             }
         }
 
+        // 标题跟随：外部 .md 的标题通常写在首个 H1 里。只替换这一行，
+        // front-matter 与正文其余部分保持原样；没有 H1 则不强行插入。
+        rewritten = set_first_h1(&rewritten, &title);
+
         // 6. 写回 + 更新 mtime
         std::fs::write(&path, &rewritten)?;
         if let Some(new_mtime) = std::fs::metadata(&path)
@@ -159,6 +164,64 @@ impl WriteBackService {
             file_path: path_str,
         })
     }
+}
+
+// ───────── 标题写回 ─────────
+
+/// 把正文里**第一个**一级标题（`# xxx`）替换为 `# {title}`。
+///
+/// - 跳过开头的 front-matter 块（`---` … `---`），避免把 front-matter 内的
+///   行误判成标题；
+/// - 没找到 H1 时原样返回（不凭空插入标题，保持文件结构不变）。
+fn set_first_h1(content: &str, title: &str) -> String {
+    let title = title.trim();
+    if title.is_empty() {
+        return content.to_string();
+    }
+
+    // front-matter 截止位置（body 起始字节偏移）
+    let body_start = {
+        let mut lines = content.split_inclusive('\n');
+        let first = lines.next().unwrap_or("");
+        if first.trim_end_matches(['\r', '\n']).trim() != "---" {
+            0
+        } else {
+            let mut offset = first.len();
+            let mut end = 0;
+            for line in lines {
+                offset += line.len();
+                if line.trim_end_matches(['\r', '\n']).trim() == "---" {
+                    end = offset;
+                    break;
+                }
+            }
+            end
+        }
+    };
+
+    // 只在 body 内找第一行 `# `，按原行尾风格替换，其余字节原样保留
+    let mut offset = body_start;
+    for line in content[body_start..].split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.starts_with("# ") {
+            let newline = if line.ends_with("\r\n") {
+                "\r\n"
+            } else if line.ends_with('\n') {
+                "\n"
+            } else {
+                ""
+            };
+            return format!(
+                "{}# {}{}{}",
+                &content[..offset],
+                title,
+                newline,
+                &content[offset + line.len()..]
+            );
+        }
+        offset += line.len();
+    }
+    content.to_string()
 }
 
 // ───────── URL 反向替换实现 ─────────

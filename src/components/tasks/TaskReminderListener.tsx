@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { App as AntdApp, Button, Modal, Tag, Tooltip, Typography } from "antd";
+import {
+  App as AntdApp,
+  Button,
+  Modal,
+  Popconfirm,
+  Tag,
+  Tooltip,
+  Typography,
+} from "antd";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { taskApi } from "@/lib/api";
 import { useAppStore } from "@/store";
@@ -137,29 +145,43 @@ export function TaskReminderListener() {
             </div>
           </div>
 
-          {/* 主操作：知道了（关弹窗不动任务） + 结束循环（仅循环任务） + 标记完成 */}
-          <div className="flex items-center justify-end gap-2">
-            <Tooltip
-              title="任务保留待办，本次提醒不再响。循环任务会按规则在下一次到点继续提醒。"
-              placement="top"
-            >
-              <Button disabled={acting} onClick={dismiss}>
-                知道了
+          {/* 主操作：结束循环（左下角，二次确认） + 知道了 + 完成 */}
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              {isRepeating && (
+                <Popconfirm
+                  title="结束整条循环？"
+                  description="之后不再提醒；任务仍保留在列表中，可手动恢复。"
+                  okText="结束循环"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={handleEndSeries}
+                  disabled={acting}
+                >
+                  <Button danger disabled={acting}>
+                    结束循环
+                  </Button>
+                </Popconfirm>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Tooltip
+                title="任务保留待办，本次提醒不再响。循环任务会按规则在下一次到点继续提醒。"
+                placement="top"
+              >
+                <Button disabled={acting} onClick={dismiss}>
+                  知道了
+                </Button>
+              </Tooltip>
+              <Button
+                type="primary"
+                loading={acting}
+                disabled={acting}
+                onClick={handleCompleteOccurrence}
+              >
+                {isRepeating ? "完成本次" : "标记完成"}
               </Button>
-            </Tooltip>
-            {isRepeating && (
-              <Button danger disabled={acting} onClick={handleEndSeries}>
-                结束循环
-              </Button>
-            )}
-            <Button
-              type="primary"
-              loading={acting}
-              disabled={acting}
-              onClick={handleCompleteOccurrence}
-            >
-              {isRepeating ? "完成本次" : "标记完成"}
-            </Button>
+            </div>
           </div>
         </div>
       }

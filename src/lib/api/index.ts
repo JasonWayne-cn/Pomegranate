@@ -1273,6 +1273,18 @@ export const exportApi = {
    *  实际会在其下创建一层 `知识库导出_YYYYMMDD_HHmmss/` 作为导出根（见返回值 root_dir） */
   exportNotes: (outputDir: string, folderId?: number | null, recursive?: boolean) =>
     invoke<ExportResult>("export_notes", { outputDir, folderId, recursive }),
+  /** 导出为单个 ZIP；`targetPath` 是 save dialog 选定的 .zip 路径 */
+  exportNotesZip: (
+    targetPath: string,
+    folderId?: number | null,
+    recursive?: boolean,
+  ) =>
+    invoke<{
+      zipPath: string;
+      exported: number;
+      assetsCopied: number;
+      errors: string[];
+    }>("export_notes_zip", { targetPath, folderId, recursive }),
   /** 合并导出：把一个文件夹（或全库）合成**单个**带章节结构的文件。
    *
    *  与 exportNotes 的分工：那个导出一堆散 .md（备份 / 迁移），这个导出一份带目录和

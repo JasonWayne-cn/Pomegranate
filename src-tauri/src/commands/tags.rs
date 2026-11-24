@@ -8,8 +8,29 @@ pub fn create_tag(
     state: tauri::State<'_, AppState>,
     name: String,
     color: Option<String>,
+    parent_id: Option<i64>,
 ) -> Result<Tag, String> {
-    TagService::create(&state.db, &name, color.as_deref()).map_err(|e| e.to_string())
+    TagService::create(&state.db, &name, color.as_deref(), parent_id)
+        .map_err(|e| e.to_string())
+}
+
+/// 移动标签到新父级（parentId 传 null 提升为顶层）
+#[tauri::command]
+pub fn set_tag_parent(
+    state: tauri::State<'_, AppState>,
+    id: i64,
+    parent_id: Option<i64>,
+) -> Result<(), String> {
+    TagService::set_parent(&state.db, id, parent_id).map_err(|e| e.to_string())
+}
+
+/// 批量重排同级标签顺序
+#[tauri::command]
+pub fn reorder_tags(
+    state: tauri::State<'_, AppState>,
+    ordered_ids: Vec<i64>,
+) -> Result<(), String> {
+    TagService::reorder(&state.db, &ordered_ids).map_err(|e| e.to_string())
 }
 
 /// 获取所有标签

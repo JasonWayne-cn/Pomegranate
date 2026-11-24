@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Button, Spin, Tag } from "antd";
+import { Button, Popconfirm, Spin, Tag } from "antd";
 import { AlertOctagon, Bell, BellOff, Check, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { taskApi } from "@/lib/api";
@@ -272,7 +272,7 @@ export default function EmergencyReminderPage() {
               <div
                 style={{
                   fontSize: 12,
-                  color: "var(--kb-text-secondary, #6b7280)",
+                  color: "var(--kb-text-secondary)",
                 }}
               >
                 截止 {task.due_date}
@@ -316,7 +316,7 @@ export default function EmergencyReminderPage() {
           <span
             style={{
               fontSize: 12,
-              color: "var(--kb-text-tertiary, #6b7280)",
+              color: "var(--kb-text-tertiary)",
               flexShrink: 0,
             }}
           >
@@ -350,38 +350,51 @@ export default function EmergencyReminderPage() {
           </div>
         </div>
 
-        {/* 主操作 */}
-        <div className="flex items-center justify-end gap-2">
-          {/* 知道了：仅关窗 + 停铃，任务保留待办、本次不再响（与主窗 Modal 语义一致） */}
-          <Button
-            data-tauri-drag-region={false}
-            disabled={acting}
-            onClick={closeSelf}
-            title="任务保留待办，本次提醒不再响（=ESC / 关闭按钮）"
-          >
-            知道了
-          </Button>
-          {isRepeating && (
+        {/* 主操作：结束循环在左下角（二次确认），主按钮靠右 */}
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            {isRepeating && (
+              <Popconfirm
+                title="结束整条循环？"
+                description="之后不再提醒；任务仍保留在列表中，可手动恢复。"
+                okText="结束循环"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+                onConfirm={handleEndSeries}
+                disabled={!task || acting}
+              >
+                <Button
+                  data-tauri-drag-region={false}
+                  size="small"
+                  danger
+                  disabled={!task || acting}
+                >
+                  结束循环
+                </Button>
+              </Popconfirm>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {/* 知道了：仅关窗 + 停铃，任务保留待办、本次不再响（与主窗 Modal 语义一致） */}
             <Button
               data-tauri-drag-region={false}
-              size="small"
-              danger
-              disabled={!task || acting}
-              onClick={handleEndSeries}
+              disabled={acting}
+              onClick={closeSelf}
+              title="任务保留待办，本次提醒不再响（=ESC / 关闭按钮）"
             >
-              结束循环
+              知道了
             </Button>
-          )}
-          <Button
-            data-tauri-drag-region={false}
-            type="primary"
-            disabled={!task || acting}
-            loading={acting}
-            icon={<Check size={14} />}
-            onClick={handleComplete}
-          >
-            {isRepeating ? "完成本次" : "标记完成"}
-          </Button>
+            <Button
+              data-tauri-drag-region={false}
+              type="primary"
+              disabled={!task || acting}
+              loading={acting}
+              icon={<Check size={14} />}
+              onClick={handleComplete}
+            >
+              {isRepeating ? "完成本次" : "标记完成"}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -396,7 +409,7 @@ const titleBtnStyle: React.CSSProperties = {
   justifyContent: "center",
   borderRadius: 4,
   background: "transparent",
-  color: "var(--kb-text-secondary, #6b7280)",
+  color: "var(--kb-text-secondary)",
   border: "none",
   cursor: "pointer",
 };

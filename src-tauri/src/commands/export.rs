@@ -37,6 +37,90 @@ pub fn export_notes(
     .map_err(|e| e.to_string())
 }
 
+/// 导出结果（ZIP）：只回传前端展示所需字段
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ZipExportResult {
+    pub zip_path: String,
+    pub exported: usize,
+    pub assets_copied: usize,
+    pub errors: Vec<String>,
+}
+
+/// 导出文档为 ZIP：先复用 `export_notes` 在临时目录导出（保留文件夹层级 /
+/// 资源拷贝），再整目录打包到用户选择的 `target_path`，最后清理临时目录。
+#[tauri::command(async)]
+pub fn export_notes_zip(
+    state: tauri::State<'_, AppState>,
+    app: AppHandle,
+    target_path: String,
+    folder_id: Option<i64>,
+    recursive: Option<bool>,
+) -> Result<ZipExportResult, String> {
+    use std::io::Write;
+
+    fn run(
+        state: &AppState,
+        app: &AppHandle,
+        target_path: &str,
+        folder_id: Option<i64>,
+        recursive: bool,
+    ) -> Result<ZipExportResult, String> {
+        let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S%.3f").to_string();
+        let temp_root = std::env::temp_dir().join(format!("kb-export-{stamp}"));
+        std::fs::create_dir_all(&temp_root).map_err(|e| e.to_string())?;
+
+        let temp_root_str = temp_root.to_string_lossy().to_string();
+        let result = services::export::ExportService::export_notes(
+            &state.db,
+            &state.data_dir,
+            &temp_root_str,
+            folder_id,
+            recursive,
+            app,
+        )
+        .map_err(|e| e.to_string())?;
+
+        let file = std::fs::File::create(target_path).map_err(|e| e.to_string())?;
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        let base = std::path::Path::new(&result.root_dir);
+        for entry in walkdir::WalkDir::new(base) {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let rel = path.strip_prefix(base).map_err(|e| e.to_string())?;
+            let name = rel.to_string_lossy().replace('\\', "/");
+            zip.start_file(name, options).map_err(|e| e.to_string())?;
+            let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+            zip.write_all(&bytes).map_err(|e| e.to_string())?;
+        }
+        zip.finish().map_err(|e| e.to_string())?;
+
+        // 临时导出目录用完即删；失败不影响已生成的 ZIP
+        let _ = std::fs::remove_dir_all(&temp_root);
+
+        Ok(ZipExportResult {
+            zip_path: target_path.to_string(),
+            exported: result.exported,
+            assets_copied: result.assets_copied,
+            errors: result.errors,
+        })
+    }
+
+    run(
+        &state,
+        &app,
+        &target_path,
+        folder_id,
+        recursive.unwrap_or(true),
+    )
+}
+
 /// 合并导出：把一个文件夹（或全库）合成**单个**带章节结构的文件
 ///
 /// 与 `export_notes` 的区别：那个导出"一堆散 .md"（备份/迁移），这个导出
