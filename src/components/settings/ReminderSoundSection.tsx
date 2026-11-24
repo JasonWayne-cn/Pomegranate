@@ -454,7 +454,7 @@ export function ReminderSoundSection() {
 
 /** 与「待办提醒」卡片里其它行一致的分隔线 */
 const rowStyle: React.CSSProperties = {
-  borderTop: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
+  borderTop: "1px solid var(--ant-color-border-secondary, var(--kb-border))",
   marginTop: 8,
   paddingTop: 12,
 };

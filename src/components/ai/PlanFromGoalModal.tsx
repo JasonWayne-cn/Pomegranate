@@ -72,8 +72,8 @@ function quadrantOf(
   const imp = !!important;
   if (urgent && imp) return { num: 1, label: "立即做", color: "#f5222d" };
   if (!urgent && imp) return { num: 2, label: "计划做", color: "#fa8c16" };
-  if (urgent && !imp) return { num: 3, label: "委派", color: "#1677ff" };
-  return { num: 4, label: "可延后", color: "#8c8c8c" };
+  if (urgent && !imp) return { num: 3, label: "委派", color: "var(--kb-primary)" };
+  return { num: 4, label: "可延后", color: "var(--kb-text-tertiary)" };
 }
 
 function toDraft(s: TaskSuggestion, idx: number): DraftTask {

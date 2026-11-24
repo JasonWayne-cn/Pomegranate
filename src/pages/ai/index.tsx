@@ -26,6 +26,7 @@ import {
   X,
   Copy,
   Quote,
+  GitBranch,
 } from "lucide-react";
 import { CloseCircleFilled } from "@ant-design/icons";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -41,6 +42,7 @@ import type {
   SkillCall,
 } from "@/types";
 import { AttachmentChip } from "@/components/ai/AttachmentChip";
+import { AskNav } from "@/components/ai/AskNav";
 import { MicButton } from "@/components/MicButton";
 import { useAiChatStore } from "@/store/aiChat";
 import { TurnCard } from "@/components/ai/TurnCard";
@@ -151,6 +153,8 @@ function DesktopAiChatPage() {
   // Skills 让 LLM 按需调，是 RAG 的超集。把选择权交给 LLM，用户只管开关。
   const [useSkills, setUseSkills] = useState(true);
   const [streaming, setStreaming] = useState(false);
+  // 截断自动续写进行中（A4）：后端 finish_reason=length 时自动追加请求
+  const [continuing, setContinuing] = useState(false);
   // 流式中的这一轮：思考 / 各轮工具调用 / 正在写的回答，统一累积成 LiveTurn，
   // 再交给 TurnCard 渲染成和历史消息完全一致的卡片。
   const [liveTurn, setLiveTurn] = useState<LiveTurn | null>(null);
@@ -209,11 +213,90 @@ function DesktopAiChatPage() {
             .catch((e) => message.error(`复制失败：${e}`));
         },
       },
+      // A2：从这条回答分叉出新会话（只复制到当前消息为止）
+      ...(m.role === "assistant" && activeConvId
+        ? [
+            {
+              key: "fork",
+              label: "从这里分叉",
+              icon: <GitBranch size={13} />,
+              onClick: async () => {
+                msgCtx.close();
+                try {
+                  const conv = await aiChatApi.forkConversation(
+                    activeConvId,
+                    m.id,
+                  );
+                  await loadConversations();
+                  setActiveConvId(conv.id);
+                  message.success("已从该回答分叉");
+                } catch (e) {
+                  message.error(`分叉失败：${e}`);
+                }
+              },
+            } satisfies ContextMenuEntry,
+          ]
+        : []),
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [msgCtx.state.payload]);
+  }, [msgCtx.state.payload, activeConvId]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // A3：消息滚动容器 + 提问导航
+  const listRef = useRef<HTMLDivElement>(null);
+  const userQuestions = useMemo(
+    () =>
+      messages
+        .filter((m) => m.role === "user")
+        .map((m) => ({ id: m.id, text: m.content })),
+    [messages],
+  );
+
+  // A3：Alt+↑/↓ 跳上/下一条提问（输入框 / 文本域聚焦时不拦截）
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) {
+        return;
+      }
+      const container = listRef.current;
+      if (!container) return;
+      e.preventDefault();
+
+      const tops = userQuestions.map((q) => {
+        const el = container.querySelector<HTMLElement>(`#ask-${q.id}`);
+        return el ? el.offsetTop : null;
+      });
+      const y = container.scrollTop;
+      let targetTop: number | null = null;
+      if (e.key === "ArrowDown") {
+        for (const t of tops) {
+          if (t != null && t > y + 24) {
+            targetTop = t;
+            break;
+          }
+        }
+      } else {
+        for (let i = tops.length - 1; i >= 0; i--) {
+          const t = tops[i];
+          if (t != null && t < y - 24) {
+            targetTop = t;
+            break;
+          }
+        }
+      }
+      if (targetTop != null) {
+        container.scrollTo({
+          top: Math.max(0, targetTop - 16),
+          behavior: "smooth",
+        });
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [userQuestions]);
   // 跟踪组件挂载状态（防 setState on unmounted）
   const mountedRef = useRef(true);
   // activeConvId 的 ref 镜像 —— 给 ai:done handler 用，避免 mount-once useEffect 闭包陷阱
@@ -271,8 +354,13 @@ function DesktopAiChatPage() {
           withLive((t) => liveUpsertCall(t, event.payload));
         },
       );
+      // A4：回答因长度截断、后端自动续写时提示「继续生成…」
+      const continuingUnlisten = await listen("ai:continuing", () => {
+        setContinuing(true);
+      });
       const doneUnlisten = await listen("ai:done", async () => {
         setStreaming(false);
+        setContinuing(false);
         setLiveTurn(null);
         const conv = activeConvIdRef.current;
         if (conv) {
@@ -284,6 +372,7 @@ function DesktopAiChatPage() {
       });
       const errorUnlisten = await listen<string>("ai:error", (event) => {
         setStreaming(false);
+        setContinuing(false);
         setLiveTurn(null);
         message.error(`AI 错误: ${event.payload}`);
       });
@@ -298,6 +387,7 @@ function DesktopAiChatPage() {
         reasoningUnlisten();
         roundUnlisten();
         toolCallUnlisten();
+        continuingUnlisten();
         doneUnlisten();
         errorUnlisten();
         modelsChangedUnlisten();
@@ -307,6 +397,7 @@ function DesktopAiChatPage() {
           reasoningUnlisten,
           roundUnlisten,
           toolCallUnlisten,
+          continuingUnlisten,
           doneUnlisten,
           errorUnlisten,
           modelsChangedUnlisten,
@@ -512,6 +603,7 @@ function DesktopAiChatPage() {
     if (!text || !activeConvId || streaming) return;
     if (!textOverride) setInputText("");
     setStreaming(true);
+    setContinuing(false);
     setLiveTurn(newLiveTurn(activeConvId));
 
     // 乐观添加用户消息
@@ -879,8 +971,12 @@ function DesktopAiChatPage() {
               </div>
             </div>
 
-            {/* 消息列表 */}
-            <div className="flex-1 overflow-auto px-4 py-4">
+            {/* 消息列表（外层 relative 用于 AskNav 右边缘定位） */}
+            <div className="flex-1 relative" style={{ minHeight: 0 }}>
+              <div
+                ref={listRef}
+                className="absolute inset-0 overflow-auto px-4 py-4"
+              >
               <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col">
               {messages.length === 0 && !streaming && (
                 <div className="flex flex-1 items-center justify-center">
@@ -936,8 +1032,19 @@ function DesktopAiChatPage() {
                 </div>
               )}
 
+              {streaming && continuing && (
+                <div
+                  className="mb-3 text-xs"
+                  style={{ color: token.colorTextSecondary }}
+                >
+                  继续生成…
+                </div>
+              )}
+
               <div ref={messagesEndRef} />
               </div>
+              </div>
+              <AskNav questions={userQuestions} containerRef={listRef} />
             </div>
 
             {/* 输入区域（上方为附加文档 chip 区，强制塞进上下文） */}
@@ -1184,7 +1291,7 @@ function AttachNotesModal({
       destroyOnHidden
     >
       <div className="flex flex-col gap-2">
-        <div className="text-xs" style={{ color: "#888" }}>
+        <div className="text-xs" style={{ color: "var(--kb-text-tertiary)" }}>
           被选中的文档会作为本对话的强制上下文（整个对话共享）。
           每篇按 60% 模型上下文的均分预算自动截断。
         </div>
@@ -1227,6 +1334,8 @@ function MessageBubble({
 }) {
   return (
     <div
+      id={`ask-${msg.id}`}
+      data-ask-id={msg.id}
       className="flex gap-3 mb-4 flex-row-reverse"
       onContextMenu={
         onContextMenu

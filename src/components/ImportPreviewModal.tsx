@@ -92,8 +92,8 @@ export function ImportPreviewModal({
         <div
           className="mb-3 px-3 py-2 rounded text-[12px] leading-[22px]"
           style={{
-            background: "var(--color-bg-subtle, #f6f9ff)",
-            border: "1px solid var(--color-border-subtle, #e0e7ff)",
+            background: "var(--kb-primary-light)",
+            border: "1px solid var(--kb-border)",
           }}
         >
           <div className="flex items-center gap-1.5 font-medium mb-0.5">
@@ -115,7 +115,7 @@ export function ImportPreviewModal({
         </div>
 
         {/* 三桶统计 */}
-        <div className="flex flex-col gap-1 mb-4 px-3 py-2 bg-[var(--color-bg-subtle,#fafafa)] rounded">
+        <div className="flex flex-col gap-1 mb-4 px-3 py-2 bg-[var(--kb-bg-hover)] rounded">
           <div className="flex items-center gap-2">
             <CheckCircle2 size={14} className="text-emerald-500" />
             <span>全新</span>
@@ -160,7 +160,7 @@ export function ImportPreviewModal({
                 </Radio>
               </div>
             </Radio.Group>
-            <div className="mt-2 text-xs text-[var(--color-text-tertiary,#9ca3af)]">
+            <div className="mt-2 text-xs text-[var(--color-text-tertiary,var(--kb-text-tertiary))]">
               需要覆盖现有文档？请直接在应用内编辑 —— 避免误操作丢失数据。
             </div>
           </div>
@@ -203,7 +203,7 @@ export function ImportPreviewModal({
               </span>
             </Checkbox>
             {effectiveDaily && dailyStats.fileCount > dailyStats.dayCount && (
-              <div className="mt-1 text-xs text-[var(--color-text-tertiary,#9ca3af)]">
+              <div className="mt-1 text-xs text-[var(--color-text-tertiary,var(--kb-text-tertiary))]">
                 有些天存在多个文件，导入时每天只认领第一篇；其余仍是普通文档，
                 可事后在日记页用「整理历史日记」合并进当天。
               </div>

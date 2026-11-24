@@ -178,7 +178,7 @@ export function DataviewBlockModal({ open, initial, onClose, onSave }: Props) {
               label: (
                 <div>
                   <div>{o.label}</div>
-                  <div style={{ fontSize: 11, color: "#999" }}>{o.hint}</div>
+                  <div style={{ fontSize: 11, color: "var(--kb-text-tertiary)" }}>{o.hint}</div>
                 </div>
               ),
             }))}

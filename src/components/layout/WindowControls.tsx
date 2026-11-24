@@ -50,7 +50,7 @@ export function WindowControls() {
     const isClose = id === "close";
 
     if (isHovered && isClose) {
-      return { backgroundColor: "#e81123", color: "#fff" };
+      return { backgroundColor: token.colorError, color: token.colorTextLightSolid };
     }
     if (isHovered) {
       return { backgroundColor: token.colorFillSecondary };

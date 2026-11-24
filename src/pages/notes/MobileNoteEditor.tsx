@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { lazy, Suspense, useEffect, useState, useCallback, useRef } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ChevronLeft,
   Pin,
@@ -12,6 +12,7 @@ import {
   Link as LinkIcon,
   Image as ImageIcon,
   Sparkles,
+  Network,
 } from "lucide-react";
 import { message } from "antd";
 import { noteApi } from "@/lib/api";
@@ -39,6 +40,11 @@ import type { Note } from "@/types";
  * - 标签 / Pin / 隐藏 PIN 完整 UX
  */
 
+// 思维导图依赖 markmap / html-to-image，体积不小：用到才加载
+const MobileMindMap = lazy(() =>
+  import("@/components/mobile/MobileMindMap").then((m) => ({ default: m.MobileMindMap })),
+);
+
 const AUTOSAVE_DELAY_MS = 1200;
 /** 保存成功后"已保存 刚刚"提示的可见时长 */
 const SAVED_TOAST_MS = 2500;
@@ -54,6 +60,7 @@ type SaveStatus = "idle" | "dirty" | "saving" | "saved";
 
 export function MobileNoteEditor() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id: idParam } = useParams<{ id: string }>();
   const noteId = Number(idParam);
 
@@ -62,6 +69,9 @@ export function MobileNoteEditor() {
   const [content, setContent] = useState("");
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [pinning, setPinning] = useState(false);
+  /** 思维导图全屏页；新建导图跳过来时直接打开并进编辑 */
+  const [mindMapOpen, setMindMapOpen] = useState(false);
+  const [mindMapEditDefault, setMindMapEditDefault] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const dirtyRef = useRef(false);
@@ -96,6 +106,33 @@ export function MobileNoteEditor() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 「新建思维导图」跳过来：直接打开导图并进编辑模式；用完把路由 state 清掉，
+  // 否则在历史里前进后退回到这篇会再次自动弹出。
+  useEffect(() => {
+    const st = location.state as { openMindMap?: string } | null;
+    if (st?.openMindMap === "edit") {
+      setMindMapEditDefault(true);
+      setMindMapOpen(true);
+      navigate(location.pathname + location.search, { replace: true, state: null });
+    } else {
+      setMindMapEditDefault(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteId]);
+
+  /** 导图里改了正文 / 标题：按正常编辑处理，标脏并由自动保存落盘 */
+  function handleMindMapChange(next: string) {
+    contentRef.current = next;
+    setContent(next);
+    scheduleSave();
+  }
+
+  function handleMindMapTitle(next: string) {
+    titleRef.current = next;
+    setTitle(next);
+    scheduleSave();
+  }
 
   const doSave = useCallback(async () => {
     if (!note || !dirtyRef.current) return;
@@ -366,15 +403,40 @@ export function MobileNoteEditor() {
           <ToolButton onClick={() => insertAtCursor("![](", ")")}>
             <ImageIcon size={20} className="text-slate-600" />
           </ToolButton>
+          <ToolButton onClick={() => setMindMapOpen(true)}>
+            <Network size={20} className="text-slate-600" />
+          </ToolButton>
           <button
             onClick={() => navigate("/ai")}
             aria-label="AI 助手"
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-orange-50 active:bg-orange-100"
           >
-            <Sparkles size={20} className="text-[#FA8C16]" />
+            <Sparkles size={20} className="text-[var(--kb-accent)]" />
           </button>
         </div>
       </footer>
+
+      {/* 思维导图：PC 是右侧分栏，手机改全屏；纯大纲文档可点「编辑」直接改，改动写回正文自动保存 */}
+      {mindMapOpen && (
+        <Suspense fallback={null}>
+          <div
+            className="fixed inset-0 z-[70] flex flex-col bg-white"
+            style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+          >
+            <MobileMindMap
+              markdown={content}
+              title={title}
+              onClose={() => setMindMapOpen(false)}
+              onMarkdownChange={handleMindMapChange}
+              onTitleChange={handleMindMapTitle}
+              defaultEditing={mindMapEditDefault}
+              editBlockedReason={
+                note?.is_encrypted ? "加密文档不能编辑导图，先解锁" : undefined
+              }
+            />
+          </div>
+        </Suspense>
+      )}
     </div>
   );
 }

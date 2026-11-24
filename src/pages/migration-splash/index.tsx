@@ -110,7 +110,7 @@ export default function MigrationSplash() {
         </div>
 
         {marker && (
-          <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.6 }}>
+          <div style={{ fontSize: 12, color: "var(--kb-text-secondary)", lineHeight: 1.6 }}>
             <div>
               <Text type="secondary">从：</Text>
               <Text code style={{ fontSize: 11 }}>

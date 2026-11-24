@@ -366,7 +366,7 @@ export function MobileTaskDetail() {
               aria-label={isDone ? "标记未完成" : "标记完成"}
               className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border-2 ${
                 isDone
-                  ? "border-[#1677FF] bg-[#1677FF] text-white"
+                  ? "border-[var(--kb-primary)] bg-[var(--kb-primary)] text-white"
                   : "border-slate-300"
               }`}
             >
@@ -414,7 +414,7 @@ export function MobileTaskDetail() {
             </span>
             <button
               onClick={addSubtask}
-              className="flex items-center gap-0.5 text-[#1677FF]"
+              className="flex items-center gap-0.5 text-[var(--kb-primary)]"
             >
               <Plus size={12} /> 添加
             </button>
@@ -546,7 +546,7 @@ export function MobileTaskDetail() {
           </button>
           <button
             onClick={toggleSelf}
-            className="flex h-11 flex-1 items-center justify-center rounded-xl bg-[#1677FF] text-sm font-medium text-white active:scale-95 transition-transform"
+            className="flex h-11 flex-1 items-center justify-center rounded-xl bg-[var(--kb-primary)] text-sm font-medium text-white active:scale-95 transition-transform"
           >
             {isDone ? "标记未完成" : "完成"}
           </button>
@@ -574,7 +574,7 @@ export function MobileTaskDetail() {
             </button>
             <button
               onClick={() => void saveDue(false)}
-              className="flex-1 rounded-lg bg-[#1677FF] px-3 py-2 text-sm font-medium text-white"
+              className="flex-1 rounded-lg bg-[var(--kb-primary)] px-3 py-2 text-sm font-medium text-white"
             >
               保存
             </button>
@@ -609,13 +609,13 @@ export function MobileTaskDetail() {
                 onClick={() => void setRemind(opt.value)}
                 className={`flex items-center justify-between rounded-xl px-4 py-3 text-left ${
                   active
-                    ? "border border-[#1677FF] bg-blue-50"
+                    ? "border border-[var(--kb-primary)] bg-blue-50"
                     : "border border-slate-100 bg-white"
                 }`}
               >
                 <span className="text-sm text-slate-800">{opt.label}</span>
                 {active && (
-                  <span className="text-xs font-semibold text-[#1677FF]">
+                  <span className="text-xs font-semibold text-[var(--kb-primary)]">
                     ✓ 当前
                   </span>
                 )}

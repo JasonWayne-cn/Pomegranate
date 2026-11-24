@@ -169,7 +169,7 @@ export function MobileLayout() {
           <button
             aria-label="新建"
             onClick={() => navigate("/quick-create")}
-            className="fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#1677FF] text-white shadow-[0_8px_24px_rgba(22,119,255,0.4)] active:scale-95 transition-transform"
+            className="fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--kb-primary)] text-white shadow-[0_8px_24px_var(--kb-primary-light)] active:scale-95 transition-transform"
             style={{
               bottom: `calc(64px + env(safe-area-inset-bottom, 0px) + 16px)`,
             }}
@@ -200,7 +200,7 @@ export function MobileLayout() {
           <button
             aria-label="新建"
             onClick={() => navigate("/quick-create")}
-            className="mx-auto mt-3 mb-2 flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#1677FF] text-white shadow-[0_6px_16px_rgba(22,119,255,0.35)] active:scale-95 transition-transform"
+            className="mx-auto mt-3 mb-2 flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--kb-primary)] text-white shadow-[0_6px_16px_var(--kb-primary-light)] active:scale-95 transition-transform"
           >
             <Plus size={24} strokeWidth={2.5} />
           </button>
@@ -217,7 +217,7 @@ export function MobileLayout() {
             const active = isTabActive(tab, location.pathname);
             const Icon = tab.icon;
             const activeColor =
-              tab.activeColor === "accent" ? "#FA8C16" : "#1677FF";
+              tab.activeColor === "accent" ? "var(--kb-accent)" : "var(--kb-primary)";
             return (
               <button
                 key={tab.key}
@@ -230,7 +230,7 @@ export function MobileLayout() {
                     : "flex flex-1 flex-col items-center justify-center gap-0.5 py-1 active:bg-slate-100"
                 }
                 style={{
-                  color: active ? activeColor : "#94A3B8",
+                  color: active ? activeColor : "var(--kb-text-tertiary)",
                   minHeight: 44,
                 }}
               >

@@ -159,7 +159,7 @@ function SheetTable({ sheet }: SheetTableProps) {
 
   return (
     <div>
-      <div style={{ fontSize: 12, color: "#999", marginBottom: 6 }}>
+      <div style={{ fontSize: 12, color: "var(--kb-text-tertiary)", marginBottom: 6 }}>
         共 {sheet.totalRows} 行
         {sheet.truncatedRows > 0 && (
           <span style={{ marginLeft: 8, color: "#d4811f" }}>

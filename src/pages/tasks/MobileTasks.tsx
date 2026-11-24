@@ -268,7 +268,7 @@ export function MobileTasks() {
                 <span className="text-sm">暂无待办，享受当下 ✨</span>
                 <button
                   onClick={() => setCreateOpen(true)}
-                  className="mt-2 rounded-full bg-[#1677FF] px-5 py-2 text-sm font-medium text-white active:opacity-80"
+                  className="mt-2 rounded-full bg-[var(--kb-primary)] px-5 py-2 text-sm font-medium text-white active:opacity-80"
                 >
                   添加第一条
                 </button>
@@ -327,7 +327,7 @@ export function MobileTasks() {
       <button
         onClick={() => setCreateOpen(true)}
         aria-label="新建待办"
-        className="fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#1677FF] text-white shadow-[0_8px_24px_rgba(22,119,255,0.4)] active:scale-95 transition-transform"
+        className="fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--kb-primary)] text-white shadow-[0_8px_24px_var(--kb-primary-light)] active:scale-95 transition-transform"
         style={{
           bottom: `calc(64px + env(safe-area-inset-bottom, 0px) + 16px)`,
         }}
@@ -369,7 +369,7 @@ function Chip({
       onClick={onClick}
       className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium ${
         active
-          ? activeColor || "bg-[#1677FF] text-white"
+          ? activeColor || "bg-[var(--kb-primary)] text-white"
           : "bg-slate-100 text-slate-600"
       }`}
     >

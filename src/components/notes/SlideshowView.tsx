@@ -198,7 +198,7 @@ export function SlideshowView({ open, onClose, html, title }: Props) {
         position: "fixed",
         inset: 0,
         background: "#0f0f12",
-        color: "#f0f0f0",
+        color: "var(--kb-border)",
         zIndex: 2000,
         display: "flex",
         flexDirection: "column",
@@ -313,7 +313,7 @@ export function SlideshowView({ open, onClose, html, title }: Props) {
               {current}
             </MarkdownContent>
           ) : (
-            <p style={{ color: "#888" }}>（空页）</p>
+            <p style={{ color: "var(--kb-text-tertiary)" }}>（空页）</p>
           )}
         </div>
 

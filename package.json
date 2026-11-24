@@ -21,6 +21,7 @@
     "build:win7:full": "node scripts/build-win7.mjs --variant full",
     "patch:win7": "node scripts/patch-win7-pe.mjs",
     "check:win7": "node scripts/check-win7-imports.mjs",
+    "check:theme-colors": "node scripts/check-theme-colors.mjs --strict",
     "prepare:ppt-template-packs": "node scripts/prepare-ppt-template-test-packs.mjs",
     "vendor:genoffice": "node scripts/sync-genoffice-vendor.mjs",
     "test": "vitest run",

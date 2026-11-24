@@ -164,7 +164,7 @@ export function TaskCreateSheet({
                 onClick={() => setDue(p.key)}
                 className={`rounded-full px-3 py-1.5 text-sm font-medium ${
                   due === p.key
-                    ? "bg-[#1677FF] text-white"
+                    ? "bg-[var(--kb-primary)] text-white"
                     : "bg-slate-100 text-slate-600"
                 }`}
               >
@@ -206,7 +206,7 @@ export function TaskCreateSheet({
           <button
             onClick={() => void submit()}
             disabled={!title.trim() || saving}
-            className="flex-[2] rounded-xl bg-[#1677FF] text-base font-medium text-white active:opacity-80 disabled:opacity-40"
+            className="flex-[2] rounded-xl bg-[var(--kb-primary)] text-base font-medium text-white active:opacity-80 disabled:opacity-40"
             style={{ minHeight: 48 }}
           >
             {saving ? "保存中…" : "添加"}

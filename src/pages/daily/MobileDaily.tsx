@@ -203,11 +203,11 @@ export function MobileDaily() {
                   !c.inMonth
                     ? "text-slate-300"
                     : isSelected
-                      ? "bg-[#1677FF] text-white font-bold ring-2 ring-[#1677FF] ring-offset-1"
+                      ? "bg-[var(--kb-primary)] text-white font-bold ring-2 ring-[var(--kb-primary)] ring-offset-1"
                       : has
                         ? "bg-blue-100 text-blue-700 font-semibold"
                         : isTodayCell
-                          ? "border border-[#1677FF] text-[#1677FF] font-semibold"
+                          ? "border border-[var(--kb-primary)] text-[var(--kb-primary)] font-semibold"
                           : "text-slate-700 active:bg-slate-100"
                 }`}
               >
@@ -220,7 +220,7 @@ export function MobileDaily() {
           <span>无</span>
           <div className="h-3 w-3 rounded bg-slate-100" />
           <div className="h-3 w-3 rounded bg-blue-100" />
-          <div className="h-3 w-3 rounded bg-[#1677FF]" />
+          <div className="h-3 w-3 rounded bg-[var(--kb-primary)]" />
           <span>当前</span>
         </div>
       </div>
@@ -266,7 +266,7 @@ export function MobileDaily() {
 
         <button
           onClick={openSelectedDay}
-          className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-[#1677FF] font-medium text-white active:scale-[0.98] transition-transform"
+          className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-[var(--kb-primary)] font-medium text-white active:scale-[0.98] transition-transform"
         >
           <Edit3 size={16} className="mr-1.5" />
           {selectedNote ? "继续编辑" : "开始记录"}当天日记

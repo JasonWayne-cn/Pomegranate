@@ -128,7 +128,7 @@ export function McpHttpSection() {
   }
 
   return (
-    <div className="mt-4 pt-3" style={{ borderTop: "1px solid #f0f0f0" }}>
+    <div className="mt-4 pt-3" style={{ borderTop: "1px solid var(--kb-border)" }}>
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -148,7 +148,7 @@ export function McpHttpSection() {
       </div>
 
       {cfg.enabled && (
-        <div className="mt-3 pl-3" style={{ borderLeft: "2px solid #f0f0f0" }}>
+        <div className="mt-3 pl-3" style={{ borderLeft: "2px solid var(--kb-border)" }}>
           {status?.endpoint && (
             <Alert
               type="success"
@@ -167,7 +167,7 @@ export function McpHttpSection() {
           )}
 
           <div className="flex items-center gap-2 py-1 flex-wrap">
-            <span className="text-xs shrink-0" style={{ color: "#8c8c8c", width: 64 }}>
+            <span className="text-xs shrink-0" style={{ color: "var(--kb-text-tertiary)", width: 64 }}>
               端口
             </span>
             <InputNumber
@@ -187,7 +187,7 @@ export function McpHttpSection() {
           </div>
 
           <div className="flex items-center gap-2 py-1 flex-wrap">
-            <span className="text-xs shrink-0" style={{ color: "#8c8c8c", width: 64 }}>
+            <span className="text-xs shrink-0" style={{ color: "var(--kb-text-tertiary)", width: 64 }}>
               Token
             </span>
             <Input.Password
@@ -230,7 +230,7 @@ export function McpHttpSection() {
             <div className="flex items-center gap-2 py-1 flex-wrap">
               <span
                 className="text-xs shrink-0"
-                style={{ color: "#8c8c8c", width: 64 }}
+                style={{ color: "var(--kb-text-tertiary)", width: 64 }}
               >
                 快速接入
               </span>

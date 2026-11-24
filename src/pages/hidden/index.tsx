@@ -349,7 +349,8 @@ export default function HiddenPage() {
           className="flex-1 flex flex-col min-h-0 kb-surface"
           style={{
             background: token.colorBgContainer,
-            borderRadius: 8,
+            borderRadius: "var(--kb-radius-card)",
+            border: "1px solid var(--kb-border-card)",
             overflow: "hidden",
           }}
         >

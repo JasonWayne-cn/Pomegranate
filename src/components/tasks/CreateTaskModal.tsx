@@ -1819,7 +1819,7 @@ function formatReminderAt(t: Dayjs): string {
 
 /** 项目预设色（与 ProjectManageModal 一致）：内联新建项目时按项目数轮转取色 */
 const PROJECT_PRESET_COLORS = [
-  "#1677ff",
+  "var(--kb-primary)",
   "#52c41a",
   "#faad14",
   "#ff4d4f",
@@ -1827,7 +1827,7 @@ const PROJECT_PRESET_COLORS = [
   "#13c2c2",
   "#eb2f96",
   "#fa8c16",
-  "#8c8c8c",
+  "var(--kb-text-tertiary)",
 ];
 
 /** 星期选项：ISO 1=Mon..7=Sun */

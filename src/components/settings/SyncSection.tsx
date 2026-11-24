@@ -92,7 +92,7 @@ function confirmImport(mode: SyncImportMode, source: string): Promise<boolean> {
               ? "图片 / PDF / Word 附件目录也会整体换成备份里的。"
               : "本机已有的图片 / PDF / Word 附件文件会保留，只补上备份里多出的文件。"}
           </div>
-          <div style={{ color: "var(--ant-color-text-secondary, #888)", marginTop: 4 }}>
+          <div style={{ color: "var(--ant-color-text-secondary, var(--kb-text-tertiary))", marginTop: 4 }}>
             替换前会自动把当前数据库另存为 app.db.bak-时间
             {overwrite ? "，旧附件目录改名为 <目录>.bak-时间" : ""}，可手动找回。
           </div>
@@ -563,7 +563,7 @@ export function SyncSection() {
             <Text type="danger" style={{ fontSize: 12 }}>（附件目录也换成备份里的）</Text>
           </Radio>
         </Radio.Group>
-        <div style={{ fontSize: 12, color: "var(--ant-color-text-secondary, #888)", marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: "var(--ant-color-text-secondary, var(--kb-text-tertiary))", marginTop: 4 }}>
           整包备份不会逐条合并：两种模式下文档、待办、设置都以备份为准，本机之后新写的内容会被替换。
           想多台设备互相合并，请用「多端实时同步」标签页。
         </div>
@@ -576,7 +576,7 @@ export function SyncSection() {
           <Switch size="small" checked={backupEnabled} onChange={handleToggleBackup} />
           <Text style={{ fontSize: 13 }}>启用加密备份</Text>
         </Space>
-        <div style={{ fontSize: 12, color: "var(--ant-color-text-secondary, #888)", marginTop: 4 }}>
+        <div style={{ fontSize: 12, color: "var(--ant-color-text-secondary, var(--kb-text-tertiary))", marginTop: 4 }}>
           开启后，导出 / 推送生成的快照会用下方密码做 AES-256-GCM 整块加密（文件名 <code>.zip.enc</code>），云端只能看到密文。
           <Text type="danger" style={{ fontSize: 12 }}> 忘记密码 = 无法恢复，请务必牢记。</Text>
         </div>

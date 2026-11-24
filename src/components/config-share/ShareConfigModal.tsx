@@ -157,7 +157,7 @@ export function ShareConfigModal({
                 />
                 <button
                   onClick={copyJson}
-                  className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#1677FF] py-2 text-sm font-medium text-white active:scale-95 transition-transform"
+                  className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--kb-primary)] py-2 text-sm font-medium text-white active:scale-95 transition-transform"
                 >
                   <Copy size={14} /> 复制 JSON
                 </button>

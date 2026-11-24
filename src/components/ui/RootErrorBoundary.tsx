@@ -100,7 +100,7 @@ export class RootErrorBoundary extends Component<Props, State> {
                 fontSize: 14,
                 border: "none",
                 borderRadius: 6,
-                background: "#1677ff",
+                background: "var(--kb-primary)",
                 color: "#fff",
                 cursor: "pointer",
               }}

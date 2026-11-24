@@ -69,7 +69,7 @@ export function ActionSheet({ open, title, items, onClose }: ActionSheetProps) {
                 onClose();
               }}
               className="flex w-full items-center gap-3 px-5 text-left active:bg-slate-100"
-              style={{ minHeight: 56, color: it.danger ? "#ff4d4f" : "#1f2937" }}
+              style={{ minHeight: 56, color: it.danger ? "#ff4d4f" : "var(--kb-text-primary)" }}
             >
               {it.icon && <span className="shrink-0">{it.icon}</span>}
               <span className="text-base">{it.label}</span>

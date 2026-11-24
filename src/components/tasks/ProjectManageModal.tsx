@@ -24,7 +24,7 @@ interface Props {
 }
 
 const PRESET_COLORS = [
-  "#1677ff",
+  "var(--kb-primary)",
   "#52c41a",
   "#faad14",
   "#ff4d4f",
@@ -32,7 +32,7 @@ const PRESET_COLORS = [
   "#13c2c2",
   "#eb2f96",
   "#fa8c16",
-  "#8c8c8c",
+  "var(--kb-text-tertiary)",
 ];
 
 /** AntD ColorPicker 回调可能给 Color 对象或字符串，统一拿 hex */
@@ -42,7 +42,7 @@ function toHex(value: unknown): string {
     const fn = (value as { toHexString: () => string }).toHexString;
     if (typeof fn === "function") return fn.call(value);
   }
-  return "#1677ff";
+  return "var(--kb-primary)";
 }
 
 interface ProjectFormValues {
@@ -100,7 +100,7 @@ export function ProjectManageModal({ open, onClose, onChanged }: Props) {
     setEditing(null);
     setFormOpen(true);
     form.resetFields();
-    form.setFieldsValue({ color: "#1677ff" });
+    form.setFieldsValue({ color: "var(--kb-primary)" });
   }
 
   function startEdit(p: Project) {
@@ -273,7 +273,7 @@ export function ProjectManageModal({ open, onClose, onChanged }: Props) {
               form={form}
               layout="vertical"
               onFinish={handleSubmit}
-              initialValues={{ color: "#1677ff" }}
+              initialValues={{ color: "var(--kb-primary)" }}
             >
               <Form.Item
                 name="name"

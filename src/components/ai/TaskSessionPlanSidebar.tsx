@@ -13,11 +13,11 @@ import type { PhaseStatus } from "@/types";
 const { Text } = Typography;
 
 const PHASE_ICONS: Record<PhaseStatus, React.ReactNode> = {
-  pending: <ClockCircleOutlined style={{ color: "#bfbfbf" }} />,
-  running: <LoadingOutlined style={{ color: "#1677ff" }} />,
+  pending: <ClockCircleOutlined style={{ color: "var(--kb-border)" }} />,
+  running: <LoadingOutlined style={{ color: "var(--kb-primary)" }} />,
   waiting_confirm: <QuestionCircleOutlined style={{ color: "#fa8c16" }} />,
   completed: <CheckCircleFilled style={{ color: "#52c41a" }} />,
-  skipped: <MinusCircleOutlined style={{ color: "#bfbfbf" }} />,
+  skipped: <MinusCircleOutlined style={{ color: "var(--kb-border)" }} />,
   failed: <CloseCircleFilled style={{ color: "#ff4d4f" }} />,
 };
 

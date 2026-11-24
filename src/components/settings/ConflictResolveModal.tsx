@@ -115,7 +115,7 @@ export function ConflictResolveModal({ open, onClose, onChanged }: Props) {
               width: 230,
               flexShrink: 0,
               paddingRight: 12,
-              borderRight: "1px solid var(--ant-color-border-secondary, #eee)",
+              borderRight: "1px solid var(--ant-color-border-secondary, var(--kb-border))",
               overflowY: "auto",
               maxHeight: "65vh",
             }}
@@ -132,7 +132,7 @@ export function ConflictResolveModal({ open, onClose, onChanged }: Props) {
                     padding: "6px 8px",
                     background:
                       i === selectedIdx
-                        ? "var(--ant-color-fill-tertiary, #f5f5f5)"
+                        ? "var(--ant-color-fill-tertiary, var(--kb-bg-hover))"
                         : undefined,
                   }}
                 >
@@ -153,7 +153,7 @@ export function ConflictResolveModal({ open, onClose, onChanged }: Props) {
                     <div
                       style={{
                         fontSize: 11,
-                        color: "var(--ant-color-text-tertiary, #999)",
+                        color: "var(--ant-color-text-tertiary, var(--kb-text-tertiary))",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
@@ -232,7 +232,7 @@ function ConflictDetail({
           style={{
             maxHeight: "40vh",
             overflow: "auto",
-            border: "1px solid var(--ant-color-border-secondary, #eee)",
+            border: "1px solid var(--ant-color-border-secondary, var(--kb-border))",
             borderRadius: 6,
             padding: 12,
             whiteSpace: "pre-wrap",
@@ -259,7 +259,7 @@ function ConflictDetail({
       <div
         style={{
           fontSize: 12,
-          color: "var(--ant-color-text-secondary, #888)",
+          color: "var(--ant-color-text-secondary, var(--kb-text-tertiary))",
           marginBottom: 8,
         }}
       >
@@ -271,7 +271,7 @@ function ConflictDetail({
         style={{
           maxHeight: "34vh",
           overflow: "auto",
-          border: "1px solid var(--ant-color-border-secondary, #eee)",
+          border: "1px solid var(--ant-color-border-secondary, var(--kb-border))",
           borderRadius: 6,
         }}
       >
@@ -311,7 +311,7 @@ function ConflictDetail({
       <div
         style={{
           fontSize: 11,
-          color: "var(--ant-color-text-tertiary, #999)",
+          color: "var(--ant-color-text-tertiary, var(--kb-text-tertiary))",
           marginTop: 6,
         }}
       >

@@ -109,7 +109,7 @@ export function MobileHome() {
             {getGreeting()} ☀️
           </h1>
         </div>
-        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-[#1677FF] to-blue-700 text-white">
+        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-[var(--kb-primary)] to-blue-700 text-white">
           🦊
         </div>
       </div>
@@ -119,7 +119,7 @@ export function MobileHome() {
         {showItem("today_words") && (
           <button
             onClick={() => navigate("/daily")}
-            className="flex flex-col items-start rounded-2xl bg-gradient-to-br from-[#1677FF] to-blue-700 p-4 text-white active:scale-[0.98] transition-transform"
+            className="flex flex-col items-start rounded-2xl bg-gradient-to-br from-[var(--kb-primary)] to-blue-700 p-4 text-white active:scale-[0.98] transition-transform"
           >
             <div className="flex items-center gap-1.5 text-xs opacity-90">
               <PenLine size={14} /> 今日字数
@@ -191,7 +191,7 @@ export function MobileHome() {
             onClick={() => navigate("/notes")}
           />
           <QuickAction
-            icon={<Plus size={20} className="text-[#1677FF]" />}
+            icon={<Plus size={20} className="text-[var(--kb-primary)]" />}
             bg="bg-blue-100"
             label="新建"
             onClick={() => navigate("/notes")}
@@ -203,7 +203,7 @@ export function MobileHome() {
             onClick={() => navigate("/daily")}
           />
           <QuickAction
-            icon={<Sparkles size={20} className="text-[#FA8C16]" />}
+            icon={<Sparkles size={20} className="text-[var(--kb-accent)]" />}
             bg="bg-orange-100"
             label="问 AI"
             onClick={() => navigate("/ai")}
@@ -221,7 +221,7 @@ export function MobileHome() {
           </span>
           <button
             onClick={() => navigate("/tasks")}
-            className="text-[#1677FF]"
+            className="text-[var(--kb-primary)]"
           >
             全部 →
           </button>
@@ -283,7 +283,7 @@ export function MobileHome() {
           <span className="font-medium text-slate-400">最近编辑</span>
           <button
             onClick={() => navigate("/notes")}
-            className="text-[#1677FF]"
+            className="text-[var(--kb-primary)]"
           >
             全部 →
           </button>
@@ -448,7 +448,7 @@ function HeatCell({
   else if (w >= 300) bg = "bg-blue-500";
   else if (w >= 100) bg = "bg-blue-300";
   else if (w > 0) bg = "bg-blue-100";
-  const ring = cell.isToday ? "ring-2 ring-[#1677FF] ring-offset-1" : "";
+  const ring = cell.isToday ? "ring-2 ring-[var(--kb-primary)] ring-offset-1" : "";
   return (
     <div
       className={`aspect-square rounded-sm ${bg} ${ring}`}

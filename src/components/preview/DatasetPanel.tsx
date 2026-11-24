@@ -136,7 +136,7 @@ export function DatasetPanel({ rel }: Props) {
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <span style={{ fontSize: 12, color: "#999" }}>
+        <span style={{ fontSize: 12, color: "var(--kb-text-tertiary)" }}>
           识别出 {datasets.length} 个数据集
         </span>
         <Button
@@ -248,7 +248,7 @@ function DatasetDetail({ dataset }: { dataset: Dataset }) {
 
   return (
     <div>
-      <div style={{ fontSize: 12, color: "#999", marginBottom: 6 }}>
+      <div style={{ fontSize: 12, color: "var(--kb-text-tertiary)", marginBottom: 6 }}>
         共 {dataset.rowCount} 行 · {dataset.colCount} 列
         {dataset.headerRow === null && (
           <Tooltip title="首行看起来是数据而非列名，故列名回退成 A列/B列">
@@ -307,7 +307,7 @@ function FieldHeader({ field }: { field: DatasetField }) {
           </Tooltip>
         )}
         <Tooltip title={`去重后有 ${field.distinctCount} 种取值`}>
-          <span style={{ fontSize: 10, color: "#999" }}>
+          <span style={{ fontSize: 10, color: "var(--kb-text-tertiary)" }}>
             <DatabaseIcon size={9} style={{ verticalAlign: -1 }} />{" "}
             {field.distinctCount}
           </span>

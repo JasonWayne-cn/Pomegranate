@@ -439,7 +439,7 @@ export function AboutDetails({
                 borderRadius: 8,
                 background: "#fff",
                 padding: 8,
-                border: "1px solid #f0f0f0",
+                border: "1px solid var(--kb-border)",
                 cursor: "zoom-in",
               }}
               // Ant Design Image 自带点击预览：点开可全屏放大 / 缩放，方便扫码

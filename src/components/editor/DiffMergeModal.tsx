@@ -57,7 +57,7 @@ const darkTheme = EditorView.theme(
     "&": { backgroundColor: "transparent", color: "var(--ant-color-text, #ddd)" },
     ".cm-gutters": {
       backgroundColor: "transparent",
-      color: "#888",
+      color: "var(--kb-text-tertiary)",
       borderRight: "1px solid rgba(255,255,255,0.08)",
     },
     ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.04)" },
@@ -180,7 +180,7 @@ export function DiffMergeModal({ open, onClose, left, right, onSave, saveHint, h
           justifyContent: "space-between",
           gap: 12,
           fontSize: 12,
-          color: "var(--ant-color-text-secondary, #888)",
+          color: "var(--ant-color-text-secondary, var(--kb-text-tertiary))",
           marginBottom: 6,
         }}
       >
@@ -214,7 +214,7 @@ export function DiffMergeModal({ open, onClose, left, right, onSave, saveHint, h
           maxHeight: "66vh",
           minHeight: "200px",
           overflow: "auto",
-          border: "1px solid var(--ant-color-border-secondary, #eee)",
+          border: "1px solid var(--ant-color-border-secondary, var(--kb-border))",
           borderRadius: 6,
         }}
       />

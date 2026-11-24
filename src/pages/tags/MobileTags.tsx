@@ -149,7 +149,7 @@ export function MobileTags() {
           aria-label="新增标签"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <Plus size={22} className="text-[#1677FF]" />
+          <Plus size={22} className="text-[var(--kb-primary)]" />
         </button>
       </header>
 
@@ -261,7 +261,7 @@ export function MobileTags() {
                           </button>
                           <button
                             onClick={() => openRename(t)}
-                            className="flex h-9 flex-1 items-center justify-center rounded-lg bg-[#1677FF] text-sm font-medium text-white"
+                            className="flex h-9 flex-1 items-center justify-center rounded-lg bg-[var(--kb-primary)] text-sm font-medium text-white"
                           >
                             重命名
                           </button>

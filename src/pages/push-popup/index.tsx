@@ -141,10 +141,10 @@ export default function PushPopupPage() {
     <div
       className="flex h-screen w-screen flex-col overflow-hidden"
       style={{
-        background: "var(--kb-bg-elevated, #fff)",
-        color: "var(--kb-text, #1f1f1f)",
-        borderRadius: 12,
-        border: "1px solid var(--kb-border, #e5e7eb)",
+        background: "var(--kb-bg-elevated)",
+        color: "var(--kb-text-primary)",
+        borderRadius: "var(--kb-radius-card)",
+        border: "1px solid var(--kb-border)",
       }}
     >
       {/* 顶部拖动条 + 标题（整条都是拖动区，光标提示可拖；按钮显式排除） */}
@@ -154,9 +154,9 @@ export default function PushPopupPage() {
         style={{
           height: HEADER_H,
           cursor: "grab",
-          borderBottom: "1px solid var(--kb-border, #eee)",
+          borderBottom: "1px solid var(--kb-border)",
           // 标题色条：成功用主色，失败用红
-          borderLeft: `4px solid ${isFailed ? "#ff4d4f" : "var(--kb-primary, #6366f1)"}`,
+          borderLeft: `4px solid ${isFailed ? "#ff4d4f" : "var(--kb-primary)"}`,
         }}
       >
         <BellRing
@@ -223,7 +223,7 @@ export default function PushPopupPage() {
       {/* 底部操作栏 */}
       <div
         className="flex shrink-0 items-center justify-end gap-2 px-4 py-2"
-        style={{ borderTop: "1px solid var(--kb-border, #eee)" }}
+        style={{ borderTop: "1px solid var(--kb-border)" }}
       >
         <Button
           size="small"

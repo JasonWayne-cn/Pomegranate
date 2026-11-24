@@ -42,7 +42,7 @@ export default function TaskRecognizeModeRow() {
     <div
       className="flex items-center justify-between py-1"
       style={{
-        borderTop: "1px solid var(--ant-color-border-secondary, #f0f0f0)",
+        borderTop: "1px solid var(--ant-color-border-secondary, var(--kb-border))",
         marginTop: 8,
         paddingTop: 12,
       }}

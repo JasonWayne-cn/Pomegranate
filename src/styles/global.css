@@ -1030,90 +1030,48 @@ html[data-os="mac"] .app-focus-mode .editor-topbar {
   background-color: rgba(46, 160, 67, 0.18);
 }
 
-/* 深色主题下的高对比覆盖（覆盖 dark-mocha / dark-starry） */
-[data-theme="dark-mocha"] .tiptap pre code .hljs-keyword,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-selector-tag,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-section,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-keyword,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-selector-tag,
-[data-theme="dark-starry"] .tiptap pre code .hljs-keyword,
-[data-theme="dark-starry"] .tiptap pre code .hljs-selector-tag,
-[data-theme="dark-starry"] .tiptap pre code .hljs-section,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-keyword,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-selector-tag { color: #d2a8ff; }
-[data-theme="dark-mocha"] .tiptap pre code .hljs-built_in,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-type,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-title,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-built_in,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-type,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-title,
-[data-theme="dark-starry"] .tiptap pre code .hljs-built_in,
-[data-theme="dark-starry"] .tiptap pre code .hljs-type,
-[data-theme="dark-starry"] .tiptap pre code .hljs-title,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-built_in,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-type,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-title { color: #79c0ff; }
-[data-theme="dark-mocha"] .tiptap pre code .hljs-string,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-regexp,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-attr,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-attribute,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-string,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-regexp,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-attr,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-attribute,
-[data-theme="dark-starry"] .tiptap pre code .hljs-string,
-[data-theme="dark-starry"] .tiptap pre code .hljs-regexp,
-[data-theme="dark-starry"] .tiptap pre code .hljs-attr,
-[data-theme="dark-starry"] .tiptap pre code .hljs-attribute,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-string,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-regexp,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-attr,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-attribute { color: #a5d6ff; }
-[data-theme="dark-mocha"] .tiptap pre code .hljs-number,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-literal,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-meta,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-number,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-literal,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-meta,
-[data-theme="dark-starry"] .tiptap pre code .hljs-number,
-[data-theme="dark-starry"] .tiptap pre code .hljs-literal,
-[data-theme="dark-starry"] .tiptap pre code .hljs-meta,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-number,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-literal,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-meta { color: #ffa657; }
-[data-theme="dark-mocha"] .tiptap pre code .hljs-variable,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-template-variable,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-name,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-symbol,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-tag,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-variable,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-template-variable,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-name,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-symbol,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-tag,
-[data-theme="dark-starry"] .tiptap pre code .hljs-variable,
-[data-theme="dark-starry"] .tiptap pre code .hljs-template-variable,
-[data-theme="dark-starry"] .tiptap pre code .hljs-name,
-[data-theme="dark-starry"] .tiptap pre code .hljs-symbol,
-[data-theme="dark-starry"] .tiptap pre code .hljs-tag,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-variable,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-template-variable,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-name,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-symbol,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-tag { color: #7ee787; }
-[data-theme="dark-mocha"] .tiptap pre code .hljs-comment,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-quote,
-[data-theme="dark-mocha"] .tiptap pre code .hljs-doctag,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-comment,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-quote,
-[data-theme="dark-mocha"] .ai-markdown pre code .hljs-doctag,
-[data-theme="dark-starry"] .tiptap pre code .hljs-comment,
-[data-theme="dark-starry"] .tiptap pre code .hljs-quote,
-[data-theme="dark-starry"] .tiptap pre code .hljs-doctag,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-comment,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-quote,
-[data-theme="dark-starry"] .ai-markdown pre code .hljs-doctag { color: #8b949e; }
-
+/* 深色主题下的高对比覆盖（所有暗色主题） */
+[data-theme-category="dark"] .tiptap pre code .hljs-keyword,
+[data-theme-category="dark"] .tiptap pre code .hljs-selector-tag,
+[data-theme-category="dark"] .tiptap pre code .hljs-section,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-keyword,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-selector-tag { color: #d2a8ff; }
+[data-theme-category="dark"] .tiptap pre code .hljs-built_in,
+[data-theme-category="dark"] .tiptap pre code .hljs-type,
+[data-theme-category="dark"] .tiptap pre code .hljs-title,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-built_in,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-type,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-title { color: #79c0ff; }
+[data-theme-category="dark"] .tiptap pre code .hljs-string,
+[data-theme-category="dark"] .tiptap pre code .hljs-regexp,
+[data-theme-category="dark"] .tiptap pre code .hljs-attr,
+[data-theme-category="dark"] .tiptap pre code .hljs-attribute,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-string,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-regexp,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-attr,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-attribute { color: #a5d6ff; }
+[data-theme-category="dark"] .tiptap pre code .hljs-number,
+[data-theme-category="dark"] .tiptap pre code .hljs-literal,
+[data-theme-category="dark"] .tiptap pre code .hljs-meta,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-number,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-literal,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-meta { color: #ffa657; }
+[data-theme-category="dark"] .tiptap pre code .hljs-variable,
+[data-theme-category="dark"] .tiptap pre code .hljs-template-variable,
+[data-theme-category="dark"] .tiptap pre code .hljs-name,
+[data-theme-category="dark"] .tiptap pre code .hljs-symbol,
+[data-theme-category="dark"] .tiptap pre code .hljs-tag,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-variable,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-template-variable,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-name,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-symbol,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-tag { color: #7ee787; }
+[data-theme-category="dark"] .tiptap pre code .hljs-comment,
+[data-theme-category="dark"] .tiptap pre code .hljs-quote,
+[data-theme-category="dark"] .tiptap pre code .hljs-doctag,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-comment,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-quote,
+[data-theme-category="dark"] .ai-markdown pre code .hljs-doctag { color: #8b949e; }
 /* 行内代码：低对比淡色，和正文融合 */
 .tiptap code {
   background: color-mix(in srgb, var(--ant-color-text, #000) 6%, transparent);
@@ -2490,10 +2448,12 @@ textarea.tiptap-front-matter-input.ant-input:focus {
 }
 .editor-toolbar-slot {
   position: sticky;
-  /* 圆角浮动工具条：紧贴顶栏下方吸顶，不留下缝隙 */
+  /* 圆角浮动工具条：紧贴顶栏下方吸顶，宽度与下方页面卡片一致 */
   top: 0;
   z-index: 11;
-  margin: 0 14px 4px;
+  width: 100%;
+  max-width: 56rem;
+  margin: 0 auto 4px;
   border: 1px solid var(--ant-color-border-secondary, var(--kb-border, rgba(0, 0, 0, 0.08)));
   border-radius: 11px;
   background: var(--ant-color-bg-elevated, var(--kb-bg-card, #fff));

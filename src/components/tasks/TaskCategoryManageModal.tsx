@@ -41,7 +41,7 @@ interface Props {
 }
 
 const PRESET_COLORS = [
-  "#1677ff",
+  "var(--kb-primary)",
   "#52c41a",
   "#faad14",
   "#ff4d4f",
@@ -49,7 +49,7 @@ const PRESET_COLORS = [
   "#13c2c2",
   "#eb2f96",
   "#fa8c16",
-  "#8c8c8c",
+  "var(--kb-text-tertiary)",
 ];
 
 /** 提取后端错误的可读文案：剥掉 AppError::InvalidInput 自动加的"参数无效:"前缀 */
@@ -65,7 +65,7 @@ function toHex(value: unknown): string {
     const fn = (value as { toHexString: () => string }).toHexString;
     if (typeof fn === "function") return fn.call(value);
   }
-  return "#1677ff";
+  return "var(--kb-primary)";
 }
 
 /**
@@ -271,14 +271,14 @@ export function TaskCategoryManageModal({ open, onClose, onChanged }: Props) {
 
   // 新建态
   const [newName, setNewName] = useState("");
-  const [newColor, setNewColor] = useState("#1677ff");
+  const [newColor, setNewColor] = useState("var(--kb-primary)");
   /** 新建到哪个上级下；null = 顶层 */
   const [newParent, setNewParent] = useState<number | null>(null);
 
   // 编辑态：单条编辑
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
-  const [editColor, setEditColor] = useState("#1677ff");
+  const [editColor, setEditColor] = useState("var(--kb-primary)");
   const [editParent, setEditParent] = useState<number | null>(null);
 
   /** 按树展开的显示顺序（父在前、子紧跟） */
@@ -301,7 +301,7 @@ export function TaskCategoryManageModal({ open, onClose, onChanged }: Props) {
     if (open) {
       load();
       setNewName("");
-      setNewColor("#1677ff");
+      setNewColor("var(--kb-primary)");
       setNewParent(null);
       setEditingId(null);
     }
@@ -334,7 +334,7 @@ export function TaskCategoryManageModal({ open, onClose, onChanged }: Props) {
         parent_id: newParent,
       });
       setNewName("");
-      setNewColor("#1677ff");
+      setNewColor("var(--kb-primary)");
       await load();
       onChanged?.();
       message.success("已创建");

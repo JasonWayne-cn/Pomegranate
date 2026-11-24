@@ -289,7 +289,7 @@ export function MobileAiChat() {
         {streaming && !streamingText && (
           <div className="flex gap-2">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-orange-100">
-              <Sparkles size={16} className="text-[#FA8C16]" />
+              <Sparkles size={16} className="text-[var(--kb-accent)]" />
             </div>
             <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 shadow-sm">
               <Dots />
@@ -328,7 +328,7 @@ export function MobileAiChat() {
             <button
               onClick={cancel}
               aria-label="停止"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#FA8C16] text-white active:scale-95"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--kb-accent)] text-white active:scale-95"
             >
               <Square size={16} fill="currentColor" />
             </button>
@@ -336,7 +336,7 @@ export function MobileAiChat() {
             <button
               onClick={send}
               aria-label="发送"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#1677FF] text-white active:scale-95"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--kb-primary)] text-white active:scale-95"
             >
               <Send size={18} />
             </button>
@@ -428,7 +428,7 @@ function MessageBubble({
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[280px] rounded-2xl rounded-tr-md bg-[#1677FF] px-4 py-2.5 text-sm text-white whitespace-pre-wrap break-words">
+        <div className="max-w-[280px] rounded-2xl rounded-tr-md bg-[var(--kb-primary)] px-4 py-2.5 text-sm text-white whitespace-pre-wrap break-words">
           {msg.content}
         </div>
       </div>
@@ -437,7 +437,7 @@ function MessageBubble({
   return (
     <div className="flex gap-2">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-orange-100">
-        <Sparkles size={16} className="text-[#FA8C16]" />
+        <Sparkles size={16} className="text-[var(--kb-accent)]" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-slate-700 shadow-sm whitespace-pre-wrap break-words">
@@ -467,13 +467,13 @@ function StreamingBubble({ text }: { text: string }) {
   return (
     <div className="flex gap-2">
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-orange-100">
-        <Sparkles size={16} className="text-[#FA8C16]" />
+        <Sparkles size={16} className="text-[var(--kb-accent)]" />
       </div>
       <div className="flex-1 min-w-0">
         <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-slate-700 shadow-sm whitespace-pre-wrap break-words">
           {/* 与桌面端一致：剥掉伪工具调用残文与引用标记，两者都不该展示给用户 */}
           {stripPseudoToolCalls(text)}
-          <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-[#FA8C16] align-middle" />
+          <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-[var(--kb-accent)] align-middle" />
         </div>
       </div>
     </div>

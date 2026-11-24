@@ -382,7 +382,7 @@ export function ImportSection({ compact }: Props) {
       >
         <div
           className="flex items-center justify-between mb-3 pb-2"
-          style={{ borderBottom: "1px solid #f0f0f0" }}
+          style={{ borderBottom: "1px solid var(--kb-border)" }}
         >
           <Checkbox
             checked={selectedPaths.size === scannedFiles.length && scannedFiles.length > 0}
@@ -398,7 +398,7 @@ export function ImportSection({ compact }: Props) {
           </Text>
         </div>
 
-        <div className="mb-3 pb-2" style={{ borderBottom: "1px solid #f0f0f0" }}>
+        <div className="mb-3 pb-2" style={{ borderBottom: "1px solid var(--kb-border)" }}>
           <div
             className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2"
             style={{ fontSize: 12 }}
@@ -429,7 +429,7 @@ export function ImportSection({ compact }: Props) {
           )}
         </div>
 
-        <div className="mb-3 pb-2" style={{ borderBottom: "1px solid #f0f0f0" }}>
+        <div className="mb-3 pb-2" style={{ borderBottom: "1px solid var(--kb-border)" }}>
           <Checkbox
             checked={preserveRoot}
             onChange={(e) => setPreserveRoot(e.target.checked)}

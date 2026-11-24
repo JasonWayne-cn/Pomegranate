@@ -91,7 +91,7 @@ export function MobileMe() {
   return (
     <div className="text-slate-800">
       {/* 头部 banner */}
-      <div className="bg-gradient-to-br from-[#1677FF] to-blue-700 px-5 pt-4 pb-12 text-white">
+      <div className="bg-gradient-to-br from-[var(--kb-primary)] to-blue-700 px-5 pt-4 pb-12 text-white">
         <div className="flex items-start gap-4">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/20 text-2xl backdrop-blur">
             🦊
@@ -159,7 +159,7 @@ export function MobileMe() {
             onClick={() => navigate("/graph")}
           />
           <LearnCard
-            icon={<MessageSquareText size={20} className="text-[#FA8C16]" />}
+            icon={<MessageSquareText size={20} className="text-[var(--kb-accent)]" />}
             iconBg="bg-orange-100"
             label="Prompt 库"
             sub={`${counts.promptCount} 条`}
@@ -237,7 +237,7 @@ export function MobileMe() {
           onClick={() => navigate("/feature-toggle")}
         />
         <Row
-          icon={<Sparkles size={20} className="text-[#FA8C16]" />}
+          icon={<Sparkles size={20} className="text-[var(--kb-accent)]" />}
           label="AI 模型管理"
           right={
             <span className="text-xs text-slate-400">

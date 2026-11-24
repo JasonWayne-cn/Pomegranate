@@ -586,7 +586,7 @@ function DesktopHomePage() {
         />
         <Button
           size="large"
-          icon={<Search size={14} style={{ color: "#2563eb" }} />}
+          icon={<Search size={14} style={{ color: "var(--kb-primary)" }} />}
           onClick={() => setSearchOpen(true)}
           style={{ borderRadius: 8 }}
         >
@@ -636,7 +636,7 @@ function DesktopHomePage() {
             show: aiEnabled,
             node: (
               <Button
-                icon={<Bot size={14} style={{ color: "#9333ea" }} />}
+                icon={<Bot size={14} style={{ color: "var(--kb-primary)" }} />}
                 onClick={() => navigate("/ai")}
                 block
                 style={{ borderRadius: 8 }}
@@ -1116,7 +1116,7 @@ function DesktopHomePage() {
                               icon={<Send size={12} />}
                               disabled={!aiQuestion.trim()}
                               onClick={handleAskAi}
-                              style={{ color: aiQuestion.trim() ? "#9333ea" : undefined }}
+                              style={{ color: aiQuestion.trim() ? "var(--kb-primary)" : undefined }}
                             />
                           }
                           style={{ borderRadius: 6, marginBottom: 8 }}
@@ -1163,16 +1163,16 @@ function DesktopHomePage() {
                             compact
                           />
                           <MetricItem
-                            icon={<Type size={16} style={{ color: "#7c3aed" }} />}
-                            iconBg="#ede9fe"
+                            icon={<Type size={16} style={{ color: "var(--kb-primary)" }} />}
+                            iconBg="var(--kb-primary-light)"
                             value={vitalityMetrics.totalWords.toLocaleString()}
                             label="总字数"
                             isText
                             compact
                           />
                           <MetricItem
-                            icon={<Clock size={16} style={{ color: "#2563eb" }} />}
-                            iconBg="#dbeafe"
+                            icon={<Clock size={16} style={{ color: "var(--kb-primary)" }} />}
+                            iconBg="var(--kb-primary-light)"
                             value={vitalityMetrics.lastSinceLabel}
                             label="距上次写作"
                             isText
@@ -1293,7 +1293,7 @@ function DesktopHomePage() {
                 },
                 ai: {
                   title: "问 AI",
-                  icon: <Bot size={14} style={{ color: "#9333ea" }} />,
+                  icon: <Bot size={14} style={{ color: "var(--kb-primary)" }} />,
                   extra: (
                     <Button
                       type="link"
@@ -1307,7 +1307,7 @@ function DesktopHomePage() {
                 },
                 "writing-stat": {
                   title: "写作活力",
-                  icon: <Sparkles size={14} style={{ color: "#f97316" }} />,
+                  icon: <Sparkles size={14} style={{ color: "var(--kb-accent)" }} />,
                   extra: (
                     <Text type="secondary" style={{ fontSize: 11 }}>
                       近 14 天

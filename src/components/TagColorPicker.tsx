@@ -3,7 +3,7 @@ import { Check, X } from "lucide-react";
 
 /** 标签预设颜色板（与 Ant Design 默认色板保持一致） */
 export const TAG_COLORS = [
-  "#1677ff", "#722ed1", "#eb2f96", "#f5222d", "#fa541c",
+  "var(--kb-primary)", "#722ed1", "#eb2f96", "#f5222d", "#fa541c",
   "#fa8c16", "#faad14", "#a0d911", "#52c41a", "#13c2c2",
   "#2f54eb", "#531dab", "#c41d7f", "#cf1322", "#d4380d",
   "#d46b08", "#d48806", "#7cb305", "#389e0d", "#08979c",

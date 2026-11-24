@@ -2,11 +2,10 @@ import { useEffect, useState } from "react";
 import { Tooltip } from "antd";
 import { ArrowUpCircle, Download, RefreshCw } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
-import type { Update } from "@tauri-apps/plugin-updater";
-import type { UpdatePhase } from "@/hooks/useUpdateChecker";
+import type { UpdateInfo, UpdatePhase } from "@/hooks/useUpdateChecker";
 
 interface Props {
-  update: Update | null;
+  update: UpdateInfo | null;
   phase: UpdatePhase;
   progress: number;
   /** 有更新时点击：打开更新弹窗 */
@@ -70,23 +69,53 @@ export function UpdateBadge({ update, phase, progress, onClick, onCheck }: Props
 
   const ready = phase === "ready";
   const downloading = phase === "downloading";
+  const verifying = phase === "verifying";
+  const paused = phase === "paused";
+  const failed = phase === "error";
+  const busy = downloading || verifying;
 
-  const color = ready ? "#52c41a" : downloading ? "#1677ff" : "#faad14";
+  const color = ready
+    ? "#52c41a"
+    : busy
+      ? "var(--kb-primary)"
+      : failed
+        ? "#ff4d4f"
+        : paused
+          ? "var(--kb-text-tertiary)"
+          : "#faad14";
   const hoverBg = ready
     ? "rgba(82, 196, 26, 0.12)"
-    : downloading
-      ? "rgba(22, 119, 255, 0.12)"
-      : "rgba(250, 173, 20, 0.12)";
+    : busy
+      ? "var(--kb-primary-light)"
+      : failed
+        ? "rgba(255, 77, 79, 0.12)"
+        : "rgba(140, 140, 140, 0.12)";
 
-  const label = ready ? "重启以更新" : downloading ? `下载中 ${progress}%` : "有可用更新";
+  const label = ready
+    ? "重启以更新"
+    : verifying
+      ? "校验中"
+      : paused
+        ? `已暂停 ${progress}%`
+        : failed
+          ? "下载失败"
+          : downloading
+            ? `下载中 ${progress}%`
+            : "有可用更新";
   const from = version ? `v${version} → ` : "";
   const tip = ready
     ? `新版本 ${from}v${update.version} 已下载完成，点击重启秒装`
-    : downloading
-      ? `正在后台下载 ${from}v${update.version}（${progress}%）`
-      : `发现新版本 ${from}v${update.version}，点击查看`;
+    : verifying
+      ? `${from}v${update.version} 已下载，正在校验签名`
+      : paused
+        ? `${from}v${update.version} 下载已暂停（${progress}%），打开弹窗可继续`
+        : failed
+          ? `${from}v${update.version} 下载失败，点击查看原因`
+          : downloading
+            ? `正在后台下载 ${from}v${update.version}（${progress}%）`
+            : `发现新版本 ${from}v${update.version}，点击查看`;
 
-  const Icon = ready ? ArrowUpCircle : downloading ? Download : RefreshCw;
+  const Icon = ready ? ArrowUpCircle : busy ? Download : RefreshCw;
 
   return (
     <Tooltip title={tip}>

@@ -5,18 +5,28 @@
  *   左 = 选中的那篇文档（可编辑，content 本就是 markdown），右 = 当前文档 markdown（可编辑，= 最终结果）。
  * 中缝 ▶ 把另一篇的变更块拉进当前文档。「保存更改」分别写回两侧（只有真改了才写）。
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { Button, Modal, Select, Tooltip, message } from "antd";
 import { FileDiff } from "lucide-react";
 import type { Editor } from "@tiptap/react";
 import { noteApi } from "@/lib/api";
 import type { Note } from "@/types";
 import { DiffMergeModal, type DiffSide } from "./DiffMergeModal.tsx";
+import type { CompareTriggerHandle } from "./CompareClipboardButton";
 
 interface Props {
   editor: Editor;
   /** 当前文档 id；用于排除自身、保存时写回 */
   noteId?: number;
+  /** 为 false 时不渲染工具栏触发按钮，仅保留弹窗，通过 ref.open() 打开 */
+  showTrigger?: boolean;
 }
 
 function getEditorMarkdown(editor: Editor): string {
@@ -24,7 +34,8 @@ function getEditorMarkdown(editor: Editor): string {
   return storage.markdown?.getMarkdown() ?? editor.getText({ blockSeparator: "\n\n" });
 }
 
-export function CompareNotesButton({ editor, noteId }: Props) {
+export const CompareNotesButton = forwardRef<CompareTriggerHandle, Props>(
+  function CompareNotesButton({ editor, noteId, showTrigger = true }, ref) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [options, setOptions] = useState<{ value: number; label: string }[]>([]);
   const [loadingOpts, setLoadingOpts] = useState(false);
@@ -58,6 +69,10 @@ export function CompareNotesButton({ editor, noteId }: Props) {
   useEffect(() => {
     if (pickerOpen) void loadOptions();
   }, [pickerOpen, loadOptions]);
+
+  useImperativeHandle(ref, () => ({
+    open: () => setPickerOpen(true),
+  }));
 
   async function pickNote(otherId: number) {
     try {
@@ -100,9 +115,11 @@ export function CompareNotesButton({ editor, noteId }: Props) {
 
   return (
     <>
-      <Tooltip title="与其他文档对比 / 合并" mouseEnterDelay={0.5}>
-        <Button type="text" size="small" icon={<FileDiff size={15} />} onClick={() => setPickerOpen(true)} />
-      </Tooltip>
+      {showTrigger && (
+        <Tooltip title="与其他文档对比 / 合并" mouseEnterDelay={0.5}>
+          <Button type="text" size="small" icon={<FileDiff size={15} />} onClick={() => setPickerOpen(true)} />
+        </Tooltip>
+      )}
 
       <Modal
         title="选择要对比的文档"
@@ -123,7 +140,7 @@ export function CompareNotesButton({ editor, noteId }: Props) {
           notFoundContent={loadingOpts ? "加载中…" : "无匹配文档"}
           onChange={(v) => void pickNote(v as number)}
         />
-        <div style={{ fontSize: 12, color: "var(--ant-color-text-secondary, #888)", marginTop: 8 }}>
+        <div style={{ fontSize: 12, color: "var(--ant-color-text-secondary, var(--kb-text-tertiary))", marginTop: 8 }}>
           选中后会打开对比视图：左 = 该文档，右 = 当前文档（= 最终结果）。
         </div>
       </Modal>
@@ -138,4 +155,5 @@ export function CompareNotesButton({ editor, noteId }: Props) {
       />
     </>
   );
-}
+  },
+);

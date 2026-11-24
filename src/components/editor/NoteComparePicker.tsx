@@ -162,7 +162,7 @@ export function NoteComparePicker({ firstNoteId, secondNoteId, onClose }: Props)
           notFoundContent={loadingOpts ? "加载中…" : "无匹配文档"}
           onChange={(v) => void pickSecond(v as number)}
         />
-        <div style={{ fontSize: 12, color: "var(--ant-color-text-secondary, #888)", marginTop: 8 }}>
+        <div style={{ fontSize: 12, color: "var(--ant-color-text-secondary, var(--kb-text-tertiary))", marginTop: 8 }}>
           打开对比视图后，中缝 ▶ 把左侧变更块覆盖到右侧；两栏都可直接编辑，保存只写回改动过的一侧。
         </div>
       </Modal>

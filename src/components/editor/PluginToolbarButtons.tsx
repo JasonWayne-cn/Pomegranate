@@ -48,7 +48,7 @@ export function PluginToolbarButtons({ editor, noteId }: Props) {
           width: 1,
           height: 18,
           margin: "0 3px",
-          background: "var(--ant-color-border-secondary, #f0f0f0)",
+          background: "var(--ant-color-border-secondary, var(--kb-border))",
           verticalAlign: "middle",
         }}
       />

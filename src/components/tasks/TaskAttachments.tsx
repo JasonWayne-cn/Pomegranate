@@ -567,7 +567,7 @@ export default function TaskAttachments({
       className="rounded transition-colors"
       style={{
         outline: dragOver
-          ? "1px dashed var(--ant-color-primary, #1677ff)"
+          ? "1px dashed var(--ant-color-primary, var(--kb-primary))"
           : undefined,
         outlineOffset: 2,
       }}
@@ -651,7 +651,7 @@ export default function TaskAttachments({
                 height: count === 0 ? 28 : tile,
                 minWidth: count === 0 ? undefined : tile,
                 padding: count === 0 ? "0 10px" : 0,
-                borderColor: "var(--ant-color-border, #d9d9d9)",
+                borderColor: "var(--ant-color-border, var(--kb-border))",
                 color: "inherit",
               }}
             >

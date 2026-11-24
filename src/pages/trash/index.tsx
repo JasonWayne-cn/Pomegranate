@@ -8,6 +8,7 @@ import {
   Pagination,
   Popconfirm,
   Modal,
+  Select,
   message,
   theme as antdTheme,
 } from "antd";
@@ -60,6 +61,8 @@ function DesktopTrashPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   /** 文件夹 id → 完整路径，用于「所在目录」列 */
   const [folderPaths, setFolderPaths] = useState<Map<number, string>>(new Map());
+  /** 自动清理天数：0 = 从不（默认 30） */
+  const [purgeDays, setPurgeDays] = useState(30);
 
   const loadTrash = useCallback(async (page: number, size: number) => {
     setLoading(true);
@@ -72,6 +75,13 @@ function DesktopTrashPage() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    trashApi
+      .getAutoPurge()
+      .then((s) => setPurgeDays(s.days))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -310,16 +320,49 @@ function DesktopTrashPage() {
             回收站
           </span>
         </Title>
-        {data.items.length > 0 && (
-          <Button danger onClick={handleEmptyTrash}>
-            清空回收站
-          </Button>
-        )}
+        <Space size={12}>
+          <Space size={6}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              自动清理
+            </Text>
+            <Select
+              size="small"
+              value={purgeDays}
+              style={{ width: 96 }}
+              options={[
+                { value: 0, label: "从不" },
+                { value: 7, label: "7 天" },
+                { value: 30, label: "30 天" },
+                { value: 90, label: "90 天" },
+              ]}
+              onChange={async (days: number) => {
+                try {
+                  const s = await trashApi.setAutoPurge(days);
+                  setPurgeDays(s.days);
+                  message.success(
+                    s.days === 0
+                      ? "已关闭回收站自动清理"
+                      : `删除满 ${s.days} 天后自动清理`,
+                  );
+                } catch (e) {
+                  message.error(String(e));
+                }
+              }}
+            />
+          </Space>
+          {data.items.length > 0 && (
+            <Button danger onClick={handleEmptyTrash}>
+              清空回收站
+            </Button>
+          )}
+        </Space>
       </div>
 
       <div className="flex-shrink-0" style={{ marginBottom: 12, lineHeight: 1.6 }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          提示：回收站中的文档将在 30 天后自动永久删除。
+          {purgeDays === 0
+            ? "提示：自动清理已关闭，回收站中的文档会一直保留，直到手动删除。"
+            : `提示：回收站中的文档将在删除满 ${purgeDays} 天后自动永久删除。`}
         </Text>
       </div>
 
@@ -369,7 +412,8 @@ function DesktopTrashPage() {
           className="flex-1 flex flex-col min-h-0 kb-surface"
           style={{
             background: token.colorBgContainer,
-            borderRadius: 8,
+            borderRadius: "var(--kb-radius-card)",
+            border: "1px solid var(--kb-border-card)",
             overflow: "hidden",
           }}
         >

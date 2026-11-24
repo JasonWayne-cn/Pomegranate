@@ -37,7 +37,7 @@ export function EditorHighlightShortcutRow() {
   return (
     <div
       className="flex items-center justify-between py-1 mt-2"
-      style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}
+      style={{ borderTop: "1px solid var(--kb-border)", paddingTop: 12 }}
     >
       <div>
         <div>
@@ -176,13 +176,13 @@ function RecordModal({
         <div
           style={{
             padding: "20px",
-            border: "2px dashed #d9d9d9",
+            border: "2px dashed var(--kb-border)",
             borderRadius: 8,
             minHeight: 64,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: "#fafafa",
+            background: "var(--kb-bg-card)",
           }}
         >
           {recorded ? <KeyDisplay accel={recorded} /> : <Text type="secondary">尚未录入…</Text>}

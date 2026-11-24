@@ -190,8 +190,8 @@ export default function ProjectSessionsPage() {
                   style={{
                     backgroundColor:
                       s.status === "active" ? "#52c41a" :
-                      s.status === "loading" ? "#1677ff" :
-                      s.status === "error" ? "#ff4d4f" : "#d9d9d9",
+                      s.status === "loading" ? "var(--kb-primary)" :
+                      s.status === "error" ? "#ff4d4f" : "var(--kb-border)",
                   }}
                 />
                 <button

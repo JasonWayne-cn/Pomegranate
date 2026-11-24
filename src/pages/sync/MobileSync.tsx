@@ -244,7 +244,7 @@ export function MobileSync() {
           <button
             onClick={openAdd}
             aria-label="新增"
-            className="flex h-10 w-10 items-center justify-center text-[#1677FF]"
+            className="flex h-10 w-10 items-center justify-center text-[var(--kb-primary)]"
           >
             <Plus size={22} />
           </button>
@@ -397,7 +397,7 @@ function BackendCard({
     <div className="rounded-2xl bg-white p-4 shadow-sm">
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50">
-          <CloudUpload size={20} className="text-[#1677FF]" />
+          <CloudUpload size={20} className="text-[var(--kb-primary)]" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -442,7 +442,7 @@ function BackendCard({
           )}
           <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-blue-100">
             <div
-              className="h-full bg-[#1677FF] transition-all"
+              className="h-full bg-[var(--kb-primary)] transition-all"
               style={{
                 width:
                   progress && progress.total > 0
@@ -459,7 +459,7 @@ function BackendCard({
         <button
           onClick={onPush}
           disabled={busy}
-          className="flex h-10 items-center justify-center gap-1 rounded-lg bg-[#1677FF] text-sm font-medium text-white active:scale-95 transition-transform disabled:opacity-50"
+          className="flex h-10 items-center justify-center gap-1 rounded-lg bg-[var(--kb-primary)] text-sm font-medium text-white active:scale-95 transition-transform disabled:opacity-50"
         >
           <CloudUpload size={14} /> 推送
         </button>

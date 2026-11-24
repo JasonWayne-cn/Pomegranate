@@ -80,7 +80,7 @@ export function MobileNotes() {
 
         {/* 文件夹 chips（暂只显示"全部"，后续接 folderApi） */}
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-none">
-          <span className="shrink-0 rounded-full bg-[#1677FF] px-3 py-1.5 text-sm font-medium text-white whitespace-nowrap">
+          <span className="shrink-0 rounded-full bg-[var(--kb-primary)] px-3 py-1.5 text-sm font-medium text-white whitespace-nowrap">
             全部 {total}
           </span>
         </div>

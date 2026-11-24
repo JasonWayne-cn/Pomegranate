@@ -49,13 +49,13 @@ interface QuickEntry {
 const QUICK_ENTRIES: QuickEntry[] = [
   {
     key: "write",
-    icon: <Sparkles size={20} className="text-[#FA8C16]" />,
+    icon: <Sparkles size={20} className="text-[var(--kb-accent)]" />,
     bg: "bg-orange-50",
     label: "写作助手",
   },
   {
     key: "read",
-    icon: <BookOpenText size={20} className="text-[#1677FF]" />,
+    icon: <BookOpenText size={20} className="text-[var(--kb-primary)]" />,
     bg: "bg-blue-50",
     label: "解读文档",
   },
@@ -224,7 +224,7 @@ export function MobileAi() {
           <span>对话历史</span>
           <button
             onClick={() => navigate("/ai")}
-            className="text-[#1677FF]"
+            className="text-[var(--kb-primary)]"
           >
             管理
           </button>
@@ -261,7 +261,7 @@ export function MobileAi() {
       <button
         onClick={createNew}
         aria-label="新对话"
-        className="fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#FA8C16] text-white shadow-[0_8px_24px_rgba(250,140,22,0.4)] active:scale-95 transition-transform"
+        className="fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--kb-accent)] text-white shadow-[0_8px_24px_var(--kb-primary-light)] active:scale-95 transition-transform"
         style={{
           bottom: `calc(64px + env(safe-area-inset-bottom, 0px) + 16px)`,
         }}
@@ -312,7 +312,7 @@ function ConversationCard({
       <div className="rounded-2xl bg-white p-4">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-100">
-            <MessageCircle size={16} className="text-[#FA8C16]" />
+            <MessageCircle size={16} className="text-[var(--kb-accent)]" />
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-base font-semibold text-slate-900">

@@ -3,11 +3,10 @@ import { Card, Typography, Descriptions, Spin, message, Button, Tooltip } from "
 import { SyncOutlined } from "@ant-design/icons";
 import { FolderOpen, ExternalLink } from "lucide-react";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
-import type { Update } from "@tauri-apps/plugin-updater";
 import type { SystemInfo } from "@/types";
-import { systemApi, updaterApi } from "@/lib/api";
+import { systemApi } from "@/lib/api";
 import { RecommendCards } from "@/components/ui/RecommendCards";
-import { UpdateModal } from "@/components/ui/UpdateModal";
+import { useUpdater } from "@/components/updater/UpdaterProvider";
 
 const OFFICIAL_SITE = "https://kb.ruoyi.plus/";
 const QQ_GROUP_ID = "897442341";
@@ -44,8 +43,7 @@ export function AboutContent(props: AboutContentProps) {
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
-  const [update, setUpdate] = useState<Update | null>(null);
-  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const updater = useUpdater();
 
   useEffect(() => {
     systemApi
@@ -65,17 +63,16 @@ export function AboutContent(props: AboutContentProps) {
   }
 
   async function handleCheckUpdate() {
+    if (!updater) return;
     setChecking(true);
     try {
-      const result = await updaterApi.checkUpdate();
-      if (result) {
-        setUpdate(result);
-        setUpdateModalOpen(true);
-      } else {
+      // 有更新时 checkManually 会打开全局更新弹窗（Rust 侧已开始后台下载）
+      const r = await updater.checkManually();
+      if (r.error) {
+        message.warning(`检查更新失败: ${r.error}`);
+      } else if (!r.hasUpdate) {
         message.success("当前已是最新版本");
       }
-    } catch (e) {
-      message.warning(`检查更新失败: ${String(e)}`);
     } finally {
       setChecking(false);
     }
@@ -201,7 +198,7 @@ export function AboutContent(props: AboutContentProps) {
                 borderRadius: 8,
                 background: "#fff",
                 padding: 4,
-                border: "1px solid #f0f0f0",
+                border: "1px solid var(--kb-border)",
               }}
             />
             <div className="flex-1 min-w-[200px]">
@@ -299,11 +296,6 @@ export function AboutContent(props: AboutContentProps) {
         </div>
       )}
 
-      <UpdateModal
-        open={updateModalOpen}
-        onClose={() => setUpdateModalOpen(false)}
-        update={update}
-      />
     </>
   );
 }
