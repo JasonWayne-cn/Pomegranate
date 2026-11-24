@@ -1342,6 +1342,8 @@ export interface AiConversation {
   agent_tool_timeout: number;
   /** 是否启用外部 MCP 工具 */
   agent_mcp_enabled: boolean;
+  /** 是否置顶（置顶会话排在最前） */
+  is_pinned: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -2612,7 +2614,7 @@ export interface McpServerInput {
 // ─── 语音识别（ASR）─────────────────────────────
 
 /** ASR 服务商。当前只支持阿里云 DashScope；后续接入新厂商时在这里加值。 */
-export type AsrProviderKind = "dashscope";
+export type AsrProviderKind = "dashscope" | "local";
 
 /**
  * ASR 配置（与 Rust `AsrConfig` 对齐，camelCase 序列化）。
@@ -2628,6 +2630,64 @@ export interface AsrConfig {
   /** 区域："beijing"（默认）/ "singapore" */
   region: string;
   enabled: boolean;
+  /** 识别后是否调用默认 AI 模型纠正术语（只发文本，不发音频） */
+  correctionEnabled: boolean;
+}
+
+/** ASR 术语词表条目（后端 `asr_vocabulary` 表） */
+export interface AsrVocabularyTerm {
+  id: number;
+  /** 标准写法，如 "Tauri" */
+  term: string;
+  /** 常被听错的写法，如 ["涛瑞", "陶瑞"] */
+  aliases: string[];
+  createdAt: string;
+}
+
+/** 一处被采纳的术语替换 */
+export interface AsrTextChange {
+  from: string;
+  to: string;
+}
+
+/** 识别文本纠错结果 */
+export interface AsrCorrectionResult {
+  original: string;
+  corrected: string;
+  /** 为空表示未改动 */
+  changes: AsrTextChange[];
+}
+
+/**
+ * 本地离线识别资源状态。
+ *
+ * 引擎（sherpa-onnx CLI）与模型（SenseVoice Small INT8）都按需下载，
+ * 不随安装包分发；`ready = engineReady && modelReady`。
+ */
+export interface AsrLocalModelStatus {
+  modelId: string;
+  modelName: string;
+  ready: boolean;
+  engineReady: boolean;
+  modelReady: boolean;
+  /** 已占用磁盘字节数（引擎 + 模型） */
+  bytesOnDisk: number;
+  /** 预估值（下载前提示用） */
+  approxBytes: number;
+  /** 不可用原因，就绪时为 null */
+  message: string | null;
+}
+
+/** `asr-local:progress` 事件负载 */
+export interface AsrLocalProgress {
+  modelId: string;
+  /** engine / model / extracting / done */
+  stage: string;
+  file: string;
+  downloaded: number;
+  total: number;
+  /** 0-100；total 未知时为 0 */
+  percent: number;
 }
 
 /** 转录请求：把录音 base64 + MIME 提交给后端 */

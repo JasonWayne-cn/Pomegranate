@@ -19,11 +19,15 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { App as AntdApp } from "antd";
 import { Mic, Loader2 } from "lucide-react";
 import { asrApi } from "@/lib/api";
+import { transcribeBlob } from "@/lib/asr/transcribe";
 import { useAudioLevel } from "@/hooks/useAudioLevel";
 import { useSilenceAutoStop } from "@/hooks/useSilenceAutoStop";
 import { useAsrStore } from "@/store/asr";
 
 type Status = "idle" | "recording" | "transcribing";
+
+/** 单次录音上限，与云端 ASR 的输入时长限制对齐 */
+const MAX_RECORDING_MS = 120_000;
 
 export function AsrToggleController() {
   const { message } = AntdApp.useApp();
@@ -36,8 +40,10 @@ export function AsrToggleController() {
   const streamRef = useRef<MediaStream | null>(null);
   // 锁定快捷键按下瞬间的焦点元素，避免转写过程中用户切走焦点导致注入到错地方
   const targetRef = useRef<Element | null>(null);
-  // 取消标记：Esc 按下时置 true，handleStop 检测到则跳过转写 + 注入
+  // 取消标记：Esc / 取消按钮按下时置 true，handleStop 检测到则跳过转写 + 注入
   const cancelledRef = useRef<boolean>(false);
+  // 120s 上限定时器
+  const limitTimerRef = useRef<number | null>(null);
 
   const { level } = useAudioLevel(activeStream, status === "recording", 3);
   useSilenceAutoStop(level, status === "recording", () => stopRecording());
@@ -66,11 +72,16 @@ export function AsrToggleController() {
       return;
     }
 
-    // ASR 配置校验：未启用直接提示
+    // ASR 配置校验：未启用直接提示（本地 provider 不需要 API Key）
     try {
       const cfg = await asrApi.getConfig();
-      if (!cfg.enabled || !cfg.apiKey.trim()) {
-        message.warning("语音识别未启用，请先在设置页配置 API Key");
+      const hasCredentials = cfg.provider === "local" || !!cfg.apiKey.trim();
+      if (!cfg.enabled || !hasCredentials) {
+        message.warning(
+          cfg.provider === "local"
+            ? "语音识别未启用，请先在设置页开启并下载本地模型"
+            : "语音识别未启用，请先在设置页配置 API Key",
+        );
         return;
       }
     } catch {
@@ -92,6 +103,9 @@ export function AsrToggleController() {
       recorder.onstop = handleStop;
       recorderRef.current = recorder;
       recorder.start();
+      limitTimerRef.current = window.setTimeout(() => {
+        if (recorderRef.current?.state === "recording") stopRecording();
+      }, MAX_RECORDING_MS);
       setStatus("recording");
     } catch (e) {
       const msg = String(e);
@@ -104,7 +118,15 @@ export function AsrToggleController() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message]);
 
+  function clearLimitTimer() {
+    if (limitTimerRef.current !== null) {
+      window.clearTimeout(limitTimerRef.current);
+      limitTimerRef.current = null;
+    }
+  }
+
   function stopRecording() {
+    clearLimitTimer();
     const r = recorderRef.current;
     if (r && r.state !== "inactive") r.stop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -114,6 +136,7 @@ export function AsrToggleController() {
   }
 
   async function handleStop() {
+    clearLimitTimer();
     const blob = new Blob(chunksRef.current, {
       type: recorderRef.current?.mimeType || "audio/webm",
     });
@@ -133,16 +156,14 @@ export function AsrToggleController() {
       return;
     }
     try {
-      const audioBase64 = await blobToBase64(blob);
-      const result = await asrApi.transcribe({
-        audioBase64,
-        mime: blob.type || "audio/webm",
-        language: "auto",
-      });
-      const text = (result.text ?? "").trim();
+      const outcome = await transcribeBlob(blob, { language: "auto" });
+      const text = outcome.text;
       if (!text) {
         message.warning("未识别到内容，请说话清晰一些");
       } else {
+        if (outcome.corrections.length > 0) {
+          message.info(`已纠正 ${outcome.corrections.length} 处术语`);
+        }
         const ok = injectText(targetRef.current, text);
         if (!ok) {
           // 目标已失效（DOM 卸载 / 失焦）→ fallback 打开 Modal 让用户看到结果
@@ -205,17 +226,49 @@ export function AsrToggleController() {
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      clearLimitTimer();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (status === "idle") return null;
 
-  return <StatusToast status={status} level={level} />;
+  return (
+    <StatusToast
+      status={status}
+      level={level}
+      onCancel={() => {
+        cancelledRef.current = true;
+        stopRecording();
+      }}
+    />
+  );
 }
 
 /** 顶部居中的浮层提示，告诉用户当前在录音/识别中 */
-function StatusToast({ status, level }: { status: Status; level: number }) {
+function StatusToast({
+  status,
+  level,
+  onCancel,
+}: {
+  status: Status;
+  level: number;
+  onCancel: () => void;
+}) {
   const isRecording = status === "recording";
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  // 录音期间每 500ms 刷新一次计时，到上限时后端（定时器）会自动停止
+  useEffect(() => {
+    if (!isRecording) {
+      setElapsedMs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const id = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 500);
+    return () => window.clearInterval(id);
+  }, [isRecording]);
+
   return (
     <div
       style={{
@@ -244,10 +297,41 @@ function StatusToast({ status, level }: { status: Status; level: number }) {
     >
       {isRecording ? <Mic size={14} /> : <Loader2 size={14} className="animate-spin" />}
       <span>
-        {isRecording ? "正在录音… 再按一次结束 / Esc 取消" : "正在识别…"}
+        {isRecording ? "正在录音… Esc 取消" : "正在识别…"}
       </span>
+      {isRecording && (
+        <>
+          <span style={{ opacity: 0.85, fontVariantNumeric: "tabular-nums" }}>
+            {formatDuration(elapsedMs)} / 2:00
+          </span>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              pointerEvents: "auto",
+              border: "1px solid rgba(255,255,255,0.6)",
+              background: "transparent",
+              color: "#fff",
+              borderRadius: 999,
+              padding: "1px 10px",
+              fontSize: 12,
+              cursor: "pointer",
+              lineHeight: 1.5,
+            }}
+          >
+            取消
+          </button>
+        </>
+      )}
     </div>
   );
+}
+
+function formatDuration(ms: number): string {
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 // ─── 注入相关 ────────────────────────────────────────
@@ -320,17 +404,4 @@ function injectText(target: Element | null, text: string): boolean {
   }
 
   return false;
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("FileReader 失败"));
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const idx = dataUrl.indexOf(",");
-      resolve(idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl);
-    };
-    reader.readAsDataURL(blob);
-  });
 }

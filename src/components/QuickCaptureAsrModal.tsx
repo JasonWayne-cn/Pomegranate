@@ -17,6 +17,7 @@ import { Modal, Button, Input, Space, Alert, Typography, App as AntdApp } from "
 import { Square, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { asrApi, taskApi, noteApi, aiPlanApi } from "@/lib/api";
+import { transcribeBlob } from "@/lib/asr/transcribe";
 import { useAppStore } from "@/store";
 import { useAudioLevel } from "@/hooks/useAudioLevel";
 import { useSilenceAutoStop } from "@/hooks/useSilenceAutoStop";
@@ -63,7 +64,9 @@ export function QuickCaptureAsrModal({ open, onClose }: Props) {
     (async () => {
       try {
         const cfg = await asrApi.getConfig();
-        const isEnabled = cfg.enabled && cfg.apiKey.trim().length > 0;
+        // 本地 provider 不需要 API Key
+        const isEnabled =
+          cfg.enabled && (cfg.provider === "local" || cfg.apiKey.trim().length > 0);
         if (cancelled) return;
         setEnabled(isEnabled);
         if (isEnabled) {
@@ -167,19 +170,17 @@ export function QuickCaptureAsrModal({ open, onClose }: Props) {
       return;
     }
     try {
-      const audioBase64 = await blobToBase64(blob);
-      const result = await asrApi.transcribe({
-        audioBase64,
-        mime: blob.type || "audio/webm",
-        language: "auto",
-      });
-      const t = (result.text ?? "").trim();
+      const outcome = await transcribeBlob(blob, { language: "auto" });
+      const t = outcome.text;
       if (!t) {
         setPhase("error");
         setErrMsg("未识别到内容，请说话清晰一些");
       } else {
         setText(t);
         setPhase("result");
+        if (outcome.corrections.length > 0) {
+          message.info(`已纠正 ${outcome.corrections.length} 处术语`);
+        }
       }
     } catch (e) {
       setPhase("error");
@@ -407,17 +408,4 @@ function formatDuration(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("FileReader 失败"));
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const idx = dataUrl.indexOf(",");
-      resolve(idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl);
-    };
-    reader.readAsDataURL(blob);
-  });
 }

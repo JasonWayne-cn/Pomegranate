@@ -44,7 +44,8 @@ tauri-plugin-log = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-rusqlite = { version = "0.31", features = ["bundled"] }
+# functions：注册 kb_word_count() 给字数触发器用（schema v90）
+rusqlite = { version = "0.31", features = ["bundled", "functions"] }
 # 向量检索 SQLite 扩展（纯 C 静态编译，无 VC++ 运行时绑定，Win7 兼容）
 sqlite-vec = "0.1"
 uuid = { version = "1", features = ["v4"] }
@@ -70,6 +71,8 @@ serde_yml = "0.0.12"
 # T-009 OB 整库导入：识别 markdown / OB-wiki 形式的图片引用（`![](...)` / `![[...]]`）
 regex = "1"
 base64 = "0.22.1"
+# 更新包验签：按 tauri updater 的 minisign 格式校验下载产物（install() 本身不验签）
+minisign-verify = "0.2"
 bytes = "1"
 pdf-extract = "0.9"
 # ─── 同步功能 ────────────────────────────────────
@@ -119,8 +122,6 @@ tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
 tauri-plugin-updater = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
-# 窗口大小/位置/最大化状态记忆（仅 main 窗口）
-tauri-plugin-window-state = "2"
 # 系统字体枚举（Windows=DirectWrite / macOS=CoreText / Linux=fontconfig，无 C 依赖）
 font-enumeration = "0.9"
 # 字体度量（ascender/descender/advance），纯 Rust，用于 DOCX 分页估算
@@ -147,6 +148,22 @@ umya-spreadsheet = "1"
 # T-020 笔记导出为 Word（docx-rs 在 Android target 编译失败，先桌面端独享；
 # 移动端按 T-M013 后再决策）
 docx-rs = "0.4"
+# 本地离线语音识别：引擎与模型都在运行时按需下载，不进入安装包。
+# 引擎用 sherpa-onnx 官方预编译 CLI（tar.bz2），因此只需解压依赖，
+# 不引入 onnxruntime 编译期依赖（sherpa-rs 需要本机 libclang）。
+tar = "0.4"
+bzip2 = "0.4"
+
+# ─── Windows 专属：窗口位置记忆的 Win32 消息 ─────────────
+# WM_DISPLAYCHANGE / WM_ENTERSIZEMOVE 需要子类化窗口过程；GetDpiForWindow
+# 用来把 WebView 的渲染比例同步成窗口实际缩放（见 src/window_memory/glue.rs）。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_UI_HiDpi",
+] }
 
 # ─── 编译优化 ────────────────────────────────────
 

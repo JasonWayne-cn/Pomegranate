@@ -537,6 +537,8 @@ pub struct AiConversation {
     pub agent_tool_timeout: i64,
     /// 是否启用外部 MCP 工具
     pub agent_mcp_enabled: bool,
+    /// 是否置顶（置顶会话列表永远排在前面，见 v93 迁移）
+    pub is_pinned: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -2008,22 +2010,31 @@ fn default_enabled() -> bool {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AsrProviderKind {
-    /// 阿里云百炼 DashScope
+    /// 阿里云百炼 DashScope（云端）
     Dashscope,
+    /// 本地离线（sherpa-onnx SenseVoice Small INT8）
+    Local,
 }
 
 impl AsrProviderKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Dashscope => "dashscope",
+            Self::Local => "local",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "dashscope" => Some(Self::Dashscope),
+            "local" => Some(Self::Local),
             _ => None,
         }
+    }
+
+    /// 仅云端 provider 需要 API Key
+    pub fn requires_api_key(&self) -> bool {
+        matches!(self, Self::Dashscope)
     }
 }
 
@@ -2039,6 +2050,9 @@ pub struct AsrConfig {
     /// 区域："beijing"（默认）/ "singapore"
     pub region: String,
     pub enabled: bool,
+    /// 识别后是否调用默认 AI 模型纠正术语（只发文本，不发音频）
+    #[serde(default)]
+    pub correction_enabled: bool,
 }
 
 impl Default for AsrConfig {
@@ -2050,8 +2064,93 @@ impl Default for AsrConfig {
             model: "qwen3-asr-flash".into(),
             region: "beijing".into(),
             enabled: false,
+            correction_enabled: false,
         }
     }
+}
+
+/// ASR 术语词表条目。
+///
+/// `aliases` 是同一术语常被听错的写法（如 "Tauri" ← "涛瑞"/"陶瑞"），
+/// 纠错时只有命中 term 或 aliases 的替换才会被采纳。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsrVocabularyTerm {
+    pub id: i64,
+    pub term: String,
+    pub aliases: Vec<String>,
+    pub created_at: String,
+}
+
+/// 词表写入入参（前端提交 term + 别名数组）
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsrVocabularyInput {
+    pub term: String,
+    #[serde(default)]
+    pub aliases: Vec<String>,
+}
+
+/// 识别文本纠错请求
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsrCorrectionRequest {
+    pub text: String,
+}
+
+/// 一处被采纳的术语替换
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsrTextChange {
+    pub from: String,
+    pub to: String,
+}
+
+/// 纠错结果
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsrCorrectionResult {
+    /// 原始文本（未启用纠错或未发生替换时与 corrected 相同）
+    pub original: String,
+    /// 纠错后文本
+    pub corrected: String,
+    /// 被采纳的替换片段；为空表示未改动
+    pub changes: Vec<AsrTextChange>,
+}
+
+/// 本地离线 ASR 资源状态（引擎 + 模型）。
+///
+/// 引擎是可执行程序，模型是单独下载的 SenseVoice Small INT8 权重；
+/// 两者都不进入安装包。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsrLocalModelStatus {
+    pub model_id: String,
+    pub model_name: String,
+    /// 引擎与模型都就绪才可识别
+    pub ready: bool,
+    pub engine_ready: bool,
+    pub model_ready: bool,
+    /// 已占用的磁盘空间（引擎 + 模型）
+    pub bytes_on_disk: u64,
+    /// 预估值（用于下载前提示）
+    pub approx_bytes: u64,
+    /// 不可用原因（如"模型未下载"），就绪时为 None
+    pub message: Option<String>,
+}
+
+/// 本地资源下载进度事件（`asr-local:progress`）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AsrLocalProgress {
+    pub model_id: String,
+    /// engine / model / extracting / done
+    pub stage: String,
+    pub file: String,
+    pub downloaded: u64,
+    pub total: u64,
+    /// 0-100（total 未知时为 0）
+    pub percent: f64,
 }
 
 /// 转录请求入参（前端把录音 base64 + mime 传过来）

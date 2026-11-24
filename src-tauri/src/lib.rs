@@ -1499,6 +1499,13 @@ pub fn run() {
             commands::asr::asr_save_config,
             commands::asr::asr_test_connection,
             commands::asr::asr_transcribe_audio,
+            commands::asr::asr_correct_text,
+            commands::asr::asr_list_vocabulary,
+            commands::asr::asr_add_vocabulary,
+            commands::asr::asr_remove_vocabulary,
+            commands::asr::asr_local_model_status,
+            commands::asr::asr_local_model_download,
+            commands::asr::asr_local_model_remove,
             // 任务执行会话
             commands::session::parse_plan_file,
             commands::session::create_task_session,

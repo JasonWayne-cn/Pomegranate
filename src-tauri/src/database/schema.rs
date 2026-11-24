@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 92;
+pub const SCHEMA_VERSION: i32 = 94;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -129,6 +129,8 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             89 => migrate_v89_to_v90(conn)?,
             90 => migrate_v90_to_v91(conn)?,
             91 => migrate_v91_to_v92(conn)?,
+            92 => migrate_v92_to_v93(conn)?,
+            93 => migrate_v93_to_v94(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -3408,6 +3410,51 @@ fn migrate_v91_to_v92(conn: &Connection) -> Result<(), AppError> {
     ))?;
 
     set_version(conn, 92)?;
+    Ok(())
+}
+
+/// v92 -> v93：AI 会话置顶（`ai_conversations.is_pinned` + 排序索引）。
+///
+/// 只加列不建新表；克隆/分叉复用现有会话与消息表。
+/// 索引按 `(is_pinned DESC, updated_at DESC)`，与 `list_ai_conversations` 的排序一致。
+fn migrate_v92_to_v93(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v92 -> v93 (AI 会话置顶)");
+
+    let cols = list_columns(conn, "ai_conversations")?;
+    if !cols.iter().any(|c| c == "is_pinned") {
+        conn.execute_batch(
+            "ALTER TABLE ai_conversations ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_ai_conv_pinned
+         ON ai_conversations(is_pinned DESC, updated_at DESC);",
+    )?;
+
+    set_version(conn, 93)?;
+    Ok(())
+}
+
+/// v93 -> v94：语音识别术语词表（识别后纠错使用）。
+///
+/// `aliases` 存 JSON 数组文本；`term` 用 `COLLATE NOCASE` 唯一，
+/// 避免 "Tauri" / "tauri" 重复录入。
+fn migrate_v93_to_v94(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v93 -> v94 (ASR 术语词表)");
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS asr_vocabulary (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            term TEXT NOT NULL COLLATE NOCASE,
+            aliases TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_asr_vocabulary_term
+            ON asr_vocabulary(term COLLATE NOCASE);",
+    )?;
+
+    set_version(conn, 94)?;
     Ok(())
 }
 

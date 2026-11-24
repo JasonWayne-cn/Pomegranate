@@ -150,6 +150,9 @@ import type {
   TranscribeRequest,
   TranscribeResult,
   AsrTestResult,
+  AsrVocabularyTerm,
+  AsrCorrectionResult,
+  AsrLocalModelStatus,
   PluginInfo,
   PluginManifest,
   PluginAuditLogEntry,
@@ -1025,6 +1028,18 @@ export const aiChatApi = {
     invoke<number>("delete_ai_conversations_before", { olderThanDays }),
   renameConversation: (id: number, title: string) =>
     invoke<void>("rename_ai_conversation", { id, title }),
+  /** 置顶 / 取消置顶会话 */
+  pinConversation: (id: number, pinned: boolean) =>
+    invoke<void>("pin_ai_conversation", { id, pinned }),
+  /** 克隆会话（复制全部消息） */
+  cloneConversation: (id: number) =>
+    invoke<AiConversation>("clone_ai_conversation", { id }),
+  /** 从指定消息（含）分叉为新会话 */
+  forkConversation: (id: number, upToMessageId?: number) =>
+    invoke<AiConversation>("fork_ai_conversation", {
+      id,
+      upToMessageId: upToMessageId ?? null,
+    }),
   updateConversationModel: (id: number, modelId: number) =>
     invoke<void>("update_ai_conversation_model", { id, modelId }),
   /** 更新会话级 Agent 配置（工具轮数 / 超时 / 外部 MCP 开关） */
@@ -1870,6 +1885,24 @@ export const asrApi = {
   /** 把录音转为文字 */
   transcribe: (request: TranscribeRequest) =>
     invoke<TranscribeResult>("asr_transcribe_audio", { request }),
+  /** 识别后术语纠错（未启用或词表为空时原样返回） */
+  correctText: (text: string) =>
+    invoke<AsrCorrectionResult>("asr_correct_text", { request: { text } }),
+  /** 列出术语词表 */
+  listVocabulary: () => invoke<AsrVocabularyTerm[]>("asr_list_vocabulary"),
+  /** 新增/合并术语，返回词条 id */
+  addVocabulary: (input: { term: string; aliases: string[] }) =>
+    invoke<number>("asr_add_vocabulary", { input }),
+  /** 删除术语 */
+  removeVocabulary: (id: number) =>
+    invoke<boolean>("asr_remove_vocabulary", { id }),
+  /** 本地离线模型状态（引擎 + 模型是否就绪） */
+  localModelStatus: () =>
+    invoke<AsrLocalModelStatus>("asr_local_model_status"),
+  /** 下载本地引擎与模型（进度走 asr-local:progress 事件） */
+  localModelDownload: () => invoke<void>("asr_local_model_download"),
+  /** 删除本地引擎与模型 */
+  localModelRemove: () => invoke<boolean>("asr_local_model_remove"),
 };
 
 /** 待办分类 API（一级扁平分类） */

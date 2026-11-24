@@ -22,11 +22,15 @@ import { Mic, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { emit } from "@tauri-apps/api/event";
 import { asrApi } from "@/lib/api";
+import { transcribeBlob } from "@/lib/asr/transcribe";
 import { useAudioLevel } from "@/hooks/useAudioLevel";
 import { useSilenceAutoStop } from "@/hooks/useSilenceAutoStop";
 import { useAsrStore } from "@/store/asr";
 
 type Status = "idle" | "recording" | "transcribing" | "disabled";
+
+/** 单次录音上限，与云端 ASR 的输入时长限制对齐 */
+const MAX_RECORDING_MS = 120_000;
 
 interface Props {
   /** 转写完成回调；text 已 trim */
@@ -48,14 +52,6 @@ interface Props {
   stripTrailingPunctuation?: boolean;
 }
 
-/** 末尾标点 + 空白裁切（用于文件夹名 / 标签等不该带句尾标点的场景） */
-function trimTrailingPunctuation(text: string): string {
-  return text.replace(
-    /[\s。！？，、；：…．\.\?\!\,\;\:""''『』「」（）()【】\[\]]+$/g,
-    "",
-  );
-}
-
 export function MicButton({
   onTranscribed,
   size = "small",
@@ -73,6 +69,10 @@ export function MicButton({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  // Esc 取消：置 true 后 handleStop 丢弃录音不转写
+  const cancelledRef = useRef(false);
+  // 120s 上限定时器
+  const limitTimerRef = useRef<number | null>(null);
   // 用 state 触发 useAudioLevel 重建（ref 引用变化 hook 拿不到）
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
   const { level, bands } = useAudioLevel(activeStream, status === "recording", 3);
@@ -94,7 +94,12 @@ export function MicButton({
     asrApi
       .getConfig()
       .then((cfg) => {
-        if (!cancelled) setEnabled(cfg.enabled && cfg.apiKey.trim().length > 0);
+        if (!cancelled) {
+          // 本地 provider 不需要 API Key
+          setEnabled(
+            cfg.enabled && (cfg.provider === "local" || cfg.apiKey.trim().length > 0),
+          );
+        }
       })
       .catch(() => {
         if (!cancelled) setEnabled(false);
@@ -109,8 +114,26 @@ export function MicButton({
     return () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       setActiveStream(null);
+      clearLimitTimer();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 录音中按 Esc 取消（仅自身录音；全局录音的 Esc 由 AsrToggleController 处理）
+  useEffect(() => {
+    if (status !== "recording") return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        cancelledRef.current = true;
+        stopRecording();
+      }
+    }
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   async function startRecording() {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -122,6 +145,7 @@ export function MicButton({
       streamRef.current = stream;
       setActiveStream(stream);
       chunksRef.current = [];
+      cancelledRef.current = false;
       const recorder = new MediaRecorder(stream);
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
@@ -129,6 +153,9 @@ export function MicButton({
       recorder.onstop = handleStop;
       recorderRef.current = recorder;
       recorder.start();
+      limitTimerRef.current = window.setTimeout(() => {
+        if (recorderRef.current?.state === "recording") stopRecording();
+      }, MAX_RECORDING_MS);
       setStatus("recording");
     } catch (e) {
       const msg = String(e);
@@ -140,7 +167,15 @@ export function MicButton({
     }
   }
 
+  function clearLimitTimer() {
+    if (limitTimerRef.current !== null) {
+      window.clearTimeout(limitTimerRef.current);
+      limitTimerRef.current = null;
+    }
+  }
+
   function stopRecording() {
+    clearLimitTimer();
     const r = recorderRef.current;
     if (r && r.state !== "inactive") r.stop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -150,30 +185,36 @@ export function MicButton({
   }
 
   async function handleStop() {
+    clearLimitTimer();
     const blob = new Blob(chunksRef.current, {
       type: recorderRef.current?.mimeType || "audio/webm",
     });
     chunksRef.current = [];
+
+    // Esc 取消路径：释放麦克风、丢弃录音
+    if (cancelledRef.current) {
+      cancelledRef.current = false;
+      setStatus("idle");
+      return;
+    }
+
     if (blob.size === 0) {
       message.warning("没有录到声音");
       setStatus("idle");
       return;
     }
     try {
-      const audioBase64 = await blobToBase64(blob);
-      const result = await asrApi.transcribe({
-        audioBase64,
-        mime: blob.type || "audio/webm",
+      const outcome = await transcribeBlob(blob, {
         language: language ?? "auto",
+        stripTrailingPunctuation,
       });
-      let text = (result.text ?? "").trim();
-      if (stripTrailingPunctuation) {
-        text = trimTrailingPunctuation(text);
-      }
-      if (!text) {
+      if (!outcome.text) {
         message.warning("未识别到内容，请说话清晰一些");
       } else {
-        onTranscribed(text);
+        if (outcome.corrections.length > 0) {
+          message.info(`已纠正 ${outcome.corrections.length} 处术语`);
+        }
+        onTranscribed(outcome.text);
       }
     } catch (e) {
       message.error(`识别失败: ${e}`);
@@ -292,21 +333,4 @@ export function MicButton({
       />
     </Tooltip>
   );
-}
-
-/**
- * Blob → base64（不含 data:xxx;base64, 前缀）。
- * 用 FileReader 而不是 btoa(String.fromCharCode(...))，避免大文件超出栈深度。
- */
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("FileReader 失败"));
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const idx = dataUrl.indexOf(",");
-      resolve(idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl);
-    };
-    reader.readAsDataURL(blob);
-  });
 }

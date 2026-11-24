@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod asr;
 pub mod cards;
 pub mod cjk;
 pub mod claude_agent;
