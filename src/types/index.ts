@@ -750,6 +750,10 @@ export interface Folder {
   sort_order: number;
   children: Folder[];
   note_count: number;
+  /** 外部 Office 文档数（Word / PowerPoint / Excel / CSV，仅索引） */
+  office_count?: number;
+  /** 外部 PDF 文档数（仅索引） */
+  pdf_count?: number;
   /** 自定义图标颜色（hex `#RRGGBB`）；null = 默认主题色 */
   color: string | null;
   /** 非空表示这是外部目录挂载的镜像文件夹（目录树显示同步文件夹图标） */
@@ -1730,6 +1734,8 @@ export interface OrphanGroup {
 }
 
 /** 全量孤儿扫描结果 */
+export type OrphanScanStatus = "ok" | "warn" | "blocked";
+
 export interface OrphanAssetScan {
   images: OrphanGroup;
   videos: OrphanGroup;
@@ -1738,6 +1744,12 @@ export interface OrphanAssetScan {
   sources: OrphanGroup;
   /** 待办附件（v65） */
   taskFiles: OrphanGroup;
+  /** 当前库里的未删除笔记数 */
+  noteCount: number;
+  /** 本次扫描到的孤儿总数 */
+  orphanCount: number;
+  /** 安全状态：空库禁止清理 / 孤儿多于笔记时警告 */
+  status: OrphanScanStatus;
 }
 
 /** 孤儿素材清理结果 */
@@ -1913,6 +1925,14 @@ export interface PageResult<T> {
 export interface RestoreBatchResult {
   restored: number;
   toRoot: number;
+}
+
+/** 回收站自动清理设置（与后端 TrashAutoPurge 对齐） */
+export interface TrashAutoPurge {
+  /** 删除满多少天自动永久删除；0 = 从不 */
+  days: number;
+  /** 规则生效时间（本地时间 YYYY-MM-DD HH:MM:SS） */
+  since: string;
 }
 
 // ─── 同步 ─────────────────────────────────────
@@ -2517,6 +2537,27 @@ export interface ResolvedDataDir {
   pendingDir: string | null;
 }
 
+/** 启动期数据库恢复提示 */
+export interface DbRecoveryNotice {
+  recoveredAt: string;
+  /** 用来顶替的自动备份路径；空库启动时为 null */
+  usedBackup: string | null;
+}
+
+/** 切换数据目录前的只读探查结果 */
+export interface DataDirInspect {
+  dir: string;
+  exists: boolean;
+  /** 目录里是否已有知识库（含仅 WAL 存在的情况） */
+  hasDb: boolean;
+  dbFile: string | null;
+  /** 笔记数（副本上统计；打不开时为 null） */
+  noteCount: number | null;
+  /** 数据库组（主文件 + WAL + SHM）字节数 */
+  size: number;
+  modifiedAt: string | null;
+}
+
 /** 迁移 marker 状态 */
 export type MigrationStatus = "pending" | "in_progress" | "crashed" | "done";
 
@@ -2902,9 +2943,51 @@ export interface ProjectSessionMessage {
   createdAt: string;
 }
 
+// ─── 桌面端更新（Rust `services::updater_download`） ──────────
+
+export type UpdaterPhase =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "paused"
+  | "verifying"
+  | "ready"
+  | "installing"
+  | "error";
+
+/** 某个下载源的失败原因 */
+export interface UpdaterSourceFailure {
+  source: string;
+  reason: string;
+}
+
+/** 桌面端更新状态快照（与 Rust `UpdaterSnapshot` 对齐），也是 `updater://state` 事件的载荷 */
+export interface UpdaterSnapshot {
+  phase: UpdaterPhase;
+  /** 新版本号；没有可用更新时为 null */
+  version: string | null;
+  /** 更新说明 */
+  body: string | null;
+  /** 已下载字节数（含续传前已有的部分） */
+  downloaded: number;
+  /** 总字节数，服务器没给长度时为 0 */
+  total: number;
+  /** 下载速度，字节 / 秒 */
+  speed: number;
+  /** 当前下载源（GitHub / Gitee …） */
+  source: string | null;
+  /** 自动换源这类提示，不影响状态 */
+  notice: string | null;
+  error: string | null;
+  failures: UpdaterSourceFailure[];
+  /** 已就绪的包是本次启动从磁盘恢复的（上次就下好了） */
+  restored: boolean;
+}
+
 /**
  * 移动端"检查更新"结果（与 Rust `MobileUpdateInfo` 对齐）。
- * 桌面端用 tauri-plugin-updater 自动热替换；移动端只能"检查 → 引导用户去下载新 APK"。
+ * 桌面端更新已下沉到 Rust（见 `UpdaterSnapshot`）；移动端只能"检查 → 引导用户去下载新 APK"。
  */
 export interface MobileUpdateInfo {
   has_update: boolean;

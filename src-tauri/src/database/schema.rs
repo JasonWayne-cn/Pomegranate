@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 89;
+pub const SCHEMA_VERSION: i32 = 92;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -22,6 +22,10 @@ pub fn set_version(conn: &Connection, version: i32) -> Result<(), AppError> {
 
 /// 执行数据库迁移
 pub fn migrate(conn: &Connection) -> Result<(), AppError> {
+    // 字数触发器调用的 kb_word_count()（v90 起）是连接级函数，每次打开都要重新注册。
+    // 放在这里是因为主连接的 init / reopen 都必经 migrate，不会漏。
+    kb_core::plain_text::register_sql_functions(conn)?;
+
     let mut version = get_version(conn)?;
 
     if version > SCHEMA_VERSION {
@@ -122,6 +126,9 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             86 => migrate_v86_to_v87(conn)?,
             87 => migrate_v87_to_v88(conn)?,
             88 => migrate_v88_to_v89(conn)?,
+            89 => migrate_v89_to_v90(conn)?,
+            90 => migrate_v90_to_v91(conn)?,
+            91 => migrate_v91_to_v92(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -3272,6 +3279,266 @@ fn migrate_v88_to_v89(conn: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
+/// v89 -> v90：字数改成与编辑器状态栏同一口径。
+///
+/// v5 的触发器按「原文去空格长度」算 word_count：`#` `**` HTML 标签全计入，
+/// 空日记 `<p><br></p>` 也有 11，首页写作活力 / 热力图 / 笔记列表字数都虚高几倍。
+/// 改为调 `kb_word_count()`（kb-core plain_text::count_words：中日文按字、其余按词）：
+/// - 白板数 search_text（画布上的文字），content 是 Excalidraw JSON
+/// - 加密笔记记 0（正文是密文）
+/// - 除 content 外，is_encrypted / search_text / note_type 变化也要重算
+///
+/// 重建两个触发器 + 全量重算一次。只写 word_count 一列：FTS 触发器只监听
+/// title / content / search_text，不会被连带触发。
+/// v91 -> v92：闪卡 / 复习记录 / 提示词 / 笔记模板加入多端同步。
+///
+/// - 四张表加 `stable_uuid`（跨端识别），回填存量，INSERT 触发器给新行自动填
+/// - 内置提示词 = `builtin:<code>`、预置笔记模板 = `preset:<名称>`：各端各自插入的同一份内置数据能对上
+/// - `note_templates` 补 `updated_at`（多端谁新用谁），存量回填为 created_at
+/// - 提示词 / 笔记模板是物理删除，靠 DELETE 触发器把删除记进 `sync_tombstones`；
+///   闪卡本来就是软删（is_deleted），不需要墓碑
+fn migrate_v91_to_v92(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v91 -> v92 (闪卡 / 提示词 / 笔记模板加入多端同步)");
+
+    const SQL_UUID_V4: &str = "lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || \
+        substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || \
+        substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6)))";
+    const PRESET_NOTE_TEMPLATES: &[&str] = &["会议记录", "读书文档", "周报", "项目文档"];
+
+    for table in ["cards", "card_review_logs", "prompt_templates", "note_templates"] {
+        let cols = list_columns(conn, table)?;
+        if !cols.iter().any(|c| c == "stable_uuid") {
+            conn.execute_batch(&format!("ALTER TABLE {} ADD COLUMN stable_uuid TEXT;", table))?;
+        }
+    }
+    let cols = list_columns(conn, "note_templates")?;
+    if !cols.iter().any(|c| c == "updated_at") {
+        // ADD COLUMN 不允许非常量默认值，所以不带 DEFAULT，靠回填 + 触发器 + DAO 维护
+        conn.execute_batch("ALTER TABLE note_templates ADD COLUMN updated_at TEXT;")?;
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE prompt_templates SET stable_uuid = 'builtin:' || builtin_code
+         WHERE stable_uuid IS NULL AND builtin_code IS NOT NULL",
+        [],
+    )?;
+    for name in PRESET_NOTE_TEMPLATES {
+        let stable = format!("preset:{}", name);
+        tx.execute(
+            "UPDATE note_templates SET stable_uuid = ?1
+             WHERE id = (SELECT MIN(id) FROM note_templates WHERE name = ?2 AND stable_uuid IS NULL)
+               AND NOT EXISTS (SELECT 1 FROM note_templates WHERE stable_uuid = ?1)",
+            rusqlite::params![stable, name],
+        )?;
+    }
+    tx.execute(
+        "UPDATE note_templates SET updated_at = created_at WHERE updated_at IS NULL",
+        [],
+    )?;
+    let mut filled = 0usize;
+    for table in ["cards", "card_review_logs", "prompt_templates", "note_templates"] {
+        let ids: Vec<i64> = {
+            let mut stmt =
+                tx.prepare(&format!("SELECT id FROM {} WHERE stable_uuid IS NULL", table))?;
+            let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+            rows.filter_map(|r| r.ok()).collect()
+        };
+        for id in ids {
+            tx.execute(
+                &format!("UPDATE {} SET stable_uuid = ?1 WHERE id = ?2", table),
+                rusqlite::params![uuid::Uuid::new_v4().to_string(), id],
+            )?;
+            filled += 1;
+        }
+    }
+    tx.commit()?;
+    log::info!("[v92] 回填 {} 行 stable_uuid", filled);
+
+    conn.execute_batch(&format!(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_cards_stable_uuid
+            ON cards(stable_uuid) WHERE stable_uuid IS NOT NULL;
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_card_logs_stable_uuid
+            ON card_review_logs(stable_uuid) WHERE stable_uuid IS NOT NULL;
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_templates_stable_uuid
+            ON prompt_templates(stable_uuid) WHERE stable_uuid IS NOT NULL;
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_note_templates_stable_uuid
+            ON note_templates(stable_uuid) WHERE stable_uuid IS NOT NULL;
+
+         CREATE TRIGGER IF NOT EXISTS cards_fill_stable_uuid
+         AFTER INSERT ON cards WHEN NEW.stable_uuid IS NULL
+         BEGIN
+             UPDATE cards SET stable_uuid = {uuid} WHERE id = NEW.id;
+         END;
+         CREATE TRIGGER IF NOT EXISTS card_logs_fill_stable_uuid
+         AFTER INSERT ON card_review_logs WHEN NEW.stable_uuid IS NULL
+         BEGIN
+             UPDATE card_review_logs SET stable_uuid = {uuid} WHERE id = NEW.id;
+         END;
+         CREATE TRIGGER IF NOT EXISTS prompt_templates_fill_stable_uuid
+         AFTER INSERT ON prompt_templates WHEN NEW.stable_uuid IS NULL
+         BEGIN
+             UPDATE prompt_templates SET stable_uuid = CASE
+                 WHEN NEW.builtin_code IS NOT NULL THEN 'builtin:' || NEW.builtin_code
+                 ELSE {uuid} END
+             WHERE id = NEW.id;
+         END;
+         CREATE TRIGGER IF NOT EXISTS note_templates_fill_sync_cols
+         AFTER INSERT ON note_templates WHEN NEW.stable_uuid IS NULL OR NEW.updated_at IS NULL
+         BEGIN
+             UPDATE note_templates SET
+                 stable_uuid = COALESCE(NEW.stable_uuid, {uuid}),
+                 updated_at = COALESCE(NEW.updated_at, NEW.created_at)
+             WHERE id = NEW.id;
+         END;
+
+         CREATE TRIGGER IF NOT EXISTS prompt_templates_tombstone
+         AFTER DELETE ON prompt_templates WHEN OLD.stable_uuid IS NOT NULL
+         BEGIN
+             INSERT OR REPLACE INTO sync_tombstones (kind, stable_uuid, deleted_at)
+             VALUES ('prompt', OLD.stable_uuid, datetime('now', 'localtime'));
+         END;
+         CREATE TRIGGER IF NOT EXISTS note_templates_tombstone
+         AFTER DELETE ON note_templates WHEN OLD.stable_uuid IS NOT NULL
+         BEGIN
+             INSERT OR REPLACE INTO sync_tombstones (kind, stable_uuid, deleted_at)
+             VALUES ('note_template', OLD.stable_uuid, datetime('now', 'localtime'));
+         END;",
+        uuid = SQL_UUID_V4
+    ))?;
+
+    set_version(conn, 92)?;
+    Ok(())
+}
+
+/// v90 -> v91：文件夹加入多端同步（空文件夹、改名、移动、删除、排序、颜色）。
+///
+/// - `folders` 加 `stable_uuid` / `updated_at`，回填存量
+/// - `notes` 加 `folder_moved_at`：只把笔记挪到别的文件夹时内容 hash 不变，
+///   同步据它判断「谁移动得更晚」
+/// - 新增 `sync_tombstones`（文件夹 / 提示词 / 模板共用）
+/// - 挂载镜像文件夹（`folders.mount_id` 非空）不参与同步：墓碑触发器排除它们
+fn migrate_v90_to_v91(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v90 -> v91 (文件夹加入多端同步)");
+
+    const SQL_UUID_V4: &str = "lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || \
+        substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || \
+        substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6)))";
+
+    let cols = list_columns(conn, "folders")?;
+    if !cols.iter().any(|c| c == "stable_uuid") {
+        conn.execute_batch("ALTER TABLE folders ADD COLUMN stable_uuid TEXT;")?;
+    }
+    if !cols.iter().any(|c| c == "updated_at") {
+        conn.execute_batch("ALTER TABLE folders ADD COLUMN updated_at TEXT;")?;
+    }
+    let note_cols = list_columns(conn, "notes")?;
+    if !note_cols.iter().any(|c| c == "folder_moved_at") {
+        conn.execute_batch("ALTER TABLE notes ADD COLUMN folder_moved_at TEXT;")?;
+    }
+
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "UPDATE folders SET updated_at = created_at WHERE updated_at IS NULL",
+        [],
+    )?;
+    let ids: Vec<i64> = {
+        let mut stmt = tx.prepare("SELECT id FROM folders WHERE stable_uuid IS NULL")?;
+        let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+    for id in &ids {
+        tx.execute(
+            "UPDATE folders SET stable_uuid = ?1 WHERE id = ?2",
+            rusqlite::params![uuid::Uuid::new_v4().to_string(), id],
+        )?;
+    }
+    tx.commit()?;
+    log::info!("[v91] 回填 {} 个文件夹的 stable_uuid", ids.len());
+
+    conn.execute_batch(&format!(
+        "CREATE TABLE IF NOT EXISTS sync_tombstones (
+             kind        TEXT NOT NULL,
+             stable_uuid TEXT NOT NULL,
+             deleted_at  TEXT NOT NULL,
+             PRIMARY KEY (kind, stable_uuid)
+         );
+
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_stable_uuid
+             ON folders(stable_uuid) WHERE stable_uuid IS NOT NULL;
+
+         CREATE TRIGGER IF NOT EXISTS folders_fill_sync_cols
+         AFTER INSERT ON folders WHEN NEW.stable_uuid IS NULL OR NEW.updated_at IS NULL
+         BEGIN
+             UPDATE folders SET
+                 stable_uuid = COALESCE(NEW.stable_uuid, {uuid}),
+                 updated_at = COALESCE(NEW.updated_at, datetime('now', 'localtime'))
+             WHERE id = NEW.id;
+         END;
+
+         CREATE TRIGGER IF NOT EXISTS folders_touch_updated_at
+         AFTER UPDATE OF name, parent_id, sort_order, color ON folders
+         WHEN NEW.updated_at IS OLD.updated_at
+          AND (NEW.name IS NOT OLD.name OR NEW.parent_id IS NOT OLD.parent_id
+               OR NEW.sort_order IS NOT OLD.sort_order OR NEW.color IS NOT OLD.color)
+         BEGIN
+             UPDATE folders SET updated_at = datetime('now', 'localtime') WHERE id = NEW.id;
+         END;
+
+         -- 挂载镜像文件夹从未参与同步，删除挂载点时不能把它们的墓碑推给别的设备
+         CREATE TRIGGER IF NOT EXISTS folders_tombstone
+         AFTER DELETE ON folders WHEN OLD.stable_uuid IS NOT NULL AND OLD.mount_id IS NULL
+         BEGIN
+             INSERT OR REPLACE INTO sync_tombstones (kind, stable_uuid, deleted_at)
+             VALUES ('folder', OLD.stable_uuid, datetime('now', 'localtime'));
+         END;
+
+         CREATE TRIGGER IF NOT EXISTS notes_folder_moved
+         AFTER UPDATE OF folder_id ON notes
+         WHEN OLD.folder_id IS NOT NEW.folder_id
+         BEGIN
+             UPDATE notes SET folder_moved_at = datetime('now', 'localtime') WHERE id = NEW.id;
+         END;",
+        uuid = SQL_UUID_V4
+    ))?;
+
+    set_version(conn, 91)?;
+    Ok(())
+}
+
+fn migrate_v89_to_v90(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v89 -> v90 (字数改为编辑器口径)");
+
+    conn.execute_batch(
+        "
+        DROP TRIGGER IF EXISTS notes_word_count_insert;
+        DROP TRIGGER IF EXISTS notes_word_count_update;
+
+        CREATE TRIGGER notes_word_count_insert AFTER INSERT ON notes BEGIN
+            UPDATE notes SET word_count = kb_word_count(
+                CASE WHEN new.note_type = 'whiteboard' THEN COALESCE(new.search_text, '') ELSE new.content END,
+                new.is_encrypted)
+            WHERE id = new.id;
+        END;
+
+        CREATE TRIGGER notes_word_count_update
+        AFTER UPDATE OF content, is_encrypted, search_text, note_type ON notes BEGIN
+            UPDATE notes SET word_count = kb_word_count(
+                CASE WHEN new.note_type = 'whiteboard' THEN COALESCE(new.search_text, '') ELSE new.content END,
+                new.is_encrypted)
+            WHERE id = new.id;
+        END;
+
+        UPDATE notes SET word_count = kb_word_count(
+            CASE WHEN note_type = 'whiteboard' THEN COALESCE(search_text, '') ELSE content END,
+            is_encrypted);
+        ",
+    )?;
+
+    set_version(conn, 90)?;
+    Ok(())
+}
+
 
 fn encode_kb_asset_whitespace(content: &str) -> (String, bool) {
     use regex::Regex;
@@ -3387,6 +3654,56 @@ fn looks_absolute_path(s: &str) -> bool {
     let has_drive =
         b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'/' || b[2] == b'\\');
     has_drive || s.starts_with('/') || s.starts_with(r"\\")
+}
+
+#[cfg(test)]
+mod word_count_v90_tests {
+    //! v90：notes.word_count 与编辑器状态栏同口径
+
+    use crate::database::Database;
+    use crate::models::NoteInput;
+
+    fn wc(db: &Database, id: i64) -> i64 {
+        let conn = db.conn_lock().unwrap();
+        conn.query_row("SELECT word_count FROM notes WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn note(db: &Database, content: &str) -> i64 {
+        db.create_note(&NoteInput {
+            title: "t".into(),
+            content: content.into(),
+            folder_id: None,
+        })
+        .unwrap()
+        .id
+    }
+
+    #[test]
+    fn trigger_counts_like_editor() {
+        let db = Database::init(":memory:").unwrap();
+        assert_eq!(wc(&db, note(&db, "<p><br></p>")), 0, "空笔记不该有字数");
+        let id = note(&db, "## 标题\n**你好** world");
+        assert_eq!(wc(&db, id), 5, "标题 2 + 你好 2 + world 1");
+
+        db.update_note(
+            id,
+            &NoteInput {
+                title: "t".into(),
+                content: "一二三".into(),
+                folder_id: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(wc(&db, id), 3, "改正文要重算");
+
+        {
+            let conn = db.conn_lock().unwrap();
+            conn.execute("UPDATE notes SET is_encrypted = 1 WHERE id = ?1", [id])
+                .unwrap();
+        }
+        assert_eq!(wc(&db, id), 0, "加密笔记正文是密文，记 0");
+    }
 }
 
 

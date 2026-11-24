@@ -31,9 +31,18 @@ const DB_BACKUP_SUFFIX: &str = ".bak-";
 const DB_BACKUP_KEEP: usize = 3;
 /// overwrite 导入时资产目录的暂存位置（`.sync-tmp-` 前缀：残留会被启动期清理收走）
 const IMPORT_STAGING_DIR: &str = ".sync-tmp-import-assets";
-/// 被替换掉的旧资产目录保留份数。资产目录可能有几个 GB，只留最近一份：
-/// 后悔药只需要「上一次导入前」那份，再多就是成倍占盘
-const DIR_BACKUP_KEEP: usize = 1;
+/// 被替换掉的旧资产目录保留份数。
+///
+/// 与 `DB_BACKUP_KEEP` 对齐：只留 1 份时连续「完全替换」导入两次，数据库还能回到
+/// 第一次之前，图片附件却回不去了。只在 overwrite 导入时产生，代价是磁盘占用。
+const DIR_BACKUP_KEEP: usize = 3;
+
+/// 给路径追加后缀：`app.db` + `-wal` → `app.db-wal`（不改变原路径）。
+fn with_suffix(path: &Path, suffix: &str) -> std::path::PathBuf {
+    let mut p = path.as_os_str().to_os_string();
+    p.push(suffix);
+    std::path::PathBuf::from(p)
+}
 
 pub struct SyncService;
 
@@ -492,7 +501,8 @@ impl SyncService {
                         let _ = fs::remove_file(tmp_path);
                         return Err(AppError::Custom(format!(
                             "清理 {} 失败，已中止导入（原数据未受影响）。\
-                             常见原因：另一个进程（如 kb-mcp）正打开着数据库，请关闭后重试: {}",
+                             常见原因：接入了知识库的外部 AI 工具（Claude、Cursor 等，进程名 kb-mcp）\
+                             正打开着数据库，请先退出这些工具再重试: {}",
                             side.display(),
                             e
                         )));
@@ -555,10 +565,36 @@ impl SyncService {
 
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
         let backup = dir.join(format!("{}{}{}", file_name, DB_BACKUP_SUFFIX, stamp));
-        fs::copy(db_path, &backup)?;
+        let _ = fs::remove_file(&backup);
+
+        // 不能只复制主文件：内容可能还在 -wal 里，随后替换库时会连 -wal 一起删掉，
+        // 只复制主文件的「备份」可能一篇笔记都没有。优先用只读连接 VACUUM INTO 导出完整副本；
+        // 导出失败（库已损坏）时退回复制主文件 + WAL —— 导入本身就是在救它，不能卡住。
+        // 必须只读：读写连接关闭时会合并或删除 -wal，兜底复制就拿不到了。
+        let exported = Self::export_db_copy(db_path, &backup);
+        if let Err(e) = exported {
+            log::warn!("[sync] 导出完整备份失败，改为直接复制文件: {}", e);
+            fs::copy(db_path, &backup)?;
+            let wal = with_suffix(db_path, "-wal");
+            if wal.exists() {
+                fs::copy(&wal, with_suffix(&backup, "-wal"))?;
+            }
+        }
 
         Self::prune_old_db_backups(dir, file_name);
         Ok(backup)
+    }
+
+    /// 用只读连接把库完整导出到 `target`（VACUUM INTO，自动带上 WAL 内容）。
+    fn export_db_copy(db_path: &Path, target: &Path) -> Result<(), AppError> {
+        let conn = rusqlite::Connection::open_with_flags(
+            db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
+        let target_str = target.to_string_lossy().replace('\'', "''");
+        conn.execute_batch(&format!("VACUUM INTO '{}'", target_str))?;
+        Ok(())
     }
 
     /// 只保留最近 [`DB_BACKUP_KEEP`] 份备份，更旧的删掉（防止反复导入把磁盘撑满）。
@@ -579,9 +615,12 @@ impl SyncService {
             .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
             .map(|e| e.path())
             .filter(|p| {
+                // 备份附带的 -wal / -shm 跟着主文件走，不单独算一份
                 p.file_name()
                     .and_then(|s| s.to_str())
-                    .map(|n| n.starts_with(&prefix))
+                    .map(|n| {
+                        n.starts_with(&prefix) && !n.ends_with("-wal") && !n.ends_with("-shm")
+                    })
                     .unwrap_or(false)
             })
             .collect();
@@ -595,6 +634,8 @@ impl SyncService {
                 Ok(_) => log::info!("[sync] 清理旧数据库备份: {}", old.display()),
                 Err(e) => log::warn!("[sync] 清理旧数据库备份 {} 失败: {}", old.display(), e),
             }
+            let _ = fs::remove_file(with_suffix(&old, "-wal"));
+            let _ = fs::remove_file(with_suffix(&old, "-shm"));
         }
     }
 
@@ -1996,18 +2037,28 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// 旧资产目录备份只留最近 1 份
+    /// 旧资产目录备份只留最近 3 份（与数据库备份对齐）
     #[test]
-    fn prune_old_dir_backups_keeps_latest_one() {
+    fn prune_old_dir_backups_keeps_latest_ones() {
         let dir = mk_tmp_dir("prune-dir");
-        for stamp in ["20260101-000000", "20260102-000000", "20260103-000000"] {
+        for stamp in [
+            "20260101-000000",
+            "20260102-000000",
+            "20260103-000000",
+            "20260104-000000",
+            "20260105-000000",
+        ] {
             fs::create_dir_all(dir.join(format!("kb_assets.bak-{}", stamp))).unwrap();
         }
         fs::create_dir_all(dir.join("kb_assets")).unwrap();
         SyncService::prune_old_dir_backups(&dir, "kb_assets");
         let left = dir_backups(&dir, "kb_assets");
-        assert_eq!(left.len(), DIR_BACKUP_KEEP);
-        assert!(left[0].ends_with("kb_assets.bak-20260103-000000"), "留下的应是最新的");
+        assert_eq!(left.len(), 3, "和数据库备份一样留 3 份: {left:?}");
+        assert!(
+            left.iter().all(|p| !p.ends_with("kb_assets.bak-20260101-000000")
+                && !p.ends_with("kb_assets.bak-20260102-000000")),
+            "删掉的应是最旧的: {left:?}"
+        );
         assert!(dir.join("kb_assets").exists(), "现用目录不能被当成备份删掉");
 
         let _ = fs::remove_dir_all(&dir);
@@ -2169,6 +2220,41 @@ mod tests {
 
         let _ = fs::remove_dir_all(&tmp);
     }
+
+    /// 内置 MCP 的第二条连接没放开时，Windows 上导入必失败（2026-11-05 客户反馈）
+    #[test]
+    fn replace_succeeds_after_internal_mcp_connection_released() {
+        let dir = mk_tmp_dir("mcp-conn");
+        let db_path = dir.join("app.db");
+        let db = crate::database::Database::init(db_path.to_str().unwrap()).unwrap();
+        let mcp_db = kb_core::KbDb::open(&db_path, true).unwrap();
+        // 启动时就读一次白名单，连接从此挂在 WAL 上（SQLite 不读库不碰文件）
+        let _ = mcp_db.read_tool_whitelist();
+        db.release().unwrap();
+        let tmp = dir.join(".sync-tmp-import-db");
+
+        // 只放主连接：这就是修之前的现场
+        mk_db(&tmp, "新库");
+        let result = SyncService::commit_db_replacement(&db_path, &tmp);
+        if cfg!(windows) {
+            let msg = result
+                .expect_err("第二条连接开着，-wal 应删不掉")
+                .to_string();
+            assert!(msg.contains("-wal"), "{msg}");
+            assert!(db_path.exists(), "失败时原库不能动");
+        }
+
+        // 两条都放开就能替换
+        mcp_db.release().unwrap();
+        mk_db(&tmp, "新库");
+        SyncService::commit_db_replacement(&db_path, &tmp).unwrap();
+
+        // 接回去后读到的是新库
+        mcp_db.reopen(&db_path, true).unwrap();
+        assert_eq!(note_titles_at(&db_path), vec!["新库".to_string()]);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
 fn device_zip_name() -> String {
@@ -2187,4 +2273,72 @@ fn device_zip_name() -> String {
         })
         .collect();
     format!("kb-sync-{}.zip", safe.to_lowercase())
+}
+
+/// 2026-11-05 数据安全审查：库内容全在 WAL 里时，导入前的备份不能是空壳
+#[cfg(test)]
+mod backup_wal_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        static N: AtomicU64 = AtomicU64::new(0);
+        let d = std::env::temp_dir().join(format!(
+            "kb_bakwal_{}_{}_{}",
+            tag,
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// 造一个「主文件 + 未合并 WAL」的现场（连接故意泄漏，内容只在 WAL 里）
+    fn make_wal_only_db(dir: &Path, notes: i64) -> std::path::PathBuf {
+        let src = dir.join("src");
+        fs::create_dir_all(&src).unwrap();
+        let conn = rusqlite::Connection::open(src.join("app.db")).unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+        conn.execute_batch("CREATE TABLE notes (id INTEGER PRIMARY KEY);").unwrap();
+        for _ in 0..notes {
+            conn.execute("INSERT INTO notes DEFAULT VALUES", []).unwrap();
+        }
+        for f in ["app.db", "app.db-wal"] {
+            fs::copy(src.join(f), dir.join(f)).unwrap();
+        }
+        std::mem::forget(conn);
+        dir.join("app.db")
+    }
+
+    #[test]
+    fn backup_keeps_wal_only_notes() {
+        let dir = temp_dir("wal");
+        let db = make_wal_only_db(&dir, 50);
+
+        let bak = SyncService::backup_existing_db(&db).unwrap();
+        let n: i64 = rusqlite::Connection::open(&bak)
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 50, "备份里要有 WAL 中的全部笔记");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 现有库已损坏、导不出来时不能卡住导入，退回复制文件
+    #[test]
+    fn backup_falls_back_to_file_copy_for_corrupt_db() {
+        let dir = temp_dir("corrupt");
+        let db = dir.join("app.db");
+        fs::write(&db, b"not-a-database").unwrap();
+        fs::write(dir.join("app.db-wal"), b"old-wal").unwrap();
+
+        let bak = SyncService::backup_existing_db(&db).unwrap();
+
+        assert_eq!(fs::read(&bak).unwrap(), b"not-a-database");
+        assert_eq!(fs::read(with_suffix(&bak, "-wal")).unwrap(), b"old-wal");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

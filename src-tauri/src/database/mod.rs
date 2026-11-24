@@ -28,6 +28,7 @@ pub mod search;
 pub mod session;
 pub mod snapshots;
 pub mod sync;
+pub mod sync_content;
 pub mod sync_v1;
 pub mod tags;
 pub mod task_attachments;
@@ -59,6 +60,75 @@ fn file_backed(db_path: &str) -> Option<String> {
     } else {
         Some(db_path.to_string())
     }
+}
+
+/// 升级前备份的文件名中缀：`app.db.before-upgrade-<时间戳>-v<旧版本>`
+const BEFORE_UPGRADE_INFIX: &str = ".before-upgrade-";
+/// 升级前备份保留份数（每份都是整库，多了占盘）
+const BEFORE_UPGRADE_KEEP: usize = 2;
+
+/// 用 `VACUUM INTO` 把库导出成一份完整单文件（绕开 WAL）。
+/// 失败直接中止升级：本次启动会报错退出，但用户的库一个字节都没被改写。
+fn backup_before_upgrade(
+    conn: &Connection,
+    db_path: &str,
+    old_version: i32,
+) -> Result<(), AppError> {
+    let path = std::path::Path::new(db_path);
+    let file_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| AppError::Custom("数据库路径异常，无法生成升级前备份名".into()))?;
+    let dir = path
+        .parent()
+        .ok_or_else(|| AppError::Custom("数据库路径异常，无法定位所在目录".into()))?;
+
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let target = dir.join(format!(
+        "{}{}{}-v{}",
+        file_name, BEFORE_UPGRADE_INFIX, stamp, old_version
+    ));
+    let _ = std::fs::remove_file(&target);
+    let target_str = target.to_string_lossy().replace('\'', "''");
+    conn.execute_batch(&format!("VACUUM INTO '{}'", target_str))
+        .map_err(|e| {
+            AppError::Custom(format!(
+                "升级前备份数据库失败，已取消升级（原库未改动）: {}",
+                e
+            ))
+        })?;
+    log::info!("[db] 升级前已备份: {}", target.display());
+
+    // 只留最近 N 份
+    let prefix = format!("{}{}", file_name, BEFORE_UPGRADE_INFIX);
+    let mut backups: Vec<std::path::PathBuf> = match std::fs::read_dir(dir) {
+        Ok(entries) => entries
+            .flatten()
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|n| n.starts_with(&prefix))
+                    .unwrap_or(false)
+            })
+            .collect(),
+        Err(e) => {
+            log::warn!("[db] 清理旧升级备份：读取目录失败 {}", e);
+            return Ok(());
+        }
+    };
+    if backups.len() <= BEFORE_UPGRADE_KEEP {
+        return Ok(());
+    }
+    backups.sort();
+    let drop_count = backups.len() - BEFORE_UPGRADE_KEEP;
+    for old in backups.into_iter().take(drop_count) {
+        if let Err(e) = std::fs::remove_file(&old) {
+            log::warn!("[db] 清理旧升级备份 {} 失败: {}", old.display(), e);
+        }
+    }
+    Ok(())
 }
 
 impl Database {
@@ -93,6 +163,14 @@ impl Database {
         conn.pragma_update(None, "temp_store", "MEMORY")?;
         // 并发锁等待 5 秒再报 SQLITE_BUSY，避免瞬时冲突立即失败
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
+
+        // 升级前先留一份完整备份：迁移脚本有 bug 时这是唯一能原样回退的东西。
+        // 备份失败就不升级 —— 宁可这次打不开并说清原因，也不在没有退路时改写用户的库。
+        let old_version: i32 =
+            conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if db_path != ":memory:" && old_version > 0 && old_version < schema::SCHEMA_VERSION {
+            backup_before_upgrade(&conn, db_path, old_version)?;
+        }
 
         // 执行 Schema 迁移
         schema::migrate(&conn)?;
@@ -165,6 +243,9 @@ impl Database {
         new_conn.pragma_update(None, "mmap_size", 33_554_432_i64)?;
         new_conn.pragma_update(None, "temp_store", "MEMORY")?;
         new_conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        // reopen 不跑 migrate（导入的库已是同版本），但字数触发器调用的 kb_word_count()
+        // 是连接级函数，必须在这里补注册，否则导入后第一次写 notes 会报 no such function
+        kb_core::plain_text::register_sql_functions(&new_conn)?;
 
         *guard = new_conn;
         if let Ok(mut p) = self.path.lock() {
@@ -298,11 +379,15 @@ impl Database {
 
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
-        // 对 notes 的 4 个聚合用一次扫描完成
+        // 对 notes 的 4 个聚合用一次扫描完成。
+        // total_notes / today_updated 与笔记列表（list_notes）同口径：排除隐藏 / 临时 / 日记 /
+        // 外部索引文档，否则只点过「今日日记」的新用户首页显示「总数 1」而列表里一篇都没有。
+        // 今日字数仍计入日记（属手写内容），只排除回收站 / 外部索引文档。
         let (total_notes, today_updated, total_words): (usize, usize, usize) = conn.query_row(
             "SELECT
-                COUNT(*) FILTER (WHERE is_deleted = 0 AND ext_index_only = 0),
-                COUNT(*) FILTER (WHERE is_deleted = 0 AND ext_index_only = 0 AND substr(updated_at, 1, 10) = ?1),
+                COUNT(*) FILTER (WHERE is_deleted = 0 AND is_hidden = 0 AND is_scratch = 0 AND is_daily = 0 AND ext_index_only = 0),
+                COUNT(*) FILTER (WHERE is_deleted = 0 AND is_hidden = 0 AND is_scratch = 0 AND is_daily = 0 AND ext_index_only = 0
+                                 AND substr(updated_at, 1, 10) = ?1),
                 COALESCE(SUM(word_count) FILTER (WHERE is_deleted = 0 AND ext_index_only = 0), 0)
              FROM notes",
             [&today],
@@ -423,5 +508,78 @@ mod config_batch_tests {
             db.get_config("module.notes.default_sort").unwrap().as_deref(),
             Some("new")
         );
+    }
+}
+
+#[cfg(test)]
+mod upgrade_backup_tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "kb_upgrade_bak_{}_{}_{}",
+            tag,
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn backup_created_before_schema_upgrade() {
+        let dir = temp_dir("one");
+        let db_path = dir.join("app.db");
+        let path_str = db_path.to_string_lossy().to_string();
+
+        // 先建当前版本的库，再把版本拨回上一版，模拟「旧库升级」
+        let db = Database::init(&path_str).unwrap();
+        {
+            let conn = db.conn_lock().unwrap();
+            conn.pragma_update(None, "user_version", schema::SCHEMA_VERSION - 1)
+                .unwrap();
+        }
+        drop(db);
+
+        let db = Database::init(&path_str).unwrap();
+        drop(db);
+
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            names.iter().any(|n| {
+                n.contains(".before-upgrade-")
+                    && n.ends_with(&format!("-v{}", schema::SCHEMA_VERSION - 1))
+            }),
+            "升级前应留一份完整备份: {names:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_backup_when_version_current() {
+        let dir = temp_dir("current");
+        let db_path = dir.join("app.db");
+        let path_str = db_path.to_string_lossy().to_string();
+        drop(Database::init(&path_str).unwrap());
+        drop(Database::init(&path_str).unwrap());
+
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            names.iter().all(|n| !n.contains(".before-upgrade-")),
+            "版本已最新不应产生备份: {names:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

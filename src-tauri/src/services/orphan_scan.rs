@@ -33,7 +33,9 @@ use walkdir::WalkDir;
 
 use crate::database::Database;
 use crate::error::AppError;
-use crate::models::{OrphanAssetClean, OrphanAssetScan, OrphanGroup, OrphanItem};
+use crate::models::{
+    OrphanAssetClean, OrphanAssetScan, OrphanGroup, OrphanItem, OrphanScanStatus,
+};
 use crate::services::attachment::AttachmentService;
 use crate::services::image::ImageService;
 use crate::services::pdf::PdfService;
@@ -98,44 +100,89 @@ impl OrphanScanService {
             referenced_source_abs.insert(normalize_path_for_compare(&abs));
         }
 
+        let images = scan_flat_images(app_data_dir, &referenced_tokens, &encrypted_ids)?;
+        let videos = scan_per_note_dir(
+            "video",
+            &VideoService::videos_dir(app_data_dir),
+            &note_ids,
+            &encrypted_ids,
+            &referenced_tokens,
+            VIDEO_EXTS,
+        )?;
+        let attachments = scan_per_note_dir(
+            "attachment",
+            &AttachmentService::attachments_dir(app_data_dir),
+            &note_ids,
+            &encrypted_ids,
+            &referenced_tokens,
+            ATTACHMENT_EXTS,
+        )?;
+        let pdfs = scan_per_note_dir_by_path_ref(
+            "pdf",
+            &PdfService::pdfs_dir(app_data_dir),
+            &note_ids,
+            &encrypted_ids,
+            &referenced_source_abs,
+        )?;
+        let sources = scan_flat_sources(
+            app_data_dir,
+            &SourceFileService::sources_dir(app_data_dir),
+            &note_ids,
+            &referenced_source_abs,
+        )?;
+
+        let note_count = contents.len() as i64;
+        let orphan_count = images.count
+            + videos.count
+            + attachments.count
+            + pdfs.count
+            + sources.count;
+        // 空库时一切素材都像孤儿；孤儿比笔记还多也可能打开了错误的库。
+        // 这两种情况只提示/拦截，不自动清理。
+        let status = if note_count == 0 && orphan_count > 0 {
+            OrphanScanStatus::Blocked
+        } else if orphan_count > note_count as usize {
+            OrphanScanStatus::Warn
+        } else {
+            OrphanScanStatus::Ok
+        };
+
         Ok(OrphanAssetScan {
-            images: scan_flat_images(app_data_dir, &referenced_tokens, &encrypted_ids)?,
-            videos: scan_per_note_dir(
-                "video",
-                &VideoService::videos_dir(app_data_dir),
-                &note_ids,
-                &encrypted_ids,
-                &referenced_tokens,
-                VIDEO_EXTS,
-            )?,
-            attachments: scan_per_note_dir(
-                "attachment",
-                &AttachmentService::attachments_dir(app_data_dir),
-                &note_ids,
-                &encrypted_ids,
-                &referenced_tokens,
-                ATTACHMENT_EXTS,
-            )?,
-            pdfs: scan_per_note_dir_by_path_ref(
-                "pdf",
-                &PdfService::pdfs_dir(app_data_dir),
-                &note_ids,
-                &encrypted_ids,
-                &referenced_source_abs,
-            )?,
-            sources: scan_flat_sources(
-                app_data_dir,
-                &SourceFileService::sources_dir(app_data_dir),
-                &note_ids,
-                &referenced_source_abs,
-            )?,
+            images,
+            videos,
+            attachments,
+            pdfs,
+            sources,
+            note_count,
+            orphan_count,
+            status,
         })
     }
 
     /// 批量删除孤儿素材
     ///
     /// 安全策略：每条 path 必须落在对应 kind 的 assets 子目录下，否则计入 failed 不删。
-    pub fn clean(app_data_dir: &Path, items: &[OrphanItem]) -> Result<OrphanAssetClean, AppError> {
+    pub fn clean(
+        db: &Database,
+        app_data_dir: &Path,
+        items: &[OrphanItem],
+    ) -> Result<OrphanAssetClean, AppError> {
+        if !items.is_empty() {
+            // 空库时磁盘上的真实素材会被全部判成孤儿 —— 后端拦截，界面也不给按钮
+            let note_count = db.count_notes_active()?;
+            if note_count == 0 {
+                return Err(AppError::InvalidInput(
+                    "当前知识库是空的，清理孤儿素材会把真实文件当成垃圾删除。\
+                     请先确认打开了正确的数据目录，或先导入/新建笔记。"
+                        .into(),
+                ));
+            }
+        }
+        Self::clean_items(app_data_dir, items)
+    }
+
+    /// 实际删除逻辑（调用方已完成空库拦截）
+    fn clean_items(app_data_dir: &Path, items: &[OrphanItem]) -> Result<OrphanAssetClean, AppError> {
         // 预先按 kind 算各自的合法根目录（小写规范化）
         let mut roots: HashMap<&'static str, String> = HashMap::new();
         roots.insert(
@@ -698,5 +745,48 @@ pub fn collect_filename_tokens(text: &str, out: &mut HashSet<String>) {
             }
         }
         i = end;
+    }
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "kb_orphan_safety_{}_{}_{}",
+            tag,
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn clean_rejects_empty_database() {
+        let db = Database::init(":memory:").unwrap();
+        let dir = temp_dir("empty");
+        let item = OrphanItem {
+            kind: "image".into(),
+            path: dir.join("x.png").to_string_lossy().to_string(),
+            note_id: None,
+            size: 3,
+            reason: "unreferenced".into(),
+        };
+        let r = OrphanScanService::clean(&db, &dir, &[item]);
+        assert!(r.is_err(), "空库时禁止清理孤儿");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clean_without_items_is_noop_even_on_empty_db() {
+        let db = Database::init(":memory:").unwrap();
+        let dir = temp_dir("none");
+        let r = OrphanScanService::clean(&db, &dir, &[]).unwrap();
+        assert_eq!(r.deleted, 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

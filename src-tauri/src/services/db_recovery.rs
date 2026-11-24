@@ -41,7 +41,61 @@ const CORRUPT_SUFFIX: &str = ".corrupt-";
 /// （v1.50.0=54 / v1.51.0=55 / v1.52.0=56），用户从 release 仓下个旧版装回去、
 /// 或把数据目录同步到另一台还没升级的机器，就会撞上。
 pub(crate) fn should_attempt_recovery(err: &AppError) -> bool {
-    !matches!(err, AppError::SchemaTooNew { .. })
+    // 只有 SQLite 明确报告「库损坏」才恢复。IO 错误（磁盘满、权限不足）、
+    // 版本过高、普通 SQL 错误都不该把好库改名成 .corrupt-*。
+    use rusqlite::ErrorCode;
+    matches!(
+        err,
+        AppError::Database(rusqlite::Error::SqliteFailure(e, _))
+            if matches!(e.code, ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase)
+    )
+}
+
+/// 恢复提示文件名（与 db 同目录）
+const NOTICE_FILE: &str = "db_recovery_notice.json";
+
+/// 启动期恢复发生时写给主窗口的提示。用户点「知道了」后清除。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbRecoveryNotice {
+    pub recovered_at: String,
+    /// 用来顶替的自动备份路径；空库启动时为 None
+    pub used_backup: Option<String>,
+}
+
+fn notice_path(db_path: &Path) -> Option<PathBuf> {
+    db_path.parent().map(|dir| dir.join(NOTICE_FILE))
+}
+
+fn write_recovery_notice(db_path: &Path, used_backup: Option<&Path>) {
+    let Some(path) = notice_path(db_path) else {
+        return;
+    };
+    let notice = DbRecoveryNotice {
+        recovered_at: chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string(),
+        used_backup: used_backup.map(|p| p.to_string_lossy().to_string()),
+    };
+    if let Ok(bytes) = serde_json::to_vec_pretty(&notice) {
+        if let Err(e) = std::fs::write(&path, bytes) {
+            log::warn!("[db-recovery] 写恢复提示失败: {}", e);
+        }
+    }
+}
+
+/// 读恢复提示（没有则 None）
+pub fn read_recovery_notice(db_path: &Path) -> Option<DbRecoveryNotice> {
+    let path = notice_path(db_path)?;
+    let bytes = std::fs::read(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// 清除恢复提示（用户确认后调用）
+pub fn clear_recovery_notice(db_path: &Path) {
+    if let Some(path) = notice_path(db_path) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// 数据库打不开时的恢复入口。成功返回一个可用的 [`Database`]。
@@ -78,6 +132,7 @@ pub fn recover_or_fresh(db_path: &Path, open_err: &AppError) -> Result<Database,
                             "[db-recovery] 已从备份 {} 恢复数据库，应用继续启动",
                             backup.display()
                         );
+                        write_recovery_notice(db_path, Some(backup));
                         return Ok(db);
                     }
                     Err(e) => log::warn!(
@@ -99,6 +154,7 @@ pub fn recover_or_fresh(db_path: &Path, open_err: &AppError) -> Result<Database,
     log::warn!("[db-recovery] 无可用备份，改为留档损坏库并以空库启动");
     quarantine_corrupt_db(db_path)?;
     let db = Database::init(&db_path.to_string_lossy())?;
+    write_recovery_notice(db_path, None);
     log::warn!(
         "[db-recovery] 已用全新空库启动。原损坏文件已留档在同目录 {}*，可在设置页导入备份恢复数据",
         db_path
@@ -255,7 +311,8 @@ mod tests {
     use super::*;
     use crate::models::NoteInput;
 
-    /// 恢复闸门：只有"真打不开/坏了"才该救；"应用比库旧"必须放行给调用方原样退出。
+    /// 恢复闸门：只有 SQLite 明确报损坏才该救；「应用比库旧」、IO 错误、普通错误
+    /// 都必须放行给调用方原样退出。
     ///
     /// 这是本模块最危险的一条分支 —— 判错方向的代价是把用户完好的库改名留档、
     /// 起个空库，界面上文档归零。
@@ -265,14 +322,24 @@ mod tests {
             db: 61,
             app: 60
         }));
-        // 其余失败照旧走恢复
-        assert!(should_attempt_recovery(&AppError::Custom(
-            "file is not a database".into()
-        )));
-        assert!(should_attempt_recovery(&AppError::Io(std::io::Error::new(
+        // 磁盘满 / 权限 / 截断等 IO 错误不能把好库当损坏
+        assert!(!should_attempt_recovery(&AppError::Io(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
             "truncated"
         ))));
+        // 普通业务错误不恢复
+        assert!(!should_attempt_recovery(&AppError::Custom(
+            "file is not a database".into()
+        )));
+        // 只有 SQLite 明确报损坏才恢复
+        let corrupt = AppError::Database(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error {
+                code: rusqlite::ErrorCode::NotADatabase,
+                extended_code: 26,
+            },
+            None,
+        ));
+        assert!(should_attempt_recovery(&corrupt));
     }
 
     /// 版本高于当前应用的**备份**要跳过，不能拿去顶替。
@@ -511,6 +578,57 @@ mod tests {
         let dir = temp_dir("noop");
         let db_path = dir.join("app.db");
         assert!(quarantine_corrupt_db(&db_path).is_ok(), "首次启动不应报错");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_sqlite_corruption_triggers_recovery() {
+        assert!(!should_attempt_recovery(&AppError::Custom("坏了".into())));
+        assert!(!should_attempt_recovery(&AppError::SchemaTooNew { db: 99, app: 90 }));
+        assert!(!should_attempt_recovery(&AppError::Io(
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied)
+        )));
+        assert!(!should_attempt_recovery(&AppError::Database(
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ErrorCode::DatabaseBusy,
+                    extended_code: 5,
+                },
+                None
+            )
+        )));
+
+        for code in [
+            rusqlite::ErrorCode::DatabaseCorrupt,
+            rusqlite::ErrorCode::NotADatabase,
+        ] {
+            let err = AppError::Database(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code,
+                    extended_code: 11,
+                },
+                None,
+            ));
+            assert!(should_attempt_recovery(&err), "{code:?} 应触发恢复");
+        }
+    }
+
+    #[test]
+    fn recovery_notice_roundtrip() {
+        let dir = temp_dir("notice");
+        let db_path = dir.join("app.db");
+        assert!(read_recovery_notice(&db_path).is_none());
+
+        write_recovery_notice(&db_path, Some(&dir.join("app.db.bak-1")));
+        let notice = read_recovery_notice(&db_path).expect("应有提示");
+        assert!(notice
+            .used_backup
+            .as_deref()
+            .unwrap()
+            .ends_with("app.db.bak-1"));
+
+        clear_recovery_notice(&db_path);
+        assert!(read_recovery_notice(&db_path).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

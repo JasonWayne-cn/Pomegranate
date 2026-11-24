@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { check } from "@tauri-apps/plugin-updater";
 import {
   enable as autostartEnable,
   disable as autostartDisable,
@@ -12,6 +11,7 @@ import type {
   CardReviewLog,
   CardStats,
   MobileUpdateInfo,
+  UpdaterSnapshot,
   AppConfig,
   CustomReminderSound,
   AppLockStatus,
@@ -96,6 +96,7 @@ import type {
   SyncHistoryItem,
   RemoteSnapshot,
   RestoreBatchResult,
+  TrashAutoPurge,
   Task,
   TaskAttachment,
   PasteImage,
@@ -137,6 +138,8 @@ import type {
   SyncConflictItem,
   SyncConflictResolution,
   ResolvedDataDir,
+  DataDirInspect,
+  DbRecoveryNotice,
   MigrationMarker,
   WordExportResult,
   HtmlExportResult,
@@ -228,9 +231,26 @@ export const systemApi = {
     invoke<TextHealthReport>("check_db_text_health", { repair }),
 };
 
-/** 更新相关 API */
+/** 桌面端更新状态广播事件（载荷为 UpdaterSnapshot） */
+export const UPDATER_STATE_EVENT = "updater://state";
+
+/**
+ * 桌面端更新 API。检查、下载、验签、安装全在 Rust（services::updater_download），
+ * 全局只有一份状态、同一时刻最多一路下载；前端只订阅 {@link UPDATER_STATE_EVENT} 显示。
+ */
 export const updaterApi = {
-  checkUpdate: () => check(),
+  /** 检查更新；autoDownload 为真时发现新版本立即后台下载。下载中 / 已就绪时直接返回当前状态 */
+  check: (autoDownload: boolean) =>
+    invoke<UpdaterSnapshot>("updater_check", { autoDownload }),
+  state: () => invoke<UpdaterSnapshot>("updater_state"),
+  /** 开始下载；已暂停时从断点继续 */
+  start: () => invoke<UpdaterSnapshot>("updater_start"),
+  /** 暂停，保留已下载的部分 */
+  pause: () => invoke<UpdaterSnapshot>("updater_pause"),
+  /** 取消并删除已下载的部分 */
+  cancel: () => invoke<UpdaterSnapshot>("updater_cancel"),
+  /** 安装已下载的更新包（Windows 上安装器会结束本进程，其它平台返回后需 relaunch） */
+  install: () => invoke<void>("updater_install"),
 };
 
 /** 开机启动 API
@@ -757,6 +777,11 @@ export const trashApi = {
   /** 批量永久删除；返回实际删除条数 */
   permanentDeleteBatch: (ids: number[]) =>
     invoke<number>("permanent_delete_notes_batch", { ids }),
+  /** 读自动清理设置（天数 + 生效时间） */
+  getAutoPurge: () => invoke<TrashAutoPurge>("get_trash_auto_purge"),
+  /** 改自动清理天数（0 / 7 / 30 / 90；0 = 从不），生效时间重置为现在 */
+  setAutoPurge: (days: number) =>
+    invoke<TrashAutoPurge>("set_trash_auto_purge", { days }),
 };
 
 /** 每日笔记 API */
@@ -1716,12 +1741,18 @@ export const syncV1Api = {
  */
 export const dataDirApi = {
   getInfo: () => invoke<ResolvedDataDir>("get_data_dir_info"),
+  /** 切换前只读探查目标目录：有没有库、笔记数、大小、修改时间 */
+  inspect: (path: string) =>
+    invoke<DataDirInspect>("inspect_data_dir", { path }),
   setPending: (newPath: string) =>
     invoke<void>("set_pending_data_dir", { newPath }),
   clearPending: () => invoke<void>("clear_pending_data_dir"),
-  /** T-013 完整版：写指针 + 写迁移 marker */
-  setPendingWithMigration: (newPath: string) =>
-    invoke<void>("set_pending_data_dir_with_migration", { newPath }),
+  /** T-013 完整版：写指针 + 写迁移 marker；目标已有库时需 replaceExisting=true */
+  setPendingWithMigration: (newPath: string, replaceExisting = false) =>
+    invoke<void>("set_pending_data_dir_with_migration", {
+      newPath,
+      replaceExisting,
+    }),
   /** 取消未执行 / 失败的迁移（指针退回源目录 + 删 marker） */
   cancelPendingMigration: () => invoke<void>("cancel_pending_migration"),
   /** 重试上次失败的迁移（marker crashed → pending，仍需重启才真正执行） */
@@ -1729,6 +1760,10 @@ export const dataDirApi = {
   /** 读迁移 marker（splash 窗口启动时查初始状态用）*/
   getMigrationMarker: () =>
     invoke<MigrationMarker | null>("get_migration_marker"),
+  /** 启动期数据库恢复提示（用了哪份备份 / 是否空库启动） */
+  getDbRecoveryNotice: () =>
+    invoke<DbRecoveryNotice | null>("get_db_recovery_notice"),
+  clearDbRecoveryNotice: () => invoke<void>("clear_db_recovery_notice"),
 };
 
 /** 待办任务 API */

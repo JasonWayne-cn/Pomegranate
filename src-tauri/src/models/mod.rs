@@ -309,7 +309,14 @@ pub struct Folder {
     pub parent_id: Option<i64>,
     pub sort_order: i32,
     pub children: Vec<Folder>,
+    /// 可编辑文档数（不含外部二进制索引）
     pub note_count: usize,
+    /// 外部 Office 文档数（Word / PowerPoint / Excel / CSV，仅索引）
+    #[serde(default)]
+    pub office_count: usize,
+    /// 外部 PDF 文档数（仅索引）
+    #[serde(default)]
+    pub pdf_count: usize,
     /// 非空表示这是外部目录挂载镜像文件夹（前端用不同的同步文件夹图标）
     #[serde(default)]
     pub mount_id: Option<i64>,
@@ -755,6 +762,18 @@ pub struct OrphanGroup {
     pub truncated: bool,
 }
 
+/// 孤儿扫描的安全状态
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum OrphanScanStatus {
+    #[default]
+    Ok,
+    /// 孤儿比笔记还多：可能打开了错误的库，清理前要二次确认
+    Warn,
+    /// 库是空的：一切素材都像孤儿，禁止清理
+    Blocked,
+}
+
 /// 全量孤儿扫描结果
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -764,6 +783,12 @@ pub struct OrphanAssetScan {
     pub attachments: OrphanGroup,
     pub pdfs: OrphanGroup,
     pub sources: OrphanGroup,
+    /// 当前库里的未删除笔记数
+    pub note_count: i64,
+    /// 本次扫描到的孤儿总数
+    pub orphan_count: usize,
+    /// 安全状态：ok / warn / blocked
+    pub status: OrphanScanStatus,
 }
 
 /// 孤儿素材清理结果
@@ -870,6 +895,17 @@ pub struct HiddenFolderCount {
 pub struct RestoreBatchResult {
     pub restored: usize,
     pub to_root: usize,
+}
+
+/// 回收站自动清理设置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashAutoPurge {
+    /// 删除满多少天自动永久删除；0 = 从不
+    pub days: u32,
+    /// 规则生效时间（本地时间 YYYY-MM-DD HH:MM:SS）。到期时间按
+    /// max(删除时间, 生效时间) + days 算，生效前就在回收站里的笔记从这一刻起算
+    pub since: String,
 }
 
 // ─── 同步 ─────────────────────────────────────
@@ -1681,6 +1717,12 @@ pub struct ManifestEntry {
     /// 文件夹路径（如 "工作/周报"）；根层为空串。
     #[serde(default)]
     pub folder_path: String,
+    /// 文件夹的跨端稳定 ID；旧客户端写的清单没有这个字段 → 按路径兜底
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_uuid: Option<String>,
+    /// 笔记最后一次换文件夹的时间。只移动文件夹时内容 hash 不变，靠它判断谁移动得更晚。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_moved_at: Option<String>,
     /// 是否加密文档
     #[serde(default)]
     pub encrypted: bool,
@@ -1707,6 +1749,112 @@ pub struct ManifestEntry {
 pub struct VaultMeta {
     pub salt: String,
     pub verifier: String,
+}
+
+/// 文件夹跨端同步条目：按 `updated_at` 新者赢；删除靠 tombstone 传播。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderManifestEntry {
+    pub stable_id: String,
+    pub content_hash: String,
+    pub updated_at: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_stable_id: Option<String>,
+    #[serde(default)]
+    pub sort_order: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub tombstone: bool,
+}
+
+/// 闪卡复习记录只同步最近这么多天（防止 manifest 无限膨胀）
+pub const CARD_LOG_RETENTION_DAYS: i64 = 365;
+
+/// 闪卡跨端同步条目（正反面 + FSRS 调度状态）。
+///
+/// 整条按 `updated_at` 新者赢；但调度字段单独按 `last_review` 晚者取，
+/// 否则「电脑上改了正面、手机上随后复习了一次」会让其中一边的改动丢掉。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardManifestEntry {
+    pub stable_id: String,
+    pub content_hash: String,
+    pub updated_at: String,
+    pub front: String,
+    pub back: String,
+    pub deck: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_uuid: Option<String>,
+    pub due: String,
+    pub stability: f64,
+    pub difficulty: f64,
+    pub elapsed_days: i64,
+    pub scheduled_days: i64,
+    pub reps: i64,
+    pub lapses: i64,
+    pub state: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_review: Option<String>,
+    #[serde(default)]
+    pub tombstone: bool,
+}
+
+/// 闪卡复习记录。只增不改，按 stable_id 取并集；卡片在本端不存在时跳过。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardReviewLogManifestEntry {
+    pub stable_id: String,
+    pub card_uuid: String,
+    pub rating: i64,
+    pub state: i64,
+    pub due: String,
+    pub stability: f64,
+    pub difficulty: f64,
+    pub elapsed_days: i64,
+    pub last_elapsed_days: i64,
+    pub scheduled_days: i64,
+    pub review: String,
+}
+
+/// AI 提示词模板。内置模板的 stable_id 固定为 `builtin:<code>`，各端天然对得上。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptManifestEntry {
+    pub stable_id: String,
+    pub content_hash: String,
+    pub updated_at: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub prompt: String,
+    pub output_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builtin_code: Option<String>,
+    #[serde(default)]
+    pub sort_order: i32,
+    pub enabled: bool,
+    #[serde(default)]
+    pub tombstone: bool,
+}
+
+/// 笔记模板。预置模板 stable_id 固定为 `preset:<名称>`，避免同步后每端各多出一套。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteTemplateManifestEntry {
+    pub stable_id: String,
+    pub content_hash: String,
+    pub updated_at: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub content: String,
+    #[serde(default)]
+    pub tombstone: bool,
 }
 
 /// V1 同步 manifest（远端 manifest.json 全文）
@@ -1741,6 +1889,21 @@ pub struct SyncManifestV1 {
     /// 任务分类条目
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub task_categories: Vec<TaskCategoryManifestEntry>,
+    /// 文件夹树（含 tombstone；空 Vec 不序列化，旧客户端忽略）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folders: Vec<FolderManifestEntry>,
+    /// 闪卡
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cards: Vec<CardManifestEntry>,
+    /// 闪卡复习记录（只带最近 [`CARD_LOG_RETENTION_DAYS`] 天）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub card_review_logs: Vec<CardReviewLogManifestEntry>,
+    /// AI 提示词模板
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompts: Vec<PromptManifestEntry>,
+    /// 笔记模板
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub note_templates: Vec<NoteTemplateManifestEntry>,
 }
 
 impl SyncManifestV1 {

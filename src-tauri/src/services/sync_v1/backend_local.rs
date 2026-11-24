@@ -210,6 +210,8 @@ mod tests {
                 remote_path: "notes/1.md".into(),
                 tombstone: false,
                 folder_path: "工作/周报".into(),
+                folder_uuid: None,
+                folder_moved_at: None,
                 encrypted: false,
                 is_daily: false,
                 daily_date: None,
@@ -223,6 +225,11 @@ mod tests {
             projects: vec![],
             tasks: vec![],
             task_categories: vec![],
+            folders: vec![],
+            cards: vec![],
+            card_review_logs: vec![],
+            prompts: vec![],
+            note_templates: vec![],
         };
         backend.write_manifest(&m).unwrap();
         let got = backend.read_manifest().unwrap().expect("应能读回 manifest");

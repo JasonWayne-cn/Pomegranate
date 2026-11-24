@@ -46,7 +46,15 @@ const TAB_DEFS: { key: OrphanKind; label: string; description: string }[] = [
   { key: "task_file", label: "待办附件", description: "待办已被删除或附件已移除后残留的文件" },
 ];
 
-const KIND_TO_GROUP: Record<OrphanKind, keyof OrphanAssetScan> = {
+type OrphanGroupKey =
+  | "images"
+  | "videos"
+  | "attachments"
+  | "pdfs"
+  | "sources"
+  | "taskFiles";
+
+const KIND_TO_GROUP: Record<OrphanKind, OrphanGroupKey> = {
   image: "images",
   video: "videos",
   attachment: "attachments",
@@ -169,6 +177,23 @@ export default function OrphanAssetsPanel() {
         </Button>
       </div>
 
+      {scan?.status === "blocked" && (
+        <Alert
+          type="error"
+          showIcon
+          message="当前知识库是空的，已禁止清理孤儿素材"
+          description="空库时磁盘上的真实素材会被全部判成孤儿。请先确认打开了正确的数据目录，或先导入 / 新建笔记。"
+        />
+      )}
+      {scan?.status === "warn" && (
+        <Alert
+          type="warning"
+          showIcon
+          message={`孤儿数（${scan.orphanCount}）多于笔记数（${scan.noteCount}）`}
+          description="可能打开了错误的数据目录。建议先确认数据目录和库内容，再决定是否清理。"
+        />
+      )}
+
       {scan && totalCount === 0 && (
         <Alert type="success" showIcon message="磁盘干净，没有孤儿素材" />
       )}
@@ -199,7 +224,12 @@ export default function OrphanAssetsPanel() {
                   return handleClean(all);
                 }}
               >
-                <Button danger size="small" loading={cleaning}>
+                <Button
+                  danger
+                  size="small"
+                  loading={cleaning}
+                  disabled={scan?.status === "blocked"}
+                >
                   一键清理全部
                 </Button>
               </Popconfirm>
@@ -355,7 +385,7 @@ function MediaGrid({
         <div
           key={it.path}
           className="border rounded overflow-hidden cursor-pointer"
-          style={{ borderColor: "#e5e7eb", background: "#fafafa" }}
+          style={{ borderColor: "var(--kb-border)", background: "var(--kb-bg-card)" }}
           onClick={() => onPreview(it)}
         >
           <div
@@ -390,10 +420,10 @@ function MediaGrid({
               />
             )}
           </div>
-          <div className="text-xs px-2 py-1 truncate" style={{ color: "#666" }} title={it.path}>
+          <div className="text-xs px-2 py-1 truncate" style={{ color: "var(--kb-text-secondary)" }} title={it.path}>
             {pickFileName(it.path)}
           </div>
-          <div className="text-[10px] px-2 pb-1" style={{ color: "#999" }}>
+          <div className="text-[10px] px-2 pb-1" style={{ color: "var(--kb-text-tertiary)" }}>
             {fmtMB(it.size)} · {reasonLabel(it.reason)}
           </div>
         </div>
@@ -422,7 +452,7 @@ function PathList({
       style={{
         maxHeight: "60vh",
         overflow: "auto",
-        border: "1px solid #f0f0f0",
+        border: "1px solid var(--kb-border)",
         borderRadius: 6,
       }}
     >
@@ -430,7 +460,7 @@ function PathList({
         <div
           key={it.path}
           className="px-3 py-2 border-b last:border-b-0 cursor-pointer hover:bg-gray-50 flex items-center gap-3"
-          style={{ borderColor: "#f0f0f0" }}
+          style={{ borderColor: "var(--kb-border)" }}
           onClick={() => handleOpen(it.path)}
           title="点击用系统默认应用打开"
         >

@@ -35,7 +35,7 @@ import {
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { dataDirApi } from "@/lib/api";
 import { DataMigrationSection } from "./DataMigrationSection";
-import type { DataDirSource, ResolvedDataDir } from "@/types";
+import type { DataDirInspect, DataDirSource, ResolvedDataDir } from "@/types";
 
 const { Text } = Typography;
 
@@ -53,7 +53,10 @@ export function DataDirSection() {
   const [loading, setLoading] = useState(false);
   const [restartHint, setRestartHint] = useState<string | null>(null);
   const [pickedPath, setPickedPath] = useState<string | null>(null);
-  const [migrateChoice, setMigrateChoice] = useState<"auto" | "manual">("auto");
+  const [inspectInfo, setInspectInfo] = useState<DataDirInspect | null>(null);
+  const [migrateChoice, setMigrateChoice] = useState<
+    "auto" | "manual" | "use-existing"
+  >("auto");
   // 数据迁移说明作为帮助信息，默认折叠以节省空间
   const [migrationOpen, setMigrationOpen] = useState(false);
 
@@ -87,15 +90,30 @@ export function DataDirSection() {
       return;
     }
 
+    // 只读探查目标目录，决定默认策略：已有库 → 默认直接使用，绝不默认覆盖
+    let ins: DataDirInspect | null = null;
+    try {
+      ins = await dataDirApi.inspect(sel);
+    } catch (e) {
+      message.error(`读取目标目录失败: ${e}`);
+      return;
+    }
+    setInspectInfo(ins);
     setPickedPath(sel);
-    setMigrateChoice("auto");
+    setMigrateChoice(ins.hasDb ? "use-existing" : "auto");
   }
 
   async function handleConfirmMove() {
     if (!pickedPath) return;
     try {
-      if (migrateChoice === "auto") {
-        await dataDirApi.setPendingWithMigration(pickedPath);
+      if (migrateChoice === "use-existing") {
+        await dataDirApi.setPending(pickedPath);
+        message.success("已写入指针；重启后直接使用该目录已有的数据");
+      } else if (migrateChoice === "auto") {
+        await dataDirApi.setPendingWithMigration(
+          pickedPath,
+          inspectInfo?.hasDb ?? false,
+        );
         message.success(
           "已写入指针 + 迁移 marker；关闭应用后重启，启动时会自动迁移",
         );
@@ -306,7 +324,11 @@ export function DataDirSection() {
         onOk={handleConfirmMove}
         onCancel={() => setPickedPath(null)}
         okText={
-          migrateChoice === "auto" ? "保存（重启时自动迁移）" : "保存（手动迁移）"
+          migrateChoice === "use-existing"
+            ? "保存（直接使用该目录）"
+            : migrateChoice === "auto"
+              ? "保存（重启时自动迁移）"
+              : "保存（手动迁移）"
         }
         cancelText="取消"
         width={600}
@@ -323,19 +345,56 @@ export function DataDirSection() {
               <Text code>{pickedPath}</Text>
             </div>
 
+            {inspectInfo && (
+              <div className="mb-3">
+                {inspectInfo.hasDb ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={`目标目录已有知识库：${inspectInfo.noteCount ?? "?"} 篇笔记，${formatBytes(inspectInfo.size)}`}
+                    description={
+                      <span style={{ fontSize: 12 }}>
+                        默认为「直接使用该目录的数据」；只有明确选择「替换」才会迁移并覆盖，
+                        原库会整组改名留档（<Text code style={{ fontSize: 11 }}>.before-migrate-*</Text>），不会删除。
+                        {inspectInfo.modifiedAt && ` 最后修改：${inspectInfo.modifiedAt}`}
+                      </span>
+                    }
+                  />
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    目标目录没有现成知识库，可安全迁移。
+                  </Text>
+                )}
+              </div>
+            )}
+
             <Radio.Group
               value={migrateChoice}
               onChange={(e) => setMigrateChoice(e.target.value)}
               className="w-full"
             >
               <Space direction="vertical" className="w-full">
+                {inspectInfo?.hasDb && (
+                  <Radio value="use-existing">
+                    <span className="ml-1">
+                      <Text strong>直接使用该目录的数据（推荐）</Text>
+                      <span style={{ fontSize: 12, color: token.colorTextSecondary, marginLeft: 8 }}>
+                        不迁移、不覆盖，重启后打开该目录里已有的库
+                      </span>
+                    </span>
+                  </Radio>
+                )}
                 <Radio value="auto">
                   <Space className="ml-1">
                     <Sparkles size={14} style={{ color: token.colorPrimary }} />
                     <span>
-                      <Text strong>自动迁移（推荐）</Text>
+                      <Text strong>
+                        {inspectInfo?.hasDb ? "替换为当前数据（迁移）" : "自动迁移（推荐）"}
+                      </Text>
                       <span style={{ fontSize: 12, color: token.colorTextSecondary, marginLeft: 8 }}>
-                        重启时弹独立窗口跑迁移，进度可见，旧目录保留作备份
+                        {inspectInfo?.hasDb
+                          ? "用当前数据替换目标库；目标原库整组留档，失败不覆盖"
+                          : "重启时弹独立窗口跑迁移，进度可见，旧目录保留作备份"}
                       </span>
                     </span>
                   </Space>
@@ -393,6 +452,14 @@ export function DataDirSection() {
       </Modal>
     </Card>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 function PathRow({

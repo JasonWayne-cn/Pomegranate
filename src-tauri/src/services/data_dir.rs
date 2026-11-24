@@ -170,6 +170,24 @@ pub struct ResolvedDataDir {
     pub pending_dir: Option<String>,
 }
 
+/// 切换数据目录前的只读探查结果（不碰目标目录里的任何数据）
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DataDirInspect {
+    pub dir: String,
+    pub exists: bool,
+    /// 目录里是否已有知识库（app.db / dev-app.db，含仅 WAL 存在的情况）
+    pub has_db: bool,
+    /// 命中的库文件名
+    pub db_file: Option<String>,
+    /// 库里的笔记数（副本上统计；打不开时为 None）
+    pub note_count: Option<i64>,
+    /// 数据库组（主文件 + WAL + SHM）总字节数
+    pub size: u64,
+    /// 数据库组最后修改时间
+    pub modified_at: Option<String>,
+}
+
 pub struct DataDirResolver;
 
 impl DataDirResolver {
@@ -236,7 +254,21 @@ impl DataDirResolver {
                 });
             }
             let path = PathBuf::from(&target);
-            std::fs::create_dir_all(&path)?;
+            // 指针目录不存在时不再静默新建空目录：移动硬盘没插 / 网盘没挂载时，
+            // 新建出来的空目录会让应用打开一个空库，比直接回落默认目录更糟。
+            // 指针保留，目录回来后下次启动自动生效。
+            if !path.exists() {
+                log::warn!(
+                    "[data_dir] 指针目录不存在：{} —— 本次启动回落默认目录，指针保留",
+                    target
+                );
+                return Ok(ResolvedDataDir {
+                    default_dir: default_str.clone(),
+                    current_dir: default_str,
+                    source: DataDirSource::Default,
+                    pending_dir: Some(target),
+                });
+            }
             return Ok(ResolvedDataDir {
                 default_dir: default_str.clone(),
                 current_dir: target.clone(),
@@ -252,6 +284,43 @@ impl DataDirResolver {
             source: DataDirSource::Default,
             pending_dir: None,
         })
+    }
+
+    /// 只读探查目标目录：是否有库、笔记数、库大小与修改时间。
+    ///
+    /// 不修改目标目录；统计笔记数时复制一份到临时目录再打开，
+    /// 避免只读打开 WAL 库时因缺 `-shm` 失败，也避免影响用户现有的库。
+    pub fn inspect(dir: &Path) -> DataDirInspect {
+        let db_file = detect_db_file(dir);
+        let mut size = 0u64;
+        let mut modified: Option<std::time::SystemTime> = None;
+        if let Some(db) = db_file.as_deref() {
+            for name in [db.to_string(), format!("{}-wal", db), format!("{}-shm", db)] {
+                let p = dir.join(&name);
+                if let Ok(meta) = std::fs::metadata(&p) {
+                    size += meta.len();
+                    if let Ok(m) = meta.modified() {
+                        modified = Some(modified.map_or(m, |cur| cur.max(m)));
+                    }
+                }
+            }
+        }
+        let modified_at = modified.map(|t| {
+            let dt: chrono::DateTime<chrono::Local> = t.into();
+            dt.format("%Y-%m-%d %H:%M:%S").to_string()
+        });
+        let note_count = db_file
+            .as_deref()
+            .and_then(|db| count_notes_in_copy(dir, db));
+        DataDirInspect {
+            dir: dir.to_string_lossy().to_string(),
+            exists: dir.is_dir(),
+            has_db: db_file.is_some(),
+            db_file,
+            note_count,
+            size,
+            modified_at,
+        }
     }
 
     /// 用户在 UI 里"修改数据目录"时调
@@ -373,6 +442,7 @@ impl DataDirResolver {
         framework_app_data_dir: &Path,
         from_dir: &Path,
         to_dir: &str,
+        replace_existing: bool,
     ) -> Result<(), AppError> {
         // 防护第 1 层：源 == 目标直接拒绝，连指针都不写。
         // 「把数据迁移到当前所在目录」本身没有任何意义，放行只会让
@@ -380,6 +450,15 @@ impl DataDirResolver {
         if is_same_location(from_dir, Path::new(to_dir.trim())) {
             return Err(AppError::InvalidInput(
                 "新数据目录与当前数据目录相同，无需迁移".into(),
+            ));
+        }
+        // 防覆盖：目标已有库时默认拒绝，连指针都不写
+        // （2026-11-05 线上事故：空库迁到用户已有笔记的目录，把真实 app.db 覆盖了）
+        if !replace_existing && detect_db_file(Path::new(to_dir.trim())).is_some() {
+            return Err(AppError::InvalidInput(
+                "目标目录里已有知识库数据，为避免覆盖，已取消迁移。\
+                 请选择「直接使用该目录的数据」，或确认替换后再迁移"
+                    .into(),
             ));
         }
         // 源目录可读性预检：把「云盘未挂载 / 网络盘断开 / 没权限」挡在**重启之前**。
@@ -582,6 +661,10 @@ impl DataDirResolver {
         current.status = MigrationStatus::InProgress;
         write_marker(framework_app_data_dir, &current)?;
 
+        // 目标目录已有库：整组改名留档（主文件 + WAL + SHM），失败就中止。
+        // 中断重试时，已搬过去的库（在 completed_items 里）不再重复留档。
+        preserve_target_dbs(&to, &current.completed_items)?;
+
         // 扫描存在的 items + 总字节
         emit(&MigrationProgress {
             phase: "scan".into(),
@@ -602,6 +685,7 @@ impl DataDirResolver {
         );
 
         let mut bytes_done = 0u64;
+        let kept_stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
         for (idx, item) in plan.iter().enumerate() {
             let src = from.join(&item.rel);
             let dst = to.join(&item.rel);
@@ -630,7 +714,15 @@ impl DataDirResolver {
             if !rename_ok {
                 // 2) 跨盘 fallback：流式复制
                 if item.is_dir {
-                    copy_dir_recursive(&src, &dst, &mut bytes_done, bytes_total, emit, &item.rel)?;
+                    copy_dir_recursive(
+                        &src,
+                        &dst,
+                        &mut bytes_done,
+                        bytes_total,
+                        emit,
+                        &item.rel,
+                        &kept_stamp,
+                    )?;
                 } else {
                     copy_file_with_progress(
                         &src,
@@ -770,6 +862,136 @@ fn preflight_source(from: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 目录里命中的库文件名（主文件或仅 WAL 存在都算）
+fn detect_db_file(dir: &Path) -> Option<String> {
+    ["app.db", "dev-app.db"]
+        .iter()
+        .find(|name| {
+            dir.join(name).exists() || dir.join(format!("{}-wal", name)).exists()
+        })
+        .map(|s| s.to_string())
+}
+
+/// 给路径追加后缀：`app.db` + `-wal` → `app.db-wal`
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut p = path.as_os_str().to_os_string();
+    p.push(suffix);
+    PathBuf::from(p)
+}
+
+/// 在临时副本上统计笔记数，避免只读打开 WAL 库时因缺 `-shm` 失败，也不碰用户的库。
+fn count_notes_in_copy(dir: &Path, db_file: &str) -> Option<i64> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let tmp = std::env::temp_dir().join(format!(
+        "kb_datadir_inspect_{}_{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::SeqCst)
+    ));
+    std::fs::create_dir_all(&tmp).ok()?;
+    for name in [
+        db_file.to_string(),
+        format!("{}-wal", db_file),
+        format!("{}-shm", db_file),
+    ] {
+        let src = dir.join(&name);
+        if src.exists() {
+            if let Err(e) = std::fs::copy(&src, tmp.join(&name)) {
+                log::warn!("[data_dir] 探查复制 {} 失败: {}", src.display(), e);
+            }
+        }
+    }
+    let count = rusqlite::Connection::open(tmp.join(db_file))
+        .ok()
+        .and_then(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM notes WHERE is_deleted = 0",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .ok()
+        });
+    let _ = std::fs::remove_dir_all(&tmp);
+    count
+}
+
+/// 目标目录已有库时整组改名留档，绝不覆盖。
+///
+/// `completed` 是迁移 marker 里已完成的项：中断重试时目标里的库就是上次搬过去的，
+/// 不能再留档第二次。
+fn preserve_target_dbs(target: &Path, completed: &[String]) -> Result<(), AppError> {
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let mut preserved: Vec<String> = Vec::new();
+    for db in ["app.db", "dev-app.db"] {
+        if completed.iter().any(|item| item == db) {
+            continue;
+        }
+        let present: Vec<String> =
+            [db.to_string(), format!("{}-wal", db), format!("{}-shm", db)]
+                .into_iter()
+                .filter(|name| target.join(name).exists())
+                .collect();
+        if present.is_empty() {
+            continue;
+        }
+        for name in present {
+            let from = target.join(&name);
+            let to = with_suffix(&from, &format!(".before-migrate-{}", stamp));
+            std::fs::rename(&from, &to).map_err(|e| {
+                AppError::Custom(format!(
+                    "目标目录已有数据，留档 {} 失败，已取消迁移以免覆盖: {}",
+                    from.display(),
+                    e
+                ))
+            })?;
+        }
+        preserved.push(db.to_string());
+    }
+    if !preserved.is_empty() {
+        let readme = target.join("_REPLACED_README.txt");
+        let _ = std::fs::write(
+            &readme,
+            format!(
+                "迁移前本目录已有知识库数据，未被删除，已整组改名保留（后缀 .before-migrate-{}）：\n{}\n\n\
+                 确认新数据正常后，可手动删除这些留档文件。\n",
+                stamp,
+                preserved
+                    .iter()
+                    .map(|name| format!("- {}{}", name, format!(".before-migrate-{}", stamp)))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ),
+        );
+        log::warn!(
+            "[migration] 目标目录已有数据库，已整组留档（.before-migrate-{}）",
+            stamp
+        );
+    }
+    Ok(())
+}
+
+/// 两个文件内容是否完全相同（长度 + 分块比较）
+fn files_identical(a: &Path, b: &Path) -> Result<bool, AppError> {
+    let (ma, mb) = (std::fs::metadata(a)?, std::fs::metadata(b)?);
+    if ma.len() != mb.len() {
+        return Ok(false);
+    }
+    let mut fa = std::fs::File::open(a)?;
+    let mut fb = std::fs::File::open(b)?;
+    let mut ba = vec![0u8; 64 * 1024];
+    let mut bb = vec![0u8; 64 * 1024];
+    loop {
+        let na = fa.read(&mut ba)?;
+        let nb = fb.read(&mut bb)?;
+        if na != nb || ba[..na] != bb[..nb] {
+            return Ok(false);
+        }
+        if na == 0 {
+            return Ok(true);
+        }
+    }
+}
+
 /// 扫描 source 下哪些 MIGRATION_ITEMS 存在 + 算总大小
 fn scan_items(from: &Path) -> Result<Vec<PlanItem>, AppError> {
     let mut out = Vec::new();
@@ -832,33 +1054,47 @@ fn copy_file_with_progress(
     if let Some(parent) = dst.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let mut input = std::fs::File::open(src)?;
-    let mut output = std::fs::File::create(dst)?;
-    let mut buf = vec![0u8; 64 * 1024];
-    let mut last_emit_bytes = *bytes_done;
-    loop {
-        let n = input.read(&mut buf)?;
-        if n == 0 {
-            break;
+    // 先写临时文件、校验后再改名：中途失败不会在目标留下半截文件
+    let tmp = with_suffix(dst, ".migrate-tmp");
+    let _ = std::fs::remove_file(&tmp);
+    let result = (|| -> Result<(), AppError> {
+        let mut input = std::fs::File::open(src)?;
+        let mut output = std::fs::File::create(&tmp)?;
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut last_emit_bytes = *bytes_done;
+        loop {
+            let n = input.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            output.write_all(&buf[..n])?;
+            *bytes_done += n as u64;
+            // 每 4 MB emit 一次（避免事件爆炸）
+            if *bytes_done - last_emit_bytes >= 4 * 1024 * 1024 {
+                emit(&MigrationProgress {
+                    phase: "copy_file".into(),
+                    current_file: rel.to_string(),
+                    item_index: 0,
+                    item_total: 0,
+                    bytes_done: *bytes_done,
+                    bytes_total,
+                    message: format!("复制中 {}", rel),
+                });
+                last_emit_bytes = *bytes_done;
+            }
         }
-        output.write_all(&buf[..n])?;
-        *bytes_done += n as u64;
-        // 每 4 MB emit 一次（避免事件爆炸）
-        if *bytes_done - last_emit_bytes >= 4 * 1024 * 1024 {
-            emit(&MigrationProgress {
-                phase: "copy_file".into(),
-                current_file: rel.to_string(),
-                item_index: 0,
-                item_total: 0,
-                bytes_done: *bytes_done,
-                bytes_total,
-                message: format!("复制中 {}", rel),
-            });
-            last_emit_bytes = *bytes_done;
+        output.sync_all().ok();
+        drop(output);
+        if dst.exists() {
+            let _ = std::fs::remove_file(dst);
         }
+        std::fs::rename(&tmp, dst)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
-    output.sync_all().ok();
-    Ok(())
+    result
 }
 
 /// 递归复制整个目录
@@ -869,6 +1105,7 @@ fn copy_dir_recursive(
     bytes_total: u64,
     emit: &ProgressEmitter,
     rel: &str,
+    stamp: &str,
 ) -> Result<(), AppError> {
     // 同 copy_file_with_progress：源目录 == 目标目录时递归复制毫无意义，
     // 且会让下层对每个文件做自我复制。直接跳过。
@@ -876,14 +1113,19 @@ fn copy_dir_recursive(
         log::warn!("[migration] 跳过自我复制（源与目标是同一目录）: {}", src.display());
         return Ok(());
     }
+    if dst.exists() && !dst.is_dir() {
+        let kept = with_suffix(dst, &format!(".migrate-kept-{}", stamp));
+        std::fs::rename(dst, &kept)?;
+        log::warn!("[migration] 目标同名项不是目录，已留档: {}", kept.display());
+    }
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let from_path = entry.path();
         let file_name = entry.file_name();
         let to_path = dst.join(&file_name);
+        let sub_rel = format!("{}/{}", rel, file_name.to_string_lossy());
         if from_path.is_dir() {
-            let sub_rel = format!("{}/{}", rel, file_name.to_string_lossy());
             copy_dir_recursive(
                 &from_path,
                 &to_path,
@@ -891,9 +1133,27 @@ fn copy_dir_recursive(
                 bytes_total,
                 emit,
                 &sub_rel,
+                stamp,
             )?;
         } else {
-            let sub_rel = format!("{}/{}", rel, file_name.to_string_lossy());
+            if to_path.exists() {
+                if to_path.is_file() && files_identical(&from_path, &to_path)? {
+                    // 内容相同：保留目标那份，跳过复制
+                    if let Ok(meta) = std::fs::metadata(&from_path) {
+                        *bytes_done += meta.len();
+                    }
+                    continue;
+                }
+                let kept = with_suffix(&to_path, &format!(".migrate-kept-{}", stamp));
+                std::fs::rename(&to_path, &kept).map_err(|e| {
+                    AppError::Custom(format!(
+                        "目标已有同名文件，留档 {} 失败，已取消迁移以免覆盖: {}",
+                        to_path.display(),
+                        e
+                    ))
+                })?;
+                log::warn!("[migration] 目标已有同名文件，已留档: {}", kept.display());
+            }
             copy_file_with_progress(
                 &from_path,
                 &to_path,
@@ -1335,7 +1595,7 @@ mod self_copy_guard_tests {
 
         let mut done = 0u64;
         let emit = noop_emit();
-        copy_dir_recursive(&sub, &sub, &mut done, 9, &emit, "kb_assets").unwrap();
+        copy_dir_recursive(&sub, &sub, &mut done, 9, &emit, "kb_assets", "test").unwrap();
 
         assert_eq!(std::fs::read(sub.join("x.png")).unwrap(), b"PNG-BYTES");
     }
@@ -1350,6 +1610,7 @@ mod self_copy_guard_tests {
             &app_data,
             &data,
             data.to_str().unwrap(),
+            false,
         );
         assert!(r.is_err(), "源 == 目标必须被拒绝");
 
@@ -1368,7 +1629,7 @@ mod self_copy_guard_tests {
         let from = temp_dir("ok-from");
         let to = temp_dir("ok-to");
 
-        DataDirResolver::set_pending_with_migration(&app_data, &from, to.to_str().unwrap())
+        DataDirResolver::set_pending_with_migration(&app_data, &from, to.to_str().unwrap(), false)
             .expect("不同目录应正常放行");
         assert!(app_data.join(POINTER_FILE).exists());
         assert!(app_data.join(MIGRATION_MARKER).exists());
@@ -1561,7 +1822,7 @@ mod self_copy_guard_tests {
         let from = temp_dir("startup-cancel-from");
         let to = temp_dir("startup-cancel-to");
         std::env::remove_var("KB_DATA_DIR");
-        DataDirResolver::set_pending_with_migration(&app_data, &from, to.to_str().unwrap())
+        DataDirResolver::set_pending_with_migration(&app_data, &from, to.to_str().unwrap(), false)
             .unwrap();
         DataDirResolver::cancel_migration(&app_data).unwrap();
 
@@ -1614,7 +1875,7 @@ mod self_copy_guard_tests {
         let from = temp_dir("cancel-from");
         let to = temp_dir("cancel-to");
         std::env::remove_var("KB_DATA_DIR");
-        DataDirResolver::set_pending_with_migration(&app_data, &from, to.to_str().unwrap())
+        DataDirResolver::set_pending_with_migration(&app_data, &from, to.to_str().unwrap(), false)
             .unwrap();
 
         DataDirResolver::cancel_migration(&app_data).unwrap();
@@ -1659,7 +1920,7 @@ mod self_copy_guard_tests {
         let ghost = std::env::temp_dir().join("kb_preflight_entry_ghost_xyz");
 
         let r =
-            DataDirResolver::set_pending_with_migration(&app_data, &ghost, to.to_str().unwrap());
+            DataDirResolver::set_pending_with_migration(&app_data, &ghost, to.to_str().unwrap(), false);
         assert!(r.is_err(), "源不可达必须被拒绝");
         assert!(!app_data.join(POINTER_FILE).exists(), "拒绝时不应留下指针");
         assert!(!app_data.join(MIGRATION_MARKER).exists(), "拒绝时不应留下 marker");
@@ -1677,5 +1938,121 @@ mod self_copy_guard_tests {
         // 不存在的路径走字符串兜底
         let ghost = std::env::temp_dir().join("kb_ghost_never_exists_xyz");
         assert!(is_same_location(&ghost, &ghost));
+    }
+
+    #[test]
+    fn migration_refuses_existing_target_db_without_confirm() {
+        let app_data = temp_dir("guard-app");
+        let from = temp_dir("guard-from");
+        let to = temp_dir("guard-to");
+        std::fs::write(to.join("app.db"), b"existing").unwrap();
+
+        let r = DataDirResolver::set_pending_with_migration(
+            &app_data,
+            &from,
+            to.to_str().unwrap(),
+            false,
+        );
+        assert!(r.is_err(), "目标已有库时必须拒绝");
+        assert!(!app_data.join(MIGRATION_MARKER).exists(), "拒绝时不应留下 marker");
+
+        // 明确确认替换才放行
+        DataDirResolver::set_pending_with_migration(
+            &app_data,
+            &from,
+            to.to_str().unwrap(),
+            true,
+        )
+        .expect("确认替换后应放行");
+    }
+
+    #[test]
+    fn inspect_reports_db_and_note_count() {
+        let dir = temp_dir("inspect");
+        let db = dir.join("app.db");
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE notes (id INTEGER PRIMARY KEY, is_deleted INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO notes DEFAULT VALUES;
+             INSERT INTO notes DEFAULT VALUES;
+             INSERT INTO notes (is_deleted) VALUES (1);",
+        )
+        .unwrap();
+        drop(conn);
+
+        let ins = DataDirResolver::inspect(&dir);
+        assert!(ins.has_db);
+        assert_eq!(ins.db_file.as_deref(), Some("app.db"));
+        assert_eq!(ins.note_count, Some(2), "只统计未删除笔记");
+        assert!(ins.size > 0);
+        assert!(ins.modified_at.is_some());
+
+        let empty = temp_dir("inspect-empty");
+        let ins = DataDirResolver::inspect(&empty);
+        assert!(!ins.has_db);
+        assert_eq!(ins.note_count, None);
+    }
+
+    #[test]
+    fn run_migration_preserves_target_db_and_merges_assets() {
+        let app_data = temp_dir("mig-app");
+        let from = temp_dir("mig-from");
+        let to = temp_dir("mig-to");
+        std::fs::write(from.join("app.db"), b"new-db").unwrap();
+        std::fs::write(to.join("app.db"), b"old-db").unwrap();
+        std::fs::write(to.join("app.db-wal"), b"old-wal").unwrap();
+
+        std::fs::create_dir_all(from.join("kb_assets/images")).unwrap();
+        std::fs::create_dir_all(to.join("kb_assets/images")).unwrap();
+        std::fs::write(from.join("kb_assets/images/same.png"), b"same").unwrap();
+        std::fs::write(to.join("kb_assets/images/same.png"), b"same").unwrap();
+        std::fs::write(from.join("kb_assets/images/diff.png"), b"new").unwrap();
+        std::fs::write(to.join("kb_assets/images/diff.png"), b"old").unwrap();
+
+        let marker = MigrationMarker {
+            from: from.to_string_lossy().to_string(),
+            to: to.to_string_lossy().to_string(),
+            status: MigrationStatus::Pending,
+            started_at: "2026-01-01 00:00:00".into(),
+            updated_at: "2026-01-01 00:00:00".into(),
+            completed_items: vec![],
+            last_error: None,
+        };
+        let emit = |_: &MigrationProgress| {};
+        DataDirResolver::run_migration(&app_data, &marker, &emit).unwrap();
+
+        assert_eq!(std::fs::read(to.join("app.db")).unwrap(), b"new-db");
+        let preserved: Vec<_> = std::fs::read_dir(&to)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains(".before-migrate-"))
+            .collect();
+        assert!(preserved.iter().any(|n| n.starts_with("app.db.before-migrate-")));
+        assert!(preserved.iter().any(|n| n.starts_with("app.db-wal.before-migrate-")));
+        assert!(to.join("_REPLACED_README.txt").exists());
+
+        assert_eq!(std::fs::read(to.join("kb_assets/images/same.png")).unwrap(), b"same");
+        assert_eq!(std::fs::read(to.join("kb_assets/images/diff.png")).unwrap(), b"new");
+        let kept: Vec<_> = std::fs::read_dir(to.join("kb_assets/images"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with("diff.png.migrate-kept-"))
+            .collect();
+        assert_eq!(kept.len(), 1, "目标不同的同名文件要留档: {kept:?}");
+    }
+
+    #[test]
+    fn resolve_missing_pointer_dir_falls_back_without_creating() {
+        let app_data = temp_dir("ptr-missing-app");
+        let ghost = std::env::temp_dir().join("kb_pointer_missing_dir_xyz");
+        let _ = std::fs::remove_dir_all(&ghost);
+        std::fs::write(app_data.join(POINTER_FILE), ghost.to_string_lossy().as_bytes()).unwrap();
+
+        let r = DataDirResolver::resolve(&app_data).unwrap();
+        assert_eq!(r.source, DataDirSource::Default, "目录不在时回落默认");
+        assert_eq!(r.pending_dir.as_deref(), Some(ghost.to_string_lossy().as_ref()));
+        assert!(!ghost.exists(), "不能静默创建空目录");
     }
 }

@@ -7,9 +7,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { useAppStore } from "@/store";
 import { AppRouter } from "@/Router";
-import { getAntdTokens } from "@/theme/tokens";
+import { getAntdComponents, getAntdTokens } from "@/theme/tokens";
 import { TaskReminderListener } from "@/components/tasks/TaskReminderListener";
 import { MigrationCrashNotice } from "@/components/datadir/MigrationCrashNotice";
+import { DbRecoveryNotice } from "@/components/datadir/DbRecoveryNotice";
 import { ExitConfirmListener } from "@/components/ui/ExitConfirmListener";
 import { CloseRequestedListener } from "@/components/ui/CloseRequestedListener";
 import { UpdaterProvider } from "@/components/updater/UpdaterProvider";
@@ -40,6 +41,7 @@ function App() {
   const themeOverridesEnabled = useAppStore((s) => s.themeOverridesEnabled);
   const customAccent = useAppStore((s) => s.customAccent);
   const activeTheme = themeCategory === "light" ? lightTheme : darkTheme;
+  const antdComponents = getAntdComponents(activeTheme);
   const baseTokens = {
     ...getAntdTokens(activeTheme),
     ...(themeOverridesEnabled && customAccent
@@ -73,6 +75,8 @@ function App() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", activeTheme);
     document.documentElement.setAttribute("data-theme-category", themeCategory);
+    // v4 公共组件规则作用域：旧主题块保留但不再命中（见 themes.css）
+    document.documentElement.setAttribute("data-theme-engine", "v4");
   }, [activeTheme, themeCategory]);
 
   // 监听 db:reloaded：从 zip 导入快照后 Rust 侧会热重载 Connection 并 emit 此事件，
@@ -213,6 +217,7 @@ function App() {
         algorithm:
           themeCategory === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: scaledTokens,
+        components: antdComponents,
       }}
     >
       <AntdApp style={{ height: "100%" }}>
@@ -239,6 +244,8 @@ function App() {
           {IS_MAIN_WINDOW && <CloseRequestedListener />}
           {/* 上次数据目录迁移失败时给用户重试 / 放弃的出口（marker.status=crashed 才渲染） */}
           {IS_MAIN_WINDOW && <MigrationCrashNotice />}
+          {/* 启动期库损坏自动恢复后的告知（用了哪份备份 / 原库留档在哪） */}
+          {IS_MAIN_WINDOW && <DbRecoveryNotice />}
         </ErrorBoundary>
         </EditorRegistryProvider>
       </AntdApp>

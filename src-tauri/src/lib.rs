@@ -55,7 +55,13 @@ fn extract_md_paths_from_args<I: IntoIterator<Item = String>>(args: I) -> Vec<St
 /// `writable=true`：自家应用本身就有完整写权限，写工具默认开启。
 fn setup_internal_mcp(
     db_path: &Path,
-) -> Result<std::sync::Arc<state::InternalMcpClient>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<
+    (
+        std::sync::Arc<state::InternalMcpClient>,
+        std::sync::Arc<kb_core::KbDb>,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
     use rmcp::ServiceExt;
 
     let db_path = db_path.to_path_buf();
@@ -66,7 +72,10 @@ fn setup_internal_mcp(
 
         let kb_db = kb_core::KbDb::open(&db_path, /* writable */ true)
             .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e.to_string()))?;
-        let kb_server = kb_core::KbServer::new(kb_db, /* writable */ true);
+        let keep = kb_db.read_tool_whitelist();
+        let kb_db = std::sync::Arc::new(kb_db);
+        let kb_server =
+            kb_core::KbServer::new_shared(kb_db.clone(), /* writable */ true, keep);
 
         // 后台 task：跑 server，永远不退出（除非 client 断开）
         tauri::async_runtime::spawn(async move {
@@ -86,7 +95,7 @@ fn setup_internal_mcp(
             .await
             .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e.to_string()))?;
 
-        Ok(std::sync::Arc::new(client))
+        Ok((std::sync::Arc::new(client), kb_db))
     })
 }
 
@@ -621,8 +630,19 @@ pub fn run() {
             let db_path = instance_dir.join(format!("{}app.db", prefix));
             let db_path_str = db_path.to_string_lossy().to_string();
 
-            let db = database::Database::init(&db_path_str)
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            let db = match database::Database::init(&db_path_str) {
+                Ok(db) => db,
+                Err(e) => {
+                    if services::db_recovery::should_attempt_recovery(&e) {
+                        log::warn!("数据库打开失败且判定为损坏，进入恢复流程: {}", e);
+                        services::db_recovery::recover_or_fresh(&db_path, &e)
+                            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?
+                    } else {
+                        // 升级失败 / IO 错误 / 版本过高：绝不动用户的库
+                        return Err(Box::new(e) as Box<dyn std::error::Error>);
+                    }
+                }
+            };
             log::info!("数据库初始化完成: {}", db_path_str);
 
             // 资产目录均基于 instance_dir（service 内部仍叫 app_data_dir，语义是"实例数据根"）
@@ -698,16 +718,16 @@ pub fn run() {
             // tokio::io::duplex 当 transport，KbServer 跑在后台 task，
             // client 端存到 AppState 供 commands::mcp::* 用。
             // 失败不阻断启动 —— 用 Option 包装，commands 拿不到时报"未就绪"
-            let mcp_internal = setup_internal_mcp(&db_path).map_or_else(
+            let (mcp_internal, mcp_internal_db) = setup_internal_mcp(&db_path).map_or_else(
                 |e| {
                     log::warn!(
                         "[mcp-internal] 初始化失败，自家 AI 对话页将无法用 MCP 内置工具: {e}"
                     );
-                    None
+                    (None, None)
                 },
-                |c| {
+                |(c, db)| {
                     log::info!("[mcp-internal] in-memory MCP server 就绪（kb-core 12 工具）");
-                    Some(c)
+                    (Some(c), Some(db))
                 },
             );
 
@@ -717,6 +737,7 @@ pub fn run() {
                 instance_dir.clone(),
                 instance_id,
                 mcp_internal,
+                mcp_internal_db,
                 lock_file,
             );
 
@@ -738,6 +759,19 @@ pub fn run() {
             services::index_queue::init(state.db.clone());
 
             app.manage(state);
+
+            // 桌面端更新状态：检查 / 下载 / 验签 / 安装全在 Rust，前端只订阅事件显示
+            #[cfg(desktop)]
+            app.manage(services::updater_download::UpdaterState::default());
+
+            // 修复旧版本同步留下的"同一天两篇日记"（以后由每次 pull 收尾时合并）
+            match services::daily_import::DailyImportService::merge_duplicate_dailies(
+                &app.state::<AppState>().db,
+            ) {
+                Ok(n) if n > 0 => log::info!("[startup] 合并同日日记，{} 篇移入回收站", n),
+                Ok(_) => {}
+                Err(e) => log::warn!("[startup] 合并同日日记失败: {}", e),
+            }
 
             // 外部目录挂载：给已存在的挂载点补放 asset 协议范围
             #[cfg(desktop)]
@@ -804,6 +838,47 @@ pub fn run() {
                     Err(e) => log::warn!("[extension] 无法解析资源目录，跳过内置扩展安装: {e}"),
                 }
 
+                // 随安装包分发的内置插件（如 AI 助研）：仅默认实例自动安装。
+                // 放后台线程执行；失败只记日志，不阻断启动。
+                // 用户主动卸载后会被 dismissed 标记拦住。
+                match app.path().resource_dir() {
+                    Ok(resource_dir) => {
+                        let plugins_resource_dir = resource_dir.clone();
+                        let db = app.state::<AppState>().db.clone();
+                        let data_dir = instance_dir.clone();
+                        let handle = app.handle().clone();
+                        std::thread::Builder::new()
+                            .name("bundled-plugins-install".into())
+                            .spawn(move || {
+                                match services::plugins::PluginService::install_bundled(
+                                    &db,
+                                    &data_dir,
+                                    &plugins_resource_dir,
+                                ) {
+                                    Ok(installed) if !installed.is_empty() => {
+                                        for info in &installed {
+                                            log::info!(
+                                                "[plugins] 已自动安装内置插件 {} v{}",
+                                                info.id,
+                                                info.version
+                                            );
+                                        }
+                                        let _ = handle.emit("plugin:auto-installed", &installed);
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        log::warn!("[plugins] 内置插件自动安装失败: {e}")
+                                    }
+                                }
+                            })
+                            .map(|_| ())
+                            .unwrap_or_else(|e| {
+                                log::warn!("[plugins] 无法启动内置插件安装线程: {e}")
+                            });
+                    }
+                    Err(e) => log::warn!("[plugins] 无法解析资源目录，跳过内置插件安装: {e}"),
+                }
+
                 // 全局快捷键：仅默认实例注册，避免多开实例互抢系统级热键。
                 // 单条注册失败只 log warn，不阻断启动；用户可在设置页改键/禁用
                 services::shortcut::ShortcutService::register_all(
@@ -860,6 +935,12 @@ pub fn run() {
                     services::sync_v1_scheduler::run_v1_scheduler(app_handle_v1).await;
                 });
             }
+
+            // 回收站自动清理：删除满 N 天（默认 30，回收站页可改）后永久删除
+            let app_handle_purge = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                services::trash::run_auto_purge_loop(app_handle_purge).await;
+            });
 
             // 待办定时提醒：每个实例独立（操作各自实例 db）
             let app_handle_reminder = app.handle().clone();
@@ -1138,11 +1219,14 @@ pub fn run() {
             commands::vault::disable_note_encrypt,
             // T-013 自定义数据目录
             commands::data_dir::get_data_dir_info,
+            commands::data_dir::inspect_data_dir,
             commands::data_dir::set_pending_data_dir,
             commands::data_dir::clear_pending_data_dir,
             commands::data_dir::set_pending_data_dir_with_migration,
             commands::data_dir::cancel_pending_migration,
             commands::data_dir::get_migration_marker,
+            commands::data_dir::get_db_recovery_notice,
+            commands::data_dir::clear_db_recovery_notice,
             // T-024 同步 V1（多端真同步 + 多 backend）
             commands::sync_v1::sync_v1_list_backends,
             commands::sync_v1::sync_v1_get_backend,
@@ -1178,6 +1262,8 @@ pub fn run() {
             commands::trash::empty_trash,
             commands::trash::restore_notes_batch,
             commands::trash::permanent_delete_notes_batch,
+            commands::trash::get_trash_auto_purge,
+            commands::trash::set_trash_auto_purge,
             // 每日笔记模块
             commands::daily::get_daily,
             commands::daily::get_or_create_daily,
@@ -1444,6 +1530,19 @@ pub fn run() {
             // 主窗口尺寸（仅桌面端）
             #[cfg(desktop)]
             commands::window::reset_window_size,
+            // 桌面端更新（Rust 单路下载 / 续传 / 验签）
+            #[cfg(desktop)]
+            commands::updater::updater_check,
+            #[cfg(desktop)]
+            commands::updater::updater_state,
+            #[cfg(desktop)]
+            commands::updater::updater_start,
+            #[cfg(desktop)]
+            commands::updater::updater_pause,
+            #[cfg(desktop)]
+            commands::updater::updater_cancel,
+            #[cfg(desktop)]
+            commands::updater::updater_install,
             // 移动端检查更新
             #[cfg(mobile)]
             commands::mobile_update::check_mobile_update,

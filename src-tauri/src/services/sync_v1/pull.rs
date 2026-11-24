@@ -211,6 +211,8 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
         }
     };
 
+    // v91：升级后第一次同步，先把本地与远端同名同位置的文件夹配成同一个 uuid，再算本地 manifest
+    super::folder_sync::adopt_remote_folder_ids(db, &remote.folders)?;
     let local = manifest::compute_local_manifest(db, app_version, device)?;
 
     let _ = emitter.emit(
@@ -224,6 +226,9 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
         },
     );
     let diff = manifest::diff_manifests(&local, &remote);
+
+    // v91：文件夹先于笔记落库 —— 下面拉笔记时按 folder_uuid 找文件夹，找不到才按路径补建
+    super::folder_sync::apply_pulled_folders(db, &diff.folders_to_pull, &mut result);
 
     // ── T-S024：附件下载阶段（先于文档 entry pull，让文档内容拉下来时附件已就位）
     //
@@ -367,8 +372,21 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
         .map(|e| (e.stable_id.as_str(), e.updated_at.as_str()))
         .collect();
     let remote_states = db.list_remote_state(backend_id)?;
+    // 本地每条笔记的文件夹和移动时间：拉内容时若本地移动得更晚，保留本地位置
+    let local_folder_by_uuid: std::collections::HashMap<&str, (&str, Option<&str>)> = local
+        .entries
+        .iter()
+        .map(|e| {
+            (
+                e.stable_id.as_str(),
+                (e.folder_path.as_str(), e.folder_moved_at.as_deref()),
+            )
+        })
+        .collect();
 
     // ── 处理 to_pull（远端独有 / 远端较新）
+    // manifest 登记了但远端 .md 不存在的条目：(stable_id, 当时的 content_hash)，收尾时从远端 manifest 摘掉
+    let mut dangling: Vec<(String, String)> = Vec::new();
     let total_pull = diff.to_pull.len();
     for (idx, entry) in diff.to_pull.iter().enumerate() {
         let _ = emitter.emit(
@@ -384,14 +402,38 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
         let body = match backend.get_note(&entry.remote_path)? {
             Some(s) => s,
             None => {
+                // 只报一次：收尾时把这条从远端 manifest 摘掉，持有这篇笔记的设备下次 push
+                // 会当成「仅本地有」重新上传
                 result.errors.push(format!(
-                    "远端 manifest 有 {} 但 .md 文件丢失",
-                    entry.remote_path
+                    "云端缺少「{}」的正文文件（{}），已从云端清单移除；有这篇笔记的设备下次同步会自动补传",
+                    entry.title, entry.remote_path
                 ));
+                dangling.push((entry.stable_id.clone(), entry.content_hash.clone()));
                 continue;
             }
         };
-        let folder_id = ensure_folder_path(db, &entry.folder_path)?;
+        // 本地移动得更晚 → 保留本地位置；否则按远端 folder_uuid 找文件夹，找不到再按路径补建
+        let (folder_path, keep_local_folder) =
+            match local_folder_by_uuid.get(entry.stable_id.as_str()) {
+                Some(&(path, moved_at))
+                    if manifest::folder_move_is_newer(
+                        moved_at,
+                        entry.folder_moved_at.as_deref(),
+                    ) =>
+                {
+                    (path, true)
+                }
+                _ => (entry.folder_path.as_str(), false),
+            };
+        let folder_id = resolve_pulled_note_folder(
+            db,
+            folder_path,
+            if keep_local_folder {
+                None
+            } else {
+                entry.folder_uuid.as_deref()
+            },
+        )?;
 
         // T-S014：加密文档走密文 upsert 分支
         if entry.encrypted {
@@ -690,6 +732,15 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
         }
     }
 
+    // ── 同日多篇日记合并
+    // 两台设备各自建了当天日记 → 上面"本地没有就新建"会让本地出现两篇同日日记。
+    // 放在 tombstone 处理之后：对端已经合并、删掉的那篇这时已跟着软删，不会再被追加一遍。
+    match crate::services::daily_import::DailyImportService::merge_duplicate_dailies(db) {
+        Ok(n) if n > 0 => log::info!("[sync_v1] 合并同日日记，{} 篇移入回收站", n),
+        Ok(_) => {}
+        Err(e) => result.errors.push(format!("合并同日日记失败: {}", e)),
+    }
+
     // ── 处理 conflicts（updated_at 相同但 hash 不同）
     for pair in &diff.conflicts {
         result.conflicts += 1;
@@ -723,6 +774,17 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
     apply_pulled_projects(db, &diff.projects_to_pull, &mut result);
     apply_pulled_tasks(db, &diff.tasks_to_pull, &mut result);
 
+    // v92：卡片在笔记之后（note_uuid 要能解析）、复习记录之前（记录要挂到卡片上）
+    use super::content_sync as cs;
+    cs::apply_pulled_cards(db, &diff.cards_to_pull, &mut result);
+    cs::apply_pulled_card_logs(db, &diff.card_logs_to_pull, &mut result);
+    cs::apply_pulled_prompts(db, &diff.prompts_to_pull, &mut result);
+    cs::apply_pulled_note_templates(db, &diff.note_templates_to_pull, &mut result);
+
+    if !dangling.is_empty() {
+        drop_dangling_from_remote(backend, &dangling, &mut result);
+    }
+
     db.touch_sync_backend_pull(backend_id)?;
 
     let _ = emitter.emit(
@@ -743,6 +805,42 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
     );
 
     Ok(result)
+}
+
+/// 把 pull 时发现的悬空条目（manifest 登记了、.md 不存在）从远端 manifest 摘掉。
+///
+/// 重新读一次远端再摘：pull 期间别的设备可能补传了新版本，`drop_dangling_entries` 只摘 hash 未变的。
+/// 不做 push 那样的写后重读校验：这里和别的设备并发写 manifest 时，最坏是吞掉对方刚写进的条目，
+/// 而对方下次 push 会当成「仅本地有」再写回来 —— 与摘悬空条目本身同一套自愈路径。
+fn drop_dangling_from_remote(
+    backend: &dyn SyncBackendImpl,
+    dangling: &[(String, String)],
+    result: &mut SyncPullResult,
+) {
+    let mut remote = match backend.read_manifest() {
+        Ok(Some(m)) => m,
+        Ok(None) => return,
+        Err(e) => {
+            result.errors.push(format!("清理云端清单失败（读取）: {}", e));
+            return;
+        }
+    };
+    let dropped = super::manifest::drop_dangling_entries(&mut remote, dangling);
+    if dropped == 0 {
+        return;
+    }
+    remote.generated_at = chrono::Local::now()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string();
+    match backend.write_manifest(&remote) {
+        Ok(()) => log::warn!(
+            "[sync_v1] 已从远端 manifest 摘掉 {} 条缺 .md 的悬空条目",
+            dropped
+        ),
+        Err(e) => result
+            .errors
+            .push(format!("清理云端清单失败（写入）: {}", e)),
+    }
 }
 
 /// pull → 任务分类：远端独有 → create_with_uuid；双方都有 → update_synced（按 name 等字段对齐）。
@@ -1094,6 +1192,22 @@ fn local_has_unpushed_change(local_hash: Option<&str>, last_synced_hash: Option<
     }
 }
 
+/// 拉下来的笔记放进哪个文件夹：有 `folder_uuid` 且本地找得到就用它，否则按路径找 / 补建。
+///
+/// 远端清单里没重新上传的笔记，路径还是文件夹改名前写的；只按路径找会多建一个旧名文件夹。
+fn resolve_pulled_note_folder(
+    db: &Database,
+    folder_path: &str,
+    folder_uuid: Option<&str>,
+) -> Result<Option<i64>, AppError> {
+    if let Some(uuid) = folder_uuid {
+        if let Some(id) = db.get_folder_id_by_stable_uuid(uuid)? {
+            return Ok(Some(id));
+        }
+    }
+    ensure_folder_path(db, folder_path)
+}
+
 /// 把 "工作/周报" 风格的路径递归展平成 folder_id
 ///
 /// 复用 `FolderService::ensure_path`（T-006 阶段已实现）
@@ -1441,5 +1555,35 @@ mod tests {
             .expect("应占位创建");
         assert!(row.is_deleted, "远端 tombstone → 本地软删");
         assert!(result.errors.is_empty(), "应无错误: {:?}", result.errors);
+    }
+
+    #[test]
+    fn pulled_note_follows_folder_uuid_not_stale_path() {
+        let db = Database::init(":memory:").unwrap();
+        let mut result = SyncPullResult::default();
+        let f = crate::models::FolderManifestEntry {
+            stable_id: "f1".into(),
+            content_hash: "h".into(),
+            updated_at: "2026-11-01 00:00:00".into(),
+            name: "工作".into(),
+            parent_stable_id: None,
+            sort_order: 0,
+            color: None,
+            tombstone: false,
+        };
+        super::super::folder_sync::apply_pulled_folders(&db, &[f], &mut result);
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+
+        let by_uuid = resolve_pulled_note_folder(&db, "旧名", Some("f1")).unwrap();
+        assert_eq!(
+            by_uuid,
+            db.get_folder_id_by_stable_uuid("f1").unwrap(),
+            "有 folder_uuid 时不要按旧路径新建同名文件夹"
+        );
+
+        // 旧客户端没有 folder_uuid → 照旧按路径补建
+        let by_path = resolve_pulled_note_folder(&db, "旧名", None).unwrap();
+        assert!(by_path.is_some());
+        assert_ne!(by_path, by_uuid);
     }
 }

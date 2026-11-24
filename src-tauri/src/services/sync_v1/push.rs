@@ -71,7 +71,7 @@ pub fn push<R: Runtime, E: Emitter<R>>(
             message: "计算本地 manifest…".into(),
         },
     );
-    let local = manifest::compute_local_manifest(db, app_version, device)?;
+    let mut local = manifest::compute_local_manifest(db, app_version, device)?;
 
     let _ = emitter.emit(
         event_name,
@@ -131,7 +131,18 @@ pub fn push<R: Runtime, E: Emitter<R>>(
         projects: vec![],
         tasks: vec![],
         task_categories: vec![],
+        folders: vec![],
+        cards: vec![],
+        card_review_logs: vec![],
+        prompts: vec![],
+        note_templates: vec![],
     });
+
+    // v91：升级后第一次同步的文件夹配对（同 pull）。只推不拉时也要配，否则会把另一套 uuid
+    // 写上远端，别的设备拉下来就是两份同名文件夹。配上了就重算本地 manifest。
+    if super::folder_sync::adopt_remote_folder_ids(db, &remote.folders)? > 0 {
+        local = manifest::compute_local_manifest(db, app_version, device)?;
+    }
 
     let diff = manifest::diff_manifests(&local, &remote);
 
@@ -269,13 +280,11 @@ pub fn push<R: Runtime, E: Emitter<R>>(
             }
         };
 
-        // 跳过：sync_remote_state 已记录同 hash（幂等）
-        if let Some(state) = state_map.get(&note_id) {
-            if state.last_synced_hash == entry.content_hash && !state.tombstone {
-                result.skipped += 1;
-                continue;
-            }
-        }
+        // 🔴 不在 to_push 里按 sync_remote_state 同 hash 跳过：
+        // 进 to_push 本身就说明远端 manifest 里没有这一版（典型：对端删了笔记、本机内容没变
+        // 但 updated_at 更晚 → “编辑胜过删除”让条目复活）。若这里跳过上传，merge 仍会把 alive
+        // 条目写进 manifest，远端就出现“登记了但没有 .md”的悬空条目，其他设备每次 pull 都报文件丢失。
+        // 进 to_push 的笔记一律上传。
 
         // T-S014：加密文档走密文上传分支
         let body_to_upload: String = if entry.encrypted {
@@ -528,6 +537,11 @@ pub fn push<R: Runtime, E: Emitter<R>>(
         projects: vec![],
         tasks: vec![],
         task_categories: vec![],
+        folders: vec![],
+        cards: vec![],
+        card_review_logs: vec![],
+        prompts: vec![],
+        note_templates: vec![],
     };
 
     // Critical 修复：写 manifest 用的本地视图 —— 剔除本轮上传失败的文档 / 附件。
@@ -732,6 +746,8 @@ mod tests {
             remote_path: format!("notes/{}.md", id),
             tombstone: false,
             folder_path: String::new(),
+            folder_uuid: None,
+            folder_moved_at: None,
             encrypted: false,
             is_daily: false,
             daily_date: None,
@@ -763,6 +779,11 @@ mod tests {
             projects: vec![],
             tasks: vec![],
             task_categories: vec![],
+            folders: vec![],
+            cards: vec![],
+            card_review_logs: vec![],
+            prompts: vec![],
+            note_templates: vec![],
         }
     }
 

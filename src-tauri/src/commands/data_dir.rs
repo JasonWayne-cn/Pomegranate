@@ -8,13 +8,22 @@
 //! 所有 Command 都通过 `crate::framework_app_data_dir` 获取 framework 根目录，
 //! 保证 dev 模式走 `-dev` 隔离目录、不污染 prod 的指针/迁移 marker。
 
-use crate::services::data_dir::{DataDirResolver, MigrationMarker, ResolvedDataDir};
+use crate::services::data_dir::{
+    DataDirInspect, DataDirResolver, MigrationMarker, ResolvedDataDir,
+};
+use crate::services::db_recovery::{self, DbRecoveryNotice};
 use crate::state::AppState;
 
 #[tauri::command]
 pub fn get_data_dir_info(app: tauri::AppHandle) -> Result<ResolvedDataDir, String> {
     let app_data_dir = crate::framework_app_data_dir(&app).map_err(|e| e.to_string())?;
     DataDirResolver::resolve(&app_data_dir).map_err(|e| e.to_string())
+}
+
+/// 切换前只读探查目标目录：有没有库、笔记数、库大小与修改时间。
+#[tauri::command]
+pub fn inspect_data_dir(path: String) -> Result<DataDirInspect, String> {
+    Ok(DataDirResolver::inspect(std::path::Path::new(path.trim())))
 }
 
 #[tauri::command]
@@ -40,12 +49,18 @@ pub fn set_pending_data_dir_with_migration(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     new_path: String,
+    replace_existing: Option<bool>,
 ) -> Result<(), String> {
     let app_data_dir = crate::framework_app_data_dir(&app).map_err(|e| e.to_string())?;
     // from = 当前实际数据根（多开实例情况下也是当前实例所在）
     let from_dir = state.data_dir.clone();
-    DataDirResolver::set_pending_with_migration(&app_data_dir, &from_dir, &new_path)
-        .map_err(|e| e.to_string())
+    DataDirResolver::set_pending_with_migration(
+        &app_data_dir,
+        &from_dir,
+        &new_path,
+        replace_existing.unwrap_or(false),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// 取消未执行的迁移（用户在重启前后悔了；删指针 + 删 marker）
@@ -60,4 +75,25 @@ pub fn cancel_pending_migration(app: tauri::AppHandle) -> Result<(), String> {
 pub fn get_migration_marker(app: tauri::AppHandle) -> Result<Option<MigrationMarker>, String> {
     let app_data_dir = crate::framework_app_data_dir(&app).map_err(|e| e.to_string())?;
     DataDirResolver::read_migration_marker(&app_data_dir).map_err(|e| e.to_string())
+}
+
+/// 启动期数据库恢复提示（用了哪份备份 / 是否空库启动）
+#[tauri::command]
+pub fn get_db_recovery_notice(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<DbRecoveryNotice>, String> {
+    let path = state
+        .db
+        .file_path()
+        .ok_or_else(|| "当前是内存数据库，没有恢复提示".to_string())?;
+    Ok(db_recovery::read_recovery_notice(std::path::Path::new(&path)))
+}
+
+/// 用户确认恢复提示后清除
+#[tauri::command]
+pub fn clear_db_recovery_notice(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    if let Some(path) = state.db.file_path() {
+        db_recovery::clear_recovery_notice(std::path::Path::new(&path));
+    }
+    Ok(())
 }

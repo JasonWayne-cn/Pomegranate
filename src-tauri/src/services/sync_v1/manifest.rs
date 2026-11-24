@@ -176,7 +176,8 @@ pub fn compute_local_manifest(
     }
     let mut stmt = conn.prepare(
         "SELECT id, stable_uuid, title, content_hash, updated_at, folder_id, is_deleted, deleted_at,
-                is_encrypted, encrypted_blob, is_daily, daily_date, is_hidden, note_type
+                is_encrypted, encrypted_blob, is_daily, daily_date, is_hidden, note_type,
+                folder_moved_at
          FROM notes
          WHERE stable_uuid IS NOT NULL
            AND storage_kind = 'db'
@@ -198,6 +199,7 @@ pub fn compute_local_manifest(
         Option<String>, // daily_date
         i64,            // is_hidden
         String,         // note_type
+        Option<String>, // folder_moved_at
     )> = stmt
         .query_map(rusqlite::params![tombstone_cutoff], |row| {
             // 所有 TEXT 列走降级读（`get_text_lossy`）而非 `row.get::<_, String>`：
@@ -223,19 +225,22 @@ pub fn compute_local_manifest(
                 get_opt_text_lossy(row, 11, "notes.daily_date")?,
                 row.get::<_, i64>(12)?,
                 get_text_lossy(row, 13, "notes.note_type")?,
+                get_opt_text_lossy(row, 14, "notes.folder_moved_at")?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
     drop(stmt);
 
-    // 拿 folders 全树（id → (parent_id, name)）— 用来反查文件夹路径
-    let mut stmt2 = conn.prepare("SELECT id, parent_id, name FROM folders")?;
-    let folder_rows: Vec<(i64, Option<i64>, String)> = stmt2
+    // 拿 folders 全树（id → (parent_id, name)）— 用来反查文件夹路径；
+    // v91 起顺带拿 stable_uuid，写进笔记条目的 folder_uuid
+    let mut stmt2 = conn.prepare("SELECT id, parent_id, name, stable_uuid FROM folders")?;
+    let folder_rows: Vec<(i64, Option<i64>, String, Option<String>)> = stmt2
         .query_map([], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, Option<i64>>(1)?,
                 get_text_lossy(row, 2, "folders.name")?,
+                get_opt_text_lossy(row, 3, "folders.stable_uuid")?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -243,8 +248,12 @@ pub fn compute_local_manifest(
     drop(conn);
 
     let folders_by_id: HashMap<i64, (Option<i64>, String)> = folder_rows
+        .iter()
+        .map(|(id, p, name, _)| (*id, (*p, name.clone())))
+        .collect();
+    let folder_uuid_by_id: HashMap<i64, String> = folder_rows
         .into_iter()
-        .map(|(id, p, name)| (id, (p, name)))
+        .filter_map(|(id, _, _, uuid)| uuid.map(|u| (id, u)))
         .collect();
 
     // Bug 12a：一次性拿全库 (note_id → tag names) 映射，避免 entries 循环里挨个查 DB
@@ -266,6 +275,7 @@ pub fn compute_local_manifest(
         daily_date,
         is_hidden_int,
         note_type_col,
+        folder_moved_at,
     ) in rows
     {
         let path = folder_path_for(&folders_by_id, folder_id);
@@ -307,6 +317,8 @@ pub fn compute_local_manifest(
             remote_path: remote_path_for(&stable_uuid),
             tombstone,
             folder_path: path,
+            folder_uuid: folder_id.and_then(|id| folder_uuid_by_id.get(&id).cloned()),
+            folder_moved_at,
             encrypted,
             is_daily,
             // 防御：非日记不带 daily_date（避免脏数据传播到其他端）
@@ -373,6 +385,26 @@ pub fn compute_local_manifest(
         log::warn!("[manifest] 读取 tasks 失败 ({}), 留空", e);
         Vec::new()
     });
+    let folders = super::folder_sync::build_folder_entries(db).unwrap_or_else(|e| {
+        log::warn!("[manifest] 读取 folders 失败 ({}), 留空", e);
+        Vec::new()
+    });
+    let cards = super::content_sync::build_card_entries(db).unwrap_or_else(|e| {
+        log::warn!("[manifest] 读取 cards 失败 ({}), 留空", e);
+        Vec::new()
+    });
+    let card_review_logs = super::content_sync::build_card_log_entries(db).unwrap_or_else(|e| {
+        log::warn!("[manifest] 读取 card_review_logs 失败 ({}), 留空", e);
+        Vec::new()
+    });
+    let prompts = super::content_sync::build_prompt_entries(db).unwrap_or_else(|e| {
+        log::warn!("[manifest] 读取 prompt_templates 失败 ({}), 留空", e);
+        Vec::new()
+    });
+    let note_templates = super::content_sync::build_note_template_entries(db).unwrap_or_else(|e| {
+        log::warn!("[manifest] 读取 note_templates 失败 ({}), 留空", e);
+        Vec::new()
+    });
 
     Ok(SyncManifestV1 {
         manifest_version: SyncManifestV1::VERSION,
@@ -386,6 +418,11 @@ pub fn compute_local_manifest(
         projects,
         tasks,
         task_categories,
+        folders,
+        cards,
+        card_review_logs,
+        prompts,
+        note_templates,
     })
 }
 
@@ -577,6 +614,13 @@ pub struct ManifestDiff {
     /// 任务分类（无 tombstone；按 content_hash 不同判别）
     pub task_categories_to_push: Vec<TaskCategoryManifestEntry>,
     pub task_categories_to_pull: Vec<TaskCategoryManifestEntry>,
+    /// 要拉的文件夹（含远端删除）
+    pub folders_to_pull: Vec<crate::models::FolderManifestEntry>,
+    // ─── v92：闪卡 / 复习记录 / 提示词 / 笔记模板（只记要拉的；推送靠 merge_manifests 整份写）───
+    pub cards_to_pull: Vec<crate::models::CardManifestEntry>,
+    pub card_logs_to_pull: Vec<crate::models::CardReviewLogManifestEntry>,
+    pub prompts_to_pull: Vec<crate::models::PromptManifestEntry>,
+    pub note_templates_to_pull: Vec<crate::models::NoteTemplateManifestEntry>,
 }
 
 #[derive(Debug)]
@@ -605,6 +649,30 @@ pub struct ConflictPair {
 ///
 /// 合并结果元数据：`manifest_version` / `hash_algo` / `device` / `app_version` 用 local，
 /// `generated_at` 重置为当前时间，`entries` 按 `stable_id` 稳定排序。
+/// 文件夹移动时间 `a` 是否比 `b` 新。None = 没有记录，比任何有值的都旧。
+pub(crate) fn folder_move_is_newer(a: Option<&str>, b: Option<&str>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a > b,
+        (Some(_), None) => true,
+        _ => false,
+    }
+}
+
+/// 两边谁移动得晚，就用谁的文件夹；都没记录或一样新时不动。
+fn adopt_newer_folder(target: &mut ManifestEntry, a: &ManifestEntry, b: &ManifestEntry) {
+    let (a_at, b_at) = (a.folder_moved_at.as_deref(), b.folder_moved_at.as_deref());
+    let newer = if folder_move_is_newer(a_at, b_at) {
+        a
+    } else if folder_move_is_newer(b_at, a_at) {
+        b
+    } else {
+        return;
+    };
+    target.folder_path = newer.folder_path.clone();
+    target.folder_moved_at = newer.folder_moved_at.clone();
+    target.folder_uuid = newer.folder_uuid.clone();
+}
+
 pub fn merge_manifests(local: &SyncManifestV1, remote: &SyncManifestV1) -> SyncManifestV1 {
     let remote_map: HashMap<&str, &ManifestEntry> = remote
         .entries
@@ -623,8 +691,17 @@ pub fn merge_manifests(local: &SyncManifestV1, remote: &SyncManifestV1) -> SyncM
     // （修 push 回滚远端较新文档 / 复活远端已删文档）
     for le in &local.entries {
         match remote_map.get(le.stable_id.as_str()) {
-            Some(re) if re.updated_at > le.updated_at => merged.push((*re).clone()),
-            _ => merged.push(le.clone()),
+            Some(re) => {
+                let mut e = if re.updated_at > le.updated_at {
+                    (*re).clone()
+                } else {
+                    le.clone()
+                };
+                // 内容谁新另说，文件夹位置按「谁移动得更晚」取
+                adopt_newer_folder(&mut e, le, re);
+                merged.push(e);
+            }
+            None => merged.push(le.clone()),
         }
     }
     // 远端独有 → 补（别的设备已 push 但本机还没 pull 到）
@@ -686,6 +763,17 @@ pub fn merge_manifests(local: &SyncManifestV1, remote: &SyncManifestV1) -> SyncM
         projects,
         tasks,
         task_categories,
+        folders: super::folder_sync::merge_folders(&local.folders, &remote.folders),
+        cards: super::content_sync::merge_cards(&local.cards, &remote.cards),
+        card_review_logs: super::content_sync::merge_card_logs(
+            &local.card_review_logs,
+            &remote.card_review_logs,
+        ),
+        prompts: super::content_sync::merge_prompts(&local.prompts, &remote.prompts),
+        note_templates: super::content_sync::merge_note_templates(
+            &local.note_templates,
+            &remote.note_templates,
+        ),
     }
 }
 
@@ -749,6 +837,25 @@ fn merge_task_category_entries(
     let mut out: Vec<_> = map.into_values().collect();
     out.sort_by(|a, b| a.stable_id.cmp(&b.stable_id));
     out
+}
+
+/// 从远端 manifest 里摘掉「登记了但 .md 不存在」的笔记条目，返回摘掉的条数。
+///
+/// `missing` 是 pull 时 `get_note` 返回空的条目：`(stable_id, 当时 manifest 里的 content_hash)`。
+/// 只摘 content_hash 仍等于缺失那一版的 —— 读回 manifest 时若别的设备已经补传了新版本，
+/// 那条是好的，不能动。
+///
+/// 为什么要摘：manifest 宣告了不存在的 .md，持有这篇笔记的设备比对 manifest 看到同 hash，
+/// 永远不会重传，其他设备每次 pull 都报「文件丢失」。摘掉以后，持有它的设备下次 push 时
+/// 看到「仅本地有」→ 重新上传；没有任何设备持有的，条目本来就没有内容，消失即可。
+pub fn drop_dangling_entries(manifest: &mut SyncManifestV1, missing: &[(String, String)]) -> usize {
+    let before = manifest.entries.len();
+    manifest.entries.retain(|e| {
+        !missing
+            .iter()
+            .any(|(id, hash)| e.stable_id == *id && e.content_hash == *hash && !e.tombstone)
+    });
+    before - manifest.entries.len()
 }
 
 /// 比对本地 vs 远端 manifest
@@ -846,7 +953,13 @@ pub fn diff_manifests(local: &SyncManifestV1, remote: &SyncManifestV1) -> Manife
                     _ => false, // 任一为 None（旧 manifest / 加密 / tombstone）→ 不据此触发
                 };
                 let pull_for_tags = tags_differ && re.updated_at >= le.updated_at;
-                if meta_recover || pull_for_tags {
+                // 只移动了文件夹：远端移动得更晚才拉；本地更晚的由 push 的 merge 写到远端
+                let pull_for_folder = le.folder_path != re.folder_path
+                    && folder_move_is_newer(
+                        re.folder_moved_at.as_deref(),
+                        le.folder_moved_at.as_deref(),
+                    );
+                if meta_recover || pull_for_tags || pull_for_folder {
                     diff.to_pull.push((*re).clone());
                 }
                 continue;
@@ -867,6 +980,14 @@ pub fn diff_manifests(local: &SyncManifestV1, remote: &SyncManifestV1) -> Manife
     diff_projects(&local.projects, &remote.projects, &mut diff);
     diff_tasks(&local.tasks, &remote.tasks, &mut diff);
     diff_task_categories(&local.task_categories, &remote.task_categories, &mut diff);
+    diff.folders_to_pull = super::folder_sync::diff_folders(&local.folders, &remote.folders);
+
+    use super::content_sync as cs;
+    diff.cards_to_pull = cs::diff_cards(&local.cards, &remote.cards);
+    diff.card_logs_to_pull = cs::diff_card_logs(&local.card_review_logs, &remote.card_review_logs);
+    diff.prompts_to_pull = cs::diff_prompts(&local.prompts, &remote.prompts);
+    diff.note_templates_to_pull =
+        cs::diff_note_templates(&local.note_templates, &remote.note_templates);
 
     diff
 }
@@ -982,6 +1103,8 @@ mod tests {
             remote_path: format!("notes/{}.md", id),
             tombstone,
             folder_path: String::new(),
+            folder_uuid: None,
+            folder_moved_at: None,
             encrypted: false,
             is_daily: false,
             daily_date: None,
@@ -1032,6 +1155,11 @@ mod tests {
             projects: vec![],
             tasks: vec![],
             task_categories: vec![],
+            folders: vec![],
+            cards: vec![],
+            card_review_logs: vec![],
+            prompts: vec![],
+            note_templates: vec![],
         }
     }
 
@@ -1577,6 +1705,11 @@ mod tests {
             projects: vec![],
             tasks: vec![],
             task_categories: vec![],
+            folders: vec![],
+            cards: vec![],
+            card_review_logs: vec![],
+            prompts: vec![],
+            note_templates: vec![],
         };
         let json = serde_json::to_string(&m).unwrap();
         assert!(!json.contains("hashAlgo"), "None 时不应输出该字段; got = {}", json);
@@ -2286,5 +2419,65 @@ mod tests {
         assert_eq!(back.tasks[0].stable_id, "t1");
         assert_eq!(back.task_categories.len(), 1);
         assert_eq!(back.task_categories[0].stable_id, "c1");
+    }
+
+    /// 悬空条目只摘「hash 仍等于缺失那一版」的；别的设备补传了新版本就不动
+    #[test]
+    fn drop_dangling_entries_only_removes_the_missing_version() {
+        let mut m = manifest(vec![
+            entry("gone", "a", "h1", "2026-11-18", false),
+            // 读回 manifest 时别的设备已经补传了新版本：好条目，不能摘
+            entry("reuploaded", "b", "h2-new", "2026-11-18", false),
+            entry("deleted", "c", "h3", "2026-11-18", true),
+            entry("other", "d", "h4", "2026-11-18", false),
+        ]);
+        let missing = vec![
+            ("gone".to_string(), "h1".to_string()),
+            ("reuploaded".to_string(), "h2-old".to_string()),
+            ("deleted".to_string(), "h3".to_string()),
+        ];
+        assert_eq!(drop_dangling_entries(&mut m, &missing), 1);
+        let ids: Vec<&str> = m.entries.iter().map(|e| e.stable_id.as_str()).collect();
+        assert_eq!(ids, vec!["reuploaded", "deleted", "other"]);
+    }
+
+    /// 摘掉悬空条目后，持有这篇笔记的设备下次 push 看到「仅本地有」→ 自动重传（自愈）
+    #[test]
+    fn owner_reuploads_after_dangling_entry_dropped() {
+        let local = manifest(vec![entry("1", "a", "h1", "2026-11-18", false)]);
+        let mut remote = manifest(vec![entry("1", "a", "h1", "2026-11-18", false)]);
+        assert!(
+            diff_manifests(&local, &remote).to_push.is_empty(),
+            "摘之前：同 hash，永远不重传"
+        );
+        drop_dangling_entries(&mut remote, &[("1".into(), "h1".into())]);
+        assert_eq!(diff_manifests(&local, &remote).to_push.len(), 1);
+    }
+
+    #[test]
+    fn note_folder_move_pulls_only_when_remote_moved_later() {
+        let mut le = entry("1", "t", "h", "2026-11-01 00:00:00", false);
+        le.folder_path = "A".into();
+        le.folder_uuid = Some("fa".into());
+        le.folder_moved_at = Some("2026-11-01 00:00:00".into());
+        let mut re = le.clone();
+        re.folder_path = "B".into();
+        re.folder_uuid = Some("fb".into());
+        re.folder_moved_at = Some("2026-11-02 00:00:00".into());
+
+        let diff = diff_manifests(&manifest(vec![le.clone()]), &manifest(vec![re.clone()]));
+        assert_eq!(diff.to_pull.len(), 1, "远端移动更晚 → 拉");
+        assert_eq!(diff.to_pull[0].folder_path, "B");
+
+        let reverse = diff_manifests(&manifest(vec![re]), &manifest(vec![le.clone()]));
+        assert!(reverse.to_pull.is_empty(), "本地移动更晚 → 不拉");
+        let merged = merge_manifests(&manifest(vec![le]), &manifest(vec![{
+            let mut r = entry("1", "t", "h", "2026-11-01 00:00:00", false);
+            r.folder_path = "B".into();
+            r.folder_uuid = Some("fb".into());
+            r.folder_moved_at = Some("2026-11-02 00:00:00".into());
+            r
+        }]));
+        assert_eq!(merged.entries[0].folder_path, "B", "合并时取移动更晚的位置");
     }
 }
