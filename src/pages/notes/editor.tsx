@@ -750,6 +750,13 @@ function DesktopNoteEditorPage() {
     setEditorBodyEl(el);
   }, []);
 
+  // 工具栏独立吸顶槽位：TiptapEditor 通过 portal 把工具栏渲染到这里，
+  // 让「工具栏」贴在页面上方，标题 + 正文保持在同一张完整页面里一起滚动。
+  const [toolbarSlotEl, setToolbarSlotEl] = useState<HTMLDivElement | null>(null);
+  const bindToolbarSlot = useCallback((el: HTMLDivElement | null) => {
+    setToolbarSlotEl(el);
+  }, []);
+
   // Ctrl/⌘ + 滚轮缩放编辑区字号（Ctrl/⌘+0 复位）——缩放的是 editorFontSize，
   // 不是 uiScale：用户要的是"编辑区"变大，整个应用 UI 跟着放大属于误伤。
   const editorFontSize = useAppStore((s) => s.editorFontSize);
@@ -2001,7 +2008,7 @@ function DesktopNoteEditorPage() {
             </Tooltip>
           )}
         </div>
-        <Space align="center" className="editor-topbar__right">
+        <Space align="center" size={2} className="editor-topbar__right">
           <Segmented
             size="small"
             value={viewMode}
@@ -2281,6 +2288,9 @@ function DesktopNoteEditorPage() {
           }),
         }}
       >
+        <div className="editor-main-col">
+        {/* 工具栏吸顶槽位：编辑器内的工具栏 portal 到这里 */}
+        <div className="editor-toolbar-slot" ref={bindToolbarSlot} />
         <div className="editor-content-area">
           {/* 标题：用 position:relative 父级 + 绝对定位 mic / clear 模拟 suffix。
               不直接用 antd Input.suffix / allowClear——两者都会包一层
@@ -2363,6 +2373,7 @@ function DesktopNoteEditorPage() {
               placeholder="开始写点什么..."
               noteId={noteId}
               readOnly={viewMode === "read"}
+              toolbarSlot={toolbarSlotEl}
               onWikiLinkClick={handleWikiLinkClick}
               onAskAi={(selected) => {
                 // 选段触发 → 选段挂到抽屉的"引用 chip"，输入框留空给用户写问题
@@ -2386,6 +2397,7 @@ function DesktopNoteEditorPage() {
               navigate(`/notes/${id}`);
             }}
           />
+        </div>
         </div>
 
         {/* 大纲左侧拖拽分隔条：6px 宽，col-resize；与思维导图分隔条同模式：

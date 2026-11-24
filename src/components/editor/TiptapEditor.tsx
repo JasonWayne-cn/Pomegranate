@@ -180,6 +180,7 @@ const TableWithMarkdown = Table.extend({
 import { common, createLowlight } from "lowlight";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useCallback, useState } from "react";
+import { createPortal } from "react-dom";
 import { message } from "antd";
 import { theme as antdTheme } from "antd";
 import { attachmentApi, imageApi, systemApi, videoApi } from "@/lib/api";
@@ -697,6 +698,8 @@ interface TiptapEditorProps {
   onStats?: (stats: { words: number; chars: number; readingTime: string }) => void;
   /** 只读（阅读模式）：隐藏工具栏与 AI 浮条，仅保留正文与查找 */
   readOnly?: boolean;
+  /** 外部工具栏槽位（页面顶部吸顶条）：提供时用 portal 把工具栏渲染过去 */
+  toolbarSlot?: HTMLElement | null;
 }
 
 export function TiptapEditor({
@@ -711,6 +714,7 @@ export function TiptapEditor({
   showFooterStats = true,
   onStats,
   readOnly = false,
+  toolbarSlot,
 }: TiptapEditorProps) {
   const isExternalUpdate = useRef(false);
 
@@ -1809,9 +1813,16 @@ export function TiptapEditor({
 
   return (
     <div ref={wrapperRef} className="tiptap-wrapper" style={{ position: "relative" }}>
-      {!readOnly && (
-        <EditorToolbar editor={editor} noteId={noteId} ensureNoteId={ensureNoteId} />
-      )}
+      {!readOnly &&
+        (toolbarSlot ? (
+          // 页面提供吸顶槽位时，工具栏搬到卡片外、贴在页面上方
+          createPortal(
+            <EditorToolbar editor={editor} noteId={noteId} ensureNoteId={ensureNoteId} />,
+            toolbarSlot,
+          )
+        ) : (
+          <EditorToolbar editor={editor} noteId={noteId} ensureNoteId={ensureNoteId} />
+        ))}
       {/* 查找替换浮条（Ctrl+F / Ctrl+H 触发；Esc 关闭）。
           放在 EditorContent 之前：内部用 sticky 容器吸顶。阅读模式只查不换。 */}
       <SearchReplaceBar

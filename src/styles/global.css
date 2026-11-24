@@ -2479,7 +2479,79 @@ textarea.tiptap-front-matter-input.ant-input:focus {
 }
 
 /* 大纲停靠位置：左侧时用 order 重排网格子项（DOM 顺序仍是 正文→分隔条→大纲） */
-.editor-body[data-outline-pos="left"] .editor-content-area { order: 3; }
+.editor-body[data-outline-pos="left"] .editor-main-col { order: 3; }
 .editor-body[data-outline-pos="left"] .editor-outline-splitter { order: 2; }
 .editor-body[data-outline-pos="left"] .editor-outline-aside { order: 1; border-left: none; border-right: 1px solid var(--kb-border, rgba(0,0,0,.06)); }
 .editor-body[data-outline-pos="left"] .editor-outline-aside { padding: 24px 0 24px 12px; }
+
+/* ─── 编辑区主列 + 独立吸顶工具栏（标题与正文保持同一张页面）─── */
+.editor-main-col {
+  min-width: 0;
+}
+.editor-toolbar-slot {
+  position: sticky;
+  /* 圆角浮动工具条：紧贴顶栏下方吸顶，不留下缝隙 */
+  top: 0;
+  z-index: 11;
+  margin: 0 14px 4px;
+  border: 1px solid var(--ant-color-border-secondary, var(--kb-border, rgba(0, 0, 0, 0.08)));
+  border-radius: 11px;
+  background: var(--ant-color-bg-elevated, var(--kb-bg-card, #fff));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+/* 源码 / 阅读模式没有工具栏时，槽位不占高度 */
+.editor-toolbar-slot:empty {
+  display: none;
+}
+/* portal 过来的工具栏：去掉卡片内的负边距与自身吸顶，铺满吸顶条 */
+.editor-toolbar-slot .tiptap-toolbar {
+  position: static;
+  margin: 0;
+  padding: 6px 14px;
+  border-bottom: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  z-index: auto;
+}
+/* 大纲跳转时为顶部工具栏预留滚动余量 */
+.editor-content-area .tiptap :is(h1, h2, h3, h4, h5, h6) {
+  scroll-margin-top: 60px;
+}
+
+/* ─── 顶栏间距对齐 KB v4：紧凑高度、30×30 图标按钮、右侧组 2px ─── */
+.editor-topbar {
+  min-height: 46px;
+  gap: 8px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--kb-border);
+}
+.editor-topbar .ant-btn {
+  height: 30px;
+  border-radius: 8px;
+}
+.editor-topbar .ant-btn.ant-btn-icon-only {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+}
+.editor-topbar .ant-btn:not(:disabled):hover {
+  background: var(--kb-bg-hover, rgba(0, 0, 0, 0.04)) !important;
+}
+/* 导出下拉的紧凑组合：两段按钮贴在一起 */
+.editor-topbar .ant-space-compact .ant-btn {
+  border-radius: 0;
+}
+.editor-topbar .ant-space-compact .ant-btn:first-child {
+  border-start-start-radius: 8px;
+  border-end-start-radius: 8px;
+}
+.editor-topbar .ant-space-compact .ant-btn:last-child {
+  border-start-end-radius: 8px;
+  border-end-end-radius: 8px;
+}
+/* 编辑/阅读/源码三态与右侧按钮间留 6px（KB .kb-mode-seg） */
+.editor-topbar .ant-segmented {
+  margin-right: 6px;
+}
