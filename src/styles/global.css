@@ -72,26 +72,26 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
   /* ─── Callout 4 类 ─── */
-  .tiptap-callout[data-callout="info"]    { background: rgba(22, 119, 255, 0.08); }
+  .tiptap-callout[data-callout="info"]    { background: var(--kb-primary-light); }
   .tiptap-callout[data-callout="tip"]     { background: rgba(82, 196, 26, 0.10); }
   .tiptap-callout[data-callout="warning"] { background: rgba(250, 173, 20, 0.10); }
   .tiptap-callout[data-callout="danger"]  { background: rgba(255, 77, 79, 0.10); }
   /* ─── 视频时间戳 chip ─── */
   .video-ts-chip {
-    background: rgba(22, 119, 255, 0.12);
-    border: 1px solid rgba(22, 119, 255, 0.30);
+    background: var(--kb-primary-light);
+    border: 1px solid var(--kb-primary-light);
   }
   .video-ts-chip:hover {
-    background: rgba(22, 119, 255, 0.22);
+    background: var(--kb-primary-light);
   }
   .video-ts-chip-broken {
     background: rgba(0, 0, 0, 0.08);
-    color: #999;
+    color: var(--kb-text-tertiary);
     border: 1px solid rgba(0, 0, 0, 0.15);
   }
   /* ─── Emoji 选择器激活态 ─── */
   .emoji-cat-btn.active {
-    background: rgba(22, 119, 255, 0.12);
+    background: var(--kb-primary-light);
   }
 
   /* ═══════ 编辑器工具栏（sticky 吸顶）═══════ */
@@ -117,10 +117,10 @@
 
   /* ═══════ Wiki 链接 ═══════ */
   .tiptap .wiki-link {
-    background: rgba(22, 119, 255, 0.08);
+    background: var(--kb-primary-light);
   }
   .tiptap .wiki-link:hover {
-    background: rgba(22, 119, 255, 0.18);
+    background: var(--kb-primary-light);
   }
 
   /* ═══════ Mermaid 全屏按钮 ═══════ */
@@ -159,7 +159,7 @@
     border: 1px solid rgba(0, 0, 0, 0.08);
   }
   .tiptap-video-block[data-highlight="true"] {
-    box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.25);
+    box-shadow: 0 0 0 3px var(--kb-primary-light);
   }
   .tiptap-video-toolbar {
     background: rgba(0, 0, 0, 0.02);
@@ -347,7 +347,7 @@ body,
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: var(--ant-color-text-tertiary, #8c8c8c);
+  color: var(--ant-color-text-tertiary, var(--kb-text-tertiary));
   background: transparent !important;
   border-radius: 4px;
   position: relative;
@@ -372,12 +372,40 @@ body,
   background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.04)) !important;
 }
 
+/* ─── 笔记列表行距档位 ─────────────────────────────
+ * 偏好存于 store.notesRowSpacing，启动 / 修改时写到 :root 的
+ * data-notes-row-spacing；文件夹树与文档列表表格共用同一组变量，
+ * 保证侧栏与主区行距一致。 */
+:root {
+  --notes-row-py: 4px;
+  --notes-row-line-height: 1.5;
+}
+:root[data-notes-row-spacing="compact"] {
+  --notes-row-py: 1px;
+  --notes-row-line-height: 1.3;
+}
+:root[data-notes-row-spacing="comfortable"] {
+  --notes-row-py: 10px;
+  --notes-row-line-height: 1.75;
+}
+
 /* 行整体压紧（默认 28-32px 行高在密集嵌套时太松） */
 .sidebar-folder-tree .ant-tree-treenode {
-  padding-top: 1px;
-  padding-bottom: 1px;
+  padding-top: var(--notes-row-py);
+  padding-bottom: var(--notes-row-py);
   width: 100%;
   align-items: center;
+  line-height: var(--notes-row-line-height);
+}
+
+/* 文档列表表格行：与文件夹树共用行距档位 */
+.notes-list-table .ant-table-tbody > tr > td {
+  padding-top: var(--notes-row-py) !important;
+  padding-bottom: var(--notes-row-py) !important;
+}
+.notes-list-table .ant-table-tbody > tr > td,
+.notes-list-table .ant-table-thead > tr > th {
+  line-height: var(--notes-row-line-height);
 }
 
 /* ─── Sider 拖拽调宽期间的性能优化 ─────────────
@@ -416,12 +444,106 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   /* 左右 32px：editor-page 的 margin:-24px 把 topbar 横向扩到 Content padding 外，
      这里需多给 24px 抵消，再留 8px 让"返回 / 删除"按钮不贴边 */
   padding: 8px 32px;
-  border-bottom: 1px solid var(--ant-color-border, #d9d9d9);
+  border-bottom: 1px solid var(--ant-color-border, var(--kb-border));
   background: var(--ant-color-bg-container, #fff);
   flex-shrink: 0;
+  /* 按钮数量多 + 中文「更新于 xx 分钟前」→ 窄窗口下总宽可能超容器。
+     横向滚动兜底，避免最右侧按钮被裁到视口外（滚动条隐藏，保持视觉干净）。 */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.editor-topbar::-webkit-scrollbar {
+  height: 0;
+  background: transparent;
+}
+
+/* 左组：返回按钮 + 更新时间 + 保存胶囊。
+ * 只有时间文本允许收缩 / 省略——否则窄窗口下 Space 会把「更新于 20 分钟前」
+ * 压成一字一行（中文可在任意字间断行）。 */
+.editor-topbar__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+.editor-topbar__left > .ant-btn,
+.editor-topbar__left > .kb-saved {
+  flex: none;
+}
+.editor-topbar__meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 右组：操作按钮集合，绝不压缩（按钮压缩后会换行 / 变形） */
+.editor-topbar__right {
+  flex: none;
+}
+
+/* ─── 专注模式（应用级）──────────────────────────────────────
+ * 专注模式绑定文档编辑页（离开编辑器自动退出，见 AppLayout）。
+ * Header 隐藏后需要补三件事：
+ *   1. 右下角常驻退出胶囊（列表页/历史栈切换后仍能找到出口）；
+ *   2. Windows 自绘窗口控件悬浮回右上角；
+ *   3. 顶到窗口上沿的 TabBar / 编辑器工具栏给系统按钮留白。
+ */
+.focus-mode-dock {
+  position: fixed;
+  right: 16px;
+  /* 编辑页底部有 30px 链接状态栏，44px 让胶囊悬在其上方 */
+  bottom: 44px;
+  z-index: 80;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--ant-color-text-secondary, var(--kb-text-secondary));
+  background: var(--ant-color-bg-elevated, var(--kb-bg-card, #fff));
+  border: 1px solid var(--ant-color-border, var(--kb-border, rgba(0, 0, 0, 0.1)));
+  box-shadow: var(--ant-box-shadow, var(--kb-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.08)));
+  opacity: 0.72;
+  transition: opacity 0.15s ease;
+}
+.focus-mode-dock:hover {
+  opacity: 1;
+}
+.focus-mode-dock:focus-visible {
+  outline: 2px solid var(--ant-color-primary, var(--kb-primary, #1677ff));
+  outline-offset: 2px;
+}
+
+.app-focus-window-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 60;
+  height: 48px;
+  display: flex;
+  align-items: center;
+}
+
+/* Windows：右上角窗口控件占位（124px 按钮组 + 8px 呼吸） */
+html[data-os="win"] .app-focus-mode .kb-surface,
+html[data-os="win"] .app-focus-mode .editor-topbar {
+  padding-right: 132px;
+}
+/* macOS：红黄绿交通灯悬浮在左上角，给 TabBar / 工具栏让位 */
+html[data-os="mac"] .app-focus-mode .kb-surface,
+html[data-os="mac"] .app-focus-mode .editor-topbar {
+  padding-left: 84px;
 }
 
 .editor-body {
@@ -434,7 +556,8 @@ body,
   /* 大纲打开时变 2 列：主内容 + 右侧 sticky 大纲；关闭时退回单列 */
   display: block;
 }
-.editor-body[data-outline="on"] {
+.editor-body[data-outline="on"],
+.editor-body[data-tasks="on"] {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 200px;
   align-items: start;
@@ -474,7 +597,7 @@ body,
   border: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 10%, transparent);
   border-radius: 6px;
   background: color-mix(in srgb, var(--ant-color-bg-container, #fff) 92%, transparent);
-  color: var(--ant-color-text-secondary, #666);
+  color: var(--ant-color-text-secondary, var(--kb-text-secondary));
   cursor: pointer;
   opacity: 0;
   transform: translateY(-4px);
@@ -505,7 +628,7 @@ body,
 .tiptap-figure figcaption {
   margin-top: 6px;
   font-size: 13px;
-  color: var(--ant-color-text-tertiary, #8c8c8c);
+  color: var(--ant-color-text-tertiary, var(--kb-text-tertiary));
   text-align: center;
   font-style: italic;
   line-height: 1.5;
@@ -539,7 +662,7 @@ body,
   font-size: 13px;
   line-height: 1.55;
   color: var(--ant-color-text-secondary, #555);
-  border-left: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  border-left: 1px solid var(--ant-color-border-secondary, var(--kb-border));
   padding-left: 10px;
 }
 .editor-outline__header {
@@ -618,14 +741,14 @@ body,
 
 .editor-meta {
   padding: 4px 0;
-  border-bottom: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  border-bottom: 1px solid var(--ant-color-border-secondary, var(--kb-border));
   margin-bottom: 16px;
 }
 
 /* ─── Tiptap 编辑器样式 ─────────────────────────── */
 
 .tiptap-wrapper {
-  border: 1px solid var(--ant-color-border, #d9d9d9);
+  border: 1px solid var(--ant-color-border, var(--kb-border));
   border-radius: 8px;
   overflow: hidden;
 }
@@ -659,7 +782,7 @@ body,
   row-gap: 4px;
   column-gap: 1px;
   padding: 6px 14px;
-  border-bottom: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  border-bottom: 1px solid var(--ant-color-border-secondary, var(--kb-border));
   /* 与正文同色 + 轻磨砂，消除灰色底的突兀感 */
   background: color-mix(in srgb, var(--ant-color-bg-container, #fff) 85%, transparent);
   backdrop-filter: blur(8px);
@@ -694,7 +817,7 @@ body,
   border: none !important;
   border-radius: 6px;
   background: transparent !important;
-  color: var(--ant-color-text-secondary, #666);
+  color: var(--ant-color-text-secondary, var(--kb-text-secondary));
   box-shadow: none !important;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
@@ -717,13 +840,13 @@ body,
 
 /* 活动态：主色淡底 */
 .toolbar-btn-active {
-  color: var(--ant-color-primary, #1677ff) !important;
-  background: var(--ant-color-primary-bg, #e6f4ff) !important;
+  color: var(--ant-color-primary, var(--kb-primary)) !important;
+  background: var(--ant-color-primary-bg, var(--kb-primary-light)) !important;
 }
 
 .tiptap-toolbar .toolbar-btn-active:hover:not(:disabled) {
   background: var(--ant-color-primary-bg-hover, #bae0ff) !important;
-  color: var(--ant-color-primary, #1677ff) !important;
+  color: var(--ant-color-primary, var(--kb-primary)) !important;
 }
 
 /* 暗色模式工具栏 — 见 themes.css */
@@ -744,6 +867,9 @@ body,
   overflow-x: auto;
   overflow-y: hidden;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  /* 860：格式 + 复制 / 剪切 + AI 一排在常见宽度下放得下，不用横向滚动；
+     窄窗口再收，避免最右按钮被视口裁掉 */
+  max-width: min(860px, calc(100vw - 24px));
 }
 .kb-ai-floating-toolbar::-webkit-scrollbar {
   height: 0;
@@ -805,10 +931,10 @@ body,
 
 /* 引用 */
 .tiptap blockquote {
-  border-left: 3px solid var(--ant-color-primary, #1677ff);
+  border-left: 3px solid var(--ant-color-primary, var(--kb-primary));
   padding-left: 1em;
   margin: 0.5em 0;
-  color: var(--ant-color-text-secondary, #666);
+  color: var(--ant-color-text-secondary, var(--kb-text-secondary));
 }
 
 /* 代码块：透明磨砂底 + 细边线，消除灰色突兀感 */
@@ -1007,26 +1133,26 @@ body,
 
 /* 链接 */
 .tiptap-link {
-  color: var(--ant-color-primary, #1677ff);
+  color: var(--ant-color-primary, var(--kb-primary));
   text-decoration: underline;
   cursor: pointer;
 }
 
 /* 内联 wiki 链接 [[标题]] — Ctrl/Cmd + 点击跳转
    fallback：同 table th，避免 macOS Safari/WKWebView 老版本 color-mix 异常时
-   回落到 user-agent 深色背景把蓝字盖掉。RGBA 用 antd 默认主色 #1677ff 透明值 */
+   回落到 user-agent 深色背景把蓝字盖掉。RGBA 用 antd 默认主色 var(--kb-primary) 透明值 */
 .tiptap .wiki-link {
-  color: var(--ant-color-primary, #1677ff);
-  background: rgba(22, 119, 255, 0.08);
-  background: color-mix(in srgb, var(--ant-color-primary, #1677ff) 8%, transparent);
+  color: var(--ant-color-primary, var(--kb-primary));
+  background: var(--kb-primary-light);
+  background: color-mix(in srgb, var(--ant-color-primary, var(--kb-primary)) 8%, transparent);
   border-radius: 3px;
   padding: 0 2px;
   cursor: pointer;
   transition: background 0.15s ease;
 }
 .tiptap .wiki-link:hover {
-  background: rgba(22, 119, 255, 0.18);
-  background: color-mix(in srgb, var(--ant-color-primary, #1677ff) 18%, transparent);
+  background: var(--kb-primary-light);
+  background: color-mix(in srgb, var(--ant-color-primary, var(--kb-primary)) 18%, transparent);
   text-decoration: underline;
 }
 
@@ -1054,7 +1180,7 @@ body,
 /* 分割线 */
 .tiptap hr {
   border: none;
-  border-top: 1px solid var(--ant-color-border, #d9d9d9);
+  border-top: 1px solid var(--ant-color-border, var(--kb-border));
   margin: 1em 0;
 }
 
@@ -1079,7 +1205,7 @@ body,
 
 .tiptap table td,
 .tiptap table th {
-  border: 1px solid var(--ant-color-border, #d9d9d9);
+  border: 1px solid var(--ant-color-border, var(--kb-border));
   padding: 6px 10px;
   vertical-align: top;
   position: relative;
@@ -1104,7 +1230,7 @@ body,
 /* 表格选中单元格高亮 */
 .tiptap table td.selectedCell,
 .tiptap table th.selectedCell {
-  background: var(--ant-color-primary-bg, #e6f4ff);
+  background: var(--ant-color-primary-bg, var(--kb-primary-light));
 }
 
 /* 暗色模式选中 — 见 themes.css */
@@ -1116,7 +1242,7 @@ body,
   top: 0;
   bottom: -2px;
   width: 4px;
-  background-color: var(--ant-color-primary, #1677ff);
+  background-color: var(--ant-color-primary, var(--kb-primary));
   pointer-events: none;
 }
 
@@ -1145,10 +1271,10 @@ body,
 .ai-markdown li { margin: 0.1em 0; }
 .ai-markdown li > p { margin: 0; }
 .ai-markdown blockquote {
-  border-left: 3px solid var(--ant-color-primary, #1677ff);
+  border-left: 3px solid var(--ant-color-primary, var(--kb-primary));
   padding-left: 0.8em;
   margin: 0.4em 0;
-  color: var(--ant-color-text-secondary, #666);
+  color: var(--ant-color-text-secondary, var(--kb-text-secondary));
 }
 .ai-markdown pre {
   background: color-mix(in srgb, var(--ant-color-text, #000) 3.5%, transparent);
@@ -1177,11 +1303,11 @@ body,
 }
 .ai-markdown hr {
   border: none;
-  border-top: 1px solid var(--ant-color-border, #d9d9d9);
+  border-top: 1px solid var(--ant-color-border, var(--kb-border));
   margin: 0.5em 0;
 }
 .ai-markdown strong { font-weight: 600; }
-.ai-markdown a { color: var(--ant-color-primary, #1677ff); }
+.ai-markdown a { color: var(--ant-color-primary, var(--kb-primary)); }
 .ai-markdown > *:first-child { margin-top: 0; }
 .ai-markdown > *:last-child { margin-bottom: 0; }
 
@@ -1233,7 +1359,7 @@ body,
 }
 .anchor-page-nav li[data-active] {
   background: var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.06));
-  color: var(--ant-color-primary, #1677ff);
+  color: var(--ant-color-primary, var(--kb-primary));
   font-weight: 500;
 }
 .anchor-page-content {
@@ -1332,10 +1458,10 @@ body,
 @keyframes settings-target-flash {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(22, 119, 255, 0);
+    box-shadow: 0 0 0 0 var(--kb-primary-light);
   }
   25% {
-    box-shadow: 0 0 0 4px rgba(22, 119, 255, 0.35);
+    box-shadow: 0 0 0 4px var(--kb-primary-light);
   }
 }
 
@@ -1420,7 +1546,7 @@ body,
   box-sizing: border-box; /* width 含 padding/border，避免外溢挤到代码 */
   padding-right: 10px;
   text-align: right;
-  color: var(--ant-color-text-tertiary, #999);
+  color: var(--ant-color-text-tertiary, var(--kb-text-tertiary));
   font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
   font-size: 0.9em;
   line-height: 1.6;
@@ -1463,14 +1589,14 @@ body,
   transition: box-shadow 0.3s, border-color 0.3s;
 }
 .tiptap-video-block[data-highlight="true"] {
-  border-color: var(--ant-color-primary, #1677ff);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ant-color-primary, #1677ff) 25%, transparent);
+  border-color: var(--ant-color-primary, var(--kb-primary));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ant-color-primary, var(--kb-primary)) 25%, transparent);
   animation: video-highlight-pulse 1.2s ease-out;
 }
 @keyframes video-highlight-pulse {
-  0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--ant-color-primary, #1677ff) 50%, transparent); }
-  60%  { box-shadow: 0 0 0 8px color-mix(in srgb, var(--ant-color-primary, #1677ff) 0%, transparent); }
-  100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ant-color-primary, #1677ff) 25%, transparent); }
+  0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--ant-color-primary, var(--kb-primary)) 50%, transparent); }
+  60%  { box-shadow: 0 0 0 8px color-mix(in srgb, var(--ant-color-primary, var(--kb-primary)) 0%, transparent); }
+  100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ant-color-primary, var(--kb-primary)) 25%, transparent); }
 }
 .tiptap-video-toolbar {
   display: flex;
@@ -1484,7 +1610,7 @@ body,
 }
 .tiptap-video-label {
   font-weight: 500;
-  color: var(--ant-color-text-secondary, #666);
+  color: var(--ant-color-text-secondary, var(--kb-text-secondary));
 }
 .tiptap-video-label-edit {
   display: inline-flex;
@@ -1518,7 +1644,7 @@ body,
 }
 .tiptap-embed-video-label {
   font-weight: 500;
-  color: var(--ant-color-text-secondary, #666);
+  color: var(--ant-color-text-secondary, var(--kb-text-secondary));
   white-space: nowrap;
 }
 .tiptap-embed-video-link {
@@ -1527,7 +1653,7 @@ body,
   gap: 3px;
   background: transparent;
   border: none;
-  color: var(--ant-color-primary, #1677ff);
+  color: var(--ant-color-primary, var(--kb-primary));
   cursor: pointer;
   font-size: 12px;
   padding: 0;
@@ -1580,26 +1706,26 @@ body,
   padding: 1px 8px;
   margin: 0 2px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--ant-color-primary, #1677ff) 12%, transparent);
-  color: var(--ant-color-primary, #1677ff);
+  background: color-mix(in srgb, var(--ant-color-primary, var(--kb-primary)) 12%, transparent);
+  color: var(--ant-color-primary, var(--kb-primary));
   font-size: 0.92em;
   cursor: pointer;
   user-select: none;
-  border: 1px solid color-mix(in srgb, var(--ant-color-primary, #1677ff) 30%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ant-color-primary, var(--kb-primary)) 30%, transparent);
   white-space: nowrap;
   transition: background 0.15s, transform 0.05s;
 }
 .video-ts-chip:hover {
-  background: color-mix(in srgb, var(--ant-color-primary, #1677ff) 22%, transparent);
+  background: color-mix(in srgb, var(--ant-color-primary, var(--kb-primary)) 22%, transparent);
 }
 .video-ts-chip:active { transform: translateY(1px); }
 .video-ts-chip.ProseMirror-selectednode {
-  outline: 2px solid var(--ant-color-primary, #1677ff);
+  outline: 2px solid var(--ant-color-primary, var(--kb-primary));
   outline-offset: 1px;
 }
 .video-ts-chip-broken {
   background: color-mix(in srgb, var(--ant-color-text, #000) 8%, transparent);
-  color: var(--ant-color-text-quaternary, #999);
+  color: var(--ant-color-text-quaternary, var(--kb-text-tertiary));
   border-color: color-mix(in srgb, var(--ant-color-text, #000) 15%, transparent);
   text-decoration: line-through;
 }
@@ -1619,11 +1745,11 @@ body,
   gap: 10px;
   padding: 12px 14px;
   margin: 12px 0;
-  border-left: 4px solid var(--callout-accent, #1677ff);
+  border-left: 4px solid var(--callout-accent, var(--kb-primary));
   border-radius: 6px;
-  background: var(--callout-bg, color-mix(in srgb, #1677ff 6%, transparent));
+  background: var(--callout-bg, color-mix(in srgb, var(--kb-primary) 6%, transparent));
 }
-.tiptap-callout[data-callout="info"]    { --callout-accent: #1677ff; --callout-bg: color-mix(in srgb, #1677ff 8%, transparent); }
+.tiptap-callout[data-callout="info"]    { --callout-accent: var(--kb-primary); --callout-bg: color-mix(in srgb, var(--kb-primary) 8%, transparent); }
 .tiptap-callout[data-callout="tip"]     { --callout-accent: #52c41a; --callout-bg: color-mix(in srgb, #52c41a 10%, transparent); }
 .tiptap-callout[data-callout="warning"] { --callout-accent: #faad14; --callout-bg: color-mix(in srgb, #faad14 10%, transparent); }
 .tiptap-callout[data-callout="danger"]  { --callout-accent: #ff4d4f; --callout-bg: color-mix(in srgb, #ff4d4f 10%, transparent); }
@@ -1668,7 +1794,7 @@ body,
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  color: var(--ant-color-text-secondary, #666);
+  color: var(--ant-color-text-secondary, var(--kb-text-secondary));
   margin-top: 2px;
   user-select: none;
 }
@@ -1693,7 +1819,7 @@ body,
 .tiptap-toggle [data-toggle-content] {
   padding-left: 4px;
   margin-top: 4px;
-  border-left: 2px solid var(--ant-color-border-secondary, #f0f0f0);
+  border-left: 2px solid var(--ant-color-border-secondary, var(--kb-border));
   padding-left: 12px;
 }
 .tiptap-toggle[data-open="false"] [data-toggle-content] {
@@ -1705,7 +1831,7 @@ body,
   display: flex;
   gap: 2px;
   padding: 4px 2px;
-  border-bottom: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  border-bottom: 1px solid var(--ant-color-border-secondary, var(--kb-border));
   margin-bottom: 4px;
 }
 .emoji-cat-btn {
@@ -1717,7 +1843,7 @@ body,
   height: 28px;
   padding: 0 4px;
   font-size: 12px;
-  color: var(--ant-color-text-secondary, #666);
+  color: var(--ant-color-text-secondary, var(--kb-text-secondary));
   background: transparent;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -1731,8 +1857,8 @@ body,
   background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.05));
 }
 .emoji-cat-btn.active {
-  background: color-mix(in srgb, var(--ant-color-primary, #1677ff) 12%, transparent);
-  color: var(--ant-color-primary, #1677ff);
+  background: color-mix(in srgb, var(--ant-color-primary, var(--kb-primary)) 12%, transparent);
+  color: var(--ant-color-primary, var(--kb-primary));
   font-weight: 500;
 }
 
@@ -1786,7 +1912,7 @@ body,
   border: none;
   background: transparent;
   cursor: pointer;
-  color: var(--ant-color-text-quaternary, #bfbfbf);
+  color: var(--ant-color-text-quaternary, var(--kb-border));
   opacity: 0;
   transition: opacity 0.12s, color 0.12s, transform 0.12s;
   border-radius: 4px;
@@ -1805,7 +1931,7 @@ body,
 }
 .kb-heading-fold-chevron.is-folded {
   opacity: 1;
-  color: var(--ant-color-primary, #1677ff);
+  color: var(--ant-color-primary, var(--kb-primary));
   transform: rotate(-90deg); /* 折叠态箭头朝右，与 Notion/Obsidian 一致 */
 }
 
@@ -1825,7 +1951,7 @@ body,
   border: none;
   background: transparent;
   cursor: pointer;
-  color: var(--ant-color-text-quaternary, #bfbfbf);
+  color: var(--ant-color-text-quaternary, var(--kb-border));
   opacity: 0;
   transition: opacity 0.12s, color 0.12s, background-color 0.12s;
   border-radius: 4px;
@@ -1839,7 +1965,7 @@ body,
 }
 .kb-folder-pin.active {
   opacity: 1;
-  color: var(--ant-color-primary, #1677ff);
+  color: var(--ant-color-primary, var(--kb-primary));
 }
 
 /* ─── 批注 mark ──────────────────────────────────────
@@ -2025,7 +2151,7 @@ body,
 }
 
 .module-help-md a {
-  color: #1677ff;
+  color: var(--kb-primary);
   text-decoration: none;
 }
 
@@ -2059,8 +2185,8 @@ body,
 
 /* 深链定位到模块配置面板时的短暂高亮 */
 @keyframes module-panel-flash {
-  0% { box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.35); }
-  100% { box-shadow: 0 0 0 0 rgba(22, 119, 255, 0); }
+  0% { box-shadow: 0 0 0 3px var(--kb-primary-light); }
+  100% { box-shadow: 0 0 0 0 var(--kb-primary-light); }
 }
 
 .module-panel-focus {
@@ -2115,3 +2241,245 @@ body,
   line-height: 1.4;
   white-space: nowrap;
 }
+
+/* ─── YAML front-matter 属性卡片 ─────────────────────────── */
+/* 卡片本身有底色，再叠编辑区的上内边距会显得离标签太远 */
+.editor-content-area .tiptap-content .tiptap:has(> .node-frontMatter) {
+  padding-top: 0;
+}
+.tiptap-front-matter {
+  margin: 0 0 12px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--kb-text-primary, #27233b) 4%, transparent);
+  font-size: 13px;
+  line-height: 22px;
+}
+/* 用内描边表示状态：边框会占尺寸，切换时卡片会跳 */
+.tiptap-front-matter:focus-within {
+  box-shadow: inset 0 0 0 1px var(--kb-primary, #1677ff);
+}
+.tiptap-front-matter.is-invalid {
+  box-shadow: inset 0 0 0 1px var(--ant-color-error, #ff4d4f);
+}
+.tiptap-front-matter-rows {
+  margin: 0;
+}
+.tiptap-front-matter-rows.is-editable {
+  cursor: text;
+}
+.tiptap-front-matter-row {
+  display: flex;
+  gap: 16px;
+}
+.tiptap-front-matter-row dt {
+  flex: 0 0 auto;
+  width: 120px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: normal;
+  color: var(--kb-text-tertiary, inherit);
+}
+.tiptap-front-matter-row dd {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* 与键值行同字号同行高；要盖过 antd 的 .ant-input 默认值 */
+textarea.tiptap-front-matter-input.ant-input {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  font: inherit;
+  line-height: inherit;
+  resize: none;
+  /* 主题的 [data-theme] .ant-input 背景和焦点环都带 !important，只能同样写才盖得过 */
+  background: transparent !important;
+}
+textarea.tiptap-front-matter-input.ant-input,
+textarea.tiptap-front-matter-input.ant-input:focus {
+  box-shadow: none !important;
+}
+
+/* 设置 → 编辑器「表格内容垂直居中」：纯显示偏好，不写进 .md */
+:root[data-editor-table-vcenter="1"] .tiptap table td,
+:root[data-editor-table-vcenter="1"] .tiptap table th {
+  vertical-align: middle;
+}
+
+/* 正文段间距：可在设置里调；只作用于顶层段落，
+   列表项 / 表格单元格 / Callout 内部的段落沿用各自原有间距 */
+.editor-content-area .tiptap > p {
+  margin: 0 0 var(--editor-paragraph-spacing, 1.05em);
+}
+
+/* ─── 编辑页底部状态栏（v4）：通栏 30px ─────────────────── */
+.kb-statusbar {
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 14px 0 18px;
+  border-top: 1px solid var(--kb-border);
+  background: var(--kb-bg-panel);
+  font-size: 11.5px;
+  color: var(--kb-text-tertiary);
+}
+.kb-statusbar .kb-link-status-bar {
+  /* 复用链接条本体，但在状态栏里不再自带卡片外观 */
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  width: auto !important;
+  flex: 1;
+  justify-content: center;
+}
+.kb-statusbar-lead,
+.kb-statusbar-trail {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  white-space: nowrap;
+}
+.kb-sb-mode {
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--kb-bg-hover);
+  color: var(--kb-text-secondary);
+}
+
+/* ─── 顶栏保存状态胶囊（● 已保存 / 未保存 / 保存中 / 保存失败）─── */
+.kb-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.kb-saved .ant-typography {
+  font-size: 12px !important;
+}
+.kb-saved::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ant-color-success, #52c41a);
+  flex: none;
+}
+.kb-saved.is-saving::before {
+  background: var(--ant-color-warning, #faad14);
+}
+.kb-saved.is-error::before {
+  background: var(--ant-color-error, #ff4d4f);
+}
+.kb-saved.is-dirty::before {
+  background: var(--ant-color-warning, #faad14);
+}
+.kb-saved.is-dirty .ant-typography {
+  color: var(--ant-color-warning, #faad14) !important;
+}
+
+/* 工具栏收纳面板触发按钮 */
+.tiptap-toolbar .kb-fmt-drop.ant-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px !important;
+  width: auto !important;
+}
+
+/* ─── 标题自动编号 widget（HeadingNumber）─────────────────── */
+.kb-hnum {
+  display: inline-block;
+  margin-right: 0.3em;
+  font-weight: 700;
+  opacity: 0.85;
+  user-select: none;
+  text-indent: 0;
+}
+.kb-hnum[data-level="1"] { min-width: 1.2em; }
+.kb-hnum[data-level="2"] { min-width: 2.1em; }
+.kb-hnum[data-level="3"] { min-width: 2.9em; font-weight: 600; }
+.kb-hnum[data-level="4"] { min-width: 3.7em; font-weight: 600; }
+.kb-hnum[data-level="5"] { min-width: 4.5em; font-weight: 600; }
+.kb-hnum[data-level="6"] { min-width: 5.3em; font-weight: 600; }
+/* 自带手写编号的标题：不叠加自动编号但仍占计数位；悬停给一条淡竖线提示 */
+:root[data-editor-heading-number="1"] .editor-content-area .tiptap .kb-hnum-manual {
+  position: relative;
+}
+:root[data-editor-heading-number="1"] .editor-content-area .tiptap .kb-hnum-manual::after {
+  content: "";
+  position: absolute;
+  left: -0.5em;
+  top: 0.15em;
+  bottom: 0.15em;
+  width: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--kb-text-primary, #000) 18%, transparent);
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+:root[data-editor-heading-number="1"] .editor-content-area:hover .kb-hnum-manual::after {
+  opacity: 1;
+}
+
+/* ─── 查找替换：命中高亮 ─────────────────────────────────── */
+.kb-search-match {
+  background-color: color-mix(in srgb, #faad14 35%, transparent);
+  border-radius: 2px;
+}
+.kb-search-active {
+  background-color: color-mix(in srgb, #fa8c16 65%, transparent);
+  outline: 1px solid #fa8c16;
+  outline-offset: 0;
+}
+[data-theme-category="dark"] .kb-search-match {
+  background-color: color-mix(in srgb, #faad14 30%, transparent);
+}
+[data-theme-category="dark"] .kb-search-active {
+  background-color: color-mix(in srgb, #fa8c16 55%, transparent);
+}
+:root {
+  --kb-search-chip-bg-0: color-mix(in srgb, #faad14 22%, transparent);
+  --kb-search-chip-bg-1: color-mix(in srgb, #52c41a 22%, transparent);
+  --kb-search-chip-bg-2: color-mix(in srgb, #1677ff 22%, transparent);
+  --kb-search-chip-bg-3: color-mix(in srgb, #eb2f96 22%, transparent);
+  --kb-search-chip-bg-4: color-mix(in srgb, #722ed1 22%, transparent);
+  --kb-search-chip-bg-5: color-mix(in srgb, #13c2c2 22%, transparent);
+}
+.kb-search-match-0 { background-color: color-mix(in srgb, #faad14 35%, transparent); }
+.kb-search-match-1 { background-color: color-mix(in srgb, #52c41a 35%, transparent); }
+.kb-search-match-2 { background-color: color-mix(in srgb, #1677ff 32%, transparent); }
+.kb-search-match-3 { background-color: color-mix(in srgb, #eb2f96 32%, transparent); }
+.kb-search-match-4 { background-color: color-mix(in srgb, #722ed1 32%, transparent); }
+.kb-search-match-5 { background-color: color-mix(in srgb, #13c2c2 35%, transparent); }
+[data-theme-category="dark"] .kb-search-match-0 { background-color: color-mix(in srgb, #faad14 30%, transparent); }
+[data-theme-category="dark"] .kb-search-match-1 { background-color: color-mix(in srgb, #52c41a 28%, transparent); }
+[data-theme-category="dark"] .kb-search-match-2 { background-color: color-mix(in srgb, #1677ff 28%, transparent); }
+[data-theme-category="dark"] .kb-search-match-3 { background-color: color-mix(in srgb, #eb2f96 28%, transparent); }
+[data-theme-category="dark"] .kb-search-match-4 { background-color: color-mix(in srgb, #722ed1 28%, transparent); }
+[data-theme-category="dark"] .kb-search-match-5 { background-color: color-mix(in srgb, #13c2c2 30%, transparent); }
+.kb-search-match.kb-search-active,
+.kb-search-match-0.kb-search-active,
+.kb-search-match-1.kb-search-active,
+.kb-search-match-2.kb-search-active,
+.kb-search-match-3.kb-search-active,
+.kb-search-match-4.kb-search-active,
+.kb-search-match-5.kb-search-active {
+  background-color: color-mix(in srgb, #fa8c16 65%, transparent);
+  outline: 1px solid #fa8c16;
+  outline-offset: 0;
+}
+
+/* 大纲停靠位置：左侧时用 order 重排网格子项（DOM 顺序仍是 正文→分隔条→大纲） */
+.editor-body[data-outline-pos="left"] .editor-content-area { order: 3; }
+.editor-body[data-outline-pos="left"] .editor-outline-splitter { order: 2; }
+.editor-body[data-outline-pos="left"] .editor-outline-aside { order: 1; border-left: none; border-right: 1px solid var(--kb-border, rgba(0,0,0,.06)); }
+.editor-body[data-outline-pos="left"] .editor-outline-aside { padding: 24px 0 24px 12px; }

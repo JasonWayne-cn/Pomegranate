@@ -24,7 +24,13 @@ import Subscript from "@tiptap/extension-subscript";
 import { FigureImage } from "./FigureExtension";
 import { HeadingFold, HEADING_FOLD_REFRESH, HEADING_FOLD_KEY } from "./HeadingFold";
 import { calcEditorStats } from "@/lib/textStats";
-import { FontSize, LineHeight, Indent } from "./TextStyleExtras";
+import {
+  FontSize,
+  LineHeight,
+  Indent,
+  ParagraphWithIndent,
+  HeadingWithIndent,
+} from "./TextStyleExtras";
 // tiptap-markdown 未提供 TS 声明，用 import 后以 any 访问
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 import { Markdown } from "tiptap-markdown";
@@ -184,8 +190,19 @@ import { useAttachmentPreviewStore } from "@/store/attachmentPreview";
 import { EditorToolbar } from "./EditorToolbar";
 import { TableBubbleMenu } from "./TableBubbleMenu";
 import { AiWriteMenu } from "./AiWriteMenu";
-import { WikiLinkDecoration } from "./WikiLinkDecoration";
+import { WikiLinkDecoration, type WikiLinkRange } from "./WikiLinkDecoration";
 import { WikiLinkSuggestion } from "./WikiLinkSuggestion";
+import { WikiLinkEditModal } from "./WikiLinkEditModal";
+import { DocumentWithFrontMatter, FrontMatter } from "./FrontMatter";
+import {
+  HeadingNumber,
+  HEADING_NUMBER_KEY,
+  HEADING_NUMBER_REFRESH,
+} from "./HeadingNumber";
+import { SearchReplaceBar } from "./SearchReplaceBar";
+import { ImageLightbox } from "./ImageLightbox";
+import { keyboardEventToAccel } from "@/lib/shortcuts/registry";
+import { looksLikeCode } from "@/lib/pasteCodeHeuristic";
 import { useEditorContextMenu } from "./useEditorContextMenu";
 import { ContextMenuOverlay } from "@/components/ui/ContextMenuOverlay";
 import { Video as VideoNode } from "./VideoNode";
@@ -203,6 +220,26 @@ import { Columns, Column } from "./Columns";
 import "tippy.js/dist/tippy.css";
 
 const lowlight = createLowlight(common);
+
+/**
+ * 用 lowlight.highlightAuto 猜代码语言；relevance 太低时返回 null（交给代码块 NodeView
+ * 的自动识别去"建议"，避免写死一个错误语言导致高亮更乱）。
+ */
+function detectCodeLanguage(text: string): string | null {
+  try {
+    const res = lowlight.highlightAuto(text) as {
+      data?: { language?: string };
+      relevance?: number;
+    };
+    const lang = res.data?.language;
+    if (lang && (res.relevance ?? 0) >= 5 && lowlight.listLanguages().includes(lang)) {
+      return lang;
+    }
+  } catch {
+    // 检测失败静默
+  }
+  return null;
+}
 
 /**
  * T-011 自定义 markdown → Math 节点迁移
@@ -653,6 +690,13 @@ interface TiptapEditorProps {
    * 底部 stats 会被推得离视觉底部很远 → 文档页面应传 false 关闭它。
    */
   showFooterStats?: boolean;
+  /**
+   * 统计结果回调（字数 / 字符 / 阅读时长），300ms 合并后调用。
+   * 供编辑器页底部状态栏等外部位置复用同一份数字，避免两处算法不一致。
+   */
+  onStats?: (stats: { words: number; chars: number; readingTime: string }) => void;
+  /** 只读（阅读模式）：隐藏工具栏与 AI 浮条，仅保留正文与查找 */
+  readOnly?: boolean;
 }
 
 export function TiptapEditor({
@@ -665,6 +709,8 @@ export function TiptapEditor({
   onAskAi,
   onEditorReady,
   showFooterStats = true,
+  onStats,
+  readOnly = false,
 }: TiptapEditorProps) {
   const isExternalUpdate = useRef(false);
 
@@ -1031,9 +1077,24 @@ export function TiptapEditor({
     [],
   );
 
+  // ── 查找替换浮条（Ctrl+F / Ctrl+H 或工具栏按钮触发） ──
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchShowReplace, setSearchShowReplace] = useState(false);
+  const [searchInitial, setSearchInitial] = useState<string | undefined>(undefined);
+  // 右键双链 →「修改链接」：记住待改双链的范围，弹选择器换目标文档
+  const [editingWikiLink, setEditingWikiLink] = useState<WikiLinkRange | null>(null);
+  // Ctrl/⌘+Shift+V 显式纯文本粘贴标记：一次性消费，压过"像代码"的启发式猜测
+  const plainPasteShortcutRef = useRef(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
+        document: false, // 用 DocumentWithFrontMatter 替代，给文档开头的属性块留位置
+        // 用 ParagraphWithIndent / HeadingWithIndent 替换默认实现：
+        // 缩进 / 对齐输出 HTML 块存进 .md；标题内换行输出 <br>（标题只能占一行）
+        paragraph: false,
+        heading: false,
         codeBlock: false, // 用 CodeBlockLowlight 替代
         // Tiptap 3.x StarterKit 自带 link/underline，这里禁用以避免和下方
         // 手动 Link.configure / Underline 重复（控制台会打印 Duplicate extension names）
@@ -1045,6 +1106,11 @@ export function TiptapEditor({
         // code mark 同时存在
         code: false,
       }),
+      // YAML front-matter：文档开头 `---` 元数据块，显示为属性卡片，保存按原文写回
+      DocumentWithFrontMatter,
+      FrontMatter,
+      ParagraphWithIndent,
+      HeadingWithIndent,
       Code.configure({
         HTMLAttributes: {},
       }).extend({
@@ -1052,7 +1118,15 @@ export function TiptapEditor({
         excludes: "",
       }),
       Placeholder.configure({ placeholder }),
-      Highlight.configure({ multicolor: true }),
+      // 高亮：禁用 Tiptap 内置 Mod-Shift-h，键位改由 editorProps.handleKeyDown 读
+      // store.editorHighlightShortcut 实时触发，实现"高亮快捷键可自定义"。
+      // 保留内置键位会和 handleKeyDown 双触发 → toggleHighlight 跑两次互相抵消。
+      Highlight.extend({
+        priority: 1000,
+        addKeyboardShortcuts() {
+          return {};
+        },
+      }).configure({ multicolor: true }),
       // 批注：选中文字加补充说明，data-comment 直接存在 mark 里，跟着文档走
       Annotation,
       TaskList,
@@ -1084,12 +1158,19 @@ export function TiptapEditor({
           const { href: _ignored, target: _t, rel: _r, ...rest } =
             HTMLAttributes as Record<string, unknown>;
           void _ignored; void _t; void _r;
+          // 邮件 / 电话链接要 Ctrl+单击才拉起系统程序（见下方点击拦截），悬停给出提示
+          const hint = /^mailto:/i.test(realHref)
+            ? "Ctrl+单击发送邮件"
+            : /^tel:/i.test(realHref)
+              ? "Ctrl+单击拨打电话"
+              : undefined;
           return [
             "span",
             mergeAttributes(this.options.HTMLAttributes, rest, {
               "data-href": realHref,
               role: "link",
               tabindex: "0",
+              ...(hint ? { title: hint } : {}),
             }),
             0,
           ];
@@ -1156,6 +1237,18 @@ export function TiptapEditor({
         },
         maxLevel: 3,
       }),
+      // 标题自动编号（设置页可开关 / 选格式 / 起始层级 / 跳过手写编号）
+      HeadingNumber.configure({
+        getEnabled: () => useAppStore.getState().editorHeadingNumber,
+        getOptions: () => {
+          const s = useAppStore.getState();
+          return {
+            format: s.editorHeadingNumberFormat,
+            startLevel: s.editorHeadingNumberStartLevel,
+            skipManual: s.editorHeadingNumberSkipManual,
+          };
+        },
+      }),
       // Markdown 序列化/反序列化：setContent 吃 Markdown，editor.storage.markdown.getMarkdown() 吐 Markdown
       Markdown.configure({
         html: true,               // 允许内联 HTML 片段（表格等复杂结构）
@@ -1174,6 +1267,7 @@ export function TiptapEditor({
       AllowFileLink,
     ],
     content,
+    editable: !readOnly,
     onCreate: ({ editor }) => {
       // T-011: 初始内容里如果含 $..$ / $$..$$ 字面量，编辑器创建后立即升级为 math 节点
       // 用自定义 migrate 而非官方 `migrateMathStrings`：官方只处理单行 $..$ 且会
@@ -1269,6 +1363,57 @@ export function TiptapEditor({
           return true;
         }
 
+        // 场景 F：纯文本代码 → 包成代码块，绕开 markdown 往返。
+        // 笔记以 Markdown 存储，纯文本代码当普通文本粘贴时，4 空格缩进会被当成缩进代码块、
+        // 行首 `*` 会变列表、ASCII 对齐空格会被折叠 —— 粘完当场就坏。
+        // 触发条件（保守）：设置开启 + 剪贴板无富文本 HTML + 用户没显式要求纯文本 + 像代码。
+        const plainText = dt?.getData("text/plain") ?? "";
+        const explicitPlainPaste = plainPasteShortcutRef.current;
+        plainPasteShortcutRef.current = false;
+        if (
+          useAppStore.getState().pasteCodeAsBlock &&
+          !explicitPlainPaste &&
+          !html.trim() &&
+          plainText.trim().length > 0 &&
+          looksLikeCode(plainText)
+        ) {
+          const code = plainText.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
+          const language = detectCodeLanguage(code);
+          editor
+            .chain()
+            .focus()
+            .insertContent({
+              type: "codeBlock",
+              attrs: { language },
+              content: [{ type: "text", text: code }],
+            })
+            .run();
+          message.success({
+            content: "已识别为代码并粘贴为代码块（Ctrl+Z 撤销）",
+            duration: 2,
+          });
+          return true;
+        }
+
+        return false;
+      },
+      handleKeyDown: (_view, event) => {
+        // Ctrl/⌘+Shift+V = 浏览器的「粘贴为纯文本」，标记一次性纯文本意图
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.shiftKey &&
+          (event.key === "v" || event.key === "V")
+        ) {
+          plainPasteShortcutRef.current = true;
+        }
+        // 高亮快捷键：实时读 store，实现"可自定义"
+        const accel = useAppStore.getState().editorHighlightShortcut;
+        if (!accel) return false; // 空串 = 用户已禁用高亮快捷键
+        const pressed = keyboardEventToAccel(event);
+        if (pressed && pressed === accel) {
+          editor.chain().focus().toggleHighlight().run();
+          return true;
+        }
         return false;
       },
       handleDrop: (_view, event) => {
@@ -1444,6 +1589,20 @@ export function TiptapEditor({
         linkEl.getAttribute("data-href") || linkEl.getAttribute("href") || "";
       if (!href || href.startsWith("#") || href === "javascript:void(0)") return;
 
+      // 邮件 / 电话：单击只提示，Ctrl/⌘+单击才拉起系统程序 ——
+      // 正文里常写邮箱做示例，单击就弹邮件客户端很打扰；http(s) 保持单击打开。
+      const isMailOrTel = /^(mailto:|tel:)/i.test(href);
+      if (isMailOrTel && !(ev.ctrlKey || ev.metaKey)) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        message.info(
+          href.startsWith("tel:")
+            ? "Ctrl+单击拨打电话"
+            : "Ctrl+单击发送邮件",
+        );
+        return;
+      }
+
       ev.preventDefault();
       ev.stopPropagation();
 
@@ -1488,6 +1647,11 @@ export function TiptapEditor({
     };
   }, [editor]);
 
+  // 阅读模式切换：实时改 editable，无需重建编辑器
+  useEffect(() => {
+    if (editor) editor.setEditable(!readOnly);
+  }, [editor, readOnly]);
+
   // 外部 content 变化时同步（如初次加载）
   useEffect(() => {
     if (!editor) return;
@@ -1517,11 +1681,34 @@ export function TiptapEditor({
 
   // 编辑器节点右键菜单：图片/视频/附件/wiki 链接的自定义右键操作；
   // 普通文本继续走浏览器原生剪切/复制/粘贴菜单
-  const { ctx: nodeCtxMenu, menuItems: nodeMenuItems } = useEditorContextMenu(editor, noteId);
+  const { ctx: nodeCtxMenu, menuItems: nodeMenuItems } = useEditorContextMenu(
+    editor,
+    noteId,
+    setEditingWikiLink,
+  );
+
+  /**
+   * 用选中的新目标替换整段 `[[旧标题]]`。
+   * 一律写成带 ID 锚点的 `[[标题|123]]`：手敲形式没有锚点，目标文档改名就断链。
+   */
+  function applyWikiLinkEdit(title: string, id: number) {
+    const range = editingWikiLink;
+    setEditingWikiLink(null);
+    if (!editor || !range) return;
+    editor
+      .chain()
+      .focus()
+      .insertContentAt({ from: range.from, to: range.to }, `[[${title}|${id}]]`)
+      .run();
+    message.success(`已改为链接到「${title}」`);
+  }
 
   // 编辑器统计信息：打字时不实时算，停顿 300ms 后再遍历整篇。
   // 算法与右上角 EditorStats 共用 src/lib/textStats.ts，确保两处数字永远一致。
   const [stats, setStats] = useState({ chars: 0, words: 0, readingTime: "< 1 min" });
+  // onStats 常是父组件每次渲染新建的闭包，用 ref 保持最新，避免进依赖数组反复重置防抖
+  const onStatsRef = useRef(onStats);
+  onStatsRef.current = onStats;
   useEffect(() => {
     if (!editor) {
       setStats({ chars: 0, words: 0, readingTime: "< 1 min" });
@@ -1529,11 +1716,13 @@ export function TiptapEditor({
     }
     const timer = setTimeout(() => {
       const s = calcEditorStats(editor);
-      setStats({
+      const next = {
         chars: s.chars,
         words: s.words,
         readingTime: `${s.readMinutes} min`,
-      });
+      };
+      setStats(next);
+      onStatsRef.current?.(next);
     }, 300);
     return () => clearTimeout(timer);
     // 依赖 content prop：父组件在 onChange 后会更新 content，
@@ -1560,18 +1749,94 @@ export function TiptapEditor({
     );
   }, [editor, noteId, foldedForThisNote]);
 
+  // HeadingNumber：扩展 options 读的是最新 store，但 plugin state 要有 tx 才重算，
+  // 设置页改开关 / 格式 / 起始层级 / 跳过手写编号时主动推一条 meta。
+  const headingNumberOn = useAppStore((s) => s.editorHeadingNumber);
+  const headingNumberFormat = useAppStore((s) => s.editorHeadingNumberFormat);
+  const headingNumberStartLevel = useAppStore((s) => s.editorHeadingNumberStartLevel);
+  const headingNumberSkipManual = useAppStore((s) => s.editorHeadingNumberSkipManual);
+  useEffect(() => {
+    if (!editor) return;
+    editor.view.dispatch(
+      editor.view.state.tr.setMeta(HEADING_NUMBER_KEY, HEADING_NUMBER_REFRESH),
+    );
+  }, [
+    editor,
+    headingNumberOn,
+    headingNumberFormat,
+    headingNumberStartLevel,
+    headingNumberSkipManual,
+  ]);
+
+  // Ctrl+F / Ctrl+H：编辑器 mount 后即可响应，不要求光标先进正文。
+  // 多编辑器同挂载时：跳过隐藏实例；焦点在另一个 tiptap-wrapper 时让它自己处理。
+  useEffect(() => {
+    if (!editor) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "f" && key !== "h") return;
+      const wrap = wrapperRef.current;
+      if (!wrap || wrap.offsetParent === null) return;
+      const active = document.activeElement as HTMLElement | null;
+      const other = active?.closest?.(".tiptap-wrapper");
+      if (other && other !== wrap) return;
+      e.preventDefault();
+      setSearchInitial(undefined);
+      setSearchShowReplace(key === "h");
+      setSearchOpen(true);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [editor]);
+
+  // 工具栏「查找替换」按钮：通过 kb:find-replace 事件带上当前选区文字
+  useEffect(() => {
+    const onFind = (e: Event) => {
+      // 多编辑器同挂载时只让可见实例响应，避免后台编辑器弹浮条
+      if (!wrapperRef.current || wrapperRef.current.offsetParent === null) return;
+      const detail = (e as CustomEvent<{ searchText?: string }>).detail;
+      setSearchInitial(detail?.searchText?.trim() || undefined);
+      setSearchShowReplace(false);
+      setSearchOpen(true);
+    };
+    document.addEventListener("kb:find-replace", onFind as EventListener);
+    return () =>
+      document.removeEventListener("kb:find-replace", onFind as EventListener);
+  }, []);
+
   if (!editor) return null;
 
   return (
-    <div className="tiptap-wrapper" style={{ position: "relative" }}>
-      <EditorToolbar editor={editor} noteId={noteId} ensureNoteId={ensureNoteId} />
+    <div ref={wrapperRef} className="tiptap-wrapper" style={{ position: "relative" }}>
+      {!readOnly && (
+        <EditorToolbar editor={editor} noteId={noteId} ensureNoteId={ensureNoteId} />
+      )}
+      {/* 查找替换浮条（Ctrl+F / Ctrl+H 触发；Esc 关闭）。
+          放在 EditorContent 之前：内部用 sticky 容器吸顶。阅读模式只查不换。 */}
+      <SearchReplaceBar
+        editor={editor}
+        open={searchOpen}
+        showReplace={searchShowReplace && !readOnly}
+        onClose={() => setSearchOpen(false)}
+        initialQuery={searchInitial}
+      />
       <EditorContent editor={editor} className="tiptap-content" />
+      {/* 图片双击放大：事件委托覆盖正文 / 表格 / figure 内所有图片 */}
+      <ImageLightbox containerRef={wrapperRef} />
       {/* 表格浮动菜单：光标在 table 内时在表格上方显示加列/加行/删列/删行/合并/拆分/删表 */}
-      <TableBubbleMenu editor={editor} />
+      {!readOnly && <TableBubbleMenu editor={editor} />}
       {/* 「问 AI 这段」与续写/总结/改写等工具按钮共享同一个浮动菜单：
           AiWriteMenu 接 onAskAi prop 后会在按钮行最前面渲染蓝色 CTA，
           整个菜单跟随鼠标位置出现，零重叠，无需独立定位逻辑 */}
-      <AiWriteMenu editor={editor} onAskAi={onAskAi} />
+      {!readOnly && <AiWriteMenu editor={editor} onAskAi={onAskAi} />}
+      {/* 右键双链 →「修改链接」的目标选择器 */}
+      <WikiLinkEditModal
+        open={!!editingWikiLink}
+        currentTitle={editingWikiLink?.title ?? ""}
+        onSubmit={applyWikiLinkEdit}
+        onCancel={() => setEditingWikiLink(null)}
+      />
       {showFooterStats && (
         <div
           className="flex items-center gap-4 px-3 pt-4 pb-3 text-xs"

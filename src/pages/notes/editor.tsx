@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   Input,
   Button,
@@ -17,12 +17,13 @@ import {
   Tree,
   Badge,
   Dropdown,
+  Segmented,
   App as AntdApp,
   theme as antdTheme,
 } from "antd";
-import { ArrowLeft, Save, Trash2, Pin, FolderOpen, Tags, Link2, Share, Maximize2, Minimize2, FileText as FileTextIcon, ChevronRight, ChevronDown, CornerUpLeft, Folder as FolderIcon, Eye, EyeOff, Lock, Unlock, MessageSquare, ListTree, Network, ExternalLink, Printer, GitBranch } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Pin, FolderOpen, Tags, Link2, Share, Maximize2, Minimize2, FileText as FileTextIcon, ChevronRight, ChevronDown, CornerUpLeft, Folder as FolderIcon, Eye, EyeOff, Lock, Unlock, MessageSquare, ListTree, Network, ExternalLink, Printer, GitBranch, History, Presentation, Pencil, BookOpen, Code } from "lucide-react";
 import { CloseCircleFilled } from "@ant-design/icons";
-import { useAppStore } from "@/store";
+import { useAppStore, EDITOR_FONT_DEFAULTS } from "@/store";
 import { useTabsStore } from "@/store/tabs";
 import { noteApi, tagApi, folderApi, linkApi, exportApi, sourceFileApi, vaultApi, sourceWritebackApi, mountApi } from "@/lib/api";
 import { VaultModal } from "@/components/vault/VaultModal";
@@ -32,12 +33,19 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { relativeTime, stripHtml } from "@/lib/utils";
+import { buildTagPathMap } from "@/lib/tagTree";
+import { calcTextStats } from "@/lib/textStats";
 import { editorDomToSelfContainedHtml, printEditorContent } from "@/lib/printNote";
 import { useModuleConfig } from "@/hooks/useModuleConfig";
+import { useCtrlWheelZoom } from "@/hooks/useCtrlWheelZoom";
 import { TiptapEditor } from "@/components/editor";
+import { MarkdownSourceEditor } from "@/components/editor/MarkdownSourceEditor";
 import { getHeadingNumberEntries } from "@/components/editor/HeadingNumber";
 import { EditorOutline } from "@/components/editor/EditorOutline";
 import { EditorStats } from "@/components/editor/EditorStats";
+import { SlideshowView } from "@/components/notes/SlideshowView";
+import { LinkStatusBar } from "@/components/editor/LinkStatusBar";
+import NoteSnapshotDrawer from "@/components/notes/NoteSnapshotDrawer";
 import { TagColorPicker } from "@/components/TagColorPicker";
 import { MicButton } from "@/components/MicButton";
 import { NoteAiDrawer } from "@/components/ai/NoteAiDrawer";
@@ -409,8 +417,6 @@ function MetaBar({
   allTags,
   folders,
   folderId,
-  editor,
-  showWordCount,
   onTagsChange,
   onFolderChange,
   onCreateTag,
@@ -422,8 +428,6 @@ function MetaBar({
   allTags: Tag[];
   folders: Folder[];
   folderId: number | null;
-  editor: any | null;
-  showWordCount: boolean;
   onTagsChange: (tagIds: number[]) => void;
   onFolderChange: (folderId: number | null) => void;
   onCreateTag: (name: string) => Promise<void>;
@@ -433,8 +437,10 @@ function MetaBar({
   tagsReadOnlyHint?: string;
 }) {
   const [tagSearch, setTagSearch] = useState("");
+  // 标签选择器显示完整路径（工作/周报），避免层级不同时同名标签难以区分
+  const tagPathMap = useMemo(() => buildTagPathMap(allTags), [allTags]);
   const tagOptions = allTags.map((t) => ({
-    label: t.name,
+    label: tagPathMap.get(t.id) ?? t.name,
     value: t.id,
   }));
 
@@ -508,7 +514,7 @@ function MetaBar({
             <span
               style={{
                 fontSize: 12,
-                color: "var(--ant-color-text-tertiary, #999)",
+                color: "var(--ant-color-text-tertiary, var(--kb-text-tertiary))",
               }}
             >
               {tagsReadOnlyHint ?? "标签只读"}
@@ -532,7 +538,7 @@ function MetaBar({
             notFoundContent={
               trimmedSearch
                 ? null
-                : <div style={{ padding: "8px 12px", fontSize: 12, color: "#999" }}>
+                : <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--kb-text-tertiary)" }}>
                     输入标签名后从下方点击创建
                   </div>
             }
@@ -572,11 +578,11 @@ function MetaBar({
                         padding: "6px 12px",
                         cursor: "pointer",
                         fontSize: 13,
-                        color: "var(--ant-color-primary, #1677ff)",
+                        color: "var(--ant-color-primary, var(--kb-primary))",
                       }}
                       onMouseEnter={(e) =>
                         (e.currentTarget.style.background =
-                          "var(--ant-control-item-bg-hover, #f5f5f5)")
+                          "var(--ant-control-item-bg-hover, var(--kb-bg-hover))")
                       }
                       onMouseLeave={(e) =>
                         (e.currentTarget.style.background = "transparent")
@@ -593,7 +599,7 @@ function MetaBar({
                   style={{
                     padding: "6px 12px 8px",
                     fontSize: 11,
-                    color: "var(--ant-color-text-tertiary, #999)",
+                    color: "var(--ant-color-text-tertiary, var(--kb-text-tertiary))",
                     display: "flex",
                     flexDirection: "column",
                     gap: 4,
@@ -637,13 +643,8 @@ function MetaBar({
         </div>
       </div>
 
-      {/* 字数统计：放在元数据栏末尾（与文件夹/标签同行），shrink-0 防被标签挤掉 */}
-      {editor && showWordCount && (
-        <div className="shrink-0 flex items-center gap-2">
-          <Divider type="vertical" style={{ height: 20, margin: 0 }} />
-          <EditorStats editor={editor} />
-        </div>
-      )}
+      {/* 字数统计已挪到页面底部状态栏（与字符 / 阅读时长同一行），
+          顶部元数据栏只保留文件夹与标签，避免与底部重复 */}
     </div>
   );
 }
@@ -651,6 +652,7 @@ function MetaBar({
 function DesktopNoteEditorPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   // 上下文感知的 message / notification（避免静态方法丢主题、偶发不显示）
   const { message, notification } = AntdApp.useApp();
   const { token } = antdTheme.useToken();
@@ -662,6 +664,32 @@ function DesktopNoteEditorPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  /** 最近一次保存失败的原始错误；顶栏状态胶囊据此显示「保存失败 · 重试」 */
+  const [saveError, setSaveError] = useState<string | null>(null);
+  /** 编辑器统计（字符 / 阅读时长）；字数由 EditorStats 自己订阅 transaction 刷新 */
+  const [editorStats, setEditorStats] = useState<{ words: number; chars: number; readingTime: string } | null>(null);
+  /** 保存完成后自增：出链是保存时才同步进 note_links 的，状态栏据此重拉计数 */
+  const [linkRefreshTick, setLinkRefreshTick] = useState(0);
+  /** 历史版本抽屉：开过一次才挂载，没点过不加载快照列表 */
+  const [historyOpen, setHistoryOpen] = useState(false);
+  /** 幻灯片演示：按水平分割线 --- 分页 */
+  const [slideshowOpen, setSlideshowOpen] = useState(false);
+  /** 视图模式：富文本编辑 / 阅读（只读）/ 源码（Markdown） */
+  type EditorViewMode = "edit" | "read" | "source";
+  const [viewMode, setViewMode] = useState<EditorViewMode>(() => {
+    const saved = localStorage.getItem("editor.viewMode");
+    return saved === "read" || saved === "source" ? saved : "edit";
+  });
+  /** 切换模式：离开编辑态前把编辑器里最新内容刷进 content，避免防抖窗口内丢字 */
+  function changeViewMode(mode: EditorViewMode) {
+    if (mode === viewMode) return;
+    if (viewMode === "edit" && editorInstance) {
+      const latest = readEditorMarkdown(editorInstance);
+      if (latest != null && latest !== content) setContent(latest);
+    }
+    setViewMode(mode);
+    localStorage.setItem("editor.viewMode", mode);
+  }
   /**
    * 最后一次真正落库的版本。
    *
@@ -675,6 +703,7 @@ function DesktopNoteEditorPage() {
   });
   // 模块设置中心：自动保存延迟 / 字数统计开关
   const { values: notesConfig } = useModuleConfig("notes", {
+    auto_save_enabled: true,
     auto_save_delay: 1.2,
     show_word_count: true,
   });
@@ -713,6 +742,46 @@ function DesktopNoteEditorPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [editorInstance, setEditorInstance] = useState<any | null>(null);
   const editorBodyRef = useRef<HTMLDivElement | null>(null);
+  // 大纲需要"滚动容器 DOM"；useCtrlWheelZoom 也需要真实元素作为滚轮监听目标。
+  // 用 callback ref 同步一份到 state，挂载即拿到，避免渲染期读 ref.current 为 null。
+  const [editorBodyEl, setEditorBodyEl] = useState<HTMLDivElement | null>(null);
+  const bindEditorBody = useCallback((el: HTMLDivElement | null) => {
+    editorBodyRef.current = el;
+    setEditorBodyEl(el);
+  }, []);
+
+  // Ctrl/⌘ + 滚轮缩放编辑区字号（Ctrl/⌘+0 复位）——缩放的是 editorFontSize，
+  // 不是 uiScale：用户要的是"编辑区"变大，整个应用 UI 跟着放大属于误伤。
+  const editorFontSize = useAppStore((s) => s.editorFontSize);
+  const setEditorFontSize = useAppStore((s) => s.setEditorFontSize);
+  const editorFontSizeRef = useRef(editorFontSize);
+  editorFontSizeRef.current = editorFontSize;
+  const showZoomHint = useCallback(
+    (size: number) => {
+      message.open({
+        key: "editor-zoom",
+        type: "info",
+        content: `编辑区字号 ${size}px`,
+        duration: 1.2,
+      });
+    },
+    [message],
+  );
+  useCtrlWheelZoom({
+    target: editorBodyEl,
+    onStep: useCallback(
+      (delta: number) => {
+        setEditorFontSize(editorFontSizeRef.current + delta);
+        // setEditorFontSize 内部 clamp 过，回读真实值再提示，避免到边界还一直报数
+        showZoomHint(useAppStore.getState().editorFontSize);
+      },
+      [setEditorFontSize, showZoomHint],
+    ),
+    onReset: useCallback(() => {
+      setEditorFontSize(EDITOR_FONT_DEFAULTS.size);
+      showZoomHint(EDITOR_FONT_DEFAULTS.size);
+    }, [setEditorFontSize, showZoomHint]),
+  });
 
   // Ctrl/Cmd+A 全选文档内容。
   // 默认情况下焦点未落到 ProseMirror 编辑器时（比如刚打开文档还没点入正文），
@@ -745,12 +814,18 @@ function DesktopNoteEditorPage() {
   }, [editorInstance]);
   const outlineVisible = useAppStore((s) => s.outlineVisible);
   const toggleOutline = useAppStore((s) => s.toggleOutline);
+  const outlinePosition = useAppStore((s) => s.outlinePosition);
   /**
    * 思维导图打开时自动暂时隐藏大纲——三栏（编辑器+大纲+导图）会挤压编辑可读宽度。
    * 不动用户在 store 里的偏好；mindMapOpen 切回 false 后大纲自动恢复。
    */
   const effectiveOutlineVisible =
-    outlineVisible && !mindMapOpen && !graphPanelOpen;
+    outlineVisible && !mindMapOpen && !graphPanelOpen && viewMode !== "source";
+  // 源码模式没有 Editor 实例，统计直接按 Markdown 原文算
+  const sourceStats = useMemo(
+    () => (viewMode === "source" ? calcTextStats(content) : null),
+    [viewMode, content],
+  );
 
   // 同名消歧 Modal 状态
   const [disambigOpen, setDisambigOpen] = useState(false);
@@ -771,6 +846,28 @@ function DesktopNoteEditorPage() {
   const [pdfPreviewMaximized, setPdfPreviewMaximized] = useState(false);
 
   const noteId = Number(id);
+
+  /** 本次打开导图是否直接进编辑模式（「新建思维导图」跳过来时为 true） */
+  const [mindMapEditDefault, setMindMapEditDefault] = useState(false);
+
+  // 「新建思维导图」跳过来：直接打开导图并进编辑模式。
+  // 用完把路由 state 清掉，否则在历史里前进后退回到这篇会再次自动弹出；
+  // 其它入口打开的文档导图默认只读。
+  useEffect(() => {
+    const st = location.state as { openMindMap?: string } | null;
+    if (st?.openMindMap === "edit") {
+      // 上一篇可能停在阅读 / 源码模式，导图要写正文就必须切回编辑
+      setViewMode("edit");
+      localStorage.setItem("editor.viewMode", "edit");
+      setMindMapEditDefault(true);
+      setMindMapOpen(true);
+      navigate(location.pathname + location.search, { replace: true, state: null });
+    } else {
+      setMindMapEditDefault(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noteId]);
+
   /** 外部挂载状态：决定标签是否可编辑（仅可写 Markdown 可写回） */
   const [mountStatus, setMountStatus] = useState<MountNoteStatus | null>(null);
   const mountExt = (
@@ -1101,6 +1198,7 @@ function DesktopNoteEditorPage() {
     if (latestContent !== content) setContent(latestContent);
 
     setSaving(true);
+    setSaveError(null);
     try {
       const updated = await noteApi.update(noteId, {
         title: nextTitle,
@@ -1165,6 +1263,8 @@ function DesktopNoteEditorPage() {
       } else if (!silent) {
         message.success("保存成功");
       }
+      // 出链保存在保存时才同步进 note_links，让底部状态栏重拉计数
+      setLinkRefreshTick((n) => n + 1);
 
       // 外部 .md 双向同步：若该文档是从 .md 文件打开来的，把当前内容写回原文件
       if (updated.source_file_type === "md" && updated.source_file_path) {
@@ -1210,6 +1310,7 @@ function DesktopNoteEditorPage() {
         }
       }
     } catch (e) {
+      setSaveError(String(e));
       message.error(String(e));
     } finally {
       setSaving(false);
@@ -1224,6 +1325,7 @@ function DesktopNoteEditorPage() {
   savingRef.current = saving;
 
   useEffect(() => {
+    if (!notesConfig.auto_save_enabled) return;
     if (!dirty || saving || !title.trim()) return;
     const seconds = Number(notesConfig.auto_save_delay);
     const delayMs =
@@ -1234,7 +1336,14 @@ function DesktopNoteEditorPage() {
       void handleSaveRef.current(true);
     }, delayMs);
     return () => window.clearTimeout(timer);
-  }, [dirty, saving, title, content, notesConfig.auto_save_delay]);
+  }, [
+    dirty,
+    saving,
+    title,
+    content,
+    notesConfig.auto_save_enabled,
+    notesConfig.auto_save_delay,
+  ]);
 
   /**
    * 跳转前保护：若当前有未保存修改，先静默保存再跳转，避免内容被新页面 loadData 覆盖丢失。
@@ -1336,6 +1445,25 @@ function DesktopNoteEditorPage() {
       message.error(String(e));
     }
   }
+
+  /**
+   * 打开历史版本。有未保存改动时先落一次库：否则在抽屉里恢复旧版后，
+   * 编辑器里还没保存的改动会被新正文直接顶掉（而且它们从没进过快照）。
+   */
+  async function openHistory() {
+    if (dirty) await handleSave(true);
+    setHistoryOpen(true);
+  }
+
+  const handleSnapshotRestored = useCallback(
+    (restored: string) => {
+      setContent(restored);
+      setDirty(false);
+      // updated_at 等元信息也变了，顺手刷一次；失败不影响正文已恢复
+      void noteApi.get(noteId).then(setNote).catch(() => {});
+    },
+    [noteId],
+  );
 
   async function handleTogglePin() {
     try {
@@ -1804,7 +1932,10 @@ function DesktopNoteEditorPage() {
     <div className="editor-page">
       {/* 顶部工具栏 */}
       <div className="editor-topbar">
-        <Space align="center">
+        {/* 用普通 flex 容器而非 Space：Space 的 .ant-space-item 默认可收缩，
+            窗口变窄时「更新于 20 分钟前」会被压成一字一行的竖排。
+            这里让返回按钮 / 保存胶囊不收缩，只有时间文本可截断。 */}
+        <div className="editor-topbar__left">
           <Button
             icon={<ArrowLeft size={16} />}
             onClick={() => {
@@ -1820,17 +1951,95 @@ function DesktopNoteEditorPage() {
             返回
           </Button>
           {note && (
-            <Text type="secondary">
+            <Text
+              type="secondary"
+              className="editor-topbar__meta"
+              title={`最后更新：${new Date(note.updated_at).toLocaleString("zh-CN")}`}
+            >
               更新于 {relativeTime(note.updated_at)}
             </Text>
           )}
-          {dirty && <Text type="warning">未保存</Text>}
-        </Space>
-        <Space align="center">
+          {/* 常驻保存状态胶囊：toast 一闪就没，回头看不出存没存上。
+              优先级 保存中 > 保存失败 > 未保存 > 已保存 */}
+          {saving ? (
+            <span className="kb-saved is-saving">
+              <Text>保存中…</Text>
+            </span>
+          ) : saveError ? (
+            <Tooltip title={`${saveError}（点击重试）`}>
+              <span
+                className="kb-saved is-error"
+                style={{ cursor: "pointer" }}
+                onClick={() => void handleSave()}
+              >
+                <Text type="danger">保存失败</Text>
+              </span>
+            </Tooltip>
+          ) : dirty ? (
+            <Tooltip
+              title={
+                notesConfig.auto_save_enabled
+                  ? "停止输入片刻即自动保存；也可按 Ctrl+S 立即保存"
+                  : "按 Ctrl+S 保存。自动保存已关闭，可在模块设置 → 自动保存里开启"
+              }
+            >
+              <span className="kb-saved is-dirty">
+                <Text>未保存</Text>
+              </span>
+            </Tooltip>
+          ) : (
+            <Tooltip
+              title={
+                notesConfig.auto_save_enabled
+                  ? "停止输入片刻即自动保存，可在模块设置 → 自动保存里调整延迟"
+                  : "自动保存已关闭，按 Ctrl+S 保存"
+              }
+            >
+              <span className="kb-saved">
+                <Text>已保存</Text>
+              </span>
+            </Tooltip>
+          )}
+        </div>
+        <Space align="center" className="editor-topbar__right">
+          <Segmented
+            size="small"
+            value={viewMode}
+            onChange={(v) => changeViewMode(v as "edit" | "read" | "source")}
+            options={[
+              {
+                value: "edit",
+                icon: <Pencil size={15} />,
+                tooltip: "编辑模式",
+              },
+              {
+                value: "read",
+                icon: <BookOpen size={15} />,
+                tooltip: "阅读模式（只读预览）",
+              },
+              {
+                value: "source",
+                icon: <Code size={15} />,
+                tooltip: "源码模式（Markdown 原文）",
+              },
+            ]}
+          />
           <Tooltip title={focusMode ? "退出专注模式 (Esc)" : "专注模式 (F11)"}>
             <Button
               icon={focusMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
               onClick={() => setFocusMode(!focusMode)}
+            />
+          </Tooltip>
+          <Tooltip title="历史版本（保存 / 同步覆盖前会自动留底）">
+            <Button
+              icon={<History size={16} />}
+              onClick={() => void openHistory()}
+            />
+          </Tooltip>
+          <Tooltip title="幻灯片演示（用 --- 分页）">
+            <Button
+              icon={<Presentation size={16} />}
+              onClick={() => setSlideshowOpen(true)}
             />
           </Tooltip>
           <Tooltip title={note?.is_pinned ? "取消置顶" : "置顶"}>
@@ -1882,7 +2091,7 @@ function DesktopNoteEditorPage() {
               disabled={mindMapOpen || graphPanelOpen}
             />
           </Tooltip>
-          <Tooltip title="思维导图（只读视图）">
+          <Tooltip title="思维导图（可直接编辑）">
             <Button
               icon={<Network size={16} />}
               onClick={() => {
@@ -1932,7 +2141,7 @@ function DesktopNoteEditorPage() {
               count={backlinks.length}
               size="small"
               offset={[-2, 2]}
-              color={backlinks.length > 0 ? undefined : "#bfbfbf"}
+              color={backlinks.length > 0 ? undefined : "var(--kb-border)"}
             >
               <Button
                 icon={<Link2 size={16} />}
@@ -1944,31 +2153,39 @@ function DesktopNoteEditorPage() {
               />
             </Badge>
           </Tooltip>
-          <Button
-            type="primary"
-            icon={<Save size={16} />}
-            loading={saving}
-            onClick={() => handleSave()}
-            disabled={!dirty}
+          <Tooltip
+            title={
+              saving
+                ? "正在保存…"
+                : dirty
+                  ? notesConfig.auto_save_enabled
+                    ? "保存更改 (Ctrl+S) — 自动保存已开启"
+                    : "保存更改 (Ctrl+S)"
+                  : "已保存，没有待保存的更改"
+            }
           >
-            保存
-          </Button>
+            <Button
+              type="primary"
+              icon={<Save size={16} />}
+              loading={saving}
+              onClick={() => handleSave()}
+              disabled={!dirty}
+            />
+          </Tooltip>
           {note?.source_file_path && (
             <Tooltip
               title={
                 note?.source_file_type === "pdf"
                   ? "查看原始 PDF"
-                  : "用系统默认应用打开原始文件"
+                  : `用系统默认应用打开原始文件${
+                      note?.source_file_type ? `（.${note.source_file_type}）` : ""
+                    }`
               }
             >
               <Button
                 icon={<FileTextIcon size={16} />}
                 onClick={handleOpenSourceFile}
-              >
-                {note?.source_file_type === "pdf"
-                  ? "PDF"
-                  : (note?.source_file_type ?? "源文件").toUpperCase()}
-              </Button>
+              />
             </Tooltip>
           )}
           {/* T-020 导出按钮：默认导出 Markdown；右侧下拉可选 Word / HTML */}
@@ -2022,11 +2239,16 @@ function DesktopNoteEditorPage() {
               }}
             />
           </Tooltip>
-          <Popconfirm title="确认删除此文档？" onConfirm={handleDelete}>
-            <Button danger icon={<Trash2 size={16} />}>
-              删除
-            </Button>
-          </Popconfirm>
+          <Tooltip title="删除此文档">
+            <Popconfirm
+              title="确认删除此文档？"
+              okText="删除"
+              cancelText="取消"
+              onConfirm={handleDelete}
+            >
+              <Button danger icon={<Trash2 size={16} />} />
+            </Popconfirm>
+          </Tooltip>
         </Space>
       </div>
 
@@ -2043,14 +2265,19 @@ function DesktopNoteEditorPage() {
       {/* 可滚动的编辑主体 */}
       <div
         className="editor-body"
-        ref={editorBodyRef}
+        ref={bindEditorBody}
         data-outline={effectiveOutlineVisible ? "on" : undefined}
+        data-outline-pos={outlinePosition}
         style={{
           flex: 1,
           minWidth: 0,
           ...(effectiveOutlineVisible && {
-            // 覆盖 CSS 里固定的 200px：1fr | 6px 分隔 | 自适应宽度的大纲列
-            gridTemplateColumns: `minmax(0, 1fr) 6px ${outlineWidth}px`,
+            // 覆盖 CSS 里固定的 200px，并按大纲位置排轨道：
+            // 右侧 = 正文 | 6px 分隔 | 大纲；左侧 = 大纲 | 6px 分隔 | 正文
+            gridTemplateColumns:
+              outlinePosition === "left"
+                ? `${outlineWidth}px 6px minmax(0, 1fr)`
+                : `minmax(0, 1fr) 6px ${outlineWidth}px`,
           }),
         }}
       >
@@ -2115,8 +2342,6 @@ function DesktopNoteEditorPage() {
               allTags={allTags}
               folders={folders}
               folderId={note?.folder_id ?? null}
-              editor={editorInstance}
-              showWordCount={notesConfig.show_word_count}
               onTagsChange={handleTagsChange}
               onFolderChange={handleFolderChange}
               onCreateTag={handleCreateTag}
@@ -2127,22 +2352,31 @@ function DesktopNoteEditorPage() {
           </div>
 
           {/* 内容编辑区 */}
-          <TiptapEditor
-            content={content}
-            onChange={handleContentChange}
-            placeholder="开始写点什么..."
-            noteId={noteId}
-            onWikiLinkClick={handleWikiLinkClick}
-            onAskAi={(selected) => {
-              // 选段触发 → 选段挂到抽屉的"引用 chip"，输入框留空给用户写问题
-              setAiSelection(selected);
-              setAiDrawerOpen(true);
-            }}
-            onEditorReady={handleEditorReady}
-            // 文档正文底部不再重复显示字数/字符/阅读时长：
-            // 字数统计已挪到顶部 MetaBar（可在模块设置里开关）
-            showFooterStats={false}
-          />
+          {viewMode === "source" ? (
+            <div style={{ padding: "8px 0" }}>
+              <MarkdownSourceEditor value={content} onChange={handleContentChange} />
+            </div>
+          ) : (
+            <TiptapEditor
+              content={content}
+              onChange={handleContentChange}
+              placeholder="开始写点什么..."
+              noteId={noteId}
+              readOnly={viewMode === "read"}
+              onWikiLinkClick={handleWikiLinkClick}
+              onAskAi={(selected) => {
+                // 选段触发 → 选段挂到抽屉的"引用 chip"，输入框留空给用户写问题
+                setAiSelection(selected);
+                setAiDrawerOpen(true);
+              }}
+              onEditorReady={handleEditorReady}
+              // 文档正文底部不再重复显示字数/字符/阅读时长：
+              // 字数统计已挪到顶部 MetaBar（可在模块设置里开关），
+              // 字符 / 阅读时长由页面底部状态栏显示
+              showFooterStats={false}
+              onStats={setEditorStats}
+            />
+          )}
 
           {/* 反向链接 */}
           <BacklinksPanel
@@ -2172,8 +2406,11 @@ function DesktopNoteEditorPage() {
               const handleMove = (ev: MouseEvent) => {
                 const ref = outlineDragRef.current;
                 if (!ref) return;
-                // 鼠标向左 → 大纲变宽（X 减小）
-                const delta = ref.startX - ev.clientX;
+                // 大纲在右：鼠标向左（X 减小）变宽；大纲在左：鼠标向右变宽
+                const delta =
+                  outlinePosition === "left"
+                    ? ev.clientX - ref.startX
+                    : ref.startX - ev.clientX;
                 const next = Math.max(160, Math.min(480, ref.startWidth + delta));
                 ref.latest = next;
                 setOutlineWidth(next);
@@ -2202,7 +2439,7 @@ function DesktopNoteEditorPage() {
 
         {/* 右侧大纲面板：sticky 跟随滚动；用户偏好关闭 / 思维导图打开 时自隐 */}
         {effectiveOutlineVisible && (
-          <aside className="editor-outline-aside">
+          <aside className="editor-outline-aside" data-outline-pos={outlinePosition}>
             <EditorOutline
               editor={editorInstance}
               scrollRoot={editorBodyRef.current}
@@ -2272,6 +2509,22 @@ function DesktopNoteEditorPage() {
             onClose={() => setMindMapOpen(false)}
             markdown={content}
             title={title}
+            noteId={Number.isFinite(noteId) ? noteId : null}
+            variant="embed"
+            // 导图里的改动按正常编辑处理：写进编辑器 + 标脏，由自动保存落盘
+            onMarkdownChange={handleContentChange}
+            onTitleChange={handleTitleChange}
+            // 阅读 / 源码 / 加密文档不让导图改正文（和编辑器本身一致），按钮置灰并说明
+            editBlockedReason={
+              note?.is_encrypted
+                ? "加密文档不能编辑导图，先解锁"
+                : viewMode === "read"
+                  ? "阅读模式下不能编辑，先切到「编辑」"
+                  : viewMode === "source"
+                    ? "源码模式下不能在导图里编辑，先切回「编辑」"
+                    : undefined
+            }
+            defaultEditing={mindMapEditDefault}
           />
         </div>
       )}
@@ -2337,6 +2590,82 @@ function DesktopNoteEditorPage() {
         </div>
       )}
       </div>
+
+      {/* 底部状态栏：常驻页面底部，不随正文滚动。
+          放在横向分栏容器**之外** —— 内容区有 40vh padding-bottom，挂在里面
+          会被推到离视觉底部很远的地方。大纲列宽 + 6px 分隔条通过 outlineSpace
+          让位，左右沿与正文卡片对齐。 */}
+      <LinkStatusBar
+        variant="statusbar"
+        leading={
+          <>
+            <span className="kb-sb-mode">
+              {viewMode === "source" ? "源码" : viewMode === "read" ? "阅读" : "富文本"}
+            </span>
+            {note && (
+              <span>
+                {note.created_at?.slice(0, 10)} 创建 · {relativeTime(note.updated_at)} 修改
+              </span>
+            )}
+          </>
+        }
+        trailing={
+          viewMode === "source" ? (
+            <>
+              {notesConfig.show_word_count && (
+                <EditorStats text={content} variant="statusbar" />
+              )}
+              {sourceStats && (
+                <>
+                  <span>{sourceStats.chars.toLocaleString()} 字符</span>
+                  <span>约 {sourceStats.readMinutes} min</span>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              {notesConfig.show_word_count &&
+                (editorInstance ? (
+                  <EditorStats editor={editorInstance} variant="statusbar" />
+                ) : (
+                  <span>{editorStats?.words.toLocaleString() ?? 0} 字</span>
+                ))}
+              {editorStats && (
+                <>
+                  <span>{editorStats.chars.toLocaleString()} 字符</span>
+                  <span>约 {editorStats.readingTime}</span>
+                </>
+              )}
+            </>
+          )
+        }
+        noteId={Number.isFinite(noteId) ? noteId : undefined}
+        refreshKey={linkRefreshTick}
+        outlineSpace={effectiveOutlineVisible ? outlineWidth + 6 : 0}
+        outlinePos={effectiveOutlineVisible ? outlinePosition : undefined}
+        onNavigate={async (id) => {
+          await ensureSavedBeforeNavigate();
+          navigate(`/notes/${id}`);
+        }}
+      />
+
+      {/* 历史版本抽屉：开过一次才挂载，没点过的用户不用为它买单 */}
+      {historyOpen && (
+        <NoteSnapshotDrawer
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          noteId={noteId}
+          onRestored={handleSnapshotRestored}
+        />
+      )}
+
+      {/* 幻灯片演示：fixed 全屏覆盖，按 --- 分页 */}
+      <SlideshowView
+        open={slideshowOpen}
+        onClose={() => setSlideshowOpen(false)}
+        html={content}
+        title={title}
+      />
 
       {/* PDF 原文件预览 */}
       <Modal

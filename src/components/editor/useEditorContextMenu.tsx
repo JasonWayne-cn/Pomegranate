@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Image as ImageIcon,
   Layers,
+  Pencil,
 } from "lucide-react";
 import { revealItemInDir, openPath } from "@tauri-apps/plugin-opener";
 import { useContextMenu } from "@/hooks/useContextMenu";
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/ContextMenuOverlay";
 import { pluginManager } from "@/services/pluginManager";
 import { setActiveEditor } from "@/services/editorBridge";
+import { findWikiLinkAtPos, type WikiLinkRange } from "./WikiLinkDecoration";
 import { resolvePluginIconComponent } from "@/components/plugin/pluginIcons";
 import type {
   EditorActionCtx,
@@ -124,6 +126,8 @@ async function resolveAbsolute(urlOrSrc: string): Promise<string | null> {
 export function useEditorContextMenu(
   editor: Editor | null,
   noteId?: number | null,
+  /** 右键双链 →「修改链接」：把待改双链的范围交给调用方弹选择器 */
+  onEditWikiLink?: (range: WikiLinkRange) => void,
 ) {
   const ctx = useContextMenu<EditorMenuPayload>();
   const navigate = useNavigate();
@@ -454,6 +458,27 @@ export function useEditorContextMenu(
             }
           },
         },
+        ...(onEditWikiLink
+          ? [
+              {
+                key: "edit-link",
+                label: "修改链接",
+                icon: <Pencil size={13} />,
+                onClick: () => {
+                  ctx.close();
+                  if (!editor) return;
+                  try {
+                    const pos = editor.view.posAtDOM(p.el, 0);
+                    const range = findWikiLinkAtPos(editor.state.doc, pos);
+                    if (range) onEditWikiLink(range);
+                    else message.warning("无法定位双链范围，请重试");
+                  } catch (e) {
+                    message.error(`定位双链失败：${e}`);
+                  }
+                },
+              },
+            ]
+          : []),
         {
           key: "copy-link",
           label: "复制 wiki 链接",

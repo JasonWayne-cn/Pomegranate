@@ -43,6 +43,13 @@ interface Props {
   outlineSpace?: number;
   /** 大纲在左还是在右；关闭时传 undefined（dock 不加 padding） */
   outlinePos?: "left" | "right";
+  /**
+   * 外观：dock = 与正文卡片对齐的链接条（日记页等沿用）；
+   * statusbar = 编辑页底部通栏状态栏，左右可再挂 leading / trailing（模式、时间、字数）
+   */
+  variant?: "dock" | "statusbar";
+  leading?: React.ReactNode;
+  trailing?: React.ReactNode;
 }
 
 const EMPTY: NoteLinkSummary = { outgoing: [], incoming: [], broken: [] };
@@ -53,6 +60,9 @@ export function LinkStatusBar({
   refreshKey = 0,
   outlineSpace = 0,
   outlinePos,
+  variant = "dock",
+  leading,
+  trailing,
 }: Props) {
   const [summary, setSummary] = useState<NoteLinkSummary>(EMPTY);
 
@@ -73,18 +83,32 @@ export function LinkStatusBar({
     void load();
   }, [load, refreshKey]);
 
-  if (!Number.isFinite(noteId) || !noteId) return null;
+  // 新建未落库的文档没有 id：dock 整条不渲染；statusbar 仍要显示左右两侧的信息
+  if (!Number.isFinite(noteId) || !noteId) {
+    if (variant !== "statusbar") return null;
+    return (
+      <div className="kb-statusbar">
+        {leading && <div className="kb-statusbar-lead">{leading}</div>}
+        <div className="kb-link-status-bar" />
+        {trailing && <div className="kb-statusbar-trail">{trailing}</div>}
+      </div>
+    );
+  }
 
   const { outgoing, incoming, broken } = summary;
 
+  const isBar = variant === "statusbar";
   return (
     <div
-      className="kb-link-status-dock"
-      data-outline-pos={outlinePos}
+      className={isBar ? "kb-statusbar" : "kb-link-status-dock"}
+      data-outline-pos={isBar ? undefined : outlinePos}
       style={
-        { "--kb-status-outline-space": `${outlineSpace}px` } as React.CSSProperties
+        isBar
+          ? undefined
+          : ({ "--kb-status-outline-space": `${outlineSpace}px` } as React.CSSProperties)
       }
     >
+      {isBar && leading && <div className="kb-statusbar-lead">{leading}</div>}
       <div className="kb-link-status-bar">
         <Link2 size={12} style={{ opacity: 0.5, flexShrink: 0 }} />
         <LinkCount
@@ -133,6 +157,7 @@ export function LinkStatusBar({
           </Popover>
         )}
       </div>
+      {isBar && trailing && <div className="kb-statusbar-trail">{trailing}</div>}
     </div>
   );
 }

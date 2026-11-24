@@ -1,12 +1,16 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import type { Editor } from "@tiptap/react";
-import { Button, Divider, Tooltip, Modal, Input, message, Dropdown, Select, ColorPicker } from "antd";
+import { PluginKey } from "@tiptap/pm/state";
+import type { DecorationSet } from "@tiptap/pm/view";
+import { Button, Divider, Tooltip, Modal, Input, message, Dropdown, Select, ColorPicker, Segmented, Popover } from "antd";
 import type { MenuProps } from "antd";
 import {
   Bold,
   Italic,
   Underline,
   Strikethrough,
+  Highlighter,
+  Code,
    Search,
   Superscript as SuperscriptIcon, 
   Subscript as SubscriptIcon,
@@ -14,8 +18,8 @@ import {
   IndentDecrease,
   Eraser,
   Paintbrush,
-  Baseline,
-  PaintBucket,
+  Palette,
+  Smile,
   Lightbulb,
   ChevronsUpDown,
   List,
@@ -42,18 +46,34 @@ import {
   Columns3,
   Trash2,
   ChevronDown,
+  Type,
+  Sparkles,
+  Plus,
+  Sigma,
+  Calculator,
+  PenTool,
+  Scissors,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { toKbAsset } from "@/lib/assetUrl";
 import { VIEWER3D_IMPORT_EXTS } from "@/lib/viewer3d";
-import { attachmentApi, imageApi, videoApi } from "@/lib/api";
+import { attachmentApi, imageApi, videoApi, noteApi, systemApi } from "@/lib/api";
+import {
+  EDITOR_FONT_LABELS,
+  EDITOR_FONT_STACKS,
+  resolveEditorFontStack,
+  type EditorFontPreset,
+} from "@/store";
+import { createFakeSelectionPlugin, setFakeSelection } from "./fakeSelection";
+import { cleanText, isBlankText } from "@/lib/editorCleanup";
 import { MicButton } from "@/components/MicButton";
 import { insertVideoTimestamp } from "./VideoTimestamp";
-import { EmojiPicker } from "./EmojiPicker";
+import { EmojiPanel } from "./EmojiPicker";
 import { parseEmbedUrl, SUPPORTED_PROVIDERS } from "./embedVideoProviders";
 import { useFormatPainter } from "./useFormatPainter";
-import { CompareClipboardButton } from "./CompareClipboardButton";
-import { CompareNotesButton } from "./CompareNotesButton";
+import { CompareMergeDropdown } from "./CompareMergeDropdown";
+import { AnnotationButton } from "./AnnotationButton";
+import { mergeParagraphs, splitHardBreaks } from "./lineBreakCleanup";
 import { PluginToolbarButtons } from "./PluginToolbarButtons";
 
 interface ToolbarProps {
@@ -77,6 +97,51 @@ interface ToolItem {
 
 export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
   const formatPainter = useFormatPainter(editor);
+  /** 合并颜色下拉的当前作用对象：文字颜色 / 背景颜色 */
+  const [colorTarget, setColorTarget] = useState<"text" | "highlight">("text");
+  /** 批注 / Emoji 合并下拉的展开状态 */
+  const [insertMenuOpen, setInsertMenuOpen] = useState(false);
+  /** 收纳面板（排版等低频项）同一时间只开一个；点外部 / Esc 由 Popover 自行关闭 */
+  const [openPanel, setOpenPanel] = useState<string | null>(null);
+  /** 「插入」两列面板 */
+  const [insertOpen, setInsertOpen] = useState(false);
+
+  /**
+   * 统一换行：从 Word / 网页复制来的内容常混着「段内换行」和「真分段」，
+   * 间距忽大忽小。这里只在用户显式点击时改写当前文档一次，并先弹确认。
+   */
+  function runLineBreakCleanup(mode: "split" | "merge") {
+    const label =
+      mode === "split"
+        ? "把全文的段内换行（Shift+Enter）改成独立段落"
+        : "把选中的相邻段落合并成一段（用段内换行连接）";
+    Modal.confirm({
+      title: mode === "split" ? "统一换行" : "合并段落",
+      content: `将${label}。此操作会改写正文，可用 Ctrl+Z 撤销。`,
+      okText: "继续",
+      cancelText: "取消",
+      onOk: () => {
+        const res =
+          mode === "split"
+            ? splitHardBreaks(editor.state)
+            : mergeParagraphs(editor.state);
+        if (!res) {
+          message.info(
+            mode === "split" ? "没有可拆分的段内换行" : "请先选中至少两段相邻的文字",
+          );
+          return;
+        }
+        editor.view.dispatch(res.tr);
+        editor.commands.focus();
+        message.success(
+          mode === "split"
+            ? `已把 ${res.count} 处段内换行改为分段`
+            : `已合并 ${res.count + 1} 段`,
+        );
+        setOpenPanel(null);
+      },
+    });
+  }
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   /** 时间戳弹窗 state */
@@ -90,6 +155,70 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
   /** 嵌入网络视频弹窗：粘贴 B站/YouTube/腾讯/优酷链接 → iframe 节点 */
   const [embedModalOpen, setEmbedModalOpen] = useState(false);
   const [embedUrlInput, setEmbedUrlInput] = useState("");
+  /** 剪藏网页到当前文档光标处 */
+  const [clipModalOpen, setClipModalOpen] = useState(false);
+  const [clipUrlInput, setClipUrlInput] = useState("");
+  /** 「字体」下拉的系统字体列表（模块级单飞缓存，多个编辑器实例只枚举一次） */
+  const [systemFonts, setSystemFonts] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void loadSystemFontsOnce().then((fonts) => {
+      if (alive) setSystemFonts(fonts);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  // 伪选区 plugin：antd Select 打开会夺焦、原生选区蓝底消失，用它保持可见
+  useEffect(() => {
+    const plugin = createFakeSelectionPlugin(TOOLBAR_FAKE_SELECTION_KEY);
+    editor.unregisterPlugin(TOOLBAR_FAKE_SELECTION_KEY);
+    editor.registerPlugin(plugin);
+    return () => {
+      editor.unregisterPlugin(TOOLBAR_FAKE_SELECTION_KEY);
+    };
+  }, [editor]);
+  /**
+   * 「字体」下拉选项。value 直接是完整 CSS font-family 值，与 textStyle mark 同构，
+   * 选中态判定就是字符串相等；预设里的 system（空 stack）跳过——它和「默认」是一回事。
+   */
+  const fontFamilyOptions = useMemo(() => {
+    const preset = (Object.keys(EDITOR_FONT_LABELS) as EditorFontPreset[])
+      .filter((key) => !!EDITOR_FONT_STACKS[key])
+      .map((key) => ({
+        value: EDITOR_FONT_STACKS[key],
+        searchText: `${EDITOR_FONT_LABELS[key]} ${key}`,
+        label: (
+          <span style={{ fontFamily: EDITOR_FONT_STACKS[key] }}>
+            {EDITOR_FONT_LABELS[key]}
+          </span>
+        ),
+      }));
+    const system = systemFonts.map((name) => ({
+      value: resolveEditorFontStack(name),
+      searchText: name,
+      label: (
+        <span style={{ fontFamily: `"${name.replace(/["\\]/g, "")}"` }}>
+          {name}
+        </span>
+      ),
+    }));
+    const clear = {
+      value: FONT_FAMILY_CLEAR,
+      searchText: "默认 清除字体 default",
+      label: <span>默认（清除字体）</span>,
+    };
+    return system.length > 0
+      ? [
+          { label: "默认", options: [clear] },
+          { label: "预设", options: preset },
+          { label: `系统字体（${system.length}）`, options: system },
+        ]
+      : [
+          { label: "默认", options: [clear] },
+          { label: "预设", options: preset },
+        ];
+  }, [systemFonts]);
 
   function openCaptionModal() {
     if (!editor.isActive("imageResize")) {
@@ -399,7 +528,158 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
     setLinkUrl("");
   }, [editor, linkUrl]);
 
+  // ── 「插入」两列面板（对齐 KB 的插入面板）──────────────────
+  type InsertAction = {
+    key: string;
+    label: string;
+    icon: React.ReactNode;
+    action?: () => void;
+    items?: MenuProps["items"];
+  };
+  const insertActions: InsertAction[] = [
+    { key: "link", label: "链接", icon: <LinkIcon size={15} />, action: openLinkModal },
+    { key: "image", label: "图片", icon: <ImagePlus size={15} />, action: insertImage },
+    { key: "caption", label: "图注 / Alt", icon: <Captions size={15} />, action: openCaptionModal },
+    { key: "video", label: "视频", icon: <Film size={15} />, action: insertVideo },
+    {
+      key: "whiteboard",
+      label: "白板",
+      icon: <PenTool size={15} />,
+      action: () => editor.chain().focus().insertWhiteboard().run(),
+    },
+    {
+      key: "columns",
+      label: "分栏",
+      icon: <Columns3 size={15} />,
+      items: [2, 3, 4, 5].map((n) => ({
+        key: `columns-${n}`,
+        label: `${n} 栏`,
+        onClick: () => editor.chain().focus().setColumns(n).run(),
+      })),
+    },
+    {
+      key: "callout",
+      label: "Callout",
+      icon: <Lightbulb size={15} />,
+      items: [
+        { key: "info", label: <span><span style={{ marginRight: 6 }}>ℹ️</span>信息</span>, onClick: () => editor.chain().focus().toggleCallout("info").run() },
+        { key: "tip", label: <span><span style={{ marginRight: 6 }}>💡</span>提示</span>, onClick: () => editor.chain().focus().toggleCallout("tip").run() },
+        { key: "warning", label: <span><span style={{ marginRight: 6 }}>⚠️</span>警告</span>, onClick: () => editor.chain().focus().toggleCallout("warning").run() },
+        { key: "danger", label: <span><span style={{ marginRight: 6 }}>❌</span>危险</span>, onClick: () => editor.chain().focus().toggleCallout("danger").run() },
+      ],
+    },
+    {
+      key: "code",
+      label: "代码块",
+      icon: <CodeSquare size={15} />,
+      items: [
+        { key: "plain", label: "普通代码块", onClick: () => editor.chain().focus().toggleCodeBlock().run() },
+        {
+          key: "mermaid",
+          label: "Mermaid 流程图",
+          onClick: () =>
+            editor
+              .chain()
+              .focus()
+              .insertContent({
+                type: "codeBlock",
+                attrs: { language: "mermaid" },
+                content: [
+                  {
+                    type: "text",
+                    text: "flowchart TD\n  A[开始] --> B{判断}\n  B -- 是 --> C[执行]\n  B -- 否 --> D[结束]",
+                  },
+                ],
+              })
+              .run(),
+        },
+      ],
+    },
+    {
+      key: "toggle",
+      label: "折叠块",
+      icon: <ChevronsUpDown size={15} />,
+      action: () => editor.chain().focus().setToggle().run(),
+    },
+    {
+      key: "math",
+      label: "公式",
+      icon: <Sigma size={15} />,
+      items: [
+        {
+          key: "inline",
+          icon: <Calculator size={14} />,
+          label: "行内公式 $…$",
+          onClick: () =>
+            editor.chain().focus().insertContent({ type: "inlineMath", attrs: { latex: "" } }).run(),
+        },
+        {
+          key: "block",
+          icon: <Sigma size={14} />,
+          label: "块级公式 $$…$$",
+          onClick: () =>
+            editor.chain().focus().insertContent({ type: "blockMath", attrs: { latex: "" } }).run(),
+        },
+      ],
+    },
+    {
+      key: "embed",
+      label: "嵌入视频",
+      icon: <Globe size={15} />,
+      action: () => {
+        setEmbedUrlInput("");
+        setEmbedModalOpen(true);
+      },
+    },
+    { key: "viewer3d", label: "三维模型", icon: <Box size={15} />, action: insertViewer3d },
+    {
+      key: "clip",
+      label: "剪藏网页",
+      icon: <Scissors size={15} />,
+      action: () => {
+        setClipUrlInput("");
+        setClipModalOpen(true);
+      },
+    },
+    { key: "timestamp", label: "视频时间戳", icon: <MapPin size={15} />, action: openTimestampModal },
+    { key: "attachment", label: "附件", icon: <Paperclip size={15} />, action: insertAttachment },
+    {
+      key: "hr",
+      label: "分割线",
+      icon: <Minus size={15} />,
+      action: () => editor.chain().focus().setHorizontalRule().run(),
+    },
+  ];
+
   const groups: ToolItem[][] = [
+    // 清除格式 / 格式刷（最左）
+    [
+      {
+        icon: <Eraser size={15} />,
+        title: "清除格式",
+        action: () => editor.chain().focus().unsetAllMarks().clearNodes().run(),
+      },
+      {
+        icon: null,
+        title: "格式刷",
+        customRender: () => (
+          <Tooltip
+            title="格式刷（单击应用一次，双击持续）"
+            mouseEnterDelay={0.5}
+          >
+            <Button
+              type="text"
+              size="small"
+              icon={<Paintbrush size={15} />}
+              onClick={() => formatPainter.pickOnce()}
+              onDoubleClick={() => formatPainter.pickPersist()}
+              className={formatPainter.mode !== "idle" ? "toolbar-btn-active" : ""}
+              style={{ minWidth: 26, height: 26, padding: 0 }}
+            />
+          </Tooltip>
+        ),
+      },
+    ],
     // 输入辅助
     [
       {
@@ -436,20 +716,6 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
             icon: <Redo2 size={14} />,
             label: "重做",
             onClick: () => editor.chain().focus().redo().run(),
-          },
-          { type: "divider" } as const,
-          {
-            key: "format-painter",
-            icon: <Paintbrush size={14} />,
-            label: "格式刷",
-            onClick: () => formatPainter.pickOnce(),
-          },
-          {
-            key: "clear-format",
-            icon: <Eraser size={14} />,
-            label: "清除格式",
-            onClick: () =>
-              editor.chain().focus().unsetAllMarks().clearNodes().run(),
           },
         ],
       },
@@ -564,6 +830,100 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
         },
       },
       {
+        // 字体族（作用于选中文字）
+        icon: null,
+        title: "字体",
+        customRender: () => {
+          const cur = (editor.getAttributes("textStyle").fontFamily as string) || "";
+          return (
+            <Tooltip title="字体（作用于选中文字）" mouseEnterDelay={0.5}>
+              <Select
+                size="small"
+                showSearch
+                value={cur || FONT_FAMILY_CLEAR}
+                // 面板一行放下「下拉 + 名称」，110px 内显示首个字体名足够
+                style={{ width: 110 }}
+                // 选中态只显示首个字体名，不把整条 fallback 链塞进 128px 的框里
+                labelRender={({ value }) => (
+                  <span>{shortFontLabel(String(value))}</span>
+                )}
+                filterOption={(input, option) => {
+                  const opt = option as
+                    | { searchText?: string; value?: string }
+                    | undefined;
+                  const t = String(opt?.searchText ?? opt?.value ?? "");
+                  return t.toLowerCase().includes(input.trim().toLowerCase());
+                }}
+                options={fontFamilyOptions}
+                // 打开时铺伪选区（Select 会夺焦，原生蓝底会消失），关闭即清
+                onOpenChange={(open) => {
+                  const { from, to } = editor.state.selection;
+                  setFakeSelection(
+                    editor,
+                    TOOLBAR_FAKE_SELECTION_KEY,
+                    open && from !== to ? { from, to } : null,
+                  );
+                }}
+                onChange={(v) => {
+                  if (v === FONT_FAMILY_CLEAR) {
+                    editor.chain().focus().unsetFontFamily().run();
+                  } else {
+                    editor.chain().focus().setFontFamily(String(v)).run();
+                  }
+                  setFakeSelection(editor, TOOLBAR_FAKE_SELECTION_KEY, null);
+                }}
+              />
+            </Tooltip>
+          );
+        },
+      },
+      {
+        // 从网页 / Word 复制来的内容：空行、空格、中英文挤在一起
+        icon: null,
+        title: "格式规整",
+        customRender: () => (
+          <Tooltip title="格式规整（清理从别处复制来的内容）" mouseEnterDelay={0.5}>
+            <Dropdown
+              trigger={["click"]}
+              placement="bottomLeft"
+              menu={{
+                items: [
+                  {
+                    key: "cleanup-blank",
+                    label: "删除多余空行",
+                    onClick: dropBlankParagraphs,
+                  },
+                  {
+                    key: "cleanup-linebreaks",
+                    label: "统一换行（段内换行改为分段）",
+                    onClick: () => runLineBreakCleanup("split"),
+                  },
+                  {
+                    key: "cleanup-merge",
+                    label: "选中段落合并为紧凑行",
+                    onClick: () => runLineBreakCleanup("merge"),
+                  },
+                  { type: "divider" },
+                  {
+                    key: "cleanup-spaces",
+                    label: "去除首尾空格 / 压缩连续空格",
+                    onClick: () =>
+                      cleanAllText({ trim: true, squeeze: true }, "整理空格"),
+                  },
+                  {
+                    key: "cleanup-cjk",
+                    label: "中英文之间补空格",
+                    onClick: () => cleanAllText({ cjkSpacing: true }, "补空格"),
+                  },
+                ],
+              }}
+            >
+              <Button type="text" size="small" icon={<Sparkles size={15} />} />
+            </Dropdown>
+          </Tooltip>
+        ),
+      },
+      {
         icon: (
           <span className="inline-flex items-center gap-0.5">
             <Bold size={15} />
@@ -576,6 +936,8 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
           editor.isActive("italic") ||
           editor.isActive("underline") ||
           editor.isActive("strike") ||
+          editor.isActive("highlight") ||
+          editor.isActive("code") ||
           editor.isActive("superscript") ||
           editor.isActive("subscript"),
         dropdownItems: [
@@ -604,6 +966,18 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
             onClick: () => editor.chain().focus().toggleStrike().run(),
           },
           {
+            key: "highlight",
+            icon: <Highlighter size={14} />,
+            label: "高亮",
+            onClick: () => editor.chain().focus().toggleHighlight().run(),
+          },
+          {
+            key: "inline-code",
+            icon: <Code size={14} />,
+            label: "行内代码",
+            onClick: () => editor.chain().focus().toggleCode().run(),
+          },
+          {
             key: "superscript",
             icon: <SuperscriptIcon size={14} />,
             label: "上标",
@@ -618,69 +992,79 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
         ],
       },
     ],
-    // 字体颜色
+    // 字体颜色 / 背景颜色（合并为一个下拉）
     [
       {
         icon: null,
-        title: "字体颜色",
+        title: "字体颜色 / 背景颜色",
         customRender: () => (
-          <Tooltip title="字体颜色" mouseEnterDelay={0.5}>
+          <Tooltip title="字体颜色 / 背景颜色" mouseEnterDelay={0.5}>
             <ColorPicker
               size="small"
-              value={(editor.getAttributes("textStyle").color as string) || "#000000"}
+              value={
+                colorTarget === "text"
+                  ? (editor.getAttributes("textStyle").color as string) || "#000000"
+                  : (editor.getAttributes("highlight").color as string) || "#ffe58f"
+              }
+              allowClear
               onChange={(c) => {
                 const hex = c.toHexString();
-                editor.chain().focus().setColor(hex).run();
+                if (colorTarget === "text") {
+                  editor.chain().focus().setColor(hex).run();
+                } else {
+                  editor.chain().focus().toggleHighlight({ color: hex }).run();
+                }
+              }}
+              onClear={() => {
+                if (colorTarget === "text") {
+                  editor.chain().focus().unsetColor().run();
+                } else {
+                  editor.chain().focus().unsetHighlight().run();
+                }
               }}
               presets={[
                 {
                   label: "常用",
-                  colors: [
-                    "#000000", "#595959", "#8c8c8c", "#bfbfbf", "#ffffff",
-                    "#ff4d4f", "#fa8c16", "#fadb14", "#52c41a", "#1677ff",
-                    "#722ed1", "#eb2f96",
-                  ],
+                  colors:
+                    colorTarget === "text"
+                      ? [
+                          "#000000", "#595959", "var(--kb-text-tertiary)", "var(--kb-border)", "#ffffff",
+                          "#ff4d4f", "#fa8c16", "#fadb14", "#52c41a", "var(--kb-primary)",
+                          "#722ed1", "#eb2f96",
+                        ]
+                      : [
+                          "#ffe58f", "#ffadd2", "#b7eb8f", "#91d5ff", "#ffd6e7",
+                          "#fff1b8", "#d9f7be", "#bae7ff", "#f0f5ff", "#fff7e6",
+                        ],
                 },
               ]}
+              panelRender={(panel) => (
+                <div>
+                  <Segmented
+                    size="small"
+                    block
+                    value={colorTarget}
+                    onChange={(v) => setColorTarget(v as "text" | "highlight")}
+                    options={[
+                      { label: "字体颜色", value: "text" },
+                      { label: "背景颜色", value: "highlight" },
+                    ]}
+                    style={{ marginBottom: 8 }}
+                  />
+                  {panel}
+                </div>
+              )}
             >
               <Button
                 type="text"
                 size="small"
-                icon={<Baseline size={15} />}
-                style={{ minWidth: 28, height: 28, padding: 0 }}
-              />
-            </ColorPicker>
-          </Tooltip>
-        ),
-      },
-      {
-        icon: null,
-        title: "背景颜色",
-        customRender: () => (
-          <Tooltip title="背景颜色" mouseEnterDelay={0.5}>
-            <ColorPicker
-              size="small"
-              value={(editor.getAttributes("highlight").color as string) || "#ffe58f"}
-              onChange={(c) => {
-                const hex = c.toHexString();
-                editor.chain().focus().toggleHighlight({ color: hex }).run();
-              }}
-              presets={[
-                {
-                  label: "常用",
-                  colors: [
-                    "#ffe58f", "#ffadd2", "#b7eb8f", "#91d5ff", "#ffd6e7",
-                    "#fff1b8", "#d9f7be", "#bae7ff", "#f0f5ff", "#fff7e6",
-                  ],
-                },
-              ]}
-            >
-              <Button
-                type="text"
-                size="small"
-                icon={<PaintBucket size={15} />}
-                style={{ minWidth: 28, height: 28, padding: 0 }}
-              />
+                style={{ minWidth: 40, height: 26, padding: "0 4px" }}
+              >
+                <span className="inline-flex items-center gap-0.5">
+                  <Palette size={15} />
+                  <ChevronDown size={11} style={{ opacity: 0.6 }} />
+                </span>
+              </Button>
             </ColorPicker>
           </Tooltip>
         ),
@@ -745,7 +1129,11 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
           </span>
         ),
         title: "列表",
-        isActive: () => editor.isActive("bulletList") || editor.isActive("orderedList") || editor.isActive("taskList"),
+        isActive: () =>
+          editor.isActive("bulletList") ||
+          editor.isActive("orderedList") ||
+          editor.isActive("taskList") ||
+          editor.isActive("blockquote"),
         dropdownItems: [
           {
             key: "bullet",
@@ -765,95 +1153,13 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
             label: "任务列表",
             onClick: () => editor.chain().focus().toggleTaskList().run(),
           },
-        ],
-      },
-      {
-        icon: (
-          <span className="inline-flex items-center gap-0.5">
-            <Lightbulb size={15} />
-            <ChevronDown size={11} style={{ opacity: 0.6 }} />
-          </span>
-        ),
-        title: "引用 / Callout",
-        isActive: () => editor.isActive("blockquote") || editor.isActive("callout"),
-        dropdownItems: [
+          { type: "divider" } as const,
           {
+            // 引用并入列表下拉（Callout 在「插入」面板）
             key: "blockquote",
             icon: <Quote size={14} />,
             label: "引用",
             onClick: () => editor.chain().focus().toggleBlockquote().run(),
-          },
-          { type: "divider" } as const,
-          {
-            key: "callout-info",
-            label: <span><span style={{ marginRight: 6 }}>ℹ️</span>信息</span>,
-            onClick: () => editor.chain().focus().toggleCallout("info").run(),
-          },
-          {
-            key: "callout-tip",
-            label: <span><span style={{ marginRight: 6 }}>💡</span>提示</span>,
-            onClick: () => editor.chain().focus().toggleCallout("tip").run(),
-          },
-          {
-            key: "callout-warning",
-            label: <span><span style={{ marginRight: 6 }}>⚠️</span>警告</span>,
-            onClick: () => editor.chain().focus().toggleCallout("warning").run(),
-          },
-          {
-            key: "callout-danger",
-            label: <span><span style={{ marginRight: 6 }}>❌</span>危险</span>,
-            onClick: () => editor.chain().focus().toggleCallout("danger").run(),
-          },
-        ],
-      },
-      {
-        icon: (
-          <span className="inline-flex items-center gap-0.5">
-            <CodeSquare size={15} />
-            <ChevronDown size={11} style={{ opacity: 0.6 }} />
-          </span>
-        ),
-        title: "代码块",
-        isActive: () => editor.isActive("codeBlock"),
-        dropdownItems: [
-          {
-            key: "code-plain",
-            icon: <CodeSquare size={14} />,
-            label: "普通代码块",
-            onClick: () => editor.chain().focus().toggleCodeBlock().run(),
-          },
-          {
-            key: "code-mermaid",
-            icon: <CodeSquare size={14} />,
-            label: "Mermaid 流程图",
-            onClick: () =>
-              editor
-                .chain()
-                .focus()
-                .insertContent({
-                  type: "codeBlock",
-                  attrs: { language: "mermaid" },
-                  content: [
-                    {
-                      type: "text",
-                      text: "flowchart TD\n  A[开始] --> B{判断}\n  B -- 是 --> C[执行]\n  B -- 否 --> D[结束]",
-                    },
-                  ],
-                })
-                .run(),
-          },
-          { type: "divider" } as const,
-          {
-            key: "toggle",
-            icon: <ChevronsUpDown size={14} />,
-            label: "折叠块",
-            onClick: () => editor.chain().focus().setToggle().run(),
-          },
-          {
-            key: "hr",
-            icon: <Minus size={14} />,
-            label: "分割线",
-            onClick: () => editor.chain().focus().setHorizontalRule().run(),
           },
         ],
       },
@@ -950,77 +1256,113 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
     // 链接 & 媒体
     [
       {
-        icon: (
-          <span className="inline-flex items-center gap-0.5">
-            <LinkIcon size={15} />
-            <ChevronDown size={11} style={{ opacity: 0.6 }} />
+        // 两列插入面板：图标 + 名称，带下拉的条目（分栏 / Callout / 代码块 / 公式）各自展开
+        icon: null,
+        title: "插入",
+        customRender: () => (
+          <Popover
+            trigger="click"
+            placement="bottomLeft"
+            arrow={false}
+            open={insertOpen}
+            onOpenChange={setInsertOpen}
+            content={
+              <div className="grid grid-cols-2 gap-1" style={{ width: 320 }}>
+                {insertActions.map((it) =>
+                  it.items ? (
+                    <Dropdown
+                      key={it.key}
+                      trigger={["click"]}
+                      placement="bottomLeft"
+                      menu={{ items: it.items }}
+                    >
+                      <Button
+                        type="text"
+                        size="small"
+                        style={{ height: 30, justifyContent: "flex-start" }}
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          {it.icon}
+                          <span className="text-[12px]">{it.label}</span>
+                          <ChevronDown size={11} style={{ opacity: 0.5 }} />
+                        </span>
+                      </Button>
+                    </Dropdown>
+                  ) : (
+                    <Button
+                      key={it.key}
+                      type="text"
+                      size="small"
+                      style={{ height: 30, justifyContent: "flex-start" }}
+                      onClick={() => {
+                        it.action?.();
+                        setInsertOpen(false);
+                      }}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        {it.icon}
+                        <span className="text-[12px]">{it.label}</span>
+                      </span>
+                    </Button>
+                  ),
+                )}
+              </div>
+            }
+          >
+            <Tooltip title="插入" mouseEnterDelay={0.5}>
+              <Button type="text" size="small" className="kb-fmt-drop">
+                <Plus size={15} />
+                <span>插入</span>
+                <ChevronDown size={11} style={{ opacity: 0.6 }} />
+              </Button>
+            </Tooltip>
+          </Popover>
+        ),
+      },
+      {
+        // 真实批注按钮 + Emoji 下拉（批注需在选中文字后使用）
+        icon: null,
+        title: "批注 / 插入 Emoji",
+        customRender: () => (
+          <span className="inline-flex items-center">
+            <AnnotationButton editor={editor} />
+            <Tooltip title="插入 Emoji" mouseEnterDelay={0.5}>
+              <Dropdown
+                open={insertMenuOpen}
+                onOpenChange={setInsertMenuOpen}
+                trigger={["click"]}
+                placement="bottomLeft"
+                popupRender={() => (
+                  <div
+                    style={{
+                      padding: 8,
+                      background: "var(--ant-color-bg-elevated, #fff)",
+                      borderRadius: 8,
+                      boxShadow:
+                        "var(--ant-box-shadow-secondary, 0 6px 16px rgba(0, 0, 0, 0.12))",
+                    }}
+                  >
+                    <EmojiPanel
+                      editor={editor}
+                      onInsert={() => setInsertMenuOpen(false)}
+                    />
+                  </div>
+                )}
+              >
+                <Button
+                  type="text"
+                  size="small"
+                  style={{ minWidth: 40, height: 26, padding: "0 4px" }}
+                >
+                  <span className="inline-flex items-center gap-0.5">
+                    <Smile size={15} />
+                    <ChevronDown size={11} style={{ opacity: 0.6 }} />
+                  </span>
+                </Button>
+              </Dropdown>
+            </Tooltip>
           </span>
         ),
-        title: "插入",
-        isActive: () => editor.isActive("link") || editor.isActive("imageResize"),
-        dropdownItems: [
-          {
-            key: "link",
-            icon: <LinkIcon size={14} />,
-            label: "插入链接",
-            onClick: openLinkModal,
-          },
-          {
-            key: "image",
-            icon: <ImagePlus size={14} />,
-            label: "插入图片",
-            onClick: insertImage,
-          },
-          {
-            key: "caption",
-            icon: <Captions size={14} />,
-            label: "图注 / Alt",
-            onClick: openCaptionModal,
-          },
-          {
-            key: "video",
-            icon: <Film size={14} />,
-            label: "插入视频",
-            onClick: insertVideo,
-          },
-          {
-            key: "embed",
-            icon: <Globe size={14} />,
-            label: "嵌入网络视频",
-            onClick: () => {
-              setEmbedUrlInput("");
-              setEmbedModalOpen(true);
-            },
-          },
-          {
-            key: "timestamp",
-            icon: <MapPin size={14} />,
-            label: "插入视频时间戳",
-            onClick: openTimestampModal,
-          },
-          {
-            key: "attachment",
-            icon: <Paperclip size={14} />,
-            label: "插入附件",
-            onClick: insertAttachment,
-          },
-          {
-            key: "viewer3d",
-            icon: <Box size={14} />,
-            label: "插入三维模型",
-            onClick: insertViewer3d,
-          },
-        ],
-      },
-      {
-        icon: <span className="text-base">💬</span>,
-        title: "批注",
-        action: () => editor.chain().focus().insertContent("【批注：】").run(),
-      },
-      {
-        icon: null,
-        title: "插入 Emoji",
-        customRender: () => <EmojiPicker editor={editor} />,
       },
     ],
     // 查找 & 对比
@@ -1034,19 +1376,241 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
         },
       },
       {
-        // 与剪贴板对比 / 合并（左=剪贴板，右=当前文档 markdown，可编辑）
+        // 对比 / 合并下拉：与剪贴板、与其它文档
         icon: null,
-        title: "对比剪贴板",
-        customRender: () => <CompareClipboardButton editor={editor} />,
-      },
-      {
-        // 与其他文档对比 / 合并
-        icon: null,
-        title: "对比其他文档",
-        customRender: () => <CompareNotesButton editor={editor} noteId={noteId} />,
+        title: "对比 / 合并",
+        customRender: () => (
+          <CompareMergeDropdown editor={editor} noteId={noteId} />
+        ),
       },
     ],
   ];
+
+  // ── v4 布局：以上 groups 的条目定义（图标 / 行为 / 下拉 / 弹窗）一个都不动，
+  // 这里只决定「摆在哪」。低频的排版项收进「排版」面板，其余保持常驻；
+  // 没被点名摆放的条目（含日后新增的）自动追加到最后一组，绝不因改版悄悄消失。
+  const renderItem = (item: ToolItem, key: React.Key) => {
+    if (item.customRender) {
+      return (
+        <span key={key} className="inline-flex items-center">
+          {item.customRender()}
+        </span>
+      );
+    }
+    const btn = (
+      <Button
+        type="text"
+        size="small"
+        icon={item.icon}
+        onClick={item.dropdownItems ? undefined : item.action}
+        className={item.isActive?.() ? "toolbar-btn-active" : ""}
+        style={{
+          // 带 dropdownItems 双图标按钮宽 40，普通单图标 26 紧凑
+          minWidth: item.dropdownItems ? 40 : 26,
+          height: 26,
+          padding: item.dropdownItems ? "0 4px" : 0,
+        }}
+      />
+    );
+    if (item.dropdownItems) {
+      return (
+        <Tooltip key={key} title={item.title} mouseEnterDelay={0.5}>
+          <Dropdown
+            menu={{ items: item.dropdownItems }}
+            trigger={["click"]}
+            placement="bottomLeft"
+          >
+            {btn}
+          </Dropdown>
+        </Tooltip>
+      );
+    }
+    return (
+      <Tooltip key={key} title={item.title} mouseEnterDelay={0.5}>
+        {btn}
+      </Tooltip>
+    );
+  };
+
+  /** 收纳面板：触发按钮 + 弹层里逐行列出原条目（图标 + 名称），各自的下拉 / 控件照常工作 */
+  const panel = (
+    key: string,
+    trigger: React.ReactNode,
+    title: string,
+    items: ToolItem[],
+  ): ToolItem | null => {
+    if (items.length === 0) return null;
+    return {
+      icon: null,
+      title,
+      customRender: () => (
+        <Popover
+          trigger="click"
+          placement="bottomLeft"
+          arrow={false}
+          open={openPanel === key}
+          onOpenChange={(o) => setOpenPanel(o ? key : null)}
+          content={
+            <div style={{ minWidth: 200 }} onKeyDown={(e) => {
+              if (e.key === "Escape") setOpenPanel(null);
+            }}>
+              {items.map((it, i) => (
+                <div
+                  key={it.title}
+                  className="flex items-center gap-2 rounded px-2 py-1 hover:bg-black/5 transition-colors"
+                  onClick={() => {
+                    // 普通按钮：点整行都算点按钮，点完收起面板；带下拉 / 自定义控件的行交给控件自己处理
+                    if (it.action && !it.dropdownItems && !it.customRender) {
+                      it.action();
+                      setOpenPanel(null);
+                    }
+                  }}
+                >
+                  <span className="inline-flex min-w-[64px] shrink-0 items-center justify-center">
+                    {renderItem(it, i)}
+                  </span>
+                  <span className="text-[12px] whitespace-nowrap">{it.title}</span>
+                </div>
+              ))}
+            </div>
+          }
+        >
+          <Tooltip title={title} mouseEnterDelay={0.5}>
+            <Button
+              type="text"
+              size="small"
+              className={
+                openPanel === key ? "kb-fmt-drop toolbar-btn-active" : "kb-fmt-drop"
+              }
+            >
+              {trigger}
+              <ChevronDown size={11} />
+            </Button>
+          </Tooltip>
+        </Popover>
+      ),
+    };
+  };
+
+  const byTitle = new Map(groups.flat().map((it) => [it.title, it] as const));
+  const placed = new Set<string>();
+  const pick = (...titles: string[]): ToolItem[] =>
+    titles.flatMap((t) => {
+      const it = byTitle.get(t);
+      if (!it) return [];
+      placed.add(t);
+      return [it];
+    });
+  const layoutGroupsRaw: (ToolItem | null)[][] = [
+    // 清除格式 / 格式刷固定在工具栏最左侧（老位置，高频）
+    pick("清除格式", "格式刷"),
+    pick("撤销 / 重做"),
+    // 块级：标题 / 对齐 / 列表(编号，含引用)
+    pick("段落格式", "对齐", "列表"),
+    // 行内：字体（含在排版面板） / 字体颜色 / 文本修饰
+    [
+      ...pick("字体颜色 / 背景颜色"),
+      // 字体 / 字号 / 行间距合并进同一个下拉面板（对齐 KB 的排版面板）
+      panel(
+        "typo",
+        <Type size={15} />,
+        "字体 / 字号 / 行间距 / 格式规整",
+        pick("字体", "字号", "行间距", "格式规整"),
+      ),
+      ...pick("文本修饰"),
+    ],
+    pick("表格", "插入"),
+    pick("批注 / 插入 Emoji", "语音输入", "查找替换", "对比 / 合并"),
+  ];
+  const leftovers = groups.flat().filter((it) => !placed.has(it.title));
+  const layoutGroups: ToolItem[][] = [
+    ...layoutGroupsRaw.map((g) => g.filter((it): it is ToolItem => it != null)),
+    leftovers,
+  ].filter((g) => g.length > 0);
+
+  /** 删除连续空段落（连着的只保留第一个），一次 transaction 可整体撤销 */
+  function dropBlankParagraphs() {
+    const { state, view } = editor;
+    const tr = state.tr;
+    const ranges: { from: number; to: number }[] = [];
+    let prevBlank = false;
+    state.doc.forEach((node, offset) => {
+      const blank =
+        node.type.name === "paragraph" && isBlankText(node.textContent ?? "");
+      if (blank && prevBlank) ranges.push({ from: offset, to: offset + node.nodeSize });
+      prevBlank = blank;
+    });
+    if (ranges.length === 0) {
+      message.info("没有多余空行");
+      return;
+    }
+    // 从后往前删，避免前面的删除让后面的偏移失效
+    for (let i = ranges.length - 1; i >= 0; i -= 1) {
+      tr.delete(ranges[i].from, ranges[i].to);
+    }
+    view.dispatch(tr);
+    message.success(`已删除 ${ranges.length} 个多余空行`);
+  }
+
+  /** 按规则清洗所有正文文字；行内 code / 代码块跳过（空格有语义） */
+  function cleanAllText(
+    rules: { trim?: boolean; squeeze?: boolean; cjkSpacing?: boolean },
+    label: string,
+  ) {
+    const { state, view, schema } = editor;
+    const tr = state.tr;
+    let count = 0;
+    state.doc.descendants((node, pos) => {
+      if (!node.isText || !node.text) return true;
+      if (node.marks.some((m) => m.type.name === "code")) return true;
+      if (state.doc.resolve(pos).parent.type.name === "codeBlock") return false;
+      const cleaned = cleanText(node.text, rules);
+      if (cleaned === node.text) return true;
+      const from = tr.mapping.map(pos);
+      const to = tr.mapping.map(pos + node.text.length);
+      tr.replaceWith(from, to, cleaned ? schema.text(cleaned, node.marks) : []);
+      count += 1;
+      return true;
+    });
+    if (count === 0) {
+      message.info(`没有需要${label}的内容`);
+      return;
+    }
+    view.dispatch(tr);
+    message.success(`已${label} ${count} 处`);
+  }
+
+  /** 剪藏网页正文，插入到当前文档光标处（不新建文档） */
+  async function clipWebPage() {
+    let effectiveNoteId = noteId;
+    if (!effectiveNoteId && ensureNoteId) {
+      try {
+        effectiveNoteId = await ensureNoteId();
+      } catch (e) {
+        message.error(`剪藏失败: ${e}`);
+        return;
+      }
+    }
+    if (!effectiveNoteId) {
+      message.warning("请先保存文档后再剪藏网页");
+      return;
+    }
+    const url = clipUrlInput.trim();
+    if (!url) return;
+    try {
+      const html = await noteApi.clipUrlToHtml(url, effectiveNoteId);
+      if (!html?.trim()) {
+        message.warning("没有抓到正文，请检查链接或剪藏服务配置");
+        return;
+      }
+      editor.chain().focus().insertContent(html).run();
+      message.success("已剪藏网页正文到光标处");
+      setClipModalOpen(false);
+      setClipUrlInput("");
+    } catch (e) {
+      message.error(`剪藏失败：${e}`);
+    }
+  }
 
   /**
    * 阻止 toolbar 内 mousedown 默认 focus 切换。
@@ -1071,57 +1635,12 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
   return (
     <>
       <div className="tiptap-toolbar" onMouseDown={handleToolbarMouseDown}>
-        {groups.map((group, gi) => (
+        {layoutGroups.map((group, gi) => (
           <span key={gi} className="inline-flex items-center">
             {gi > 0 && (
-              <Divider orientation="vertical" style={{ height: 18, margin: "0 1px", borderColor: "var(--ant-color-border-secondary, #f0f0f0)" }} />
+              <Divider orientation="vertical" style={{ height: 18, margin: "0 1px", borderColor: "var(--ant-color-border-secondary, var(--kb-border))" }} />
             )}
-            {group.map((item, ii) => {
-              if (item.customRender) {
-                return (
-                  <span key={ii} className="inline-flex items-center">
-                    {item.customRender()}
-                  </span>
-                );
-              }
-              const btn = (
-                <Button
-                  type="text"
-                  size="small"
-                  icon={item.icon}
-                  onClick={item.dropdownItems ? undefined : item.action}
-                  className={item.isActive?.() ? "toolbar-btn-active" : ""}
-                  style={{
-                    // 带 dropdownItems 双图标按钮宽 40，普通单图标 26 紧凑
-                    minWidth: item.dropdownItems ? 40 : 26,
-                    height: 26,
-                    padding: item.dropdownItems ? "0 4px" : 0,
-                  }}
-                />
-              );
-              if (item.dropdownItems) {
-                return (
-                  <Tooltip
-                    key={ii}
-                    title={item.title}
-                    mouseEnterDelay={0.5}
-                  >
-                    <Dropdown
-                      menu={{ items: item.dropdownItems }}
-                      trigger={["click"]}
-                      placement="bottomLeft"
-                    >
-                      {btn}
-                    </Dropdown>
-                  </Tooltip>
-                );
-              }
-              return (
-                <Tooltip key={ii} title={item.title} mouseEnterDelay={0.5}>
-                  {btn}
-                </Tooltip>
-              );
-            })}
+            {group.map((item, ii) => renderItem(item, ii))}
           </span>
         ))}
         <PluginToolbarButtons editor={editor} noteId={noteId} />
@@ -1229,6 +1748,31 @@ export function EditorToolbar({ editor, noteId, ensureNoteId }: ToolbarProps) {
         </div>
       </Modal>
 
+      {/* 剪藏网页正文到当前文档 */}
+      <Modal
+        title="剪藏网页到当前文档"
+        open={clipModalOpen}
+        onOk={() => void clipWebPage()}
+        onCancel={() => setClipModalOpen(false)}
+        okText="剪藏并插入"
+        cancelText="取消"
+        width={520}
+        destroyOnHidden
+      >
+        <div className="space-y-2">
+          <Input
+            value={clipUrlInput}
+            onChange={(e) => setClipUrlInput(e.target.value)}
+            onPressEnter={() => void clipWebPage()}
+            placeholder="粘贴网页链接，如 https://example.com/article"
+            autoFocus
+          />
+          <div className="text-xs" style={{ color: "var(--ant-color-text-quaternary)", lineHeight: 1.6 }}>
+            抓取正文并插入到当前光标处（不新建文档）；图片会保存到本文档的附件目录。
+          </div>
+        </div>
+      </Modal>
+
       {/* 图注 / Alt 弹窗：选中图片后用 */}
       <Modal
         title="编辑图注与替代文本"
@@ -1304,6 +1848,36 @@ function applyBlockType(editor: Editor, type: BlockType): void {
       .setHeading({ level: lv as 1 | 2 | 3 | 4 | 5 | 6 })
       .run();
   }
+}
+
+/** 「字体」下拉里代表"清除字体"的哨兵 value（不会与真实 font-family 值撞车） */
+const FONT_FAMILY_CLEAR = "__clear__";
+
+/** 工具栏用的伪选区 key：与 AI 写作菜单各用各的，互不干扰 */
+const TOOLBAR_FAKE_SELECTION_KEY = new PluginKey<DecorationSet>(
+  "kb-toolbar-fake-selection",
+);
+
+/**
+ * 把一条 font-family 值压成短标签：只取首个字体名并去掉引号。
+ * 完整 fallback 链动辄上百字符塞不进工具栏；从 Word 粘进来的未知字体也能显示名字。
+ */
+function shortFontLabel(value: string): string {
+  if (!value || value === FONT_FAMILY_CLEAR) return "字体";
+  const first = value.split(",")[0]?.trim() ?? "";
+  return first.replace(/^["']|["']$/g, "") || "字体";
+}
+
+/**
+ * 系统已装字体的模块级单飞缓存：枚举一次要跑 Rust 侧，工具栏会随每个编辑器实例挂载，
+ * 没必要各枚举一遍。失败时缓存空数组 → 下拉只剩预设，不反复重试。
+ */
+let systemFontsPromise: Promise<string[]> | null = null;
+function loadSystemFontsOnce(): Promise<string[]> {
+  if (!systemFontsPromise) {
+    systemFontsPromise = systemApi.listSystemFonts().catch(() => []);
+  }
+  return systemFontsPromise;
 }
 
 const FONT_SIZE_OPTIONS = [

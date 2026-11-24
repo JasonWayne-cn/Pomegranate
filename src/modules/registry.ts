@@ -98,6 +98,15 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
         group: "general",
         fields: [
           {
+            key: "auto_save_enabled",
+            label: "启用自动保存",
+            type: "switch",
+            defaultValue: true,
+            description: "停止输入片刻后自动落库；关闭后需手动 Ctrl+S 保存",
+            span: 1,
+            instantApply: true,
+          },
+          {
             key: "auto_save_delay",
             label: "自动保存延迟",
             type: "number",
@@ -111,10 +120,10 @@ export const MODULE_REGISTRY: Record<ActiveView, ModuleMeta> = {
           },
           {
             key: "show_folder_note_count",
-            label: "显示文件夹下文档总数",
+            label: "显示文件夹文档计数",
             type: "switch",
             defaultValue: true,
-            description: "文件夹后显示文档数，如「文件夹[4]」",
+            description: "悬停文件夹时显示「文档[n]，Office[m]，PDF[k]」",
             span: 1,
             instantApply: true,
           },

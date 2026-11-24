@@ -49,7 +49,11 @@ import type {
   SystemInfo,
   TaskSession,
 } from "@/types";
-import type { ThemeMode, ThemeCategory } from "@/theme/tokens";
+import {
+  normalizeThemeMode,
+  type ThemeMode,
+  type ThemeCategory,
+} from "@/theme/tokens";
 import { EDITOR_HIGHLIGHT_SHORTCUT_DEFAULT } from "@/lib/shortcuts/registry";
 import {
   DEFAULT_MOBILE_TAB_KEYS,
@@ -59,6 +63,13 @@ import {
 } from "@/lib/mobileTabRegistry";
 
 export type { MobileTabKey };
+
+/** 笔记列表行距档位（持久化）。compact=紧凑 / standard=标准 / comfortable=宽松 */
+export type NotesRowSpacing = "compact" | "standard" | "comfortable";
+export const NOTES_ROW_SPACING_DEFAULT: NotesRowSpacing = "standard";
+/** 笔记列表每页条数：默认 30，上限 100（持久化） */
+export const NOTES_PAGE_SIZE_DEFAULT = 30;
+export const NOTES_PAGE_SIZE_MAX = 100;
 
 /**
  * 侧边栏当前活动视图（Activity Bar 模式）。
@@ -193,6 +204,8 @@ export const EDITOR_FONT_DEFAULTS = {
   headingFamily: EDITOR_HEADING_FONT_FOLLOW as EditorFontFamily,
   size: 15,
   lineHeight: 1.8,
+  // 段后间距（em）；与行距互不影响，可在设置里调
+  paragraphSpacing: 1.05,
   codeSize: 0, // 0 = 代码块字号跟随正文（相对 0.9em），保持老行为
 };
 
@@ -237,6 +250,8 @@ export const EDITOR_LAYOUT_DEFAULTS = {
   headingNumberSkipManual: true,
   /** 列表 / 大纲的层级引线 */
   guideLine: false,
+  /** 表格单元格内容垂直居中（默认顶端对齐）；纯显示偏好，不写进 .md */
+  tableVCenter: false,
 };
 
 /**
@@ -431,6 +446,8 @@ interface AppStore {
   editorFontSize: number;
   /** 编辑器行距倍数（持久化） */
   editorLineHeight: number;
+  /** 编辑器段后间距 em（持久化，0–2，默认 1.05） */
+  editorParagraphSpacing: number;
   /** 编辑器代码块字号 px（持久化）。0 = 跟随正文（相对 0.9em），> 0 = 绝对 px */
   editorCodeFontSize: number;
   /** 编辑器正文阅读列宽 px（持久化）。0 = 不限制（铺满） */
@@ -451,6 +468,8 @@ interface AppStore {
   editorHeadingNumberSkipManual: boolean;
   /** 列表 / 大纲层级引线（持久化） */
   editorGuideLine: boolean;
+  /** 表格单元格内容垂直居中（持久化，纯显示偏好） */
+  editorTableVCenter: boolean;
   /**
    * 编辑器「高亮」快捷键（accelerator 字符串，如 "CommandOrControl+Shift+H"，持久化）。
    *
@@ -552,6 +571,10 @@ interface AppStore {
   notesCollapseFoldersOnStartup: boolean;
   /** 文档侧栏目录树是否画层级连线（点线参考线，类似 Windows 资源管理器） */
   notesTreeGuideLines: boolean;
+  /** 笔记列表行距档位（持久化，默认 standard） */
+  notesRowSpacing: NotesRowSpacing;
+  /** 笔记列表每页条数（持久化，默认 30，上限 100） */
+  notesPageSize: number;
   /**
    * 会话级标志（不持久化、不参与 loadFromStore）：本次应用启动是否已执行过"启动收起"。
    * 应用重启（页面重载）后随 store 重建自动归 false，从而每次启动都收起一次。
@@ -737,6 +760,8 @@ interface AppStore {
   setEditorFontSize: (size: number) => void;
   /** 设置编辑器行距倍数 */
   setEditorLineHeight: (lineHeight: number) => void;
+  /** 设置段后间距 em（clamp 到 [0, 2]） */
+  setEditorParagraphSpacing: (spacing: number) => void;
   /** 设置代码块字号（px，0 = 跟随正文；非 0 会 clamp 到 [12, 20]） */
   setEditorCodeFontSize: (size: number) => void;
   /** 重置编辑器字体 + 版面到默认值 */
@@ -758,6 +783,8 @@ interface AppStore {
   setEditorHeadingNumberSkipManual: (on: boolean) => void;
   /** 切换列表 / 大纲层级引线 */
   setEditorGuideLine: (on: boolean) => void;
+  /** 切换表格内容垂直居中 */
+  setEditorTableVCenter: (on: boolean) => void;
   /** 设置编辑器高亮快捷键（accelerator 字符串；传空串 = 禁用高亮快捷键） */
   setEditorHighlightShortcut: (accel: string) => void;
   /** 设置全局界面缩放（自动 clamp 到 [UI_SCALE_MIN, UI_SCALE_MAX]，标记用户已手动设置） */
@@ -813,6 +840,10 @@ interface AppStore {
   /** 设置"每次启动默认收起所有文件夹"开关 */
   setNotesCollapseFoldersOnStartup: (on: boolean) => void;
   setNotesTreeGuideLines: (on: boolean) => void;
+  /** 设置笔记列表行距档位（持久化） */
+  setNotesRowSpacing: (spacing: NotesRowSpacing) => void;
+  /** 设置笔记列表每页条数（持久化，自动夹到 1–100） */
+  setNotesPageSize: (size: number) => void;
   /** 标记本次会话已执行过"启动收起"（会话级，一次性） */
   markNotesStartupCollapseApplied: () => void;
   /** 启动时从 app_config 拉默认文件夹 / 标签到 store（失败静默） */
@@ -933,8 +964,8 @@ const DEFAULT_MOBILE_DASHBOARD_ITEMS: Set<MobileDashboardItem> = new Set(
 );
 
 export const useAppStore = create<AppStore>((set, get) => ({
-  lightTheme: "light-glass",
-  darkTheme: "dark-starry",
+  lightTheme: "light-lilac",
+  darkTheme: "dark-ember",
   themeCategory: "light",
   sidebarCollapsed: false,
   focusMode: false,
@@ -964,6 +995,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   editorHeadingFontFamily: EDITOR_FONT_DEFAULTS.headingFamily,
   editorFontSize: EDITOR_FONT_DEFAULTS.size,
   editorLineHeight: EDITOR_FONT_DEFAULTS.lineHeight,
+  editorParagraphSpacing: EDITOR_FONT_DEFAULTS.paragraphSpacing,
   editorCodeFontSize: EDITOR_FONT_DEFAULTS.codeSize,
   editorReadingWidth: EDITOR_LAYOUT_DEFAULTS.readingWidth,
   editorPaper: EDITOR_LAYOUT_DEFAULTS.paper,
@@ -974,6 +1006,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   editorHeadingNumberStartLevel: EDITOR_LAYOUT_DEFAULTS.headingNumberStartLevel,
   editorHeadingNumberSkipManual: EDITOR_LAYOUT_DEFAULTS.headingNumberSkipManual,
   editorGuideLine: EDITOR_LAYOUT_DEFAULTS.guideLine,
+  editorTableVCenter: EDITOR_LAYOUT_DEFAULTS.tableVCenter,
   editorHighlightShortcut: EDITOR_HIGHLIGHT_SHORTCUT_DEFAULT,
   uiScale: UI_SCALE_DEFAULT,
   uiScaleUserSet: false,
@@ -993,6 +1026,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   notesFoldersInitialCollapseDone: false,
   notesCollapseFoldersOnStartup: true,
   notesTreeGuideLines: false,
+  notesRowSpacing: NOTES_ROW_SPACING_DEFAULT,
+  notesPageSize: NOTES_PAGE_SIZE_DEFAULT,
   notesStartupCollapseApplied: false,
   defaultFolderId: null,
   defaultTagIds: [],
@@ -1319,6 +1354,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const clamped = Math.max(1.2, Math.min(2.5, Number(lineHeight) || 1.8));
     set({ editorLineHeight: clamped });
   },
+  setEditorParagraphSpacing: (spacing) => {
+    const n = Number(spacing);
+    const clamped = Number.isFinite(n)
+      ? Math.max(0, Math.min(2, n))
+      : EDITOR_FONT_DEFAULTS.paragraphSpacing;
+    set({ editorParagraphSpacing: clamped });
+  },
   setEditorCodeFontSize: (size) => {
     // 0 = 跟随正文（保留 0.9em 老行为）；非 0 时 clamp 到合法预设范围 [12, 20]
     const n = Math.round(Number(size) || 0);
@@ -1331,6 +1373,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       editorHeadingFontFamily: EDITOR_FONT_DEFAULTS.headingFamily,
       editorFontSize: EDITOR_FONT_DEFAULTS.size,
       editorLineHeight: EDITOR_FONT_DEFAULTS.lineHeight,
+      editorParagraphSpacing: EDITOR_FONT_DEFAULTS.paragraphSpacing,
       editorCodeFontSize: EDITOR_FONT_DEFAULTS.codeSize,
       editorReadingWidth: EDITOR_LAYOUT_DEFAULTS.readingWidth,
       editorPaper: EDITOR_LAYOUT_DEFAULTS.paper,
@@ -1341,6 +1384,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       editorHeadingNumberStartLevel: EDITOR_LAYOUT_DEFAULTS.headingNumberStartLevel,
       editorHeadingNumberSkipManual: EDITOR_LAYOUT_DEFAULTS.headingNumberSkipManual,
       editorGuideLine: EDITOR_LAYOUT_DEFAULTS.guideLine,
+      editorTableVCenter: EDITOR_LAYOUT_DEFAULTS.tableVCenter,
     }),
   setEditorReadingWidth: (w) => {
     const n = Math.round(Number(w) || 0);
@@ -1364,6 +1408,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setEditorHeadingNumberSkipManual: (on) =>
     set({ editorHeadingNumberSkipManual: !!on }),
   setEditorGuideLine: (on) => set({ editorGuideLine: !!on }),
+  setEditorTableVCenter: (on) => set({ editorTableVCenter: !!on }),
   setEditorHighlightShortcut: (accel) =>
     set({ editorHighlightShortcut: typeof accel === "string" ? accel.trim() : "" }),
   setUiScale: (scale) => {
@@ -1445,6 +1490,18 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setNotesCollapseFoldersOnStartup: (on) =>
     set({ notesCollapseFoldersOnStartup: on }),
   setNotesTreeGuideLines: (on) => set({ notesTreeGuideLines: on }),
+  setNotesRowSpacing: (spacing) => {
+    const next: NotesRowSpacing =
+      spacing === "compact" || spacing === "comfortable" ? spacing : "standard";
+    set({ notesRowSpacing: next });
+    applyNotesListPrefs({ notesRowSpacing: next });
+  },
+  setNotesPageSize: (size) => {
+    const n = Math.round(Number(size) || NOTES_PAGE_SIZE_DEFAULT);
+    set({
+      notesPageSize: Math.max(1, Math.min(NOTES_PAGE_SIZE_MAX, n)),
+    });
+  },
   markNotesStartupCollapseApplied: () =>
     set({ notesStartupCollapseApplied: true }),
   loadNoteDefaults: async () => {
@@ -1591,6 +1648,7 @@ export function applyEditorTypography(state: {
   editorHeadingFontFamily: EditorFontFamily;
   editorFontSize: number;
   editorLineHeight: number;
+  editorParagraphSpacing: number;
   editorCodeFontSize: number;
 }) {
   const root = document.documentElement;
@@ -1612,6 +1670,11 @@ export function applyEditorTypography(state: {
   }
   root.style.setProperty("--editor-font-size", `${state.editorFontSize}px`);
   root.style.setProperty("--editor-line-height", String(state.editorLineHeight));
+  // 段后间距（em）：global.css 的 `.editor-content-area .tiptap p` 消费
+  root.style.setProperty(
+    "--editor-paragraph-spacing",
+    `${state.editorParagraphSpacing}em`,
+  );
   // 代码块字号：> 0 写绝对 px（全文代码块统一生效）；0 → 移除变量，CSS 回退到相对正文的 0.9em
   if (state.editorCodeFontSize > 0) {
     root.style.setProperty("--editor-code-font-size", `${state.editorCodeFontSize}px`);
@@ -1634,6 +1697,7 @@ export function applyEditorLayout(state: {
   editorFirstLineIndent: boolean;
   editorHeadingNumber: boolean;
   editorGuideLine: boolean;
+  editorTableVCenter: boolean;
 }) {
   const root = document.documentElement;
   if (state.editorReadingWidth > 0) {
@@ -1649,6 +1713,20 @@ export function applyEditorLayout(state: {
     state.editorHeadingNumber ? "1" : "0",
   );
   root.setAttribute("data-editor-guide-line", state.editorGuideLine ? "1" : "0");
+  root.setAttribute("data-editor-table-vcenter", state.editorTableVCenter ? "1" : "0");
+}
+
+/**
+ * 把笔记列表行距偏好同步到 :root。
+ *
+ * 用 data 属性而不是内联样式：global.css 里分别给文件夹树 / 文档列表表格
+ * 设置 `--notes-row-py` / `--notes-row-line-height`，两处共用同一档位。
+ */
+export function applyNotesListPrefs(state: { notesRowSpacing: NotesRowSpacing }) {
+  document.documentElement.setAttribute(
+    "data-notes-row-spacing",
+    state.notesRowSpacing,
+  );
 }
 
 /**
@@ -1808,12 +1886,16 @@ export async function applyThemeOverrides(state: {
 export async function loadThemeFromStore() {
   try {
     const store = await Store.load(STORE_FILE);
-    const lt = await store.get<ThemeMode>("lightTheme");
-    const dt = await store.get<ThemeMode>("darkTheme");
+    // 旧主题 id 归一：light-glass/light-warm/light-jade → 新亮色，
+    // dark-starry/dark-mocha → 新暗色。老用户持久化配置不会落到无效主题。
+    const lt = await store.get<string>("lightTheme");
+    const dt = await store.get<string>("darkTheme");
     const cat = await store.get<ThemeCategory>("themeCategory");
-    if (lt) useAppStore.getState().setLightTheme(lt);
-    if (dt) useAppStore.getState().setDarkTheme(dt);
-    if (cat) useAppStore.getState().setThemeCategory(cat);
+    if (lt) useAppStore.getState().setLightTheme(normalizeThemeMode(lt, "light-lilac"));
+    if (dt) useAppStore.getState().setDarkTheme(normalizeThemeMode(dt, "dark-ember"));
+    if (cat === "light" || cat === "dark") {
+      useAppStore.getState().setThemeCategory(cat);
+    }
 
     // 不恢复窗口置顶：应用每次启动默认不置顶，避免上次会话的置顶状态影响下次启动。
     // 右上角图钉/托盘仍可在本次会话内临时开启，只是不再跨重启保留。
@@ -1869,6 +1951,10 @@ export async function loadThemeFromStore() {
     if (typeof lh === "number" && Number.isFinite(lh)) {
       useAppStore.getState().setEditorLineHeight(lh);
     }
+    const eps = await store.get<number>("editorParagraphSpacing");
+    if (typeof eps === "number" && Number.isFinite(eps)) {
+      useAppStore.getState().setEditorParagraphSpacing(eps);
+    }
     const cfs = await store.get<number>("editorCodeFontSize");
     if (typeof cfs === "number" && Number.isFinite(cfs)) {
       useAppStore.getState().setEditorCodeFontSize(cfs);
@@ -1906,6 +1992,10 @@ export async function loadThemeFromStore() {
     const egl = await store.get<boolean>("editorGuideLine");
     if (typeof egl === "boolean") {
       useAppStore.getState().setEditorGuideLine(egl);
+    }
+    const etvc = await store.get<boolean>("editorTableVCenter");
+    if (typeof etvc === "boolean") {
+      useAppStore.getState().setEditorTableVCenter(etvc);
     }
     const ehn = await store.get<boolean>("editorHeadingNumber");
     if (typeof ehn === "boolean") {
@@ -2000,6 +2090,14 @@ export async function loadThemeFromStore() {
     if (typeof ntgl === "boolean") {
       useAppStore.setState({ notesTreeGuideLines: ntgl });
     }
+    const nrs = await store.get<NotesRowSpacing>("notesRowSpacing");
+    if (nrs === "compact" || nrs === "standard" || nrs === "comfortable") {
+      useAppStore.getState().setNotesRowSpacing(nrs);
+    }
+    const nps = await store.get<number>("notesPageSize");
+    if (typeof nps === "number" && Number.isFinite(nps)) {
+      useAppStore.getState().setNotesPageSize(nps);
+    }
     const nlcp = await store.get<unknown>("notesListColumnPrefs");
     if (nlcp != null) {
       useAppStore.setState({ notesListColumnPrefs: sanitizeNotesColumnPrefs(nlcp) });
@@ -2056,6 +2154,7 @@ export async function loadThemeFromStore() {
     // 同步到 CSS 变量，确保首次渲染就用对字体而不是闪一下默认再切。
     applyEditorTypography(useAppStore.getState());
     applyEditorLayout(useAppStore.getState());
+    applyNotesListPrefs(useAppStore.getState());
     applyUiScale(useAppStore.getState().uiScale);
     void applyThemeOverrides(useAppStore.getState());
     // 放行写盘。必须在 finally 里：加载抛错也要放行，否则用户这次会话的所有
@@ -2103,6 +2202,7 @@ function collectPersistPayload(state: AppStore): Record<string, unknown> {
     editorHeadingFontFamily: state.editorHeadingFontFamily,
     editorFontSize: state.editorFontSize,
     editorLineHeight: state.editorLineHeight,
+    editorParagraphSpacing: state.editorParagraphSpacing,
     editorCodeFontSize: state.editorCodeFontSize,
     editorReadingWidth: state.editorReadingWidth,
     editorPaper: state.editorPaper,
@@ -2113,6 +2213,7 @@ function collectPersistPayload(state: AppStore): Record<string, unknown> {
     editorHeadingNumberStartLevel: state.editorHeadingNumberStartLevel,
     editorHeadingNumberSkipManual: state.editorHeadingNumberSkipManual,
     editorGuideLine: state.editorGuideLine,
+    editorTableVCenter: state.editorTableVCenter,
     editorHighlightShortcut: state.editorHighlightShortcut,
     uiScale: state.uiScale,
     uiScaleUserSet: state.uiScaleUserSet,
@@ -2132,6 +2233,8 @@ function collectPersistPayload(state: AppStore): Record<string, unknown> {
     notesFoldersInitialCollapseDone: state.notesFoldersInitialCollapseDone,
     notesCollapseFoldersOnStartup: state.notesCollapseFoldersOnStartup,
     notesTreeGuideLines: state.notesTreeGuideLines,
+    notesRowSpacing: state.notesRowSpacing,
+    notesPageSize: state.notesPageSize,
     notesHeadingFolded: state.notesHeadingFolded,
     themeOverridesEnabled: state.themeOverridesEnabled,
     customAccent: state.customAccent,
@@ -2267,7 +2370,7 @@ setExportFontsProvider(() => {
 // 编辑器字体偏好变化时实时同步到 CSS 变量（无需刷新页面）
 let _prevTypographyKey = "";
 useAppStore.subscribe((state) => {
-  const key = `${state.editorFontFamily}|${state.editorHeadingFontFamily}|${state.editorFontSize}|${state.editorLineHeight}|${state.editorCodeFontSize}`;
+  const key = `${state.editorFontFamily}|${state.editorHeadingFontFamily}|${state.editorFontSize}|${state.editorLineHeight}|${state.editorParagraphSpacing}|${state.editorCodeFontSize}`;
   if (key !== _prevTypographyKey) {
     _prevTypographyKey = key;
     applyEditorTypography(state);
@@ -2277,7 +2380,7 @@ useAppStore.subscribe((state) => {
 // 编辑器版面偏好变化时实时同步到 :root（变量 + data 属性），无需刷新
 let _prevLayoutKey = "";
 useAppStore.subscribe((state) => {
-  const key = `${state.editorReadingWidth}|${state.editorPaper}|${state.editorRuleLines}|${state.editorFirstLineIndent}|${state.editorHeadingNumber}|${state.editorGuideLine}`;
+  const key = `${state.editorReadingWidth}|${state.editorPaper}|${state.editorRuleLines}|${state.editorFirstLineIndent}|${state.editorHeadingNumber}|${state.editorGuideLine}|${state.editorTableVCenter}`;
   if (key !== _prevLayoutKey) {
     _prevLayoutKey = key;
     applyEditorLayout(state);
