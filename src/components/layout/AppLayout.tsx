@@ -20,6 +20,7 @@ import { SidePanel, viewHasPanel } from "./SidePanel";
 import { ModuleActions } from "@/components/module/ModuleActions";
 import { TabBar } from "./TabBar";
 import { WindowControls } from "./WindowControls";
+import { FocusModeExitDock } from "./FocusModeExitDock";
 import { InstanceBadge } from "./InstanceBadge";
 import { RibbonBar } from "./RibbonBar";
 import { CommandPalette } from "@/components/ui/CommandPalette";
@@ -114,6 +115,7 @@ export function AppLayout() {
     setLightTheme, setDarkTheme,
     setThemeCategory,
     focusMode: focusModeRaw, setFocusMode,
+    focusModeKeepTabs,
     alwaysOnTop, setAlwaysOnTop,
     activeView,
     sidePanelWidth, setSidePanelWidth,
@@ -133,6 +135,16 @@ export function AppLayout() {
   const focusMode = focusModeRaw || isPopoutWindow;
 
   const location = useLocation();
+
+  // 专注模式只属于「文档编辑页」：离开编辑器（返回列表 / 搜索 / 标签切到白板等）
+  // 自动退出。否则 Header / 侧栏 / 标签栏全被隐藏，列表页变成一具没有出口的空壳。
+  // 排除 /notes/opening（外部 .md 打开页），它只是过渡页，不是编辑态。
+  const isNoteEditorRoute = /^\/notes\/(?!opening$)[^/]+$/.test(location.pathname);
+
+  useEffect(() => {
+    if (focusModeRaw && !isNoteEditorRoute) setFocusMode(false);
+  }, [focusModeRaw, isNoteEditorRoute, setFocusMode]);
+
   // 当前路由是否为"全页路由"（不属于任何 ActivityBar 视图，且本身有自己的左侧导航）。
   // 这类路由下 SidePanel 必须强制隐藏——否则用户从文档跳过来仍会看到文档面板（bug）
   const isStandalonePage =
@@ -406,7 +418,10 @@ export function AppLayout() {
     if (e.key === "Escape" && focusMode) {
       setFocusMode(false);
     }
-    if (e.key === "F11") {
+    // F11 只在主窗的文档编辑页生效：专注模式已绑定编辑器路由；
+    // popout 窗口天然是精简布局（无 Header），在里面再切专注只会切出
+    // 一个没有退出胶囊的状态，所以一并排除。
+    if (e.key === "F11" && isNoteEditorRoute && !isPopoutWindow) {
       e.preventDefault();
       setFocusMode(!focusMode);
     }
@@ -424,7 +439,7 @@ export function AppLayout() {
       e.preventDefault();
       createBlankAndOpen(null, navigate, { useDefaults: true });
     }
-  }, [focusMode, setFocusMode, navigate]);
+  }, [focusMode, setFocusMode, navigate, isNoteEditorRoute, isPopoutWindow]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleGlobalKeyDown);
@@ -433,6 +448,7 @@ export function AppLayout() {
 
   return (
     <Layout
+      className={focusModeRaw ? "app-focus-mode" : undefined}
       style={{ height: "100vh", position: "relative" }}
       // 全局右键守卫：input/textarea/[contenteditable=true] 白名单（搜索框 / Tiptap 编辑器
       // 内部仍走浏览器原生剪切/复制/粘贴菜单），其他位置吞 WebView 默认菜单。
@@ -605,7 +621,10 @@ export function AppLayout() {
           </div>
         </Header>
         )}
-        {!focusMode && <TabBar />}
+        {/* 专注模式默认保留标签栏（focusModeKeepTabs）：活动栏/侧栏/顶栏都隐藏后，
+            标签栏是唯一还能切文档的入口，一并隐藏就成了「锁死」。
+            popout 窗口复用 focusMode 的精简布局，但它本身不需要标签栏。 */}
+        {!isPopoutWindow && (!focusModeRaw || focusModeKeepTabs) && <TabBar />}
         <Content
           style={{
             padding: isPluginViewRoute ? 0 : (focusMode ? 0 : 24),
@@ -622,6 +641,19 @@ export function AppLayout() {
           <Outlet />
         </Content>
       </Layout>
+      {/* 专注模式：Header 已隐藏，需要独立的退出入口与 Windows 窗口控制按钮 */}
+      {focusModeRaw && !isPopoutWindow && (
+        <>
+          <FocusModeExitDock onExit={() => setFocusMode(false)} />
+          {!IS_MAC && (
+            // Header 是 Windows 下最小化/最大化/关闭按钮的唯一宿主；
+            // 专注模式隐藏 Header 后，这里把它们悬浮回窗口右上角。
+            <div className="app-focus-window-controls">
+              <WindowControls />
+            </div>
+          )}
+        </>
+      )}
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

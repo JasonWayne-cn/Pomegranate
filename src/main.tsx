@@ -23,6 +23,12 @@ const IS_MAIN_WINDOW = (() => {
 // antd DatePicker 底层用 dayjs，默认英文；全局设成中文让月份 / 星期都本地化
 dayjs.locale("zh-cn");
 
+// 平台标记：CSS 据此给顶部留白（macOS 系统红黄绿在左上、Windows 自绘窗口控件在右上）。
+// 专注模式隐藏 Header 后，TabBar / 编辑器顶部工具栏会顶到窗口最上沿，需要各自让位。
+document.documentElement.dataset.os = /Mac OS X|Macintosh/.test(navigator.userAgent)
+  ? "mac"
+  : "win";
+
 // 白板（Excalidraw）字体自托管根路径。
 // 不设的话它会去 CDN（esm.sh）拉字体 —— 桌面应用离线场景直接失效，而且 CSP 的
 // `font-src 'self' data:` 也会拦掉。字体由 vite.config.ts 的 kb-excalidraw-assets
