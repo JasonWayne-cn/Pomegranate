@@ -10,7 +10,7 @@
  *
  * 纯前端：剪贴板走 `@tauri-apps/plugin-clipboard-manager`（权限 `clipboard-manager:allow-read-text` 已声明）。
  */
-import { useState } from "react";
+import { forwardRef, useImperativeHandle, useState } from "react";
 import { Button, Segmented, Tooltip, message } from "antd";
 import { Diff } from "lucide-react";
 import type { Editor } from "@tiptap/react";
@@ -20,11 +20,19 @@ import { getNoteMarkdown, getNotePlainText, looksLikeMarkdown } from "./markdown
 
 interface Props {
   editor: Editor;
+  /** 为 false 时不渲染工具栏触发按钮，仅保留弹窗，通过 ref.open() 打开 */
+  showTrigger?: boolean;
+}
+
+/** 供外部（对比/合并下拉菜单）触发打开 */
+export interface CompareTriggerHandle {
+  open: () => void;
 }
 
 type Mode = "markdown" | "plain";
 
-export function CompareClipboardButton({ editor }: Props) {
+export const CompareClipboardButton = forwardRef<CompareTriggerHandle, Props>(
+  function CompareClipboardButton({ editor, showTrigger = true }, ref) {
   const [open, setOpen] = useState(false);
   const [clip, setClip] = useState("");
   const [mode, setMode] = useState<Mode>("markdown");
@@ -42,6 +50,10 @@ export function CompareClipboardButton({ editor }: Props) {
     setOpen(true);
   }
 
+  useImperativeHandle(ref, () => ({
+    open: () => void handleOpen(),
+  }));
+
   const left: DiffSide = { label: "剪贴板", value: clip, editable: false };
   const right: DiffSide =
     mode === "markdown"
@@ -50,9 +62,11 @@ export function CompareClipboardButton({ editor }: Props) {
 
   return (
     <>
-      <Tooltip title="与剪贴板对比 / 合并（左=剪贴板，右=当前文档）" mouseEnterDelay={0.5}>
-        <Button type="text" size="small" icon={<Diff size={15} />} onClick={handleOpen} />
-      </Tooltip>
+      {showTrigger && (
+        <Tooltip title="与剪贴板对比 / 合并（左=剪贴板，右=当前文档）" mouseEnterDelay={0.5}>
+          <Button type="text" size="small" icon={<Diff size={15} />} onClick={handleOpen} />
+        </Tooltip>
+      )}
       {open && (
         <DiffMergeModal
           open={open}
@@ -91,4 +105,5 @@ export function CompareClipboardButton({ editor }: Props) {
       )}
     </>
   );
-}
+  },
+);

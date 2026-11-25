@@ -101,9 +101,16 @@ jobs:
             file \
             patchelf
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      # 钉死 Rust 版本，不跟 stable：1.100.0 的 cargo 换了 build 目录布局
+      # （build/<包名>/<hash>/out），tauri-build 仍按旧布局从 OUT_DIR 往上找 target 目录，
+      # 复制 kb-mcp sidecar 时 remove_file 报「Is a directory」，构建全挂。
+      # tauri-build 适配新布局后再放开；升级工具链时同步验证安装包内的 sidecar。
+      # 显式版本装的是 minimal 工具链、不带 rustfmt，bindgen 依赖（如 apple-sys）需要，故补装。
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.99.1
+          components: rustfmt
           targets: ${{ matrix.target }}
 
       - name: Rust cache

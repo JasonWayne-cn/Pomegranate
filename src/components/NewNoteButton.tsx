@@ -9,6 +9,7 @@ import {
   LayoutTemplate,
   FolderOpen,
   PenTool,
+  Network,
 } from "lucide-react";
 
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -19,6 +20,7 @@ import { useAppStore } from "@/store";
 import type { ScannedFile } from "@/types";
 import {
   createBlankAndOpen,
+  createMindMapAndOpen,
   createWhiteboardAndOpen,
   importPdfsFlow,
   importTextFlow,
@@ -73,6 +75,9 @@ export function NewNoteButton({
 
   const handleCreateWhiteboard = () =>
     createWhiteboardAndOpen(folderId, navigate);
+
+  const handleCreateMindMap = () =>
+    createMindMapAndOpen(folderId, navigate);
 
   // 选目录 → 扫描 → 弹 ImportPreviewModal。与 NotesPanel.handleImportMdFolder 同源。
   // Why: 文件夹导入要让用户选副本策略 + 是否保留根目录层级，所以单独走 Modal 流，
@@ -152,6 +157,14 @@ export function NewNoteButton({
         void handleCreateWhiteboard();
       },
     },
+    {
+      key: "mindmap",
+      label: "新建思维导图",
+      icon: <Network size={14} />,
+      onClick: () => {
+        void handleCreateMindMap();
+      },
+    },
     { type: "divider" },
     ...(secondaryMenuItems ?? []),
   ];
@@ -170,6 +183,14 @@ export function NewNoteButton({
       icon: <PenTool size={14} />,
       onClick: () => {
         void handleCreateWhiteboard();
+      },
+    },
+    {
+      key: "mindmap",
+      label: "新建思维导图",
+      icon: <Network size={14} />,
+      onClick: () => {
+        void handleCreateMindMap();
       },
     },
     { type: "divider" },

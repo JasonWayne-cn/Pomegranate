@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, BarChart3, Sparkles } from "lucide-react";
+import { ChevronLeft, Plus, Sparkles } from "lucide-react";
 import { message } from "antd";
 import {
   fsrs,
@@ -13,6 +13,7 @@ import {
 } from "ts-fsrs";
 import { cardApi } from "@/lib/api";
 import type { Card } from "@/types";
+import { MSheet } from "@/components/mobile/MSheet";
 
 /**
  * 移动端闪卡复习页（设计稿：09-cards.html）
@@ -75,6 +76,11 @@ export function MobileCards() {
   const [revealed, setRevealed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [front, setFront] = useState("");
+  const [back, setBack] = useState("");
+  const [deck, setDeck] = useState("");
+  const [creating, setCreating] = useState(false);
 
   const scheduler = useMemo(
     () => fsrs(generatorParameters({ enable_short_term: false })),
@@ -145,11 +151,38 @@ export function MobileCards() {
     };
   }, [current, scheduler]);
 
+  async function createCard() {
+    const f = front.trim();
+    const b = back.trim();
+    if (!f || !b || creating) {
+      message.warning("正面和背面都要填写");
+      return;
+    }
+    setCreating(true);
+    try {
+      await cardApi.create({
+        front: f,
+        back: b,
+        deck: deck.trim() || undefined,
+      });
+      message.success("已添加到复习队列");
+      setCreateOpen(false);
+      setFront("");
+      setBack("");
+      setDeck("");
+      await load();
+    } catch (e) {
+      message.error(`创建失败: ${e}`);
+    } finally {
+      setCreating(false);
+    }
+  }
+
   const progressPct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-gradient-to-br from-purple-50 via-white to-blue-50"
+      className="fixed inset-0 z-50 flex flex-col bg-gradient-to-br from-[var(--m-tint-primary)] via-[var(--m-page)] to-[var(--m-tint-accent)] text-[var(--m-ink-1)]"
       style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
     >
       {/* 顶栏 */}
@@ -159,37 +192,38 @@ export function MobileCards() {
           aria-label="返回"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <ChevronLeft size={24} className="text-slate-700" />
+          <ChevronLeft size={24} className="text-[var(--m-ink-2)]" />
         </button>
         <div className="flex flex-col items-center leading-tight">
           <span className="text-base font-semibold">闪卡复习</span>
-          <span className="text-[10px] text-slate-500">
+          <span className="text-[10px] text-[var(--m-ink-2)]">
             FSRS · 待复习 {queue.length} 张
           </span>
         </div>
         <button
-          aria-label="统计"
+          onClick={() => setCreateOpen(true)}
+          aria-label="新建闪卡"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <BarChart3 size={20} className="text-slate-700" />
+          <Plus size={22} className="text-[var(--m-primary)]" />
         </button>
       </header>
 
       {/* 进度条 */}
       <div className="px-4 pb-2 shrink-0">
-        <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+        <div className="mb-1 flex items-center justify-between text-xs text-[var(--m-ink-2)]">
           <span>
             {completed} / {total}
           </span>
           {queue.length > 0 && (
-            <span className="font-medium text-purple-600">
+            <span className="font-medium text-[var(--m-accent)]">
               ⏱️ 预计 {Math.max(1, Math.round(queue.length * 0.8))} 分钟
             </span>
           )}
         </div>
-        <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+        <div className="h-1.5 overflow-hidden rounded-full bg-[var(--m-well)]">
           <div
-            className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all"
+            className="h-full bg-gradient-to-r from-[var(--m-accent)] to-[var(--m-primary)] transition-all"
             style={{ width: `${progressPct}%` }}
           />
         </div>
@@ -198,7 +232,7 @@ export function MobileCards() {
       {/* 主体 */}
       <main className="flex flex-1 flex-col px-5 py-3 min-h-0">
         {loading ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
+          <div className="flex flex-1 items-center justify-center text-sm text-[var(--m-ink-3)]">
             加载中…
           </div>
         ) : !current ? (
@@ -208,28 +242,28 @@ export function MobileCards() {
             {/* 卡片 */}
             <button
               onClick={() => setRevealed((r) => !r)}
-              className="flex flex-1 flex-col rounded-3xl bg-white p-6 text-left shadow-lg active:scale-[0.99] transition-transform min-h-0"
+              className="flex flex-1 flex-col rounded-3xl bg-[var(--m-surface)] p-6 text-left shadow-lg active:scale-[0.99] transition-transform min-h-0"
             >
-              <div className="text-[10px] uppercase tracking-wider text-slate-400">
+              <div className="text-[10px] uppercase tracking-wider text-[var(--m-ink-3)]">
                 {revealed ? "反面 · 答案" : "正面 · 问题（点击翻面）"}
               </div>
               <div className="mt-3 flex-1 overflow-y-auto">
-                <p className="text-base leading-relaxed text-slate-900 whitespace-pre-wrap">
+                <p className="text-base leading-relaxed text-[var(--m-ink-1)] whitespace-pre-wrap">
                   {revealed ? current.back : current.front}
                 </p>
               </div>
               {/* 卡片元信息 */}
-              <div className="mt-3 flex items-center justify-around border-t border-slate-100 pt-3 text-[11px] text-slate-400">
+              <div className="mt-3 flex items-center justify-around border-t border-[var(--m-line-weak)] pt-3 text-[11px] text-[var(--m-ink-3)]">
                 <Stat label="复习" value={`第 ${current.reps + 1} 次`} />
                 <Stat
                   label="稳定性"
                   value={`${current.stability.toFixed(1)} d`}
-                  color="text-slate-700"
+                  color="text-[var(--m-ink-2)]"
                 />
                 <Stat
                   label="难度"
                   value={current.difficulty.toFixed(1)}
-                  color="text-slate-700"
+                  color="text-[var(--m-ink-2)]"
                 />
               </div>
             </button>
@@ -272,7 +306,7 @@ export function MobileCards() {
             </div>
 
             <div
-              className="mt-2 text-center text-[11px] text-slate-400"
+              className="mt-2 text-center text-[11px] text-[var(--m-ink-3)]"
               style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
             >
               {revealed ? "选择评分进入下一张" : "点卡片翻看答案"}
@@ -280,6 +314,63 @@ export function MobileCards() {
           </>
         )}
       </main>
+
+      <MSheet
+        open={createOpen}
+        title="新建闪卡"
+        onClose={() => setCreateOpen(false)}
+        keyboardAware
+        maxHeight="80vh"
+      >
+        <div className="space-y-3 px-4 pb-3">
+          <div>
+            <div className="mb-1 text-xs text-[var(--m-ink-3)]">正面（问题）</div>
+            <textarea
+              value={front}
+              onChange={(e) => setFront(e.target.value)}
+              rows={3}
+              placeholder="这张卡要问什么？"
+              className="w-full resize-none rounded-xl bg-[var(--m-well)] px-4 py-3 text-sm text-[var(--m-ink-1)] outline-none placeholder:text-[var(--m-ink-3)]"
+            />
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-[var(--m-ink-3)]">背面（答案）</div>
+            <textarea
+              value={back}
+              onChange={(e) => setBack(e.target.value)}
+              rows={3}
+              placeholder="答案是什么？"
+              className="w-full resize-none rounded-xl bg-[var(--m-well)] px-4 py-3 text-sm text-[var(--m-ink-1)] outline-none placeholder:text-[var(--m-ink-3)]"
+            />
+          </div>
+          <div>
+            <div className="mb-1 text-xs text-[var(--m-ink-3)]">牌组（可选）</div>
+            <input
+              value={deck}
+              onChange={(e) => setDeck(e.target.value)}
+              placeholder="默认牌组"
+              className="w-full rounded-xl bg-[var(--m-well)] px-4 py-2.5 text-sm text-[var(--m-ink-1)] outline-none placeholder:text-[var(--m-ink-3)]"
+            />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button
+              onClick={() => setCreateOpen(false)}
+              className="flex-1 rounded-xl bg-[var(--m-well)] text-base font-medium text-[var(--m-ink-2)] active:opacity-70"
+              style={{ minHeight: 48 }}
+            >
+              取消
+            </button>
+            <button
+              onClick={() => void createCard()}
+              disabled={!front.trim() || !back.trim() || creating}
+              className="flex-[2] rounded-xl bg-[var(--m-primary)] text-base font-medium text-[var(--m-on-primary)] active:opacity-80 disabled:opacity-40"
+              style={{ minHeight: 48 }}
+            >
+              {creating ? "保存中…" : "添加"}
+            </button>
+          </div>
+        </div>
+      </MSheet>
     </div>
   );
 }
@@ -287,7 +378,7 @@ export function MobileCards() {
 function Stat({
   label,
   value,
-  color = "text-slate-700",
+  color = "text-[var(--m-ink-2)]",
 }: {
   label: string;
   value: string;
@@ -305,10 +396,10 @@ const COLOR_CLASSES: Record<
   string,
   { bg: string; text: string; ring: string }
 > = {
-  red:    { bg: "bg-red-50 border border-red-200",       text: "text-red-600",    ring: "ring-red-200" },
-  orange: { bg: "bg-orange-50 border border-orange-200", text: "text-orange-600", ring: "ring-orange-200" },
-  blue:   { bg: "bg-blue-50 border-2 border-blue-300",   text: "text-blue-600",   ring: "ring-blue-200" },
-  green:  { bg: "bg-green-50 border border-green-200",   text: "text-green-600",  ring: "ring-green-200" },
+  red:    { bg: "bg-[var(--m-tint-danger)] border border-[var(--m-danger)]",      text: "text-[var(--m-danger)]",  ring: "ring-[var(--m-danger)]" },
+  orange: { bg: "bg-[var(--m-tint-warning)] border border-[var(--m-warning)]",    text: "text-[var(--m-warning)]", ring: "ring-[var(--m-warning)]" },
+  blue:   { bg: "bg-[var(--m-tint-primary)] border-2 border-[var(--m-primary)]",  text: "text-[var(--m-primary)]", ring: "ring-[var(--m-primary)]" },
+  green:  { bg: "bg-[var(--m-tint-success)] border border-[var(--m-success)]",    text: "text-[var(--m-success)]", ring: "ring-[var(--m-success)]" },
 };
 
 function RateButton({
@@ -357,16 +448,16 @@ function DoneState({
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-      <Sparkles size={48} className="text-purple-400" />
-      <div className="text-xl font-bold text-slate-800">
+      <Sparkles size={48} className="text-[var(--m-accent)]" />
+      <div className="text-xl font-bold text-[var(--m-ink-1)]">
         {completed > 0 ? `今日已复习 ${completed} 张 🎉` : "今天没有待复习的闪卡"}
       </div>
-      <div className="text-xs text-slate-500">
+      <div className="text-xs text-[var(--m-ink-2)]">
         {completed > 0 ? "明天见，FSRS 会自动安排下一轮" : "去文档里把段落转成卡片吧"}
       </div>
       <button
         onClick={onAgain}
-        className="mt-4 rounded-xl bg-purple-100 px-4 py-2 text-sm font-medium text-purple-700 active:bg-purple-200"
+        className="mt-4 rounded-xl bg-[var(--m-tint-accent)] px-4 py-2 text-sm font-medium text-[var(--m-accent)] active:opacity-70"
       >
         重新加载
       </button>

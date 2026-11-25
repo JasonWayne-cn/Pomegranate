@@ -127,7 +127,15 @@ impl PptTemplateService {
     }
 
     pub fn list(db: &Database) -> Result<Vec<PptUserTemplate>, AppError> {
-        db.list_ppt_user_templates()
+        let mut items = db.list_ppt_user_templates()?;
+        for item in &mut items {
+            item.display_name = display_name_for(
+                &item.display_name,
+                item.source_pack.as_deref(),
+                &item.id,
+            );
+        }
+        Ok(items)
     }
 
     /// 预览文件夹/zip 中的模板，不落盘。
@@ -455,7 +463,11 @@ impl PptTemplateService {
                 tpl.id.clone(),
                 PptTemplateCatalogEntry {
                     id: tpl.id.clone(),
-                    name_zh: Some(tpl.display_name.clone()),
+                    name_zh: Some(display_name_for(
+                        &tpl.display_name,
+                        tpl.source_pack.as_deref(),
+                        &tpl.id,
+                    )),
                     description_zh: tpl.description.clone(),
                     summary: tpl.description.clone(),
                     canvas_format: tpl.canvas_format.clone(),
@@ -826,6 +838,54 @@ fn unit_info(dir: &Path) -> Option<UnitInfo> {
     None
 }
 
+/// 从压缩包名取可读的模板名，避免把解压临时目录名当名称。
+fn pack_display_name(source_pack: Option<&str>) -> Option<String> {
+    source_pack
+        .and_then(|pack| Path::new(pack).file_stem())
+        .and_then(|stem| stem.to_str())
+        .map(str::trim)
+        .filter(|stem| !stem.is_empty() && !stem.starts_with(".tmp-"))
+        .map(str::to_string)
+}
+
+fn unit_fallback_name(dir: &Path, source_pack: Option<&str>) -> String {
+    let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("").trim();
+    let is_temp = dir_name.starts_with(".tmp-");
+    let is_roster = dir_name.eq_ignore_ascii_case("templates");
+    // templates 目录本身不适合作为名称，优先用其父目录（模板包名）。
+    if is_roster {
+        if let Some(parent) = dir
+            .parent()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+        {
+            if !parent.is_empty() && !parent.starts_with(".tmp-") {
+                return parent.to_string();
+            }
+        }
+    }
+    if is_temp || is_roster || dir_name.is_empty() {
+        if let Some(name) = pack_display_name(source_pack) {
+            return name;
+        }
+    }
+    if dir_name.is_empty() {
+        "template".to_string()
+    } else {
+        dir_name.to_string()
+    }
+}
+
+/// 旧数据兼容：历史导入可能把 `.tmp-<uuid>` 写进 display_name，
+/// 读取时改用来源压缩包名显示（不修改数据库）。
+fn display_name_for(display_name: &str, source_pack: Option<&str>, id: &str) -> String {
+    let trimmed = display_name.trim();
+    if !trimmed.starts_with(".tmp-") {
+        return display_name.to_string();
+    }
+    pack_display_name(source_pack).unwrap_or_else(|| id.to_string())
+}
+
 fn build_unit(dir: &Path, source_pack: Option<String>) -> Result<Option<TemplateUnit>, AppError> {
     let Some(info) = unit_info(dir) else {
         return Ok(None);
@@ -860,11 +920,7 @@ fn build_unit_from_info(
         warnings.push("未找到 design_spec.md，已从文件名推导页型".to_string());
     }
 
-    let fallback_name = dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("template")
-        .to_string();
+    let fallback_name = unit_fallback_name(dir, source_pack.as_deref());
     let id_raw = fm_str(&spec, "layout_id")
         .or_else(|| fm_str(&spec, "deck_id"))
         .or_else(|| fm_str(&spec, "id"))
@@ -1686,7 +1742,11 @@ fn same_template(a: &PptUserTemplate, b: &PptUserTemplate) -> bool {
 fn meta_to_template(meta: &TemplateMeta, dir: &Path, enabled: bool) -> PptUserTemplate {
     PptUserTemplate {
         id: meta.id.clone(),
-        display_name: meta.display_name.clone(),
+        display_name: display_name_for(
+            &meta.display_name,
+            meta.source_pack.as_deref(),
+            &meta.id,
+        ),
         description: meta.description.clone(),
         dir_path: dir.to_string_lossy().to_string(),
         source_kind: meta.source_kind.clone(),
@@ -1776,6 +1836,36 @@ mod tests {
         assert_eq!(sanitize_id("Aviation Training Blue"), "aviation-training-blue");
         assert_eq!(sanitize_id("../../evil"), "evil");
         assert!(sanitize_id("模板").starts_with("template-"));
+    }
+
+    #[test]
+    fn fallback_name_prefers_pack_name_over_temp_dir() {
+        let temp = Path::new("/data/ppt-templates/.tmp-abc123");
+        assert_eq!(
+            unit_fallback_name(temp, Some("航空装备与系统培训课件.zip")),
+            "航空装备与系统培训课件"
+        );
+        let roster = Path::new("/data/ppt-templates/.tmp-abc123/templates");
+        assert_eq!(
+            unit_fallback_name(roster, Some("航空装备与系统培训课件.zip")),
+            "航空装备与系统培训课件"
+        );
+        let named = Path::new("/data/ppt-templates/.tmp-abc123/航空模板/templates");
+        assert_eq!(unit_fallback_name(named, Some("pack.zip")), "航空模板");
+        assert_eq!(unit_fallback_name(Path::new("/tmp/pack/templates"), None), "pack");
+    }
+
+    #[test]
+    fn display_name_recovers_legacy_temp_names() {
+        assert_eq!(
+            display_name_for(".tmp-f4daaa8d", Some("航空课件.zip"), "tmp-f4daaa8d"),
+            "航空课件"
+        );
+        assert_eq!(display_name_for(".tmp-abc", None, "tmp-abc"), "tmp-abc");
+        assert_eq!(
+            display_name_for("浅色学术", Some("pack.zip"), "light"),
+            "浅色学术"
+        );
     }
 
     #[test]

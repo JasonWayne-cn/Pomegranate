@@ -632,6 +632,7 @@ impl PptExtensionService {
             &source_md,
             &understanding,
             &job_id,
+            &workspace,
             app.as_ref(),
             &cancel,
             planning_timeout,
@@ -1351,6 +1352,7 @@ impl PptExtensionService {
             &source,
             &understanding,
             &job.id,
+            job_dir,
             app,
             cancel,
             Duration::from_secs(DEFAULT_PLANNING_TIMEOUT_SECS),
@@ -2239,12 +2241,14 @@ async fn repair_plan_with_ai(
     Err(AppError::Custom("大纲内容修复未返回可用结果".into()))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn build_plan_with_ai(
     db: &Database,
     input: &PptJobInput,
     source: &str,
     understanding: &str,
     job_id: &str,
+    job_dir: &Path,
     app: Option<&AppHandle>,
     cancel: &Arc<AtomicBool>,
     planning_timeout: Duration,
@@ -2259,6 +2263,7 @@ async fn build_plan_with_ai(
             source,
             understanding,
             job_id,
+            job_dir,
             app,
             cancel,
             planning_timeout,
@@ -2556,6 +2561,7 @@ async fn build_plan_two_stage(
     source: &str,
     understanding: &str,
     job_id: &str,
+    job_dir: &Path,
     app: Option<&AppHandle>,
     cancel: &Arc<AtomicBool>,
     planning_timeout: Duration,
@@ -2672,53 +2678,77 @@ async fn build_plan_two_stage(
         format!("\n\n素材节选：\n{source_excerpt}")
     };
 
-    let mut expanded: Vec<Option<Value>> = vec![None; title_list.len()];
+    let prompt_for = |index: usize| {
+        let (title, theme) = title_list[index].clone();
+        format!(
+            "你是 PPT 内容规划助手。请只扩展第 {page} 页，输出该页完整结构化内容。\n\
+             总标题：{deck_title}\n听众：{audience}\n额外要求：{extra}\n\
+             完整页面清单：\n{title_lines}\n\n\
+             本页标题：{title}\n本页主题：{theme}\n\
+             {page_role}\n\
+             必须输出：pageTheme、mainClaim、contentScope、contentBlocks、evidence、relation、chartType、density、visualIntent、speakerNote、bullets。\n\
+             contentBlocks 3–6 个，每个含 label（不超过 12 字）、text（20–60 字）、detail（可选）。\n\
+             evidence 必须来自素材或素材理解，不得编造数字、年份、排名、奖项。\n\
+             relation 取 timeline/category/compare/cause/process/none；chartType 取 cards/timeline/process/matrix/compare/highlight/summary；density 取 anchor/dense/breathing/balanced。\n\
+             如果适合图表，增加 chart：{{\"type\":\"line|column|bar|pie|donut|area|gantt|radar|scatter\",\"categories\":[\"...\"],\"series\":[{{\"name\":\"...\",\"values\":[数字]}}]}}，否则 chart 为 null。\n\
+             只输出一个 JSON 对象，不要 markdown 代码块：\n\
+             {{\"page\":{page},\"title\":\"...\",\"pageTheme\":\"...\",\"mainClaim\":\"...\",\"contentScope\":\"...\",\"coreMessage\":\"...\",\"contentBlocks\":[{{\"label\":\"...\",\"text\":\"...\",\"detail\":\"...\"}}],\"evidence\":[\"...\"],\"relation\":\"none\",\"chartType\":\"cards\",\"density\":\"balanced\",\"visualIntent\":\"...\",\"bullets\":[\"...\"],\"speakerNote\":\"...\",\"chart\":null}}\n\n\
+             素材理解：\n{understanding}{source_block}",
+            page = index + 1,
+            deck_title = input.title,
+            audience = input.audience,
+            extra = input.extra_requirements.clone().unwrap_or_default(),
+            title_lines = title_lines,
+            title = title,
+            theme = if theme.is_empty() { "（未指定）" } else { theme.as_str() },
+            page_role = if index == 0 {
+                "这是封面页：只填 title 和一句 coreMessage，bullets/contentBlocks 为空。"
+            } else if index + 1 == title_list.len() {
+                "这是结束页：bullets 不超过 2 条，简要收束全篇。"
+            } else {
+                "这是内容页：围绕本页主题展开，不要与相邻页重复。"
+            },
+            understanding = if understanding_excerpt.trim().is_empty() {
+                "（暂无）"
+            } else {
+                understanding_excerpt.as_str()
+            },
+            source_block = source_block,
+        )
+    };
+    let signature = plan_stage_signature(input, understanding);
+    let mut expanded = load_plan_stage_cache(job_dir, &signature, &title_list, understanding);
+    let reused = expanded.iter().filter(|item| item.is_some()).count();
+    if reused > 0 {
+        plan_log.emit(app, &format!("复用缓存中已扩展的 {reused} 页"));
+        emit_plan_progress(
+            app,
+            job_id,
+            "planning",
+            reused,
+            title_list.len(),
+            &format!("复用 {reused} 页已扩展内容"),
+        );
+    }
+    let mut done = reused;
+
     for chunk_start in (0..title_list.len()).step_by(2) {
         if cancel.load(Ordering::SeqCst) {
+            save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
             return Err(AppError::Custom("已取消大纲生成".into()));
         }
         let chunk_end = (chunk_start + 2).min(title_list.len());
+        let indexes: Vec<usize> = (chunk_start..chunk_end)
+            .filter(|index| expanded[*index].is_none())
+            .collect();
+        if indexes.is_empty() {
+            continue;
+        }
         let mut futures = Vec::new();
-        for index in chunk_start..chunk_end {
-            let (title, theme) = title_list[index].clone();
-            let prompt = format!(
-                "你是 PPT 内容规划助手。请只扩展第 {page} 页，输出该页完整结构化内容。\n\
-                 总标题：{deck_title}\n听众：{audience}\n额外要求：{extra}\n\
-                 完整页面清单：\n{title_lines}\n\n\
-                 本页标题：{title}\n本页主题：{theme}\n\
-                 {page_role}\n\
-                 必须输出：pageTheme、mainClaim、contentScope、contentBlocks、evidence、relation、chartType、density、visualIntent、speakerNote、bullets。\n\
-                 contentBlocks 3–6 个，每个含 label（不超过 12 字）、text（20–60 字）、detail（可选）。\n\
-                 evidence 必须来自素材或素材理解，不得编造数字、年份、排名、奖项。\n\
-                 relation 取 timeline/category/compare/cause/process/none；chartType 取 cards/timeline/process/matrix/compare/highlight/summary；density 取 anchor/dense/breathing/balanced。\n\
-                 如果适合图表，增加 chart：{{\"type\":\"line|column|bar|pie|donut|area|gantt|radar|scatter\",\"categories\":[\"...\"],\"series\":[{{\"name\":\"...\",\"values\":[数字]}}]}}，否则 chart 为 null。\n\
-                 只输出一个 JSON 对象，不要 markdown 代码块：\n\
-                 {{\"page\":{page},\"title\":\"...\",\"pageTheme\":\"...\",\"mainClaim\":\"...\",\"contentScope\":\"...\",\"coreMessage\":\"...\",\"contentBlocks\":[{{\"label\":\"...\",\"text\":\"...\",\"detail\":\"...\"}}],\"evidence\":[\"...\"],\"relation\":\"none\",\"chartType\":\"cards\",\"density\":\"balanced\",\"visualIntent\":\"...\",\"bullets\":[\"...\"],\"speakerNote\":\"...\",\"chart\":null}}\n\n\
-                 素材理解：\n{understanding}{source_block}",
-                page = index + 1,
-                deck_title = input.title,
-                audience = input.audience,
-                extra = input.extra_requirements.clone().unwrap_or_default(),
-                title_lines = title_lines,
-                title = title,
-                theme = if theme.is_empty() { "（未指定）" } else { theme.as_str() },
-                page_role = if index == 0 {
-                    "这是封面页：只填 title 和一句 coreMessage，bullets/contentBlocks 为空。"
-                } else if index + 1 == title_list.len() {
-                    "这是结束页：bullets 不超过 2 条，简要收束全篇。"
-                } else {
-                    "这是内容页：围绕本页主题展开，不要与相邻页重复。"
-                },
-                understanding = if understanding_excerpt.trim().is_empty() {
-                    "（暂无）"
-                } else {
-                    understanding_excerpt.as_str()
-                },
-                source_block = source_block,
-            );
+        for &index in &indexes {
             futures.push(expand_plan_slide(
                 db,
-                prompt,
+                prompt_for(index),
                 input.model_id,
                 cancel,
                 index,
@@ -2735,7 +2765,7 @@ async fn build_plan_two_stage(
         for result in results {
             if let Some((index, value)) = result {
                 expanded[index] = Some(value);
-                let done = expanded.iter().filter(|item| item.is_some()).count();
+                done += 1;
                 emit_plan_progress(
                     app,
                     job_id,
@@ -2750,12 +2780,99 @@ async fn build_plan_two_stage(
                 );
             }
         }
+        save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
     }
-    let missing = expanded.iter().filter(|item| item.is_none()).count();
-    if missing > 0 {
-        return Err(AppError::Custom(format!(
-            "{missing} 页扩展失败，回退单次规划"
-        )));
+
+    // 缺失页再重试一轮，避免单次网络抖动导致整份大纲回退。
+    let mut missing: Vec<usize> = expanded
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| item.is_none().then_some(index))
+        .collect();
+    if !missing.is_empty() {
+        plan_log.emit(app, &format!("{} 页扩展缺失，重试一轮", missing.len()));
+        emit_plan_progress(
+            app,
+            job_id,
+            "planning",
+            done,
+            title_list.len(),
+            &format!("重试 {} 个未完成页面", missing.len()),
+        );
+        for chunk in missing.chunks(2) {
+            if cancel.load(Ordering::SeqCst) {
+                save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
+                return Err(AppError::Custom("已取消大纲生成".into()));
+            }
+            let mut futures = Vec::new();
+            for &index in chunk {
+                futures.push(expand_plan_slide(
+                    db,
+                    prompt_for(index),
+                    input.model_id,
+                    cancel,
+                    index,
+                ));
+            }
+            let results = if futures.len() == 1 {
+                vec![futures.remove(0).await]
+            } else {
+                let first = futures.remove(0);
+                let second = futures.remove(0);
+                let (left, right) = tokio::join!(first, second);
+                vec![left, right]
+            };
+            for result in results {
+                if let Some((index, value)) = result {
+                    expanded[index] = Some(value);
+                    done += 1;
+                    emit_plan_progress(
+                        app,
+                        job_id,
+                        "planning",
+                        done,
+                        title_list.len(),
+                        &format!(
+                            "重试完成第 {}/{} 页",
+                            index + 1,
+                            title_list.len()
+                        ),
+                    );
+                }
+            }
+            save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
+        }
+        missing = expanded
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| item.is_none().then_some(index))
+            .collect();
+    }
+
+    if !missing.is_empty() {
+        // 少量缺失用标题占位补齐，保留已生成的大部分页面；
+        // 缺失过多说明上下文或模型异常，回退单次规划。
+        let limit = (title_list.len() / 3).max(1);
+        if missing.len() > limit {
+            return Err(AppError::Custom(format!(
+                "{} 页扩展失败，回退单次规划",
+                missing.len()
+            )));
+        }
+        for &index in &missing {
+            let (title, theme) = title_list[index].clone();
+            expanded[index] = Some(placeholder_slide(index, &title, &theme));
+            plan_log.emit(app, &format!("P{:02} 扩展失败，使用标题占位", index + 1));
+        }
+        emit_plan_progress(
+            app,
+            job_id,
+            "planning",
+            title_list.len(),
+            title_list.len(),
+            &format!("{} 页使用标题占位补齐", missing.len()),
+        );
+        save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
     }
     let slides = expanded
         .into_iter()
@@ -2792,6 +2909,173 @@ async fn build_plan_two_stage(
         plan_log,
     )
     .await
+}
+
+const PLAN_STAGE_CACHE_FILE: &str = "plan_stage2.json";
+/// 两阶段大纲缓存中参与签名的素材理解长度上限。
+const PLAN_STAGE_SIGNATURE_CHARS: usize = 8_000;
+
+fn plan_stage_signature(input: &PptJobInput, understanding: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    input.title.hash(&mut hasher);
+    input.audience.hash(&mut hasher);
+    input
+        .extra_requirements
+        .as_deref()
+        .unwrap_or("")
+        .hash(&mut hasher);
+    input.slide_count.unwrap_or(0).hash(&mut hasher);
+    let prefix: String = understanding
+        .chars()
+        .take(PLAN_STAGE_SIGNATURE_CHARS)
+        .collect();
+    prefix.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn page_stage_signature(understanding: &str, title: &str, theme: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    let prefix: String = understanding
+        .chars()
+        .take(PLAN_STAGE_SIGNATURE_CHARS)
+        .collect();
+    prefix.hash(&mut hasher);
+    title.hash(&mut hasher);
+    theme.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn plan_stage_cache_path(job_dir: &Path) -> PathBuf {
+    job_dir.join("project").join(PLAN_STAGE_CACHE_FILE)
+}
+
+/// 读取已扩展页面；签名或页标题不匹配的条目会被忽略。
+fn load_plan_stage_cache(
+    job_dir: &Path,
+    signature: &str,
+    title_list: &[(String, String)],
+    understanding: &str,
+) -> Vec<Option<Value>> {
+    let mut expanded: Vec<Option<Value>> = vec![None; title_list.len()];
+    let Ok(text) = fs::read_to_string(plan_stage_cache_path(job_dir)) else {
+        return expanded;
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&text) else {
+        return expanded;
+    };
+    if value.get("signature").and_then(Value::as_str) != Some(signature) {
+        return expanded;
+    }
+    let Some(slides) = value.get("slides").and_then(Value::as_array) else {
+        return expanded;
+    };
+    for item in slides {
+        let Some(page) = item.get("page").and_then(Value::as_u64) else {
+            continue;
+        };
+        let index = page as usize;
+        if index == 0 || index > title_list.len() {
+            continue;
+        }
+        let (title, theme) = &title_list[index - 1];
+        if item.get("title").and_then(Value::as_str) != Some(title.as_str()) {
+            continue;
+        }
+        if item.get("theme").and_then(Value::as_str) != Some(theme.as_str()) {
+            continue;
+        }
+        let expected = page_stage_signature(understanding, title, theme);
+        if item.get("sig").and_then(Value::as_str) != Some(expected.as_str()) {
+            continue;
+        }
+        if let Some(slide) = item.get("value").cloned() {
+            expanded[index - 1] = Some(slide);
+        }
+    }
+    expanded
+}
+
+/// 每批完成后落盘；缓存写入失败不阻断规划。
+fn save_plan_stage_cache(
+    job_dir: &Path,
+    signature: &str,
+    title_list: &[(String, String)],
+    expanded: &[Option<Value>],
+    understanding: &str,
+) {
+    let slides = expanded
+        .iter()
+        .enumerate()
+        .filter_map(|(index, value)| {
+            let value = value.as_ref()?;
+            let (title, theme) = title_list.get(index)?;
+            Some(json!({
+                "page": index + 1,
+                "title": title,
+                "theme": theme,
+                "sig": page_stage_signature(understanding, title, theme),
+                "value": value,
+            }))
+        })
+        .collect::<Vec<_>>();
+    let payload = json!({
+        "signature": signature,
+        "titles": title_list
+            .iter()
+            .enumerate()
+            .map(|(index, (title, theme))| json!({
+                "page": index + 1,
+                "title": title,
+                "theme": theme,
+            }))
+            .collect::<Vec<_>>(),
+        "slides": slides,
+        "updatedAt": chrono::Local::now().to_rfc3339(),
+    });
+    let project = job_dir.join("project");
+    if fs::create_dir_all(&project).is_err() {
+        return;
+    }
+    if let Err(error) = write_json_atomic(&project.join(PLAN_STAGE_CACHE_FILE), &payload) {
+        log::warn!("写入两阶段大纲缓存失败：{error}");
+    }
+}
+
+/// 扩展失败的少量页面用标题占位，避免整份大纲回退。
+fn placeholder_slide(index: usize, title: &str, theme: &str) -> Value {
+    let theme = theme.trim();
+    let claim = if theme.is_empty() {
+        format!("围绕「{title}」组织本页核心信息")
+    } else {
+        theme.to_string()
+    };
+    let support = "结合素材补充具体数据与结论";
+    json!({
+        "page": index + 1,
+        "title": title,
+        "pageTheme": if theme.is_empty() { title } else { theme },
+        "mainClaim": claim,
+        "contentScope": "",
+        "coreMessage": claim,
+        "contentBlocks": [
+            { "label": "核心观点", "text": claim },
+            { "label": "支撑信息", "text": support },
+        ],
+        "evidence": [],
+        "relation": "none",
+        "chartType": "cards",
+        "density": "balanced",
+        "visualIntent": "",
+        "bullets": [claim, support],
+        "speakerNote": "",
+        "chart": null,
+    })
 }
 
 async fn expand_plan_slide(
@@ -3170,6 +3454,58 @@ struct PageCandidateScore {
     issues: Vec<String>,
     hard_fail: bool,
     svg: String,
+    /// 候选生成方向（structure / visual / narrative），程序化候选为空。
+    direction: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CandidateDirection {
+    key: &'static str,
+    label: &'static str,
+    hint: &'static str,
+}
+
+const AI_DIRECTIONS: [CandidateDirection; 3] = [
+    CandidateDirection {
+        key: "structure",
+        label: "结构优先",
+        hint: "清晰标题层级、编号/分组与稳定网格",
+    },
+    CandidateDirection {
+        key: "visual",
+        label: "视觉优先",
+        hint: "大数字、色块、图表或强对比图形，减少文字块",
+    },
+    CandidateDirection {
+        key: "narrative",
+        label: "叙事优先",
+        hint: "用一条主线组织内容，强调因果/流程/对比关系",
+    },
+];
+
+fn direction_at(index: usize) -> CandidateDirection {
+    AI_DIRECTIONS[index % AI_DIRECTIONS.len()]
+}
+
+fn direction_text(index: usize) -> String {
+    let direction = direction_at(index);
+    format!("{}：{}", direction.label, direction.hint)
+}
+
+fn direction_label(key: &str) -> &'static str {
+    AI_DIRECTIONS
+        .iter()
+        .find(|direction| direction.key == key)
+        .map(|direction| direction.label)
+        .unwrap_or("候选")
+}
+
+fn direction_hint(key: &str) -> &'static str {
+    AI_DIRECTIONS
+        .iter()
+        .find(|direction| direction.key == key)
+        .map(|direction| direction.hint)
+        .unwrap_or("")
 }
 
 fn extract_svg_block(text: &str) -> Option<String> {
@@ -4064,6 +4400,7 @@ fn score_svg_candidate(
         issues,
         hard_fail,
         svg: svg.to_string(),
+        direction: None,
     }
 }
 
@@ -4177,11 +4514,6 @@ async fn generate_ai_page_candidates(
         .get(index + 1)
         .map(|item| item.title.as_str())
         .unwrap_or("");
-    let directions = [
-        "结构优先：清晰标题层级、编号/分组与稳定网格",
-        "视觉优先：大数字、色块、图表或强对比图形，减少文字块",
-        "叙事优先：用一条主线组织内容，强调因果/流程/对比关系",
-    ];
     let template_hint = template_reference.hint_for(slide, index, plan.slides.len());
     let template_roster = template_reference.roster.as_str();
     if let Some(first) = template_hint
@@ -4206,14 +4538,14 @@ async fn generate_ai_page_candidates(
             understanding,
             previous_title,
             next_title,
-            directions[candidate_index % directions.len()],
+            &direction_text(candidate_index),
             &template_hint,
             template_roster,
             "",
         )
     };
     let mut candidates: Vec<PageCandidateScore> = Vec::new();
-    if let Some(first) = request_candidate_score(
+    if let Some(mut first) = request_candidate_score(
         db,
         model_id,
         prompt_for(0),
@@ -4224,6 +4556,7 @@ async fn generate_ai_page_candidates(
     )
     .await
     {
+        first.direction = Some(direction_at(0).key.to_string());
         candidates.push(first);
     }
     let first_score = candidates.first().map(|candidate| candidate.score);
@@ -4255,13 +4588,15 @@ async fn generate_ai_page_candidates(
                     cancel,
                 )
             );
-            if let Some(candidate) = second {
+            if let Some(mut candidate) = second {
+                candidate.direction = Some(direction_at(1).key.to_string());
                 candidates.push(candidate);
             }
-            if let Some(candidate) = third {
+            if let Some(mut candidate) = third {
+                candidate.direction = Some(direction_at(2).key.to_string());
                 candidates.push(candidate);
             }
-        } else if let Some(second) = request_candidate_score(
+        } else if let Some(mut second) = request_candidate_score(
             db,
             model_id,
             prompt_for(1),
@@ -4272,6 +4607,7 @@ async fn generate_ai_page_candidates(
         )
         .await
         {
+            second.direction = Some(direction_at(1).key.to_string());
             candidates.push(second);
         }
     }
@@ -4312,7 +4648,7 @@ async fn generate_ai_page_candidates(
                     understanding,
                     previous_title,
                     next_title,
-                    directions[0],
+                    &direction_text(0),
                     &template_hint,
                     template_roster,
                     "",
@@ -4328,8 +4664,9 @@ async fn generate_ai_page_candidates(
             .await
             {
                 if let Some(svg) = extract_svg_block(&text) {
-                    let repaired =
+                    let mut repaired =
                         score_svg_candidate(&svg, slide, allowed_colors, previous_svgs);
+                    repaired.direction = current.direction.clone();
                     if !repaired.hard_fail && repaired.score > current.score {
                         chosen = Some(repaired.clone());
                     }
@@ -4494,13 +4831,19 @@ fn update_ai_selection(
         "score": selected_score,
         "issues": selected_issues,
         "mode": "ai",
-        "candidates": candidates.iter().enumerate().map(|(index, candidate)| json!({
-            "index": index,
-            "motif": format!("候选 {}", index + 1),
-            "score": candidate.score,
-            "issues": candidate.issues,
-            "file": files.get(index),
-        })).collect::<Vec<_>>(),
+        "candidates": candidates.iter().enumerate().map(|(index, candidate)| {
+            let direction = candidate.direction.as_deref();
+            json!({
+                "index": index,
+                "motif": format!("候选 {}", index + 1),
+                "label": direction.map(direction_label).unwrap_or("候选"),
+                "direction": direction,
+                "note": direction.map(direction_hint).unwrap_or(""),
+                "score": candidate.score,
+                "issues": candidate.issues,
+                "file": files.get(index),
+            })
+        }).collect::<Vec<_>>(),
     });
     if let Some(pages) = value.get_mut("pages").and_then(Value::as_array_mut) {
         pages.retain(|item| item.get("page").and_then(Value::as_u64) != Some(page as u64));
@@ -4508,6 +4851,51 @@ fn update_ai_selection(
         pages.sort_by_key(|item| item.get("page").and_then(Value::as_u64).unwrap_or(0));
     }
     write_json_file(&path, &value)
+}
+
+/// 程序化结构的展示名，便于用户在候选缩略图中区分版式。
+fn motif_label(motif: &str) -> &'static str {
+    match motif {
+        "split-band" => "分色带封面",
+        "center-hero" => "居中主视觉",
+        "left-title" => "左标题封面",
+        "left-feature" => "左图文编辑",
+        "right-list" => "右列表",
+        "two-panel" => "双栏面板",
+        "top-band" => "顶部色带",
+        "numbered" => "编号卡片",
+        "split-panel" => "分栏面板",
+        "nodes" => "节点时间线",
+        "steps" => "步骤",
+        "big-number" => "大数字",
+        "arrows" => "箭头流程",
+        "timeline" => "横向时间轴",
+        "two-column" => "双栏对比",
+        "evidence-strip" => "证据条",
+        "cause-chain" => "因果链",
+        "three-column" => "三栏",
+        "pyramid" => "金字塔",
+        "layers" => "分层",
+        "matrix" => "矩阵",
+        "grid" => "网格",
+        "compare" => "对比矩阵",
+        "center-quote" => "居中引述",
+        "left-quote" => "左引述",
+        "banner-quote" => "横幅引述",
+        "big-evidence" => "大证据",
+        "strip" => "证据条带",
+        "numbered-list" => "编号总结",
+        "takeaway" => "要点总结",
+        "checklist" => "清单",
+        "chart-column" => "柱状图",
+        "chart-line" => "折线图",
+        "chart-pie" => "饼图",
+        "bullets" => "要点列表",
+        "editorial" => "编辑式",
+        "split" => "分栏",
+        "fallback" => "兜底布局",
+        _ => "结构候选",
+    }
 }
 
 fn update_programmatic_selection(
@@ -4534,6 +4922,8 @@ fn update_programmatic_selection(
         "candidates": details.iter().enumerate().map(|(index, candidate)| json!({
             "index": index,
             "motif": candidate.motif,
+            "label": motif_label(candidate.motif),
+            "note": "",
             "score": candidate.score,
             "issues": candidate.issues,
             "file": format!("candidates/P{page:02}_{}.svg", index + 1),
@@ -4671,6 +5061,7 @@ impl PptExtensionService {
                 issues: rendered.issues.clone(),
                 hard_fail: false,
                 svg: rendered.svg.clone(),
+                direction: None,
             };
             update_programmatic_selection(
                 &project,
@@ -5166,11 +5557,7 @@ impl PptExtensionService {
             .unwrap_or("");
         let existing = fs::read_to_string(page_svg_path(&project, page)).ok();
         let existing_signatures: Vec<String> = existing.iter().cloned().collect();
-        let directions = [
-            "结构优先：清晰标题层级、编号/分组与稳定网格",
-            "视觉优先：大数字、色块、图表或强对比图形，减少文字块",
-        ];
-        let effective_candidates = directions.len().min(candidate_count.max(1));
+        let effective_candidates = AI_DIRECTIONS.len().min(candidate_count.max(1));
         emit_page_regen_progress(
             &app,
             &job_id,
@@ -5181,9 +5568,8 @@ impl PptExtensionService {
             "正在准备候选提示词…",
         );
         let mut candidates = Vec::new();
-        for (candidate_index, direction) in
-            directions.iter().take(effective_candidates).enumerate()
-        {
+        for candidate_index in 0..effective_candidates {
+            let direction = direction_text(candidate_index);
             emit_page_regen_progress(
                 &app,
                 &job_id,
@@ -5205,7 +5591,7 @@ impl PptExtensionService {
                 &understanding,
                 previous_title,
                 next_title,
-                direction,
+                &direction,
                 &template_hint,
                 template_reference.roster.as_str(),
                 instruction.as_deref().unwrap_or(""),
@@ -5214,12 +5600,13 @@ impl PptExtensionService {
             match await_cancellable(future, &cancel, Duration::from_secs(AI_PAGE_TIMEOUT_SECS)).await {
                 Ok(text) => {
                     if let Some(svg) = extract_svg_block(&text) {
-                        let scored = score_svg_candidate(
+                        let mut scored = score_svg_candidate(
                             &svg,
                             &slide,
                             &allowed_colors,
                             &existing_signatures,
                         );
+                        scored.direction = Some(direction_at(candidate_index).key.to_string());
                         emit_page_regen_progress(
                             &app,
                             &job_id,
@@ -5437,9 +5824,22 @@ impl PptExtensionService {
                 if svg.len() > 1_000_000 {
                     continue;
                 }
+                let motif = item.get("motif").cloned().unwrap_or(Value::Null);
+                let label = item
+                    .get("label")
+                    .cloned()
+                    .filter(|value| !value.is_null())
+                    .unwrap_or_else(|| motif.clone());
+                let note = item
+                    .get("note")
+                    .cloned()
+                    .filter(|value| !value.is_null())
+                    .unwrap_or_else(|| json!(""));
                 candidates.push(json!({
                     "index": index,
-                    "motif": item.get("motif").cloned().unwrap_or(Value::Null),
+                    "motif": motif,
+                    "label": label,
+                    "note": note,
                     "score": item.get("score").cloned().unwrap_or(json!(0)),
                     "issues": item.get("issues").cloned().unwrap_or(json!([])),
                     "svg": svg,
@@ -5738,6 +6138,98 @@ mod tests {
         assert!(safe_candidate_path(&project, "other/1.svg").is_none());
     }
 
+    fn stage_cache_input() -> PptJobInput {
+        PptJobInput {
+            note_ids: Vec::new(),
+            mount_note_ids: Vec::new(),
+            local_files: Vec::new(),
+            manual_text: String::new(),
+            title: "季度复盘".into(),
+            audience: "管理层".into(),
+            slide_count: Some(3),
+            layout_id: None,
+            chart_ids: Vec::new(),
+            language: None,
+            extra_requirements: None,
+            export_dir: None,
+            model_id: None,
+            planning_id: None,
+            timeout_secs: None,
+            native_charts: None,
+        }
+    }
+
+    #[test]
+    fn stage_cache_reuses_matching_pages_only() {
+        let dir = std::env::temp_dir().join(format!("ppt-stage-cache-{}", Uuid::new_v4()));
+        fs::create_dir_all(dir.join("project")).unwrap();
+        let input = stage_cache_input();
+        let understanding = "素材理解内容";
+        let signature = plan_stage_signature(&input, understanding);
+        let titles = vec![
+            ("封面".to_string(), String::new()),
+            ("现状".to_string(), "当前进展".to_string()),
+            ("计划".to_string(), "后续安排".to_string()),
+        ];
+        let expanded = vec![
+            Some(json!({ "title": "封面" })),
+            Some(json!({ "title": "现状" })),
+            None,
+        ];
+        save_plan_stage_cache(&dir, &signature, &titles, &expanded, understanding);
+
+        let loaded = load_plan_stage_cache(&dir, &signature, &titles, understanding);
+        assert!(loaded[0].is_some());
+        assert!(loaded[1].is_some());
+        assert!(loaded[2].is_none());
+
+        // 页标题变化后该页不再复用，其余页仍可复用。
+        let changed = vec![
+            titles[0].clone(),
+            ("现状与问题".to_string(), titles[1].1.clone()),
+            titles[2].clone(),
+        ];
+        let loaded = load_plan_stage_cache(&dir, &signature, &changed, understanding);
+        assert!(loaded[0].is_some());
+        assert!(loaded[1].is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stage_cache_ignores_signature_mismatch_and_corrupt_file() {
+        let dir = std::env::temp_dir().join(format!("ppt-stage-cache-{}", Uuid::new_v4()));
+        fs::create_dir_all(dir.join("project")).unwrap();
+        let input = stage_cache_input();
+        let titles = vec![("封面".to_string(), String::new())];
+        let expanded = vec![Some(json!({ "title": "封面" }))];
+        let signature_a = plan_stage_signature(&input, "a");
+        let signature_b = plan_stage_signature(&input, "b");
+        save_plan_stage_cache(&dir, &signature_a, &titles, &expanded, "a");
+
+        let loaded = load_plan_stage_cache(&dir, &signature_b, &titles, "b");
+        assert!(loaded[0].is_none());
+
+        fs::write(plan_stage_cache_path(&dir), "{not json").unwrap();
+        let loaded = load_plan_stage_cache(&dir, &signature_a, &titles, "a");
+        assert!(loaded[0].is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn placeholder_slide_passes_content_shape() {
+        let slide = placeholder_slide(1, "现状", "当前进展");
+        assert_eq!(slide["page"], 2);
+        assert_eq!(slide["coreMessage"], "当前进展");
+        assert_eq!(slide["contentBlocks"].as_array().unwrap().len(), 2);
+        assert_eq!(slide["bullets"].as_array().unwrap().len(), 2);
+        let text = slide.to_string();
+        assert!(
+            !PLAN_PLACEHOLDER_PHRASES
+                .iter()
+                .any(|phrase| text.contains(phrase))
+        );
+    }
+
     fn test_model(id: i64, model_id: &str, api_url: &str) -> AiModel {
         AiModel {
             id,
@@ -5883,6 +6375,7 @@ mod tests {
                 score: 92,
                 issues: Vec::new(),
                 hard_fail: false,
+                direction: Some("structure".into()),
                 // data-pptx 属性应在落盘时清除。
                 svg: "<svg data-pptx-foo=\"1\"><text>A</text></svg>".into(),
             },
@@ -5890,12 +6383,14 @@ mod tests {
                 score: 80,
                 issues: vec!["轻微越界".into()],
                 hard_fail: false,
+                direction: Some("visual".into()),
                 svg: "<svg><text>B</text></svg>".into(),
             },
             PageCandidateScore {
                 score: 60,
                 issues: Vec::new(),
                 hard_fail: false,
+                direction: None,
                 svg: "<svg><text>C</text></svg>".into(),
             },
         ];
@@ -5917,6 +6412,9 @@ mod tests {
         assert_eq!(entry["selected"], 1);
         assert_eq!(entry["mode"], "ai");
         assert_eq!(entry["candidates"][1]["file"], "candidates/P02_2.svg");
+        assert_eq!(entry["candidates"][0]["label"], "结构优先");
+        assert_eq!(entry["candidates"][0]["direction"], "structure");
+        assert_eq!(entry["candidates"][2]["direction"], Value::Null);
 
         // 新一页只有 1 个候选时，旧的 2/3 候选文件应被清理。
         update_ai_selection(&project, 2, &candidates[0].svg, &candidates[..1]).unwrap();

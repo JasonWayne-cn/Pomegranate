@@ -7,11 +7,16 @@
  *
  * Phase 1-4 重构后，V1 已修复多端 ID 撞车/删除复活/文档被吞/附件不同步等历史缺陷，
  * 推荐用户首选 V1。V0 仅保留为"周期性完整快照"用途。两者数据存储互不冲突。
+ *
+ * 第三 tab = 配置备份（.kbconfig）：界面偏好 / 应用行为 / 模型 / 同步源 / ASR
+ * 的跨设备迁移，与知识库数据（笔记、附件）无关。
  */
 import { Card, Tabs, Typography, Tag, theme as antdTheme } from "antd";
-import { CloudCog, Archive } from "lucide-react";
+import { CloudCog, Archive, Download, Wifi } from "lucide-react";
 import { SyncSection } from "./SyncSection";
 import { SyncV1Section } from "./SyncV1Section";
+import { LanSyncSection } from "./LanSyncSection";
+import { SettingsBackupSection } from "./SettingsBackupSection";
 
 const { Text } = Typography;
 
@@ -78,6 +83,26 @@ export function SyncTabs() {
               </span>
             ),
             children: <SyncSection />,
+          },
+          {
+            key: "lan",
+            label: (
+              <span className="flex items-center gap-1.5">
+                <Wifi size={14} />
+                局域网同步
+              </span>
+            ),
+            children: <LanSyncSection />,
+          },
+          {
+            key: "backup",
+            label: (
+              <span className="flex items-center gap-1.5">
+                <Download size={14} />
+                配置备份
+              </span>
+            ),
+            children: <SettingsBackupSection />,
           },
         ]}
       />

@@ -1391,6 +1391,32 @@ impl Database {
         Ok((notes, total))
     }
 
+    /// 回收站里到了自动清理时间的笔记 id。
+    ///
+    /// 到期时间 = max(删除时间, 规则生效时间) + days 天：规则生效前就在回收站里的
+    /// 老笔记从生效那一刻起算，不会一上线就被成批删掉；没有删除时间的早期数据同理。
+    /// `since` / `now` 都是 `YYYY-MM-DD HH:MM:SS` 本地时间（与 deleted_at 同格式，可直接比较）。
+    pub fn list_expired_trash_ids(
+        &self,
+        days: u32,
+        since: &str,
+        now: &str,
+    ) -> Result<Vec<i64>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id FROM notes
+             WHERE is_deleted = 1
+               AND datetime(MAX(COALESCE(deleted_at, ?2), ?2), '+' || ?1 || ' days') <= datetime(?3)",
+        )?;
+        let ids = stmt
+            .query_map(params![days, since, now], |row| row.get(0))?
+            .collect::<Result<Vec<i64>, _>>()?;
+        Ok(ids)
+    }
+
     /// 清空回收站
     pub fn empty_trash(&self) -> Result<usize, AppError> {
         let conn = self
@@ -1677,6 +1703,45 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(dates)
+    }
+
+    /// 找出"同一天有多篇日记"的日期，按天分组返回 `(daily_date, [(id, stable_uuid)])`。
+    ///
+    /// 组内按 `stable_uuid` 升序 —— 合并时取第一条当保留者。用 UUID 而不是本地 id 排，
+    /// 是因为 UUID 跨端一致：两台设备各自合并时会选中**同一篇**，同步后才能收敛成一篇。
+    /// 隐藏日记也算在内（它同样占着那一天）；加密日记由调用方跳过。
+    pub fn list_duplicate_dailies(&self) -> Result<Vec<(String, Vec<(i64, String)>)>, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT daily_date, id, COALESCE(stable_uuid, '') FROM notes
+             WHERE is_daily = 1 AND is_deleted = 0 AND daily_date IN (
+                 SELECT daily_date FROM notes
+                 WHERE is_daily = 1 AND is_deleted = 0 AND daily_date IS NOT NULL
+                 GROUP BY daily_date HAVING COUNT(*) > 1
+             )
+             ORDER BY daily_date, COALESCE(stable_uuid, ''), id",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut groups: Vec<(String, Vec<(i64, String)>)> = Vec::new();
+        for (date, id, uuid) in rows {
+            match groups.last_mut() {
+                Some((d, members)) if *d == date => members.push((id, uuid)),
+                _ => groups.push((date, vec![(id, uuid)])),
+            }
+        }
+        Ok(groups)
     }
 
     /// 列出全部日记，平铺返回 (id, title, daily_date)，按 daily_date 倒序。

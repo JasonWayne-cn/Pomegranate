@@ -15,6 +15,7 @@ import { useAppStore } from "@/store";
 import type { Note } from "@/types";
 import { useLongPress } from "@/hooks/useLongPress";
 import { ActionSheet, type ActionSheetItem } from "@/components/mobile/ActionSheet";
+import { SwipeRow } from "@/components/mobile/SwipeRow";
 
 /**
  * 移动端回收站（设计稿：13-trash.html）
@@ -145,40 +146,40 @@ export function MobileTrash() {
     : [];
 
   return (
-    <div className="flex h-full flex-col text-slate-800">
+    <div className="flex h-full flex-col text-[var(--m-ink-1)]">
       {/* 顶栏 */}
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-2">
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--m-line)] bg-[var(--m-surface)] px-2">
         <button
           onClick={() => navigate(-1)}
           aria-label="返回"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <ChevronLeft size={24} className="text-slate-700" />
+          <ChevronLeft size={24} className="text-[var(--m-ink-2)]" />
         </button>
         <h1 className="text-base font-semibold">回收站</h1>
         <div className="w-10" />
       </header>
 
       {/* 提示横幅 */}
-      <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2.5">
-        <Info size={16} className="mt-0.5 shrink-0 text-amber-600" />
-        <p className="text-xs leading-relaxed text-amber-800">
+      <div className="flex items-start gap-2 border-b border-[var(--m-warning)] bg-[var(--m-tint-warning)] px-4 py-2.5">
+        <Info size={16} className="mt-0.5 shrink-0 text-[var(--m-warning)]" />
+        <p className="text-xs leading-relaxed text-[var(--m-ink-1)]">
           已删除文档保留 {RETENTION_DAYS} 天，到期后自动清理。当前共{" "}
           <strong>{total} 项</strong>。
         </p>
       </div>
 
       {/* 列表 */}
-      <main className="flex-1 overflow-y-auto bg-slate-50 pb-24">
+      <main className="flex-1 overflow-y-auto bg-[var(--m-page)] pb-24">
         {loading && items.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-slate-400">
+          <div className="px-4 py-8 text-center text-sm text-[var(--m-ink-3)]">
             加载中…
           </div>
         ) : items.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 px-4 py-16 text-slate-400">
-            <Trash2 size={40} className="text-slate-300" />
+          <div className="flex flex-col items-center gap-2 px-4 py-16 text-[var(--m-ink-3)]">
+            <Trash2 size={40} className="text-[var(--m-ink-3)]" />
             <span className="text-sm">回收站为空</span>
-            <span className="text-xs text-slate-300">
+            <span className="text-xs text-[var(--m-ink-3)]">
               删除的文档会暂存在这里 {RETENTION_DAYS} 天
             </span>
           </div>
@@ -188,8 +189,8 @@ export function MobileTrash() {
               <>
                 <SectionLabel
                   text="即将清理"
-                  icon={<ClockAlert size={14} className="text-red-500" />}
-                  color="text-red-600"
+                  icon={<ClockAlert size={14} className="text-[var(--m-danger)]" />}
+                  color="text-[var(--m-danger)]"
                 />
                 {expiring.map((n) => (
                   <ExpiringCard
@@ -204,19 +205,20 @@ export function MobileTrash() {
             {normal.length > 0 && (
               <>
                 <SectionLabel text="最近删除" />
-                <div className="mx-4 mb-2 divide-y divide-slate-100 rounded-2xl bg-white">
+                <div className="mx-4 mb-2 divide-y divide-[var(--m-line-weak)] rounded-2xl bg-[var(--m-surface)]">
                   {normal.map((n) => (
                     <RegularRow
                       key={n.id}
                       note={n}
                       onRestore={() => handleRestore(n)}
+                      onPermanent={() => handlePermanentDelete(n)}
                       onLongPress={() => setSheetNote(n)}
                     />
                   ))}
                 </div>
               </>
             )}
-            <div className="px-4 py-6 text-center text-xs text-slate-400">
+            <div className="px-4 py-6 text-center text-xs text-[var(--m-ink-3)]">
               已显示全部 {total} 项
             </div>
           </>
@@ -226,12 +228,12 @@ export function MobileTrash() {
       {/* 底部操作栏 */}
       {items.length > 0 && (
         <footer
-          className="border-t border-slate-200 bg-white px-4 py-3 shrink-0"
+          className="border-t border-[var(--m-line)] bg-[var(--m-surface)] px-4 py-3 shrink-0"
           style={{ paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}
         >
           <button
             onClick={handleEmpty}
-            className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-red-50 text-sm font-medium text-red-600 active:bg-red-100"
+            className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--m-tint-danger)] text-sm font-medium text-[var(--m-danger)] active:opacity-70"
           >
             <Trash2 size={16} /> 清空回收站
           </button>
@@ -252,7 +254,7 @@ export function MobileTrash() {
 function SectionLabel({
   text,
   icon,
-  color = "text-slate-400",
+  color = "text-[var(--m-ink-3)]",
 }: {
   text: string;
   icon?: React.ReactNode;
@@ -279,36 +281,36 @@ function ExpiringCard({
 }) {
   const remain = daysUntilCleanup(note.updated_at);
   return (
-    <div className="mx-4 mb-2 rounded-2xl border border-red-200 bg-white p-4">
+    <div className="mx-4 mb-2 rounded-2xl border border-[var(--m-danger)] bg-[var(--m-surface)] p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50">
-          <FileText size={18} className="text-red-400" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--m-tint-danger)]">
+          <FileText size={18} className="text-[var(--m-danger)]" />
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-medium text-slate-900">
+          <h3 className="truncate text-sm font-medium text-[var(--m-ink-1)]">
             {note.title || "未命名文档"}
           </h3>
           {note.content && (
-            <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+            <p className="mt-0.5 line-clamp-2 text-xs text-[var(--m-ink-2)]">
               {note.content.slice(0, 80)}
             </p>
           )}
-          <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-400">
+          <div className="mt-2 flex items-center gap-2 text-[10px] text-[var(--m-ink-3)]">
             <span>{new Date(note.updated_at).toLocaleDateString("zh-CN")} 删除</span>
-            <span className="font-medium text-red-500">
+            <span className="font-medium text-[var(--m-danger)]">
               · {remain === 0 ? "今天" : `${remain} 天后`}清理
             </span>
           </div>
           <div className="mt-3 flex gap-2">
             <button
               onClick={onRestore}
-              className="flex h-8 flex-1 items-center justify-center gap-1 rounded-lg bg-slate-100 text-xs font-medium text-slate-700 active:bg-slate-200"
+              className="flex h-8 flex-1 items-center justify-center gap-1 rounded-lg bg-[var(--m-well)] text-xs font-medium text-[var(--m-ink-2)] active:opacity-70"
             >
               <RotateCcw size={14} /> 还原
             </button>
             <button
               onClick={onPermanent}
-              className="flex h-8 flex-1 items-center justify-center gap-1 rounded-lg bg-red-50 text-xs font-medium text-red-600 active:bg-red-100"
+              className="flex h-8 flex-1 items-center justify-center gap-1 rounded-lg bg-[var(--m-tint-danger)] text-xs font-medium text-[var(--m-danger)] active:opacity-70"
             >
               <Trash size={14} /> 永久删除
             </button>
@@ -322,30 +324,50 @@ function ExpiringCard({
 function RegularRow({
   note,
   onRestore,
+  onPermanent,
   onLongPress,
 }: {
   note: Note;
   onRestore: () => void;
+  onPermanent: () => void;
   onLongPress: () => void;
 }) {
   const remain = daysUntilCleanup(note.updated_at);
   // 长按条目正文区唤起动作面板（还原/永久删除）；右侧"还原"按钮独立保留
   const longPress = useLongPress(onLongPress);
   return (
+    <SwipeRow
+      actions={[
+        {
+          key: "restore",
+          label: "还原",
+          icon: <RotateCcw size={18} />,
+          tone: "primary",
+          onAction: onRestore,
+        },
+        {
+          key: "permanent",
+          label: "删除",
+          icon: <Trash size={18} />,
+          tone: "danger",
+          onAction: onPermanent,
+        },
+      ]}
+    >
     <div className="px-4 py-3">
       <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100">
-          <FileText size={16} className="text-slate-400" />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--m-well)]">
+          <FileText size={16} className="text-[var(--m-ink-3)]" />
         </div>
         <div
           {...longPress}
           className="min-w-0 flex-1 select-none"
           style={{ WebkitTouchCallout: "none" }}
         >
-          <h3 className="truncate text-sm font-medium text-slate-900">
+          <h3 className="truncate text-sm font-medium text-[var(--m-ink-1)]">
             {note.title || "未命名文档"}
           </h3>
-          <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
+          <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--m-ink-3)]">
             <span>{new Date(note.updated_at).toLocaleDateString("zh-CN")} 删除</span>
             <span>· {remain} 天后清理</span>
           </div>
@@ -353,11 +375,12 @@ function RegularRow({
         <button
           onClick={onRestore}
           aria-label="还原"
-          className="flex h-9 w-9 items-center justify-center rounded-lg active:bg-slate-100"
+          className="flex h-9 w-9 items-center justify-center rounded-lg active:bg-[var(--m-well)]"
         >
-          <RotateCcw size={16} className="text-blue-500" />
+          <RotateCcw size={16} className="text-[var(--m-primary)]" />
         </button>
       </div>
     </div>
+    </SwipeRow>
   );
 }

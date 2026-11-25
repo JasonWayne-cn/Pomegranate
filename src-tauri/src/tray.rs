@@ -174,9 +174,8 @@ pub fn setup_tray(
                     if is_visible && !is_minimized && is_focused {
                         let _ = window.hide();
                     } else {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
+                        // 统一走 show_main：先按显示器组合纠偏，再还原 / 显示 / 抢焦点
+                        crate::window_memory::show_main(app, "托盘唤回");
                     }
                 }
             }
@@ -186,11 +185,7 @@ pub fn setup_tray(
     Ok(())
 }
 
-/// 把主窗口从最小化/隐藏中恢复并聚焦
+/// 把主窗口从最小化/隐藏中恢复并聚焦（顺带纠正到上次所在的显示器）
 fn bring_main_to_front(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    crate::window_memory::show_main(app, "托盘菜单唤回");
 }

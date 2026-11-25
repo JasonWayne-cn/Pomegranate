@@ -186,6 +186,10 @@ export interface PptDraftPage {
 export interface PptPageCandidateScore {
   score: number;
   issues: string[];
+  /** 候选方向：structure / visual / narrative（程序化候选为空） */
+  direction?: string | null;
+  label?: string | null;
+  note?: string | null;
 }
 
 export interface PptPageSelectionEntry {
@@ -204,6 +208,10 @@ export interface PptPageSelection {
 export interface PptPageCandidate {
   index: number;
   motif: string;
+  /** 候选展示名：方向标签或 motif 的中文名 */
+  label?: string | null;
+  /** 候选差异说明 */
+  note?: string | null;
   score: number;
   issues: string[];
   svg: string;

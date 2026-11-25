@@ -101,13 +101,27 @@ const KIND_LABEL: Record<SyncBackendKind, string> = {
   local: "本地路径 / 同步盘",
   webdav: "WebDAV",
   s3: "S3 兼容（阿里云 OSS / 腾讯云 COS / R2 / MinIO）",
+  lan: "局域网直连",
 };
 
 const KIND_TAG_COLOR: Record<SyncBackendKind, string> = {
   local: "green",
   webdav: "blue",
   s3: "geekblue",
+  lan: "purple",
 };
+
+/** DAO 解不开凭据密文（换机器 / 改主机名）时打的标记 */
+function configNeedsRefill(configJson: string): boolean {
+  try {
+    return (
+      (JSON.parse(configJson) as Record<string, unknown>)._secretUnreadable ===
+      true
+    );
+  } catch {
+    return false;
+  }
+}
 
 function buildConfigJson(s: BackendFormState): string {
   switch (s.kind) {
@@ -128,6 +142,24 @@ function buildConfigJson(s: BackendFormState): string {
         secretKey: s.secretKey,
         prefix: s.prefix || "",
       });
+    // 局域网同步源由手机扫码创建，桌面端不提供手动编辑；这里只做类型穷举兜底
+    case "lan":
+      return "{}";
+  }
+}
+
+/**
+ * 编辑保存时，密码 / 密钥留空 = 不修改：把空字段去掉，DAO 的 keep_unsent_secrets
+ * 才会沿用旧密文。否则整份覆盖会把凭据清掉。
+ */
+function omitEmptySecrets(kind: SyncBackendKind, json: string): string {
+  try {
+    const v = JSON.parse(json) as Record<string, unknown>;
+    if (kind === "webdav" && !v.password) delete v.password;
+    if (kind === "s3" && !v.secretKey) delete v.secretKey;
+    return JSON.stringify(v);
+  } catch {
+    return json;
   }
 }
 
@@ -157,6 +189,8 @@ function parseConfigJson(
           secretKey: get("secretKey"),
           prefix: get("prefix"),
         };
+      case "lan":
+        return {};
     }
   } catch {
     return {};
@@ -397,10 +431,12 @@ export function SyncV1Section() {
       message.warning(err);
       return;
     }
+    const rawConfig = buildConfigJson(form);
     const input: SyncBackendInput = {
       kind: form.kind,
       name: form.name.trim(),
-      configJson: buildConfigJson(form),
+      configJson:
+        form.id == null ? rawConfig : omitEmptySecrets(form.kind, rawConfig),
       enabled: form.enabled,
       autoSync: form.autoSync,
       syncIntervalMin: form.syncIntervalMin,
@@ -619,6 +655,11 @@ export function SyncV1Section() {
                     {KIND_LABEL[b.kind]}
                   </Tag>
                   {!b.enabled && <Tag style={{ marginInlineEnd: 0 }}>已禁用</Tag>}
+                  {configNeedsRefill(b.configJson) && (
+                    <Tag color="warning" style={{ marginInlineEnd: 0 }}>
+                      凭据需重填
+                    </Tag>
+                  )}
                 </div>
                 <Text strong style={{ wordBreak: "break-word" }}>
                   {b.name}
@@ -637,6 +678,13 @@ export function SyncV1Section() {
                 <Text type="secondary">
                   ↓ {b.lastPullTs ?? "—"}
                 </Text>
+                {b.lastError && (
+                  <Tooltip title={b.lastError}>
+                    <Text type="danger" ellipsis style={{ maxWidth: 210 }}>
+                      上次失败：{b.lastError}
+                    </Text>
+                  </Tooltip>
+                )}
               </Space>
             ),
           },
@@ -696,11 +744,17 @@ export function SyncV1Section() {
                       onClick={() => setShareEnv(exportSyncBackend(b))}
                     />
                   </Tooltip>
-                  <Tooltip title="编辑">
+                  <Tooltip
+                    title={
+                      b.kind === "lan"
+                        ? "局域网同步源由手机扫码创建，不支持手动编辑"
+                        : "编辑"
+                    }
+                  >
                     <Button
                       size="small"
                       icon={<Pencil size={13} />}
-                      disabled={busy}
+                      disabled={busy || b.kind === "lan"}
                       onClick={() => openEditModal(b)}
                     />
                   </Tooltip>

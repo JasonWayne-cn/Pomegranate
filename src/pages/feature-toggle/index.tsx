@@ -61,27 +61,27 @@ interface OptionMeta {
 
 const CORE_MODULES = [
   {
-    icon: <Home size={16} className="text-slate-500" />,
+    icon: <Home size={16} className="text-[var(--m-ink-2)]" />,
     label: "主页",
     desc: "每日仪表盘 · 数据总览",
   },
   {
-    icon: <FileText size={16} className="text-slate-500" />,
+    icon: <FileText size={16} className="text-[var(--m-ink-2)]" />,
     label: "文档",
     desc: "文档 CRUD / 文件夹",
   },
   {
-    icon: <Search size={16} className="text-slate-500" />,
+    icon: <Search size={16} className="text-[var(--m-ink-2)]" />,
     label: "搜索",
     desc: "全文 / 标签 / 双链",
   },
   {
-    icon: <Trash2 size={16} className="text-slate-500" />,
+    icon: <Trash2 size={16} className="text-[var(--m-ink-2)]" />,
     label: "回收站",
     desc: "已删除文档 30 天保留",
   },
   {
-    icon: <InfoIcon size={16} className="text-slate-500" />,
+    icon: <InfoIcon size={16} className="text-[var(--m-ink-2)]" />,
     label: "关于",
     desc: "版本 / 许可 / 反馈",
   },
@@ -92,60 +92,60 @@ const OPTIONS: OptionMeta[] = [
     view: "daily",
     label: "日记",
     desc: "按日期写日记 / 工作日志",
-    icon: <Calendar size={16} className="text-green-600" />,
-    iconBg: "bg-green-100",
+    icon: <Calendar size={16} className="text-[var(--m-success)]" />,
+    iconBg: "bg-[var(--m-tint-success)]",
   },
   {
     view: "tasks",
     label: "待办",
     desc: "任务管理 / 提醒 / 重复任务",
-    icon: <CheckSquare size={16} className="text-blue-600" />,
-    iconBg: "bg-blue-100",
+    icon: <CheckSquare size={16} className="text-[var(--m-primary)]" />,
+    iconBg: "bg-[var(--m-tint-primary)]",
   },
   {
     view: "cards",
     label: "闪卡复习",
     desc: "FSRS 间隔重复 · 从批注一键转卡",
-    icon: <Layers size={16} className="text-purple-600" />,
-    iconBg: "bg-purple-100",
+    icon: <Layers size={16} className="text-[var(--m-accent)]" />,
+    iconBg: "bg-[var(--m-tint-accent)]",
     defaultOff: true,
   },
   {
     view: "ai",
     label: "AI 问答",
     desc: "和 AI 对话，让它读你的文档",
-    icon: <Bot size={16} className="text-[var(--kb-accent)]" />,
-    iconBg: "bg-orange-100",
+    icon: <Bot size={16} className="text-[var(--m-accent)]" />,
+    iconBg: "bg-[var(--m-tint-accent)]",
   },
   {
     view: "push",
     label: "定时推送",
     desc: "定时让 AI 生成内容并推送到桌面",
-    icon: <Bell size={16} className="text-amber-600" />,
-    iconBg: "bg-amber-100",
+    icon: <Bell size={16} className="text-[var(--m-warning)]" />,
+    iconBg: "bg-[var(--m-tint-warning)]",
   },
   {
     view: "hidden",
     label: "隐藏文档",
     desc: "PIN 锁保护的私密文档空间",
-    icon: <EyeOff size={16} className="text-red-600" />,
-    iconBg: "bg-red-100",
+    icon: <EyeOff size={16} className="text-[var(--m-danger)]" />,
+    iconBg: "bg-[var(--m-tint-danger)]",
   },
 ];
 
 /** 把 registry 的 icon key 翻译成 Lucide 组件（移动端 Tab 网格用） */
 const TAB_ICONS: Record<MobileTabKey, React.ReactNode> = {
-  home: <HomeIcon size={20} className="text-[var(--kb-primary)]" />,
-  notes: <FileText size={20} className="text-[var(--kb-primary)]" />,
-  ai: <SparklesIcon size={20} className="text-[var(--kb-accent)]" />,
-  tasks: <CheckSquare size={20} className="text-[var(--kb-primary)]" />,
-  daily: <CalendarDays size={20} className="text-green-600" />,
-  cards: <LayersIcon size={20} className="text-purple-600" />,
-  prompts: <MessageSquareText size={20} className="text-yellow-600" />,
-  hidden: <EyeOff size={20} className="text-red-600" />,
-  graph: <GitFork size={20} className="text-cyan-600" />,
-  search: <Search size={20} className="text-slate-600" />,
-  trash: <Trash2 size={20} className="text-red-500" />,
+  home: <HomeIcon size={20} className="text-[var(--m-primary)]" />,
+  notes: <FileText size={20} className="text-[var(--m-primary)]" />,
+  ai: <SparklesIcon size={20} className="text-[var(--m-accent)]" />,
+  tasks: <CheckSquare size={20} className="text-[var(--m-primary)]" />,
+  daily: <CalendarDays size={20} className="text-[var(--m-success)]" />,
+  cards: <LayersIcon size={20} className="text-[var(--m-accent)]" />,
+  prompts: <MessageSquareText size={20} className="text-[var(--m-warning)]" />,
+  hidden: <EyeOff size={20} className="text-[var(--m-danger)]" />,
+  graph: <GitFork size={20} className="text-[var(--m-primary)]" />,
+  search: <Search size={20} className="text-[var(--m-ink-2)]" />,
+  trash: <Trash2 size={20} className="text-[var(--m-danger)]" />,
 };
 
 interface DashItemMeta {
@@ -158,42 +158,42 @@ const DASH_ITEM_META: DashItemMeta[] = [
   {
     key: "today_words",
     label: "今日字数（蓝渐变卡）",
-    icon: <TrendingUp size={16} className="text-blue-500" />,
+    icon: <TrendingUp size={16} className="text-[var(--m-primary)]" />,
   },
   {
     key: "due_cards",
     label: "待复习闪卡（紫渐变卡）",
-    icon: <Layers size={16} className="text-purple-500" />,
+    icon: <Layers size={16} className="text-[var(--m-accent)]" />,
   },
   {
     key: "today_tasks_card",
     label: "今日待办计数",
-    icon: <CheckSquare size={16} className="text-green-500" />,
+    icon: <CheckSquare size={16} className="text-[var(--m-success)]" />,
   },
   {
     key: "total_notes",
     label: "文档总数",
-    icon: <HomeIcon size={16} className="text-slate-500" />,
+    icon: <HomeIcon size={16} className="text-[var(--m-ink-2)]" />,
   },
   {
     key: "quick_actions",
     label: "快速操作（4 按钮）",
-    icon: <Zap size={16} className="text-amber-500" />,
+    icon: <Zap size={16} className="text-[var(--m-warning)]" />,
   },
   {
     key: "today_tasks_list",
     label: "今日待办速览",
-    icon: <CheckSquare size={16} className="text-green-500" />,
+    icon: <CheckSquare size={16} className="text-[var(--m-success)]" />,
   },
   {
     key: "heatmap",
     label: "30 天写作热力图",
-    icon: <BarChart3 size={16} className="text-blue-500" />,
+    icon: <BarChart3 size={16} className="text-[var(--m-primary)]" />,
   },
   {
     key: "recent_notes",
     label: "最近编辑",
-    icon: <Clock size={16} className="text-slate-500" />,
+    icon: <Clock size={16} className="text-[var(--m-ink-2)]" />,
   },
 ];
 
@@ -226,40 +226,40 @@ export default function FeatureTogglePage() {
   ).length;
 
   return (
-    <div className="text-slate-800">
+    <div className="text-[var(--m-ink-1)]">
       {/* 顶栏 */}
-      <header className="flex h-12 items-center justify-between border-b border-slate-200 bg-white px-2">
+      <header className="flex h-12 items-center justify-between border-b border-[var(--m-line)] bg-[var(--m-surface)] px-2">
         <button
           onClick={() => navigate(-1)}
           aria-label="返回"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <ChevronLeft size={24} className="text-slate-700" />
+          <ChevronLeft size={24} className="text-[var(--m-ink-2)]" />
         </button>
         <h1 className="text-base font-semibold">功能模块</h1>
         <button
           onClick={reset}
-          className="px-2 text-sm text-slate-500 active:text-slate-700"
+          className="px-2 text-sm text-[var(--m-ink-2)] active:text-[var(--m-ink-2)]"
         >
           重置
         </button>
       </header>
 
       {/* 信息横幅 */}
-      <div className="flex items-start gap-2 border-b border-blue-200 bg-blue-50 px-4 py-3">
-        <Info size={16} className="mt-0.5 shrink-0 text-blue-600" />
-        <p className="text-xs leading-relaxed text-blue-800">
+      <div className="flex items-start gap-2 border-b border-[var(--m-primary)] bg-[var(--m-tint-primary)] px-4 py-3">
+        <Info size={16} className="mt-0.5 shrink-0 text-[var(--m-primary)]" />
+        <p className="text-xs leading-relaxed text-[var(--m-ink-1)]">
           关闭后入口隐藏，但<strong>数据保留</strong>，重新开启即可恢复。
           <br />
           核心模块（主页 / 文档 / 搜索 / 回收站 / 关于）不可关闭。
         </p>
       </div>
 
-      <div className="bg-slate-50 pb-12">
+      <div className="bg-[var(--m-page)] pb-12">
         {/* 底部 Tab 配置（移动端独有） */}
         <SectionLabel text={`底部 Tab · 已选 ${mobileTabKeys.length}/4 + 我的`} />
-        <div className="mx-4 mb-2 rounded-2xl bg-white p-3">
-          <div className="mb-2 text-[11px] leading-relaxed text-slate-500">
+        <div className="mx-4 mb-2 rounded-2xl bg-[var(--m-surface)] p-3">
+          <div className="mb-2 text-[11px] leading-relaxed text-[var(--m-ink-2)]">
             点击任意格子可换成其它功能。「我的」永远占最后一格，无需配置。
           </div>
           <div className="grid grid-cols-5 gap-2">
@@ -267,17 +267,17 @@ export default function FeatureTogglePage() {
               <button
                 key={`${k}-${idx}`}
                 onClick={() => setPickerSlot(idx)}
-                className="flex flex-col items-center gap-1 rounded-xl border-2 border-blue-200 bg-blue-50 py-2.5 active:scale-95 transition-transform"
+                className="flex flex-col items-center gap-1 rounded-xl border-2 border-[var(--m-primary)] bg-[var(--m-tint-primary)] py-2.5 active:scale-95 transition-transform"
               >
                 {TAB_ICONS[k]}
-                <span className="text-[10px] font-medium text-[var(--kb-primary)]">
+                <span className="text-[10px] font-medium text-[var(--m-primary)]">
                   {MOBILE_TAB_REGISTRY[k].label}
                 </span>
               </button>
             ))}
-            <div className="flex flex-col items-center gap-1 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 py-2.5">
-              <User size={20} className="text-slate-400" />
-              <span className="text-[10px] text-slate-400">我的（固定）</span>
+            <div className="flex flex-col items-center gap-1 rounded-xl border-2 border-dashed border-[var(--m-line)] bg-[var(--m-page)] py-2.5">
+              <User size={20} className="text-[var(--m-ink-3)]" />
+              <span className="text-[10px] text-[var(--m-ink-3)]">我的（固定）</span>
             </div>
           </div>
         </div>
@@ -325,7 +325,7 @@ export default function FeatureTogglePage() {
           ))}
         </ListGroup>
 
-        <div className="px-4 py-4 text-center text-[11px] text-slate-400">
+        <div className="px-4 py-4 text-center text-[11px] text-[var(--m-ink-3)]">
           💾 配置写入 app_config · 自动同步到桌面端
         </div>
       </div>
@@ -358,18 +358,18 @@ export default function FeatureTogglePage() {
                 }}
                 className={`flex flex-col items-center gap-1 rounded-xl py-3 ${
                   pickerSlot !== null && mobileTabKeys[pickerSlot] === k
-                    ? "border-2 border-[var(--kb-primary)] bg-blue-50"
+                    ? "border-2 border-[var(--m-primary)] bg-[var(--m-tint-primary)]"
                     : inOtherSlot
-                      ? "border border-amber-200 bg-amber-50"
-                      : "border border-slate-100 bg-white"
+                      ? "border border-amber-200 bg-[var(--m-tint-warning)]"
+                      : "border border-[var(--m-line-weak)] bg-[var(--m-surface)]"
                 } active:scale-95 transition-transform`}
               >
                 {TAB_ICONS[k]}
-                <span className="text-[11px] font-medium text-slate-700">
+                <span className="text-[11px] font-medium text-[var(--m-ink-2)]">
                   {meta.label}
                 </span>
                 {inOtherSlot && (
-                  <span className="text-[9px] text-amber-600">已选 · 会自动换位</span>
+                  <span className="text-[9px] text-[var(--m-warning)]">已选 · 会自动换位</span>
                 )}
               </button>
             );
@@ -388,7 +388,7 @@ function SectionLabel({
   text: string;
 }) {
   return (
-    <div className="flex items-center gap-1 px-4 pt-3 pb-1 text-xs font-medium text-slate-400">
+    <div className="flex items-center gap-1 px-4 pt-3 pb-1 text-xs font-medium text-[var(--m-ink-3)]">
       {icon}
       <span>{text}</span>
     </div>
@@ -397,7 +397,7 @@ function SectionLabel({
 
 function ListGroup({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-4 mb-2 divide-y divide-slate-100 rounded-2xl bg-white">
+    <div className="mx-4 mb-2 divide-y divide-[var(--m-line-weak)] rounded-2xl bg-[var(--m-surface)]">
       {children}
     </div>
   );
@@ -414,12 +414,12 @@ function CoreRow({
 }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 opacity-90">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--m-well)]">
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-slate-700">{label}</div>
-        <div className="text-[11px] text-slate-400">{desc}</div>
+        <div className="text-sm font-medium text-[var(--m-ink-2)]">{label}</div>
+        <div className="text-[11px] text-[var(--m-ink-3)]">{desc}</div>
       </div>
       <Switch checked disabled />
     </div>
@@ -438,7 +438,7 @@ function DashItemRow({
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <div className="shrink-0">{meta.icon}</div>
-      <span className="flex-1 text-sm text-slate-700">{meta.label}</span>
+      <span className="flex-1 text-sm text-[var(--m-ink-2)]">{meta.label}</span>
       <Switch checked={checked} onChange={onChange} />
     </div>
   );
@@ -456,7 +456,7 @@ function OptionRow({
   return (
     <div
       className={`flex items-center gap-3 px-4 py-3 ${
-        meta.defaultOff && !checked ? "bg-amber-50/40" : ""
+        meta.defaultOff && !checked ? "bg-[var(--m-tint-warning)]/40" : ""
       }`}
     >
       <div
@@ -465,15 +465,15 @@ function OptionRow({
         {meta.icon}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+        <div className="flex items-center gap-1.5 text-sm font-medium text-[var(--m-ink-1)]">
           {meta.label}
           {meta.defaultOff && (
-            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">
+            <span className="rounded bg-[var(--m-tint-warning)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--m-warning)]">
               默认关
             </span>
           )}
         </div>
-        <div className="text-[11px] text-slate-500">{meta.desc}</div>
+        <div className="text-[11px] text-[var(--m-ink-2)]">{meta.desc}</div>
       </div>
       <Switch checked={checked} onChange={onChange} />
     </div>

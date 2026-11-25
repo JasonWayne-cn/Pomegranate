@@ -20,10 +20,14 @@ pub mod font;
 pub mod hidden_pin;
 pub mod image;
 pub mod import;
+pub mod lan_sync;
 pub mod links;
 pub mod llm_graph;
 pub mod mcp;
 pub mod mount;
+// 桌面端更新（Rust 单路下载 / 续传 / 验签）
+#[cfg(desktop)]
+pub mod updater;
 // 移动端检查更新（仅 Android/iOS）
 #[cfg(mobile)]
 pub mod mobile_update;

@@ -131,6 +131,7 @@ import type {
   VaultStatus,
   SyncBackend,
   SyncBackendInput,
+  LanSyncStatus,
   SyncManifestV1,
   SyncPushResult,
   SyncPullResult,
@@ -366,6 +367,8 @@ export const pluginApi = {
   scan: () => invoke<PluginInfo[]>("scan_plugins"),
   installFromDir: (path: string) =>
     invoke<PluginInfo>("install_plugin_from_dir", { path }),
+  installFromZip: (path: string) =>
+    invoke<PluginInfo>("install_plugin_from_zip", { path }),
   enable: (pluginId: string) => invoke<void>("enable_plugin", { pluginId }),
   disable: (pluginId: string) => invoke<void>("disable_plugin", { pluginId }),
   uninstall: (pluginId: string) =>
@@ -1706,6 +1709,17 @@ export const syncApi = {
     invoke<SyncHistoryItem[]>("sync_list_history", { limit }),
   /** 唤醒自动同步调度器（配置变更后调用）*/
   schedulerReload: () => invoke<void>("sync_scheduler_reload"),
+};
+
+/** 局域网同步（主机端）：开关 / 配对码 / 状态 */
+export const lanSyncApi = {
+  status: () => invoke<LanSyncStatus>("lan_sync_status"),
+  enable: (port: number) => invoke<LanSyncStatus>("lan_sync_enable", { port }),
+  disable: () => invoke<LanSyncStatus>("lan_sync_disable"),
+  /** 配对二维码内容（含令牌，只用来渲染二维码，别打日志） */
+  pairingPayload: () => invoke<string>("lan_sync_pairing_payload"),
+  /** 重新生成配对码：已配对设备全部失效 */
+  resetPairing: () => invoke<LanSyncStatus>("lan_sync_reset_pairing"),
 };
 
 /**

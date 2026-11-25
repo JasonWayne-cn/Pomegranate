@@ -1965,6 +1965,8 @@ export interface WebDavConfig {
   username: string;
   /** 前端传入时使用；后端读取时从 keyring 取 */
   password?: string;
+  /** DAO 解不开库里的凭据密文时打的标记（不是真实配置字段，导出前需剥离） */
+  _secretUnreadable?: boolean;
 }
 
 /** 同步数据统计 */
@@ -2380,7 +2382,25 @@ export interface PromptGroup {
 
 // ─── T-024 同步 V1 ─────────────────────────────
 
-export type SyncBackendKind = "local" | "webdav" | "s3";
+export type SyncBackendKind = "local" | "webdav" | "s3" | "lan";
+
+/** 局域网同步（手机 ↔ 本机）状态，对应 Rust `services::lan_sync::LanSyncStatus` */
+export interface LanSyncStatus {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  /** 本机局域网地址，手机连这些 */
+  hosts: string[];
+  deviceName: string;
+  /** 证书指纹（可与手机上显示的核对） */
+  fingerprint: string | null;
+  /** 「本机中转」同步源 id */
+  backendId: number | null;
+  /** 最近一次收到手机改动的时间（本地时间 YYYY-MM-DD HH:MM:SS） */
+  lastClientSync: string | null;
+  /** 「本机中转」源最近一次同步失败的错误 */
+  hostLastError: string | null;
+}
 
 export interface SyncBackend {
   id: number;
@@ -2394,6 +2414,10 @@ export interface SyncBackend {
   lastPullTs: string | null;
   createdAt: string;
   updatedAt: string;
+  /** 最近一次同步（pull / push）失败的错误，成功后由后端清空 */
+  lastError?: string | null;
+  /** lastError 发生时间（本地时间 YYYY-MM-DD HH:MM:SS） */
+  lastErrorAt?: string | null;
 }
 
 export interface SyncBackendInput {

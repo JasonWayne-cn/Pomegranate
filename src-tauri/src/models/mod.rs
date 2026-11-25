@@ -1646,14 +1646,19 @@ pub enum SyncBackendKind {
     Local,
     Webdav,
     S3,
+    /// 局域网直连电脑（手机端扫电脑的配对二维码添加），见 services::sync_v1::backend_lan
+    Lan,
 }
 
 /// 同步后端配置（DB 行）
 ///
 /// `config_json` 内的字段随 `kind` 不同：
 /// - `Local`：`{"path": "..."}`
-/// - `Webdav`：`{"url": "...", "username": "...", "password_encrypted": "..."}`
-/// - `S3`：`{"endpoint": "...", "region": "...", "bucket": "...", "access_key": "...", "secret_key_encrypted": "..."}`
+/// - `Webdav`：`{"url": "...", "username": "...", "password": "..."}`
+/// - `S3`：`{"endpoint": "...", "region": "...", "bucket": "...", "accessKey": "...", "secretKey": "..."}`
+/// - `Lan`：`{"hosts": ["192.168.1.2"], "port": 47321, "fp": "...", "token": "..."}`
+///
+/// 凭据字段（password / secretKey / token）在库里是 `enc:v1:` 密文，DAO 读出时解密。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncBackend {
@@ -1668,6 +1673,12 @@ pub struct SyncBackend {
     pub last_pull_ts: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// 最近一次同步（pull / push）失败的错误；成功后清空
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// `last_error` 的发生时间（本地时间 `YYYY-MM-DD HH:MM:SS`）
+    #[serde(default)]
+    pub last_error_at: Option<String>,
 }
 
 /// 创建/更新同步后端配置入参

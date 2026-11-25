@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 94;
+pub const SCHEMA_VERSION: i32 = 95;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -131,6 +131,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             91 => migrate_v91_to_v92(conn)?,
             92 => migrate_v92_to_v93(conn)?,
             93 => migrate_v93_to_v94(conn)?,
+            94 => migrate_v94_to_v95(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -3455,6 +3456,57 @@ fn migrate_v93_to_v94(conn: &Connection) -> Result<(), AppError> {
     )?;
 
     set_version(conn, 94)?;
+    Ok(())
+}
+
+/// v94 -> v95：同步后端 `last_error` + 凭据加密（局域网同步前置）。
+///
+/// - 补 `last_error / last_error_at`（同步失败持久化展示，LAN 主机状态也依赖）
+/// - 遍历 webdav / s3，把凭据字段密封为 `enc:v1:`；失败只 warn，保持明文
+///   （换机器 / 改主机名解不开时，DAO 会置空并打 `_secretUnreadable` 让用户重填）
+fn migrate_v94_to_v95(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v94 -> v95 (同步后端 last_error + 凭据加密)");
+
+    let cols = list_columns(conn, "sync_backends")?;
+    if !cols.iter().any(|c| c == "last_error") {
+        conn.execute_batch("ALTER TABLE sync_backends ADD COLUMN last_error TEXT;")?;
+    }
+    if !cols.iter().any(|c| c == "last_error_at") {
+        conn.execute_batch("ALTER TABLE sync_backends ADD COLUMN last_error_at TEXT;")?;
+    }
+
+    let rows: Vec<(i64, String, String)> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, kind, config_json FROM sync_backends WHERE kind IN ('webdav', 's3')",
+        )?;
+        let mapped = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        mapped.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let mut sealed_count = 0usize;
+    for (id, kind, config) in rows {
+        match super::sync_v1::seal_config_json(&kind, &config) {
+            Ok(sealed) if sealed != config => {
+                conn.execute(
+                    "UPDATE sync_backends SET config_json = ?1 WHERE id = ?2",
+                    rusqlite::params![sealed, id],
+                )?;
+                sealed_count += 1;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                log::warn!(
+                    "[migrate v95] 同步后端 #{} 凭据加密失败，保持明文: {}",
+                    id,
+                    e
+                );
+            }
+        }
+    }
+    if sealed_count > 0 {
+        log::info!("[migrate v95] 已加密 {} 个同步后端的凭据", sealed_count);
+    }
+
+    set_version(conn, 95)?;
     Ok(())
 }
 

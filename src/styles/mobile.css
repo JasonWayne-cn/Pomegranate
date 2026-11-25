@@ -1,0 +1,123 @@
+/* ═══════════════════════════════════════════════════════════
+   移动端 v4 令牌与工具类
+
+   原则：
+   - 真源仍是 themes.css 的 --kb-*（九套主题自动生效）；
+   - --m-* 只做移动语义别名，禁止页面直接写 slate/blue 等色板；
+   - 动画/工具类在此定义，避免 Tailwind 生成"幽灵类名"。
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  --m-page: var(--kb-bg-app);
+  --m-surface: var(--kb-bg-card);
+  --m-elevated: var(--kb-bg-elevated);
+  --m-well: var(--kb-bg-hover);
+
+  --m-line: var(--kb-border);
+  --m-line-weak: var(--kb-border-card);
+
+  --m-ink-1: var(--kb-text-primary);
+  --m-ink-2: var(--kb-text-secondary);
+  --m-ink-3: var(--kb-text-tertiary);
+
+  --m-primary: var(--kb-primary);
+  --m-primary-soft: var(--kb-primary-light);
+  --m-primary-strong: color-mix(in srgb, var(--kb-primary) 78%, #000);
+  --m-on-primary: var(--kb-primary-contrast);
+  --m-accent: var(--kb-accent);
+  --m-accent-strong: color-mix(in srgb, var(--kb-accent) 78%, #000);
+
+  /* 主题化浅色底：用于图标胶囊 / 数据卡 */
+  --m-tint-primary: color-mix(in srgb, var(--kb-primary) 14%, var(--kb-bg-card));
+  --m-tint-accent: color-mix(in srgb, var(--kb-accent) 14%, var(--kb-bg-card));
+
+  /* 功能色：跨主题保持语义稳定 */
+  --m-danger: #ff4d4f;
+  --m-warning: #f59e0b;
+  --m-success: #16a34a;
+  --m-tint-danger: color-mix(in srgb, var(--m-danger) 14%, var(--kb-bg-card));
+  --m-tint-warning: color-mix(in srgb, var(--m-warning) 16%, var(--kb-bg-card));
+  --m-tint-success: color-mix(in srgb, var(--m-success) 14%, var(--kb-bg-card));
+
+  /* 写作热力图 5 档 */
+  --m-heat-0: var(--kb-bg-hover);
+  --m-heat-1: color-mix(in srgb, var(--kb-primary) 18%, var(--kb-bg-card));
+  --m-heat-2: color-mix(in srgb, var(--kb-primary) 36%, var(--kb-bg-card));
+  --m-heat-3: color-mix(in srgb, var(--kb-primary) 60%, var(--kb-bg-card));
+  --m-heat-4: var(--kb-primary);
+
+  --m-radius-card: var(--kb-radius-card);
+  --m-radius-sheet: 20px;
+  --m-gutter: 16px;
+  --m-tap: 44px;
+}
+
+/* ─── 动画（ActionSheet / TaskCreateSheet / MSheet 共用） ─── */
+@keyframes mSheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes mFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-anim-sheet,
+  .m-anim-fade {
+    animation: none !important;
+  }
+}
+
+/* ─── 横滑容器：替代未定义的 scrollbar-none ─── */
+.m-scroll-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+.m-scroll-x::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* ─── 安全区工具类（配合 viewport-fit=cover） ─── */
+.m-safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.m-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ─── 移动编辑器：桌面 Tiptap 工具栏改单行横滑 ─── */
+.m-editor-toolbar .tiptap-toolbar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  border-bottom: none;
+  background: transparent;
+  padding: 4px 8px;
+  scrollbar-width: none;
+}
+.m-editor-toolbar .tiptap-toolbar::-webkit-scrollbar {
+  display: none;
+}
+.m-editor-toolbar .tiptap-toolbar > span {
+  flex-shrink: 0;
+}
+
+/* ─── 触控反馈：移动端统一按压态 ─── */
+.m-tap-row {
+  min-height: var(--m-tap);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}

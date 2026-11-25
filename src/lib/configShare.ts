@@ -60,7 +60,7 @@ export interface EncryptedEnvelope {
 /** 配置类型：每种 kind 对应一组 data */
 export type ConfigKind =
   | "webdav-backend"  // SyncBackend (kind=webdav) — 含密码（旧格式，仅导入端兼容）
-  | "sync-backend"     // SyncBackend（任意 kind: local/webdav/s3）— 通用同步源
+  | "sync-backend"     // SyncBackend（任意 kind: local/webdav/s3/lan）— 通用同步源
   | "ai-model"         // AiModelInput — 含 api_key
   | "asr-config"       // AsrConfig — 语音识别（含 apiKey）
   | "feature-toggles"  // 功能开关 + Dashboard 显示项 + Tab 顺序
@@ -82,13 +82,13 @@ export interface WebDavBackendData {
 }
 
 /**
- * 通用同步源数据：覆盖 local / webdav / s3 全部类型。
+ * 通用同步源数据：覆盖 local / webdav / s3 / lan 全部类型。
  * config 直接是 SyncBackend.configJson 解析后的对象，
  * 各类型字段不同（local: path / webdav: url+username+password /
- * s3: endpoint+bucket+accessKey+secretKey...），含敏感字段。
+ * s3: endpoint+bucket+accessKey+secretKey / lan: hosts+port+fp+token），含敏感字段。
  */
 export interface SyncBackendData {
-  /** 同步源类型：local（本地路径/同步盘）/ webdav / s3 */
+  /** 同步源类型：local（本地路径/同步盘）/ webdav / s3 / lan（局域网直连） */
   kind: SyncBackendKind;
   name: string;
   config: Record<string, unknown>;
@@ -125,10 +125,32 @@ export interface FeatureTogglesData {
   mobileTabKeys?: string[];
 }
 
+/** 配置备份的数据结构版本（与 envelope 版本独立演进） */
+export const BACKUP_VERSION = 1 as const;
+
+/**
+ * 界面 / 编辑器偏好快照。
+ *
+ * 外再包一层 version，方便备份格式自身演进；values 只含 store 白名单里的键，
+ * 导入端对未知键 / 类型不符的键跳过而不是整体失败。
+ */
+export interface UiPrefsData {
+  version: number;
+  values: Record<string, unknown>;
+}
+
 export interface BundleData {
+  /** 配置备份专用（旧版本 bundle 没有这两个字段，导入端按缺省处理） */
+  uiPrefs?: UiPrefsData;
+  appConfig?: Record<string, string>;
+  /** 备份结构版本；缺省 = 旧 bundle */
+  backupVersion?: number;
+
   webdavBackends?: WebDavBackendData[];
   aiModels?: AiModelData[];
+  syncBackends?: SyncBackendData[];
   asrConfig?: AsrConfig;
+  /** 旧版功能开关包；新导出改用 appConfig，仅保留导入兼容 */
   featureToggles?: FeatureTogglesData;
 }
 
@@ -164,6 +186,8 @@ export function exportWebDavBackend(b: SyncBackend): Envelope {
   } catch {
     // 静默失败，envelope 里 url/username 为空字串
   }
+  // `_secretUnreadable` 是 DAO 的解密状态标记，不属于配置本身
+  delete cfg._secretUnreadable;
   return envelope("webdav-backend", {
     name: b.name,
     config: cfg,
@@ -171,9 +195,9 @@ export function exportWebDavBackend(b: SyncBackend): Envelope {
 }
 
 /**
- * 通用同步源导出：覆盖 local / webdav / s3 三种类型。
+ * 通用同步源导出：覆盖 local / webdav / s3 / lan 四种类型。
  * config 直接取 configJson 解析后的对象，原样带上各类型的敏感字段
- * （webdav 的 password、s3 的 secretKey、local 的 path），
+ * （webdav 的 password、s3 的 secretKey、lan 的 token、local 的 path），
  * 由 ShareConfigModal 顶部的 PIN 加密兜底，避免明文外泄。
  */
 export function exportSyncBackend(b: SyncBackend): Envelope {
@@ -183,6 +207,8 @@ export function exportSyncBackend(b: SyncBackend): Envelope {
   } catch {
     // 静默失败：config 为空对象（对方导入后可在编辑里补全）
   }
+  // `_secretUnreadable` 是 DAO 的解密状态标记，不属于配置本身
+  delete config._secretUnreadable;
   return envelope("sync-backend", {
     kind: b.kind,
     name: b.name,

@@ -223,7 +223,7 @@ export function MobileAiChat() {
 
   if (Number.isNaN(convId)) {
     return (
-      <div className="p-4 text-center text-sm text-slate-400">
+      <div className="p-4 text-center text-sm text-[var(--m-ink-3)]">
         对话 ID 无效
       </div>
     );
@@ -231,31 +231,31 @@ export function MobileAiChat() {
 
   return (
     <div
-      className="fixed inset-0 flex flex-col bg-slate-50 z-50"
+      className="fixed inset-0 flex flex-col bg-[var(--m-page)] z-50"
       style={{
         paddingTop: "env(safe-area-inset-top, 0px)",
         paddingBottom: keyboardInset,
       }}
     >
       {/* 顶栏 */}
-      <header className="flex h-12 items-center justify-between border-b border-slate-200 bg-white px-2 shrink-0">
+      <header className="flex h-12 items-center justify-between border-b border-[var(--m-line)] bg-[var(--m-surface)] px-2 shrink-0">
         <button
           onClick={() => navigate("/ai")}
           aria-label="返回"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <ChevronLeft size={24} className="text-slate-700" />
+          <ChevronLeft size={24} className="text-[var(--m-ink-2)]" />
         </button>
         <button
           onClick={() => setModelDrawer(true)}
           className="flex flex-col items-center min-w-0 flex-1 px-2 active:opacity-60"
         >
-          <span className="truncate text-sm font-semibold text-slate-900">
+          <span className="truncate text-sm font-semibold text-[var(--m-ink-1)]">
             {conv?.title || "对话"}
           </span>
-          <span className="flex items-center gap-1 text-[10px] text-orange-600">
+          <span className="flex items-center gap-1 text-[10px] text-[var(--m-accent)]">
             {streaming && (
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-orange-500" />
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--m-tint-accent)]0" />
             )}
             {model?.name ?? "未选模型"}
             {streaming ? " · 生成中" : " ▾"}
@@ -265,7 +265,7 @@ export function MobileAiChat() {
           aria-label="更多"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <MoreVertical size={20} className="text-slate-700" />
+          <MoreVertical size={20} className="text-[var(--m-ink-2)]" />
         </button>
       </header>
 
@@ -275,8 +275,8 @@ export function MobileAiChat() {
         className="flex-1 overflow-y-auto px-3 py-3 space-y-3"
       >
         {messages.length === 0 && !streaming && (
-          <div className="flex flex-col items-center gap-2 py-16 text-slate-400">
-            <Sparkles size={32} className="text-orange-300" />
+          <div className="flex flex-col items-center gap-2 py-16 text-[var(--m-ink-3)]">
+            <Sparkles size={32} className="text-[var(--m-accent)]" />
             <span className="text-sm">开始对话吧</span>
           </div>
         )}
@@ -288,10 +288,10 @@ export function MobileAiChat() {
         )}
         {streaming && !streamingText && (
           <div className="flex gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-orange-100">
-              <Sparkles size={16} className="text-[var(--kb-accent)]" />
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--m-tint-accent)]">
+              <Sparkles size={16} className="text-[var(--m-accent)]" />
             </div>
-            <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 shadow-sm">
+            <div className="rounded-2xl rounded-tl-md bg-[var(--m-surface)] px-4 py-3 shadow-sm">
               <Dots />
             </div>
           </div>
@@ -300,17 +300,17 @@ export function MobileAiChat() {
 
       {/* 输入栏 */}
       <footer
-        className="border-t border-slate-200 bg-white px-2 py-2"
+        className="border-t border-[var(--m-line)] bg-[var(--m-surface)] px-2 py-2"
         style={{ paddingBottom: "calc(8px + env(safe-area-inset-bottom, 0px))" }}
       >
         <div className="flex items-end gap-2">
           <button
             aria-label="附件"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 active:bg-slate-200"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--m-well)] active:bg-[var(--m-well)]"
           >
-            <Plus size={20} className="text-slate-700" />
+            <Plus size={20} className="text-[var(--m-ink-2)]" />
           </button>
-          <div className="flex flex-1 items-center rounded-2xl bg-slate-100 px-3 py-2 min-h-[40px]">
+          <div className="flex flex-1 items-center rounded-2xl bg-[var(--m-well)] px-3 py-2 min-h-[40px]">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -328,7 +328,7 @@ export function MobileAiChat() {
             <button
               onClick={cancel}
               aria-label="停止"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--kb-accent)] text-white active:scale-95"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--m-accent)] text-[var(--m-on-primary)] active:scale-95"
             >
               <Square size={16} fill="currentColor" />
             </button>
@@ -336,16 +336,16 @@ export function MobileAiChat() {
             <button
               onClick={send}
               aria-label="发送"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--kb-primary)] text-white active:scale-95"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--m-primary)] text-[var(--m-on-primary)] active:scale-95"
             >
               <Send size={18} />
             </button>
           ) : (
             <button
               aria-label="语音"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 active:bg-slate-200"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--m-well)] active:bg-[var(--m-well)]"
             >
-              <Mic size={20} className="text-slate-700" />
+              <Mic size={20} className="text-[var(--m-ink-2)]" />
             </button>
           )}
         </div>
@@ -361,10 +361,10 @@ export function MobileAiChat() {
       >
         <div className="flex flex-col gap-2">
           {allModels.length === 0 && (
-            <div className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+            <div className="rounded-xl bg-[var(--m-page)] px-4 py-6 text-center text-sm text-[var(--m-ink-2)]">
               手机端还没有配置模型服务
               <br />
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-[var(--m-ink-3)]">
                 （手机数据库与桌面独立，需要单独配置）
               </span>
             </div>
@@ -375,22 +375,22 @@ export function MobileAiChat() {
               <button
                 key={m.id}
                 onClick={() => switchModel(m)}
-                className={`flex items-center justify-between rounded-xl px-4 py-3 text-left active:bg-slate-100 ${
+                className={`flex items-center justify-between rounded-xl px-4 py-3 text-left active:bg-[var(--m-well)] ${
                   active
-                    ? "border border-orange-200 bg-orange-50"
-                    : "border border-slate-100 bg-white"
+                    ? "border border-[var(--m-accent)] bg-[var(--m-tint-accent)]"
+                    : "border border-[var(--m-line-weak)] bg-[var(--m-surface)]"
                 }`}
               >
                 <div className="flex flex-col min-w-0 flex-1">
-                  <span className="truncate text-sm font-semibold text-slate-900">
+                  <span className="truncate text-sm font-semibold text-[var(--m-ink-1)]">
                     {m.name}
                   </span>
-                  <span className="truncate text-xs text-slate-500">
+                  <span className="truncate text-xs text-[var(--m-ink-2)]">
                     {m.provider} · {m.model_id}
                   </span>
                 </div>
                 {active && (
-                  <span className="text-xs font-semibold text-orange-600 ml-2">
+                  <span className="text-xs font-semibold text-[var(--m-accent)] ml-2">
                     ✓ 当前
                   </span>
                 )}
@@ -399,7 +399,7 @@ export function MobileAiChat() {
           })}
           <button
             onClick={openAddModel}
-            className="mt-2 flex items-center justify-center gap-1 rounded-xl border border-dashed border-orange-300 bg-orange-50 px-4 py-3 text-sm font-semibold text-orange-700 active:bg-orange-100"
+            className="mt-2 flex items-center justify-center gap-1 rounded-xl border border-dashed border-[var(--m-accent)] bg-[var(--m-tint-accent)] px-4 py-3 text-sm font-semibold text-[var(--m-accent)] active:bg-[var(--m-tint-accent)]"
           >
             <Plus size={16} /> 新建模型服务（DeepSeek 等）
           </button>
@@ -428,7 +428,7 @@ function MessageBubble({
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[280px] rounded-2xl rounded-tr-md bg-[var(--kb-primary)] px-4 py-2.5 text-sm text-white whitespace-pre-wrap break-words">
+        <div className="max-w-[280px] rounded-2xl rounded-tr-md bg-[var(--m-primary)] px-4 py-2.5 text-sm text-[var(--m-on-primary)] whitespace-pre-wrap break-words">
           {msg.content}
         </div>
       </div>
@@ -436,18 +436,18 @@ function MessageBubble({
   }
   return (
     <div className="flex gap-2">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-orange-100">
-        <Sparkles size={16} className="text-[var(--kb-accent)]" />
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--m-tint-accent)]">
+        <Sparkles size={16} className="text-[var(--m-accent)]" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-slate-700 shadow-sm whitespace-pre-wrap break-words">
+        <div className="rounded-2xl rounded-tl-md bg-[var(--m-surface)] px-4 py-3 text-sm text-[var(--m-ink-2)] shadow-sm whitespace-pre-wrap break-words">
           {/* 失败 / 停止的回复正文可能是空的，补一句结局说明 */}
           {compactTurnText(msg)}
         </div>
-        <div className="mt-1.5 flex items-center gap-3 px-1 text-[11px] text-slate-400">
+        <div className="mt-1.5 flex items-center gap-3 px-1 text-[11px] text-[var(--m-ink-3)]">
           <button
             onClick={() => onCopy(msg.content)}
-            className="flex items-center gap-0.5 active:text-slate-600"
+            className="flex items-center gap-0.5 active:text-[var(--m-ink-2)]"
           >
             <Copy size={12} /> 复制
           </button>
@@ -466,14 +466,14 @@ function MessageBubble({
 function StreamingBubble({ text }: { text: string }) {
   return (
     <div className="flex gap-2">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-orange-100">
-        <Sparkles size={16} className="text-[var(--kb-accent)]" />
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--m-tint-accent)]">
+        <Sparkles size={16} className="text-[var(--m-accent)]" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-slate-700 shadow-sm whitespace-pre-wrap break-words">
+        <div className="rounded-2xl rounded-tl-md bg-[var(--m-surface)] px-4 py-3 text-sm text-[var(--m-ink-2)] shadow-sm whitespace-pre-wrap break-words">
           {/* 与桌面端一致：剥掉伪工具调用残文与引用标记，两者都不该展示给用户 */}
           {stripPseudoToolCalls(text)}
-          <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-[var(--kb-accent)] align-middle" />
+          <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-[var(--m-accent)] align-middle" />
         </div>
       </div>
     </div>
@@ -484,15 +484,15 @@ function Dots() {
   return (
     <span className="flex items-center gap-1">
       <span
-        className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400"
+        className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--m-ink-3)]"
         style={{ animationDelay: "0ms" }}
       />
       <span
-        className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400"
+        className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--m-ink-3)]"
         style={{ animationDelay: "150ms" }}
       />
       <span
-        className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400"
+        className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--m-ink-3)]"
         style={{ animationDelay: "300ms" }}
       />
     </span>

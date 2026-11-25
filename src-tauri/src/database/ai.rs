@@ -32,9 +32,9 @@ const AI_MODEL_COLS: &str =
 
 /// 把一行 ai_conversations 查询结果转成 AiConversation
 ///
-/// 列顺序约定（v80 起 9 列）：
+/// 列顺序约定（v93 起 10 列）：
 ///   id, title, model_id, attached_note_ids, created_at, updated_at,
-///   agent_max_rounds, agent_tool_timeout, agent_mcp_enabled
+///   agent_max_rounds, agent_tool_timeout, agent_mcp_enabled, is_pinned
 fn row_to_ai_conversation(row: &rusqlite::Row) -> rusqlite::Result<AiConversation> {
     let attached_json: String = row.get(3)?;
     // 反序列化失败回退空数组（防御性：旧数据 / 手动改坏的情况下不让查询炸）
@@ -49,10 +49,11 @@ fn row_to_ai_conversation(row: &rusqlite::Row) -> rusqlite::Result<AiConversatio
         agent_max_rounds: row.get(6)?,
         agent_tool_timeout: row.get(7)?,
         agent_mcp_enabled: row.get::<_, i32>(8)? != 0,
+        is_pinned: row.get::<_, i32>(9)? != 0,
     })
 }
 
-const AI_CONV_COLS: &str = "id, title, model_id, attached_note_ids, created_at, updated_at, agent_max_rounds, agent_tool_timeout, agent_mcp_enabled";
+const AI_CONV_COLS: &str = "id, title, model_id, attached_note_ids, created_at, updated_at, agent_max_rounds, agent_tool_timeout, agent_mcp_enabled, is_pinned";
 
 #[cfg(test)]
 mod tests {
@@ -149,6 +150,80 @@ mod tests {
         let db = temp_db();
         // 库里没东西；删一个不存在的 id 不应报错
         db.delete_ai_model(999).unwrap();
+    }
+
+    #[test]
+    fn pinned_conversations_sort_first() {
+        let db = temp_db();
+        let m = db.create_ai_model(&input("m")).unwrap();
+        let a = db.create_ai_conversation("A", m.id).unwrap();
+        let b = db.create_ai_conversation("B", m.id).unwrap();
+
+        // 置顶较旧的 b 后，它应该排在 a 前面
+        db.set_ai_conversation_pinned(b.id, true).unwrap();
+        let list = db.list_ai_conversations().unwrap();
+        assert_eq!(list[0].id, b.id);
+        assert!(list[0].is_pinned);
+        assert!(!list.iter().find(|c| c.id == a.id).unwrap().is_pinned);
+
+        // 取消置顶后恢复普通排序
+        db.set_ai_conversation_pinned(b.id, false).unwrap();
+        let list = db.list_ai_conversations().unwrap();
+        assert!(list.iter().all(|c| !c.is_pinned));
+    }
+
+    #[test]
+    fn clone_copies_all_messages_and_config() {
+        let db = temp_db();
+        let m = db.create_ai_model(&input("m")).unwrap();
+        let a = db.create_ai_conversation("原标题", m.id).unwrap();
+        db.add_ai_message(a.id, "user", "q1", None).unwrap();
+        db.add_ai_message(a.id, "assistant", "a1", None).unwrap();
+        db.set_ai_conversation_pinned(a.id, true).unwrap();
+
+        let cloned = db.clone_ai_conversation(a.id).unwrap();
+        assert_ne!(cloned.id, a.id);
+        assert_eq!(cloned.title, "原标题");
+        assert!(!cloned.is_pinned, "克隆不继承置顶");
+
+        let msgs = db.list_ai_messages(cloned.id).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].content, "q1");
+        assert_eq!(msgs[1].content, "a1");
+        // 原会话不受影响
+        assert_eq!(db.list_ai_messages(a.id).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn fork_copies_messages_up_to_boundary() {
+        let db = temp_db();
+        let m = db.create_ai_model(&input("m")).unwrap();
+        let a = db.create_ai_conversation("对话", m.id).unwrap();
+        db.add_ai_message(a.id, "user", "q1", None).unwrap();
+        let mid = db.add_ai_message(a.id, "assistant", "a1", None).unwrap();
+        db.add_ai_message(a.id, "user", "q2", None).unwrap();
+        db.add_ai_message(a.id, "assistant", "a2", None).unwrap();
+
+        let forked = db.fork_ai_conversation(a.id, Some(mid.id)).unwrap();
+        let msgs = db.list_ai_messages(forked.id).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].content, "q1");
+        assert_eq!(msgs[1].content, "a1");
+
+        // 全部消息分叉
+        let all = db.fork_ai_conversation(a.id, None).unwrap();
+        assert_eq!(db.list_ai_messages(all.id).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn fork_rejects_message_from_other_conversation() {
+        let db = temp_db();
+        let m = db.create_ai_model(&input("m")).unwrap();
+        let a = db.create_ai_conversation("A", m.id).unwrap();
+        let b = db.create_ai_conversation("B", m.id).unwrap();
+        let foreign = db.add_ai_message(b.id, "user", "x", None).unwrap();
+
+        assert!(db.fork_ai_conversation(a.id, Some(foreign.id)).is_err());
     }
 }
 
@@ -377,7 +452,7 @@ impl Database {
             .lock()
             .map_err(|e| AppError::Custom(e.to_string()))?;
         let sql = format!(
-            "SELECT {} FROM ai_conversations ORDER BY updated_at DESC",
+            "SELECT {} FROM ai_conversations ORDER BY is_pinned DESC, updated_at DESC",
             AI_CONV_COLS
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -463,6 +538,147 @@ impl Database {
             .map_err(|e| AppError::Custom(e.to_string()))?;
         conn.execute("DELETE FROM ai_conversations WHERE id = ?1", [id])?;
         Ok(())
+    }
+
+    /// 设置 / 取消会话置顶
+    pub fn set_ai_conversation_pinned(&self, id: i64, pinned: bool) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let affected = conn.execute(
+            "UPDATE ai_conversations SET is_pinned = ?1 WHERE id = ?2",
+            rusqlite::params![pinned as i32, id],
+        )?;
+        if affected == 0 {
+            return Err(AppError::NotFound(format!("对话 {} 不存在", id)));
+        }
+        Ok(())
+    }
+
+    /// 克隆会话：事务内复制会话配置 + 全部消息，返回新会话
+    ///
+    /// 消息保留原始 `created_at`（顺序与内容一致），主键由 SQLite 重新生成。
+    /// 新会话不继承置顶状态。
+    pub fn clone_ai_conversation(&self, id: i64) -> Result<AiConversation, AppError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let tx = conn.transaction()?;
+
+        let affected = tx.execute(
+            "INSERT INTO ai_conversations
+                 (title, model_id, attached_note_ids, agent_max_rounds,
+                  agent_tool_timeout, agent_mcp_enabled, scope_folder_id, preset_id)
+             SELECT title, model_id, attached_note_ids, agent_max_rounds,
+                    agent_tool_timeout, agent_mcp_enabled, scope_folder_id, preset_id
+             FROM ai_conversations WHERE id = ?1",
+            [id],
+        )?;
+        if affected == 0 {
+            return Err(AppError::NotFound(format!("对话 {} 不存在", id)));
+        }
+        let new_id = tx.last_insert_rowid();
+
+        tx.execute(
+            "INSERT INTO ai_messages
+                 (conversation_id, role, content, references_json,
+                  skill_calls_json, turn_meta_json, created_at)
+             SELECT ?1, role, content, references_json,
+                    skill_calls_json, turn_meta_json, created_at
+             FROM ai_messages WHERE conversation_id = ?2
+             ORDER BY created_at, id",
+            rusqlite::params![new_id, id],
+        )?;
+
+        let sql = format!(
+            "SELECT {} FROM ai_conversations WHERE id = ?1",
+            AI_CONV_COLS
+        );
+        let conv = tx.query_row(&sql, [new_id], row_to_ai_conversation)?;
+        tx.commit()?;
+        Ok(conv)
+    }
+
+    /// 从指定消息（含）分叉为新会话
+    ///
+    /// `up_to_message_id = None` 等价于克隆全部消息（但仍走分叉语义，供调用方区分）。
+    /// 若给定消息不属于该会话则返回 NotFound。
+    pub fn fork_ai_conversation(
+        &self,
+        id: i64,
+        up_to_message_id: Option<i64>,
+    ) -> Result<AiConversation, AppError> {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let tx = conn.transaction()?;
+
+        if let Some(up) = up_to_message_id {
+            let belongs: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM ai_messages WHERE id = ?1 AND conversation_id = ?2)",
+                rusqlite::params![up, id],
+                |row| row.get(0),
+            )?;
+            if !belongs {
+                return Err(AppError::NotFound(format!(
+                    "消息 {} 不属于对话 {}",
+                    up, id
+                )));
+            }
+        }
+
+        let affected = tx.execute(
+            "INSERT INTO ai_conversations
+                 (title, model_id, attached_note_ids, agent_max_rounds,
+                  agent_tool_timeout, agent_mcp_enabled, scope_folder_id, preset_id)
+             SELECT title, model_id, attached_note_ids, agent_max_rounds,
+                    agent_tool_timeout, agent_mcp_enabled, scope_folder_id, preset_id
+             FROM ai_conversations WHERE id = ?1",
+            [id],
+        )?;
+        if affected == 0 {
+            return Err(AppError::NotFound(format!("对话 {} 不存在", id)));
+        }
+        let new_id = tx.last_insert_rowid();
+
+        match up_to_message_id {
+            Some(up) => {
+                tx.execute(
+                    "INSERT INTO ai_messages
+                         (conversation_id, role, content, references_json,
+                          skill_calls_json, turn_meta_json, created_at)
+                     SELECT ?1, role, content, references_json,
+                            skill_calls_json, turn_meta_json, created_at
+                     FROM ai_messages
+                     WHERE conversation_id = ?2 AND id <= ?3
+                     ORDER BY created_at, id",
+                    rusqlite::params![new_id, id, up],
+                )?;
+            }
+            None => {
+                tx.execute(
+                    "INSERT INTO ai_messages
+                         (conversation_id, role, content, references_json,
+                          skill_calls_json, turn_meta_json, created_at)
+                     SELECT ?1, role, content, references_json,
+                            skill_calls_json, turn_meta_json, created_at
+                     FROM ai_messages WHERE conversation_id = ?2
+                     ORDER BY created_at, id",
+                    rusqlite::params![new_id, id],
+                )?;
+            }
+        }
+
+        let sql = format!(
+            "SELECT {} FROM ai_conversations WHERE id = ?1",
+            AI_CONV_COLS
+        );
+        let conv = tx.query_row(&sql, [new_id], row_to_ai_conversation)?;
+        tx.commit()?;
+        Ok(conv)
     }
 
     /// 批量清理对话：older_than_days = None 时清空全部；

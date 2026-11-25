@@ -31,6 +31,15 @@ pub fn install_plugin_from_dir(
     PluginService::install_from_dir(&state.db, &state.data_dir, &path).map_err(|e| e.to_string())
 }
 
+/// 从本地 zip 压缩包安装插件
+#[tauri::command]
+pub fn install_plugin_from_zip(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<PluginInfo, String> {
+    PluginService::install_from_zip(&state.db, &state.data_dir, &path).map_err(|e| e.to_string())
+}
+
 /// 启用插件
 #[tauri::command]
 pub fn enable_plugin(state: State<'_, AppState>, plugin_id: String) -> Result<(), String> {

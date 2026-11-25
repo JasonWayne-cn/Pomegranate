@@ -66,3 +66,10 @@ package-lock.json
 
 # 打包的第三方可执行文件（体积超 GitHub 100MB 限制）
 src/components/editor/*.exe
+
+# 本地 ASR 模型缓存（约 254MB，运行时下载/放置，不进仓库）
+voice-model/
+
+# 临时测试/截图产物
+.tmp-office-test/
+.tmp_svg$n.png

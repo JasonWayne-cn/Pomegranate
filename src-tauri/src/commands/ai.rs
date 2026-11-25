@@ -148,6 +148,44 @@ pub fn rename_ai_conversation(
         .map_err(|e| e.to_string())
 }
 
+/// 置顶 / 取消置顶会话
+#[tauri::command]
+pub fn pin_ai_conversation(
+    state: State<'_, AppState>,
+    id: i64,
+    pinned: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .set_ai_conversation_pinned(id, pinned)
+        .map_err(|e| e.to_string())
+}
+
+/// 克隆会话：复制会话配置与全部消息，返回新会话
+#[tauri::command]
+pub fn clone_ai_conversation(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<AiConversation, String> {
+    state
+        .db
+        .clone_ai_conversation(id)
+        .map_err(|e| e.to_string())
+}
+
+/// 从指定消息（含）分叉为新会话；`up_to_message_id` 为 None 时复制全部消息
+#[tauri::command]
+pub fn fork_ai_conversation(
+    state: State<'_, AppState>,
+    id: i64,
+    up_to_message_id: Option<i64>,
+) -> Result<AiConversation, String> {
+    state
+        .db
+        .fork_ai_conversation(id, up_to_message_id)
+        .map_err(|e| e.to_string())
+}
+
 /// 切换对话使用的 AI 模型
 #[tauri::command]
 pub fn update_ai_conversation_model(

@@ -59,6 +59,13 @@ pub mod index_queue;
 pub mod legacy_api_url;
 pub mod links;
 pub mod mac_ocr;
+// Android 应用自有 Kotlin 类的公共 JNI 桥（APK 安装 / mDNS 组播锁）
+#[cfg(target_os = "android")]
+pub mod android_jni;
+// 局域网同步：协议常量在 sync_v1::lan_protocol；这里是 mDNS / HTTPS 服务端 / 主机编排
+pub mod lan_discovery;
+pub mod lan_server;
+pub mod lan_sync;
 pub mod markdown;
 pub mod mount;
 pub mod ocr;
@@ -115,6 +122,7 @@ pub mod task_reminder;
 pub mod tasks;
 pub mod template;
 pub mod trash;
+pub mod updater_download;
 pub mod url_safety;
 pub mod vault;
 pub mod video;

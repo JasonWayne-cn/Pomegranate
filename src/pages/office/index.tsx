@@ -456,7 +456,13 @@ export default function OfficeWorkspacePage() {
     if (!path) return;
     const state = useOfficeStore.getState();
     const existing = state.sessions.find((item) => item.path === path);
-    if (existing) {
+    // 只有 runtime 仍然存活时才能直接激活；离开页面 / HMR 后 runtime 已清空，
+    // 直接激活会停在「正在准备文档…」且永远不结束，必须交给 openDocument 重建。
+    if (
+      existing &&
+      existing.status !== "error" &&
+      runtimesRef.current.has(existing.id)
+    ) {
       if (state.activeId !== existing.id) activateSession(existing.id);
       return;
     }
@@ -1056,6 +1062,25 @@ export default function OfficeWorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeMeta?.id, activeMeta?.status, activeMeta?.pageCount, version]);
 
+  // 非 PDF 会话同样可能「状态 ready、runtime 已丢失」：离开 Office 工作台再返回、
+  // HMR 或页面重载时 runtimesRef 会被清空，但 Zustand 里的会话元数据还在。
+  // 旧逻辑直接激活旧会话，PPTX/DOCX/XLSX 就会永久停在加载态，必须按原路径重建。
+  useEffect(() => {
+    if (
+      !activeMeta ||
+      activeMeta.status !== "ready" ||
+      activeMeta.format === "pdf"
+    ) {
+      return;
+    }
+    if (runtimesRef.current.has(activeMeta.id)) return;
+    if (autoReopenRef.current.has(activeMeta.path)) return;
+    autoReopenRef.current.add(activeMeta.path);
+    void openDocument(activeMeta.path, !!activeMeta.readOnly);
+    // openDocument 每次渲染重建，这里只响应活跃会话/版本变化
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMeta?.id, activeMeta?.status, activeMeta?.format, version]);
+
   function renderContent() {
     if (!activeMeta) return null;
     if (activeMeta.status === "loading") {
@@ -1153,9 +1178,28 @@ export default function OfficeWorkspacePage() {
     if (activeMeta.format === "docx") {
       const html = runtime?.docxHtml;
       if (!html) {
+        // runtime 缺失：上面的恢复 effect 会自动重建，先展示加载态。
+        if (!runtime) {
+          return (
+            <div className="flex h-full items-center justify-center">
+              <Spin tip="正在准备文档…" />
+            </div>
+          );
+        }
+        // runtime 在但没有解析出 HTML：明确提示，而不是无限转圈。
         return (
-          <div className="flex h-full items-center justify-center">
-            <Spin tip="正在准备文档…" />
+          <div className="p-6">
+            <Alert
+              type="info"
+              showIcon
+              message="没有可显示的文档内容"
+              description={
+                <div className="space-y-2">
+                  <div>未能从该 Word 文件中解析出正文，可能是空文档或格式不受支持。</div>
+                  <a onClick={() => externalOpen(activeMeta)}>用系统默认程序打开</a>
+                </div>
+              }
+            />
           </div>
         );
       }

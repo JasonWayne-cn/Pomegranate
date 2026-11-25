@@ -2,10 +2,49 @@ use std::path::Path;
 
 use crate::database::Database;
 use crate::error::AppError;
-use crate::models::{Note, PageResult, RestoreBatchResult};
+use crate::models::{Note, PageResult, RestoreBatchResult, TrashAutoPurge};
 use crate::services::attachment::AttachmentService;
 use crate::services::image::ImageService;
 use crate::services::pdf::PdfService;
+
+/// 自动清理天数（app_config）；缺省 = [`DEFAULT_PURGE_DAYS`]，"0" = 从不
+const KEY_PURGE_DAYS: &str = "trash.auto_purge_days";
+/// 自动清理规则生效时间（app_config），见 [`TrashAutoPurge::since`]
+const KEY_PURGE_SINCE: &str = "trash.auto_purge_since";
+/// 默认删除满 30 天自动清理
+const DEFAULT_PURGE_DAYS: u32 = 30;
+/// 界面上给的选项；别的值一律拒绝，免得手改配置写进 1 天这种一不小心就删光的值
+const PURGE_DAYS_CHOICES: [u32; 4] = [0, 7, 30, 90];
+
+fn now_local() -> String {
+    chrono::Local::now()
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
+/// 后台定时清理回收站：启动 1 分钟后跑一次（不跟启动抢 IO），之后每 6 小时一次。
+/// 精度要求低（按天算的规则），不必精确唤醒。
+pub async fn run_auto_purge_loop(app: tauri::AppHandle) {
+    use tauri::Manager;
+    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    loop {
+        let app2 = app.clone();
+        let res = tokio::task::spawn_blocking(move || {
+            // setup 降级启动时可能没注册 AppState，用 try_state 别 panic
+            match app2.try_state::<crate::state::AppState>() {
+                Some(state) => TrashService::auto_purge(&state.db, &state.data_dir),
+                None => Ok(0),
+            }
+        })
+        .await;
+        match res {
+            Ok(Err(e)) => log::warn!("回收站自动清理失败: {}", e),
+            Err(e) => log::warn!("回收站自动清理任务异常: {}", e),
+            Ok(Ok(_)) => {}
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(6 * 3600)).await;
+    }
+}
 
 /// 回收站服务
 pub struct TrashService;
@@ -162,6 +201,65 @@ impl TrashService {
             }
         }
         Ok(count)
+    }
+
+    /// 读自动清理设置。
+    ///
+    /// 第一次读（升级到带自动清理的版本后）把「现在」记成生效时间并落库：
+    /// 老用户回收站里的存量笔记从这一刻起算，不会一升级就被成批永久删除。
+    pub fn auto_purge_settings(db: &Database) -> Result<TrashAutoPurge, AppError> {
+        let days = db
+            .get_config(KEY_PURGE_DAYS)?
+            .and_then(|v| v.trim().parse::<u32>().ok())
+            .filter(|d| PURGE_DAYS_CHOICES.contains(d))
+            .unwrap_or(DEFAULT_PURGE_DAYS);
+        let since = match db.get_config(KEY_PURGE_SINCE)? {
+            Some(s) if !s.trim().is_empty() => s,
+            _ => {
+                let now = now_local();
+                db.set_config(KEY_PURGE_SINCE, &now)?;
+                now
+            }
+        };
+        Ok(TrashAutoPurge { days, since })
+    }
+
+    /// 改自动清理天数。生效时间同时重置为现在：
+    /// 改短天数不会让已在回收站里的笔记立刻被删，用户总有 days 天反悔。
+    pub fn set_auto_purge_days(db: &Database, days: u32) -> Result<TrashAutoPurge, AppError> {
+        if !PURGE_DAYS_CHOICES.contains(&days) {
+            return Err(AppError::InvalidInput(format!(
+                "自动清理天数只能是 {:?} 之一",
+                PURGE_DAYS_CHOICES
+            )));
+        }
+        let since = now_local();
+        db.set_config(KEY_PURGE_DAYS, &days.to_string())?;
+        db.set_config(KEY_PURGE_SINCE, &since)?;
+        Ok(TrashAutoPurge { days, since })
+    }
+
+    /// 按设置永久删除到期的回收站笔记（连带图片 / 附件 / 源文件），返回删除条数
+    pub fn auto_purge(db: &Database, data_dir: &Path) -> Result<usize, AppError> {
+        Self::auto_purge_at(db, data_dir, &now_local())
+    }
+
+    fn auto_purge_at(db: &Database, data_dir: &Path, now: &str) -> Result<usize, AppError> {
+        let s = Self::auto_purge_settings(db)?;
+        if s.days == 0 {
+            return Ok(0);
+        }
+        let ids = db.list_expired_trash_ids(s.days, &s.since, now)?;
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let n = Self::permanent_delete_batch(db, data_dir, &ids)?;
+        log::info!(
+            "回收站自动清理：删除满 {} 天的 {} 篇笔记已永久删除",
+            s.days,
+            n
+        );
+        Ok(n)
     }
 
     /// 清空回收站（连带清理所有关联图片 + 源文件）

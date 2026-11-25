@@ -134,35 +134,35 @@ export default function QuickCreatePage() {
   }
 
   return (
-    <div className="text-slate-800">
+    <div className="text-[var(--m-ink-1)]">
       {/* 顶栏 */}
-      <header className="flex h-12 items-center justify-between border-b border-slate-200 bg-white px-2">
+      <header className="flex h-12 items-center justify-between border-b border-[var(--m-line)] bg-[var(--m-surface)] px-2">
         <button
           onClick={() => navigate(-1)}
           aria-label="返回"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <ChevronLeft size={24} className="text-slate-700" />
+          <ChevronLeft size={24} className="text-[var(--m-ink-2)]" />
         </button>
         <h1 className="text-base font-semibold">新建</h1>
         <div className="w-10" />
       </header>
 
-      <div className="bg-slate-50 pb-12">
+      <div className="bg-[var(--m-page)] pb-12">
         {/* 最常用 */}
-        <div className="px-4 pt-4 pb-2 text-xs font-medium text-slate-400">
+        <div className="px-4 pt-4 pb-2 text-xs font-medium text-[var(--m-ink-3)]">
           最常用
         </div>
         <div className="grid grid-cols-2 gap-3 px-4 pb-3">
           <BigCard
-            gradient="from-blue-500 to-blue-700"
+            gradient="from-[var(--m-primary)] to-[var(--m-primary-strong)]"
             icon={<PenLine size={26} />}
             title="空白文档"
             sub="直接开始写"
             onClick={createBlank}
           />
           <BigCard
-            gradient="from-amber-500 to-orange-500"
+            gradient="from-[var(--m-warning)] to-[var(--m-accent)]"
             icon={<Zap size={26} />}
             title="闪念捕获"
             sub="瞬间记录"
@@ -174,44 +174,44 @@ export default function QuickCreatePage() {
         <SectionLabel text="从来源创建文档" />
         <ListGroup>
           <Row
-            icon={<LayoutTemplate size={20} className="text-purple-600" />}
-            iconBg="bg-purple-100"
+            icon={<LayoutTemplate size={20} className="text-[var(--m-accent)]" />}
+            iconBg="bg-[var(--m-tint-accent)]"
             title="从模板"
             sub="读书文档 / 会议纪要 / 周报…"
             onClick={() => message.info("移动端模板功能待开发")}
           />
           <Row
-            icon={<CalendarDays size={20} className="text-green-600" />}
-            iconBg="bg-green-100"
+            icon={<CalendarDays size={20} className="text-[var(--m-success)]" />}
+            iconBg="bg-[var(--m-tint-success)]"
             title="当天日记"
             sub="追加到当天日记"
             onClick={openTodayDaily}
           />
           <Row
-            icon={<LinkIcon size={20} className="text-cyan-600" />}
-            iconBg="bg-cyan-100"
+            icon={<LinkIcon size={20} className="text-[var(--m-primary)]" />}
+            iconBg="bg-[var(--m-tint-primary)]"
             title="网页剪藏"
             badge="智能"
             sub="粘贴链接 → 自动抓成 markdown"
             onClick={openClip}
           />
           <Row
-            icon={<Mic size={20} className="text-red-600" />}
-            iconBg="bg-red-100"
+            icon={<Mic size={20} className="text-[var(--m-danger)]" />}
+            iconBg="bg-[var(--m-tint-danger)]"
             title="语音文档"
             sub="说话即转文字（需 ASR）"
             onClick={() => message.info("移动端语音录入待开发")}
           />
           <Row
-            icon={<Camera size={20} className="text-pink-600" />}
-            iconBg="bg-pink-100"
+            icon={<Camera size={20} className="text-[var(--m-accent)]" />}
+            iconBg="bg-[var(--m-tint-accent)]"
             title="拍照 / 扫描"
             sub="OCR 文字识别后入库"
             onClick={() => message.info("移动端拍照待开发")}
           />
           <Row
-            icon={<Upload size={20} className="text-slate-600" />}
-            iconBg="bg-slate-100"
+            icon={<Upload size={20} className="text-[var(--m-ink-2)]" />}
+            iconBg="bg-[var(--m-well)]"
             title="导入文件"
             sub="选 .md / .markdown / .txt 文件转为文档"
             onClick={pickFile}
@@ -222,8 +222,8 @@ export default function QuickCreatePage() {
         <SectionLabel text="其他" />
         <ListGroup>
           <Row
-            icon={<CheckSquare size={20} className="text-orange-600" />}
-            iconBg="bg-orange-100"
+            icon={<CheckSquare size={20} className="text-[var(--m-accent)]" />}
+            iconBg="bg-[var(--m-tint-accent)]"
             title="新建任务"
             sub="到「今日待办」中"
             onClick={() => navigate("/tasks?new=1")}
@@ -237,7 +237,7 @@ export default function QuickCreatePage() {
           />
         </ListGroup>
 
-        <div className="px-4 py-4 text-center text-[11px] text-slate-400">
+        <div className="px-4 py-4 text-center text-[11px] text-[var(--m-ink-3)]">
           💡 主页底部 + 按钮可呼出此页
         </div>
       </div>
@@ -269,7 +269,7 @@ export default function QuickCreatePage() {
           placeholder="https://..."
           onPressEnter={submitClip}
         />
-        <div className="mt-2 text-xs text-slate-400">
+        <div className="mt-2 text-xs text-[var(--m-ink-3)]">
           已自动从剪贴板抓 URL；后端直连原网页 → readability 提取正文 → 转 markdown 入库，正文图片一并下载到本地
         </div>
       </Modal>
@@ -293,7 +293,7 @@ function BigCard({
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-start rounded-2xl bg-gradient-to-br ${gradient} p-4 text-left text-white shadow-sm active:scale-[0.98] transition-transform`}
+      className={`flex flex-col items-start rounded-2xl bg-gradient-to-br ${gradient} p-4 text-left text-[var(--m-on-primary)] shadow-sm active:scale-[0.98] transition-transform`}
     >
       <div className="mb-3">{icon}</div>
       <div className="text-base font-semibold">{title}</div>
@@ -304,7 +304,7 @@ function BigCard({
 
 function SectionLabel({ text }: { text: string }) {
   return (
-    <div className="px-4 pt-2 pb-1 text-xs font-medium text-slate-400">
+    <div className="px-4 pt-2 pb-1 text-xs font-medium text-[var(--m-ink-3)]">
       {text}
     </div>
   );
@@ -312,7 +312,7 @@ function SectionLabel({ text }: { text: string }) {
 
 function ListGroup({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-4 mb-2 divide-y divide-slate-100 rounded-2xl bg-white">
+    <div className="mx-4 mb-2 divide-y divide-[var(--m-line-weak)] rounded-2xl bg-[var(--m-surface)]">
       {children}
     </div>
   );
@@ -336,7 +336,7 @@ function Row({
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-slate-50"
+      className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-[var(--m-well)]"
     >
       <div
         className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconBg}`}
@@ -344,17 +344,17 @@ function Row({
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+        <div className="flex items-center gap-1.5 text-sm font-medium text-[var(--m-ink-1)]">
           {title}
           {badge && (
-            <span className="rounded bg-cyan-50 px-1.5 py-0.5 text-[9px] font-medium text-cyan-700">
+            <span className="rounded bg-[var(--m-tint-primary)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--m-primary)]">
               {badge}
             </span>
           )}
         </div>
-        <div className="text-[11px] text-slate-500">{sub}</div>
+        <div className="text-[11px] text-[var(--m-ink-2)]">{sub}</div>
       </div>
-      <ChevronRight size={16} className="shrink-0 text-slate-300" />
+      <ChevronRight size={16} className="shrink-0 text-[var(--m-ink-3)]" />
     </button>
   );
 }

@@ -130,10 +130,12 @@ impl Database {
             .map_err(|e| AppError::Custom(e.to_string()))?;
 
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.name, t.color, t.parent_id, COUNT(nt.note_id) as note_count
+            // 数 n.id 而不是 nt.note_id：关联行在回收站 / 隐藏 / 临时笔记身上也还在，
+            // 数关联行会把它们算进去，和点进标签看到的「关联 N 篇」（list_notes_by_tag）对不上
+            "SELECT t.id, t.name, t.color, t.parent_id, COUNT(n.id) as note_count
              FROM tags t
              LEFT JOIN note_tags nt ON t.id = nt.tag_id
-             LEFT JOIN notes n ON nt.note_id = n.id AND n.is_deleted = 0
+             LEFT JOIN notes n ON nt.note_id = n.id AND n.is_deleted = 0 AND n.is_hidden = 0 AND n.is_scratch = 0
              GROUP BY t.id
              ORDER BY COALESCE(t.parent_id, -1), t.sort_order, t.name COLLATE NOCASE",
         )?;
@@ -596,11 +598,12 @@ impl Database {
             .map_err(|e| AppError::Custom(e.to_string()))?;
 
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.name, t.color, t.parent_id, COUNT(nt2.note_id) as note_count
+            // 计数口径同 list_tags：只数正常笔记（n.id），不数关联行
+            "SELECT t.id, t.name, t.color, t.parent_id, COUNT(n.id) as note_count
              FROM tags t
              INNER JOIN note_tags nt ON t.id = nt.tag_id AND nt.note_id = ?1
              LEFT JOIN note_tags nt2 ON t.id = nt2.tag_id
-             LEFT JOIN notes n ON nt2.note_id = n.id AND n.is_deleted = 0
+             LEFT JOIN notes n ON nt2.note_id = n.id AND n.is_deleted = 0 AND n.is_hidden = 0 AND n.is_scratch = 0
              GROUP BY t.id
              ORDER BY t.name",
         )?;

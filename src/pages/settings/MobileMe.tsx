@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { message } from "antd";
+import { getVersion } from "@tauri-apps/api/app";
 import {
   Settings,
   Layers,
@@ -48,12 +49,19 @@ interface CountStats {
 export function MobileMe() {
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [version, setVersion] = useState("");
   const [counts, setCounts] = useState<CountStats>({
     dueCards: 0,
     trashCount: 0,
     modelCount: 0,
     promptCount: 0,
   });
+
+  useEffect(() => {
+    getVersion()
+      .then(setVersion)
+      .catch(() => setVersion(""));
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -89,23 +97,23 @@ export function MobileMe() {
   }, []);
 
   return (
-    <div className="text-slate-800">
+    <div className="text-[var(--m-ink-1)]">
       {/* 头部 banner */}
-      <div className="bg-gradient-to-br from-[var(--kb-primary)] to-blue-700 px-5 pt-4 pb-12 text-white">
+      <div className="bg-gradient-to-br from-[var(--m-primary)] to-[var(--m-primary-strong)] px-5 pt-4 pb-12 text-[var(--m-on-primary)]">
         <div className="flex items-start gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/20 text-2xl backdrop-blur">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--m-surface)]/20 text-2xl backdrop-blur">
             🦊
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-xl font-bold">wenjq</h2>
-            <p className="mt-0.5 text-sm text-blue-100">
+            <p className="mt-0.5 text-sm text-[var(--m-on-primary)] opacity-80">
               Pomegranate · 共 {stats?.total_notes ?? 0} 篇
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
-              <span className="rounded bg-white/20 px-2 py-0.5">
+              <span className="rounded bg-[var(--m-surface)]/20 px-2 py-0.5">
                 📝 {stats?.total_notes ?? 0} 文档
               </span>
-              <span className="rounded bg-white/20 px-2 py-0.5">
+              <span className="rounded bg-[var(--m-surface)]/20 px-2 py-0.5">
                 🏷️ {stats?.total_tags ?? 0} 标签
               </span>
             </div>
@@ -113,7 +121,7 @@ export function MobileMe() {
           <button
             onClick={() => navigate("/about")}
             aria-label="设置"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 active:bg-white/25"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--m-surface)]/15 active:bg-[var(--m-surface)]/25"
           >
             <Settings size={18} />
           </button>
@@ -125,17 +133,17 @@ export function MobileMe() {
         <StatCard
           value={counts.dueCards}
           label="今日待复习"
-          color="text-slate-900"
+          color="text-[var(--m-ink-1)]"
         />
         <StatCard
           value={stats?.total_words ?? 0}
           label="总字数"
-          color="text-slate-900"
+          color="text-[var(--m-ink-1)]"
         />
         <StatCard
           value={stats?.today_updated ?? 0}
           label="今日更新"
-          color="text-green-600"
+          color="text-[var(--m-success)]"
         />
       </div>
 
@@ -144,23 +152,23 @@ export function MobileMe() {
       <div className="px-4">
         <div className="grid grid-cols-3 gap-3">
           <LearnCard
-            icon={<Layers size={20} className="text-purple-600" />}
-            iconBg="bg-purple-100"
+            icon={<Layers size={20} className="text-[var(--m-accent)]" />}
+            iconBg="bg-[var(--m-tint-accent)]"
             label="闪卡复习"
             badge={counts.dueCards > 0 ? `${counts.dueCards} 待复` : undefined}
-            badgeColor="text-purple-600 bg-purple-50"
+            badgeColor="text-[var(--m-accent)] bg-[var(--m-tint-accent)]"
             onClick={() => navigate("/cards")}
           />
           <LearnCard
-            icon={<GitFork size={20} className="text-blue-600" />}
-            iconBg="bg-blue-100"
+            icon={<GitFork size={20} className="text-[var(--m-primary)]" />}
+            iconBg="bg-[var(--m-tint-primary)]"
             label="文档关系"
             sub={`${stats?.total_notes ?? 0} 节点`}
             onClick={() => navigate("/graph")}
           />
           <LearnCard
-            icon={<MessageSquareText size={20} className="text-[var(--kb-accent)]" />}
-            iconBg="bg-orange-100"
+            icon={<MessageSquareText size={20} className="text-[var(--m-accent)]" />}
+            iconBg="bg-[var(--m-tint-accent)]"
             label="Prompt 库"
             sub={`${counts.promptCount} 条`}
             onClick={() => navigate("/prompts")}
@@ -172,28 +180,28 @@ export function MobileMe() {
       <SectionLabel text="数据与同步" />
       <ListGroup>
         <Row
-          icon={<CloudUpload size={20} className="text-blue-500" />}
+          icon={<CloudUpload size={20} className="text-[var(--m-primary)]" />}
           label="云端同步"
-          right={<span className="text-xs text-slate-400">WebDAV</span>}
+          right={<span className="text-xs text-[var(--m-ink-3)]">WebDAV</span>}
           onClick={() => navigate("/sync")}
         />
         <Row
-          icon={<Folder size={20} className="text-amber-500" />}
+          icon={<Folder size={20} className="text-[var(--m-warning)]" />}
           label="导入文档"
-          right={<span className="text-xs text-slate-400">.md / .txt</span>}
+          right={<span className="text-xs text-[var(--m-ink-3)]">.md / .txt</span>}
           onClick={() => navigate("/quick-create")}
         />
         <Row
-          icon={<FileArchive size={20} className="text-purple-500" />}
+          icon={<FileArchive size={20} className="text-[var(--m-accent)]" />}
           label="导出 / 备份"
           info="桌面专属"
         />
         <Row
-          icon={<Trash2 size={20} className="text-red-500" />}
+          icon={<Trash2 size={20} className="text-[var(--m-danger)]" />}
           label="回收站"
           right={
             counts.trashCount > 0 ? (
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-[var(--m-ink-3)]">
                 {counts.trashCount} 项
               </span>
             ) : undefined
@@ -206,23 +214,23 @@ export function MobileMe() {
       <SectionLabel text="外观与隐私" />
       <ListGroup>
         <Row
-          icon={<Moon size={20} className="text-slate-700" />}
+          icon={<Moon size={20} className="text-[var(--m-ink-2)]" />}
           label="深色模式"
-          right={<span className="text-xs text-slate-400">跟随系统</span>}
+          right={<span className="text-xs text-[var(--m-ink-3)]">跟随系统</span>}
           info="跟随系统设置，暂不支持手动切换"
         />
         <Row
-          icon={<Palette size={20} className="text-pink-500" />}
+          icon={<Palette size={20} className="text-[var(--m-accent)]" />}
           label="主题与字体"
           info="桌面专属"
         />
         <Row
-          icon={<LockKeyhole size={20} className="text-red-500" />}
+          icon={<LockKeyhole size={20} className="text-[var(--m-danger)]" />}
           label="隐藏文档 PIN"
           onClick={() => navigate("/hidden")}
         />
         <Row
-          icon={<KeyRound size={20} className="text-amber-500" />}
+          icon={<KeyRound size={20} className="text-[var(--m-warning)]" />}
           label="文档加密 Vault"
           info="桌面专属（移动端只读已加密文档）"
         />
@@ -232,29 +240,33 @@ export function MobileMe() {
       <SectionLabel text="功能与扩展" />
       <ListGroup>
         <Row
-          icon={<Boxes size={20} className="text-blue-500" />}
+          icon={<Boxes size={20} className="text-[var(--m-primary)]" />}
           label="功能模块"
           onClick={() => navigate("/feature-toggle")}
         />
         <Row
-          icon={<Sparkles size={20} className="text-[var(--kb-accent)]" />}
+          icon={<Sparkles size={20} className="text-[var(--m-accent)]" />}
           label="AI 模型管理"
           right={
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-[var(--m-ink-3)]">
               {counts.modelCount} 个
             </span>
           }
           onClick={() => navigate("/ai")}
         />
         <Row
-          icon={<Plug size={20} className="text-blue-500" />}
+          icon={<Plug size={20} className="text-[var(--m-primary)]" />}
           label="MCP 服务器"
           info="MCP 走子进程 sidecar，移动端沙盒禁止 spawn"
         />
         <Row
-          icon={<Info size={20} className="text-slate-500" />}
+          icon={<Info size={20} className="text-[var(--m-ink-2)]" />}
           label="关于"
-          right={<span className="text-xs text-slate-400">v1.7.1</span>}
+          right={
+            <span className="text-xs text-[var(--m-ink-3)]">
+              {version ? `v${version}` : "—"}
+            </span>
+          }
           onClick={() => navigate("/about")}
         />
       </ListGroup>
@@ -284,14 +296,14 @@ function LearnCard({
   return (
     <button
       onClick={onClick}
-      className="flex flex-col items-center gap-1 rounded-2xl bg-white py-4 shadow-sm active:scale-95 transition-transform"
+      className="flex flex-col items-center gap-1 rounded-2xl bg-[var(--m-surface)] py-4 shadow-sm active:scale-95 transition-transform"
     >
       <div
         className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconBg}`}
       >
         {icon}
       </div>
-      <span className="text-xs font-medium text-slate-700">{label}</span>
+      <span className="text-xs font-medium text-[var(--m-ink-2)]">{label}</span>
       {badge && (
         <span
           className={`rounded-full px-1.5 text-[10px] font-medium ${badgeColor}`}
@@ -299,7 +311,7 @@ function LearnCard({
           {badge}
         </span>
       )}
-      {!badge && sub && <span className="text-[10px] text-slate-500">{sub}</span>}
+      {!badge && sub && <span className="text-[10px] text-[var(--m-ink-2)]">{sub}</span>}
     </button>
   );
 }
@@ -307,23 +319,23 @@ function LearnCard({
 function StatCard({
   value,
   label,
-  color = "text-slate-900",
+  color = "text-[var(--m-ink-1)]",
 }: {
   value: number | string;
   label: string;
   color?: string;
 }) {
   return (
-    <div className="rounded-2xl bg-white py-3 text-center shadow-sm">
+    <div className="rounded-2xl bg-[var(--m-surface)] py-3 text-center shadow-sm">
       <div className={`text-xl font-bold ${color}`}>{value}</div>
-      <div className="mt-0.5 text-[11px] text-slate-500">{label}</div>
+      <div className="mt-0.5 text-[11px] text-[var(--m-ink-2)]">{label}</div>
     </div>
   );
 }
 
 function SectionLabel({ text }: { text: string }) {
   return (
-    <div className="px-4 pt-4 pb-2 text-xs font-medium text-slate-400">
+    <div className="px-4 pt-4 pb-2 text-xs font-medium text-[var(--m-ink-3)]">
       {text}
     </div>
   );
@@ -332,7 +344,7 @@ function SectionLabel({ text }: { text: string }) {
 function ListGroup({ children }: { children: React.ReactNode }) {
   return (
     <div className="px-4">
-      <div className="divide-y divide-slate-100 rounded-2xl bg-white">
+      <div className="divide-y divide-[var(--m-line-weak)] rounded-2xl bg-[var(--m-surface)]">
         {children}
       </div>
     </div>
@@ -365,18 +377,18 @@ function Row({
     <button
       onClick={handleClick}
       className={`flex w-full items-center gap-3 px-4 py-3 ${
-        isInteractive ? "active:bg-slate-50" : "active:bg-slate-50"
+        isInteractive ? "active:bg-[var(--m-well)]" : "active:bg-[var(--m-well)]"
       } ${info ? "opacity-70" : ""}`}
     >
       {icon}
-      <span className="flex-1 text-left text-sm text-slate-800">{label}</span>
+      <span className="flex-1 text-left text-sm text-[var(--m-ink-1)]">{label}</span>
       {info ? (
-        <span className="text-xs text-slate-400">不可用</span>
+        <span className="text-xs text-[var(--m-ink-3)]">不可用</span>
       ) : (
         right
       )}
       {isInteractive && (
-        <ChevronRight size={16} className="text-slate-300" />
+        <ChevronRight size={16} className="text-[var(--m-ink-3)]" />
       )}
     </button>
   );

@@ -141,4 +141,48 @@ describe("持久化字段三方一致性（源码静态校验）", () => {
     const orphan = [...new Set(loadedKeys())].filter((k) => !inPayload.has(k));
     expect(orphan, `这些字段读了却不会被写回：${orphan.join(", ")}`).toEqual([]);
   });
+
+  // ── 配置备份：可移植偏好必须始终是"会被持久化"与"可校验"的子集 ──
+  function portableKeys(): string[] {
+    const m = src.match(
+      /export const PORTABLE_UI_PREF_KEYS = \[([\s\S]*?)\] as const;/,
+    );
+    expect(
+      m,
+      "没能定位 PORTABLE_UI_PREF_KEYS —— 数组声明格式改了就同步改这里",
+    ).toBeTruthy();
+    return [...m![1].matchAll(/"([A-Za-z0-9_]+)"/g)].map((x) => x[1]);
+  }
+
+  function portableNormalizerKeys(): string[] {
+    const m = src.match(
+      /const PORTABLE_UI_PREF_NORMALIZERS:[\s\S]*?= \{([\s\S]*?)\n\};/,
+    );
+    expect(
+      m,
+      "没能定位 PORTABLE_UI_PREF_NORMALIZERS —— 校验表改了就同步改这里",
+    ).toBeTruthy();
+    return [...m![1].matchAll(/^\s{2}([A-Za-z0-9_]+):/gm)].map((x) => x[1]);
+  }
+
+  it("可移植偏好键无重复，且都来自持久化 payload", () => {
+    const keys = portableKeys();
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.length).toBeGreaterThan(40);
+    const inPayload = new Set(payloadKeys());
+    const missing = keys.filter((k) => !inPayload.has(k));
+    expect(
+      missing,
+      `这些键不在 collectPersistPayload 里，备份了也读不回：${missing.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("每个可移植键都有校验器（防新增键漏挂导致导入永远跳过）", () => {
+    const keys = new Set(portableKeys());
+    const normalizers = new Set(portableNormalizerKeys());
+    const missing = [...keys].filter((k) => !normalizers.has(k));
+    expect(missing, `这些键没有校验器：${missing.join(", ")}`).toEqual([]);
+    const extra = [...normalizers].filter((k) => !keys.has(k));
+    expect(extra, `这些校验器没有对应键：${extra.join(", ")}`).toEqual([]);
+  });
 });

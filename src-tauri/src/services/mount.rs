@@ -223,6 +223,25 @@ fn ext_lower(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Office 临时/锁文件不参与索引：
+/// - `~$文档.docx`：Word / Excel / PowerPoint 打开文档时生成的锁文件
+/// - `~*.tmp`：`~WRL0001.tmp` / `~WRD0000.tmp` 等复制临时文件
+/// - `.~lock.文档.odt#`：LibreOffice 锁文件
+fn should_skip_file(path: &Path) -> bool {
+    let name = match path.file_name().and_then(|s| s.to_str()) {
+        Some(name) => name.to_ascii_lowercase(),
+        None => return false,
+    };
+    name.starts_with("~$")
+        || name.starts_with(".~lock.")
+        || (name.starts_with('~') && name.ends_with(".tmp"))
+}
+
+/// 相对路径版本，用于过滤库中已有的索引行
+fn should_skip_rel(rel: &str) -> bool {
+    should_skip_file(Path::new(rel))
+}
+
 /// 跳过点目录 / node_modules，避免把 .git / .obsidian / 依赖目录当文档
 fn should_skip_dir(entry: &walkdir::DirEntry) -> bool {
     if entry.depth() == 0 || !entry.file_type().is_dir() {
@@ -415,6 +434,7 @@ impl MountService {
             .filter_map(|e| e.ok())
             .filter(|e| {
                 e.file_type().is_file()
+                    && !should_skip_file(e.path())
                     && classify_ext(&ext_lower(e.path())).is_some()
             })
             .map(|e| e.path().to_path_buf())
@@ -439,7 +459,21 @@ impl MountService {
 
         // 外部移动/归档识别：按 (mtime, size) 给"磁盘上已不存在的旧路径文档"建索引。
         // 同指纹只对应一条文档时才认定为移动，避免把同大小同时间的多份文件配错。
-        let path_index = db.list_external_path_index(mount.id).unwrap_or_default();
+        // Office 临时/锁文件曾在旧版本被按扩展名误索引，这里清掉这些影子文档，
+        // 否则它们会以"缺失"状态留在挂载文件树里。
+        let (path_index, stale_temp_rows): (Vec<_>, Vec<_>) = db
+            .list_external_path_index(mount.id)
+            .unwrap_or_default()
+            .into_iter()
+            .partition(|row| !should_skip_rel(&row.rel_path));
+        for row in stale_temp_rows {
+            match db.delete_note(row.id) {
+                Ok(_) => log::info!("[mount] 清理临时文件索引: {}", row.rel_path),
+                Err(e) => result
+                    .errors
+                    .push(format!("清理临时文件索引失败 {}: {}", row.rel_path, e)),
+            }
+        }
         let mut movable_by_fingerprint: HashMap<(i64, i64), Vec<_>> = HashMap::new();
         for row in path_index {
             if let (Some(mtime), Some(size)) = (row.mtime, row.size) {
@@ -1208,6 +1242,29 @@ mod tests {
         settings.slide = false;
         assert!(!type_enabled(&settings, MountFileKind::Slide));
         assert!(type_enabled(&settings, MountFileKind::Word));
+    }
+
+    #[test]
+    fn office_temp_files_are_skipped() {
+        for name in [
+            "~$手册模板0515.docx",
+            "~$预算.xlsx",
+            "~$提案.pptx",
+            "~WRL0001.tmp",
+            ".~lock.报告.odt#",
+            "子目录/~$临时.docx",
+        ] {
+            assert!(should_skip_rel(name), "{name} 应跳过");
+        }
+        for name in [
+            "手册模板0515.docx",
+            "预算.xlsx",
+            "~报告.md",
+            "普通.tmp",
+            "README.txt",
+        ] {
+            assert!(!should_skip_rel(name), "{name} 不应跳过");
+        }
     }
 
     #[test]

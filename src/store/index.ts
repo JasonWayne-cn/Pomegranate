@@ -2246,6 +2246,250 @@ function collectPersistPayload(state: AppStore): Record<string, unknown> {
   };
 }
 
+// ──────────────────────────────────────────────────────────
+// 配置备份：可移植界面偏好
+// ──────────────────────────────────────────────────────────
+
+/**
+ * 可导出 / 可跨设备恢复的偏好键（`collectPersistPayload` 的子集）。
+ *
+ * 🔴 只放「换机器仍然有意义」的键。以下键刻意排除：
+ *   - `sidePanelWidth` / `uiScale` / `uiScaleUserSet`：跟屏幕尺寸、DPI 绑定
+ *   - `customBgImage`：本机绝对路径
+ *   - `recentSearches`：隐私
+ *   - `notesCollapsedFolderKeys` / `notesHeadingFolded` / `notesFoldersInitialCollapseDone`：
+ *     文件夹 id / 文档 id 相关，换库即失效
+ */
+export const PORTABLE_UI_PREF_KEYS = [
+  "lightTheme",
+  "darkTheme",
+  "themeCategory",
+  "sidePanelVisible",
+  "autoHideActivityBar",
+  "activityBarShowLabels",
+  "focusModeKeepTabs",
+  "editorFontFamily",
+  "editorHeadingFontFamily",
+  "editorFontSize",
+  "editorLineHeight",
+  "editorParagraphSpacing",
+  "editorCodeFontSize",
+  "editorReadingWidth",
+  "editorPaper",
+  "editorRuleLines",
+  "editorFirstLineIndent",
+  "editorHeadingNumber",
+  "editorHeadingNumberFormat",
+  "editorHeadingNumberStartLevel",
+  "editorHeadingNumberSkipManual",
+  "editorGuideLine",
+  "editorTableVCenter",
+  "editorHighlightShortcut",
+  "autoSaveEnabled",
+  "autoSaveDelay",
+  "pasteCodeAsBlock",
+  "defaultViewMode",
+  "tasksDefaultView",
+  "tasksCalendarColorBy",
+  "notesPanelTab",
+  "outlineVisible",
+  "outlinePosition",
+  "notesUncategorizedExpanded",
+  "notesShowOnlyFolders",
+  "notesCollapseFoldersOnStartup",
+  "notesTreeGuideLines",
+  "notesRowSpacing",
+  "notesPageSize",
+  "notesListColumnPrefs",
+  "themeOverridesEnabled",
+  "customAccent",
+  "customBgDim",
+  "customBgBlur",
+  "customBgFit",
+  "customSurfaceAlpha",
+] as const;
+
+export type PortableUiPrefKey = (typeof PORTABLE_UI_PREF_KEYS)[number];
+
+type PrefNormalizeResult = { value: unknown } | null;
+
+const prefBool = (v: unknown): PrefNormalizeResult =>
+  typeof v === "boolean" ? { value: v } : null;
+
+const prefNonEmptyString = (v: unknown): PrefNormalizeResult => {
+  if (typeof v !== "string" || !v.trim()) return null;
+  return { value: v.trim() };
+};
+
+const prefNumberIn =
+  (min: number, max: number, integer = false): ((v: unknown) => PrefNormalizeResult) =>
+  (v) => {
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    let n = Math.max(min, Math.min(max, v));
+    if (integer) n = Math.round(n);
+    return { value: n };
+  };
+
+const prefEnum =
+  <T extends string>(allowed: readonly T[]): ((v: unknown) => PrefNormalizeResult) =>
+  (v) =>
+    typeof v === "string" && (allowed as readonly string[]).includes(v)
+      ? { value: v }
+      : null;
+
+/**
+ * 每个可移植键的校验 / 归一化函数。
+ *
+ * - 类型或范围不合法 → 返回 null（导入时跳过，不写脏值）
+ * - 数值范围与 store setter 的 clamp 保持一致
+ * - 主题走 `normalizeThemeMode`，兼容旧主题 id
+ */
+const PORTABLE_UI_PREF_NORMALIZERS: Record<
+  PortableUiPrefKey,
+  (v: unknown) => PrefNormalizeResult
+> = {
+  lightTheme: (v) =>
+    typeof v === "string" ? { value: normalizeThemeMode(v, "light-lilac") } : null,
+  darkTheme: (v) =>
+    typeof v === "string" ? { value: normalizeThemeMode(v, "dark-ember") } : null,
+  themeCategory: prefEnum(["light", "dark"] as const),
+  sidePanelVisible: prefBool,
+  autoHideActivityBar: prefBool,
+  activityBarShowLabels: prefBool,
+  focusModeKeepTabs: prefBool,
+  editorFontFamily: prefNonEmptyString,
+  editorHeadingFontFamily: prefNonEmptyString,
+  editorFontSize: prefNumberIn(12, 22, true),
+  editorLineHeight: prefNumberIn(1.2, 2.5),
+  editorParagraphSpacing: prefNumberIn(0, 2),
+  editorCodeFontSize: (v) => {
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    const n = Math.round(v);
+    return { value: n <= 0 ? 0 : Math.max(12, Math.min(20, n)) };
+  },
+  editorReadingWidth: (v) => {
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    const n = Math.round(v);
+    return { value: n <= 0 ? 0 : Math.max(480, Math.min(1600, n)) };
+  },
+  editorPaper: prefBool,
+  editorRuleLines: prefEnum(["none", "lines", "grid"] as const),
+  editorFirstLineIndent: prefBool,
+  editorHeadingNumber: prefBool,
+  editorHeadingNumberFormat: prefEnum(["decimal", "chineseOutline"] as const),
+  editorHeadingNumberStartLevel: prefNumberIn(1, 6, true),
+  editorHeadingNumberSkipManual: prefBool,
+  editorGuideLine: prefBool,
+  editorTableVCenter: prefBool,
+  // 空串是合法值（用户主动禁用高亮快捷键）
+  editorHighlightShortcut: (v) =>
+    typeof v === "string" ? { value: v.trim() } : null,
+  autoSaveEnabled: prefBool,
+  autoSaveDelay: prefNumberIn(500, 30000, true),
+  pasteCodeAsBlock: prefBool,
+  defaultViewMode: prefEnum(["edit", "read"] as const),
+  tasksDefaultView: prefEnum([
+    "list",
+    "kanban",
+    "quadrant",
+    "calendar",
+    "gantt",
+  ] as const),
+  tasksCalendarColorBy: prefEnum(["priority", "category"] as const),
+  notesPanelTab: prefEnum(["folders", "tags"] as const),
+  outlineVisible: prefBool,
+  outlinePosition: prefEnum(["left", "right"] as const),
+  notesUncategorizedExpanded: prefBool,
+  notesShowOnlyFolders: prefBool,
+  notesCollapseFoldersOnStartup: prefBool,
+  notesTreeGuideLines: prefBool,
+  notesRowSpacing: prefEnum(["compact", "standard", "comfortable"] as const),
+  notesPageSize: prefNumberIn(1, NOTES_PAGE_SIZE_MAX, true),
+  notesListColumnPrefs: (v) => {
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+    return { value: sanitizeNotesColumnPrefs(v) };
+  },
+  themeOverridesEnabled: prefBool,
+  customAccent: (v) => {
+    if (v === null) return { value: null };
+    if (typeof v !== "string") return null;
+    return /^#[0-9a-fA-F]{3,8}$/.test(v.trim())
+      ? { value: v.trim() }
+      : null;
+  },
+  customBgDim: prefNumberIn(0, 1),
+  customBgBlur: prefNumberIn(0, 30),
+  customBgFit: prefEnum(["cover", "contain", "center", "repeat"] as const),
+  customSurfaceAlpha: prefNumberIn(0.3, 1),
+};
+
+/**
+ * 收集当前界面的可移植偏好快照（只读，不改状态）。
+ *
+ * 从 `collectPersistPayload` 派生，保证"哪些设置会持久化"与"哪些能备份"
+ * 不会各维护一份清单而漂移。
+ */
+export function getPortableUiPrefs(): Record<string, unknown> {
+  const payload = collectPersistPayload(useAppStore.getState());
+  const out: Record<string, unknown> = {};
+  for (const key of PORTABLE_UI_PREF_KEYS) out[key] = payload[key];
+  return out;
+}
+
+/**
+ * 纯校验：把未知输入归一成可写入 store 的 patch。
+ *
+ * 未知键与类型 / 范围不合法键进 `skipped`，不抛错 —— 备份来自别的设备 /
+ * 别的版本，宽容处理比整包失败更符合预期。
+ */
+export function normalizePortableUiPrefs(values: Record<string, unknown>): {
+  values: Partial<Record<PortableUiPrefKey, unknown>>;
+  skipped: string[];
+} {
+  const out: Partial<Record<PortableUiPrefKey, unknown>> = {};
+  const skipped: string[] = [];
+  for (const [key, raw] of Object.entries(values)) {
+    const normalizer =
+      PORTABLE_UI_PREF_NORMALIZERS[key as PortableUiPrefKey];
+    if (!normalizer) {
+      skipped.push(key);
+      continue;
+    }
+    const result = normalizer(raw);
+    if (!result) {
+      skipped.push(key);
+      continue;
+    }
+    out[key as PortableUiPrefKey] = result.value;
+  }
+  return { values: out, skipped };
+}
+
+/**
+ * 批量恢复界面偏好。
+ *
+ * 校验通过的键一次性 setState，再立即刷新 CSS 变量并落盘：
+ * - 不走 40 个 setter（多数只是 set，个别 clamp 已在校验器里做过）
+ * - 字体 / 版面 / 笔记列表 / 主题自定义都有 subscribe，但这里显式再调一次，
+ *   保证导入后首帧就是新外观
+ */
+export async function applyPortableUiPrefs(
+  values: Record<string, unknown>,
+): Promise<{ applied: number; skipped: string[] }> {
+  const { values: patch, skipped } = normalizePortableUiPrefs(values);
+  const applied = Object.keys(patch).length;
+  if (applied > 0) {
+    useAppStore.setState(patch as Partial<AppStore>);
+    const state = useAppStore.getState();
+    applyEditorTypography(state);
+    applyEditorLayout(state);
+    applyNotesListPrefs(state);
+    void applyThemeOverrides(state);
+  }
+  await flushSettingsToDisk();
+  return { applied, skipped };
+}
+
 /**
  * 持久化字段的等值判断。
  *

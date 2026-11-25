@@ -22,6 +22,7 @@ use std::time::Duration;
 use chrono::{Local, NaiveDateTime};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::error::AppError;
 use crate::models::{SyncBackend, SyncPullResult, SyncPushResult};
 use crate::services::sync_v1;
 use crate::state::AppState;
@@ -201,6 +202,10 @@ pub(crate) fn run_pull_blocking(
         sync_v1::backend::parse_auth(cfg.kind, &cfg.config_json).map_err(|e| e.to_string())?;
     let backend_impl = sync_v1::backend::create_backend(auth).map_err(|e| e.to_string())?;
 
+    // 「本机中转」同步源和别的设备经局域网同步写的是同一个目录：先拿库级租约
+    let _lan_lease =
+        crate::services::lan_sync::acquire_host_lease(&state.lan_sync, &state.db, backend_id)?;
+
     let app_version = app.package_info().version.to_string();
     let device = hostname_short();
     let conflicts_dir = app
@@ -210,7 +215,7 @@ pub(crate) fn run_pull_blocking(
         .join("sync_conflicts")
         .join(format!("backend_{}", backend_id));
 
-    let r = sync_v1::pull::pull(
+    let result = sync_v1::pull::pull(
         &state.db,
         backend_id,
         backend_impl.as_ref(),
@@ -219,8 +224,13 @@ pub(crate) fn run_pull_blocking(
         &conflicts_dir,
         &state.data_dir,
         app, // AppHandle 自身实现 Emitter
-    )
-    .map_err(|e| e.to_string())?;
+    );
+
+    // 成败都要看：地址是连上之后才记下的，哪怕后面同步出错，新地址本身是对的
+    remember_discovered_hosts(&state.db, &cfg, backend_impl.as_ref());
+    record_sync_error(&state.db, backend_id, "pull", result.as_ref().err());
+
+    let r = result.map_err(|e| e.to_string())?;
 
     // 拉取产生变更后重建向量；防抖队列会合并频繁同步
     if r.downloaded > 0 || r.deleted_local > 0 {
@@ -245,10 +255,14 @@ pub(crate) fn run_push_blocking(
         sync_v1::backend::parse_auth(cfg.kind, &cfg.config_json).map_err(|e| e.to_string())?;
     let backend_impl = sync_v1::backend::create_backend(auth).map_err(|e| e.to_string())?;
 
+    // 「本机中转」同步源和别的设备经局域网同步写的是同一个目录：先拿库级租约
+    let _lan_lease =
+        crate::services::lan_sync::acquire_host_lease(&state.lan_sync, &state.db, backend_id)?;
+
     let app_version = app.package_info().version.to_string();
     let device = hostname_short();
 
-    let r = sync_v1::push::push(
+    let result = sync_v1::push::push(
         &state.db,
         backend_id,
         backend_impl.as_ref(),
@@ -256,9 +270,65 @@ pub(crate) fn run_push_blocking(
         &device,
         &state.data_dir,
         app,
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(r)
+    );
+    remember_discovered_hosts(&state.db, &cfg, backend_impl.as_ref());
+    record_sync_error(&state.db, backend_id, "push", result.as_ref().err());
+    result.map_err(|e| e.to_string())
+}
+
+/// 局域网同步：记下的地址连不上、经 mDNS 找到电脑新地址时，写回同步源配置的 `hosts`，
+/// 下次直接连。写失败只记日志（下次同步会再找一遍，不影响本次结果）
+fn remember_discovered_hosts(
+    db: &crate::database::Database,
+    cfg: &crate::models::SyncBackend,
+    backend_impl: &dyn sync_v1::backend::SyncBackendImpl,
+) {
+    let Some(hosts) = backend_impl.take_discovered_hosts() else {
+        return;
+    };
+    match updated_hosts_config(&cfg.config_json, &hosts) {
+        Some(json) => match db.set_sync_backend_config_json(cfg.id, cfg.kind, &json) {
+            Ok(()) => log::info!(
+                "[sync-v1] backend #{} 电脑地址已更新为 {}",
+                cfg.id,
+                hosts.join("、")
+            ),
+            Err(e) => log::warn!("[sync-v1] backend #{} 写回电脑新地址失败: {}", cfg.id, e),
+        },
+        None => log::warn!(
+            "[sync-v1] backend #{} 配置读不出或凭据已失效，不写回新地址",
+            cfg.id
+        ),
+    }
+}
+
+/// 把 config_json 的 `hosts` 换成新地址；配置解析不了或凭据解不开
+/// （`_secretUnreadable`，此时令牌已被置空，写回会把空令牌存进去）时返回 None
+fn updated_hosts_config(config_json: &str, hosts: &[String]) -> Option<String> {
+    let serde_json::Value::Object(mut map) =
+        serde_json::from_str::<serde_json::Value>(config_json).ok()?
+    else {
+        return None;
+    };
+    if map.contains_key(crate::database::sync_v1::SECRET_UNREADABLE_KEY) {
+        return None;
+    }
+    map.insert("hosts".into(), serde_json::json!(hosts));
+    serde_json::to_string(&serde_json::Value::Object(map)).ok()
+}
+
+/// 把本次 pull / push 的成败写进 backend 的 last_error。写失败只记日志：
+/// 这是展示用的附加状态，不能反过来让一次成功的同步报错。
+fn record_sync_error(
+    db: &crate::database::Database,
+    backend_id: i64,
+    op: &str,
+    err: Option<&AppError>,
+) {
+    let msg = err.map(|e| format!("{} 失败: {}", op, e));
+    if let Err(e) = db.set_sync_backend_error(backend_id, msg.as_deref()) {
+        log::warn!("[sync-v1] backend #{} 记录同步结果失败: {}", backend_id, e);
+    }
 }
 
 /// emit 同步结果给前端（设置页 SyncV1Section 监听，失败时弹 toast 提示）

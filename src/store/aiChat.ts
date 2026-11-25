@@ -17,6 +17,10 @@ interface AiChatStore {
   createConversation: () => Promise<AiConversation>;
   deleteConversation: (id: number) => Promise<void>;
   renameConversation: (id: number, title: string) => Promise<void>;
+  /** 置顶 / 取消置顶；后端排序为准，操作后重拉列表 */
+  pinConversation: (id: number, pinned: boolean) => Promise<void>;
+  /** 克隆会话并切换到新会话 */
+  cloneConversation: (id: number) => Promise<AiConversation>;
   /** 批量清理：days 不传 = 全清；传 N = 清理 N 天前未活动的对话。返回删除条数 */
   cleanupConversations: (days?: number) => Promise<number>;
   updateConversationModel: (id: number, modelId: number) => Promise<void>;
@@ -64,6 +68,19 @@ export const useAiChatStore = create<AiChatStore>((set, get) => ({
         c.id === id ? { ...c, title } : c,
       ),
     }));
+  },
+
+  pinConversation: async (id, pinned) => {
+    await aiChatApi.pinConversation(id, pinned);
+    // 排序由后端 is_pinned DESC, updated_at DESC 决定，重拉最稳
+    await get().loadConversations();
+  },
+
+  cloneConversation: async (id) => {
+    const conv = await aiChatApi.cloneConversation(id);
+    await get().loadConversations();
+    set({ activeConvId: conv.id });
+    return conv;
   },
 
   cleanupConversations: async (days) => {

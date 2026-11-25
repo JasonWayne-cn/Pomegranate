@@ -449,6 +449,7 @@ export function AiModelsSection({ compact }: Props) {
           />
           <Popconfirm
             title="确认删除此模型？"
+            description="该模型下的所有 AI 对话会一并删除，且不可恢复。"
             onConfirm={() => void handleDeleteModel(record.id)}
           >
             <Button type="text" size="small" danger icon={<Trash2 size={14} />} />

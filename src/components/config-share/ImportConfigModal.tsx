@@ -140,8 +140,14 @@ export function ImportConfigModal({
     setScanning(false);
   }
 
+  // 配置备份（.kbconfig）含 uiPrefs/appConfig，必须走「设置 → 配置备份」的
+  // 专用导入流程（分类预览、PIN、界面偏好恢复）；通用导入会静默丢掉这些字段。
+  const isSettingsBackup =
+    parsed?.kind === "bundle" &&
+    (!!parsed.data.uiPrefs || !!parsed.data.appConfig);
+
   async function doImport() {
-    if (!parsed || importing) return;
+    if (!parsed || importing || isSettingsBackup) return;
     setImporting(true);
     try {
       const summary = await applyEnvelope(parsed);
@@ -263,18 +269,24 @@ export function ImportConfigModal({
       )}
       {parsed && (
         <Alert
-          type="success"
+          type={isSettingsBackup ? "warning" : "success"}
           showIcon
           className="!mt-3"
-          message={`识别到：${KIND_LABELS[parsed.kind]}`}
+          message={
+            isSettingsBackup
+              ? "这是配置备份文件，请到专用入口导入"
+              : `识别到：${KIND_LABELS[parsed.kind]}`
+          }
           description={
-            parsed.kind === "webdav-backend"
-              ? `名称：${parsed.data.name} · URL：${parsed.data.config.url}`
-              : parsed.kind === "ai-model"
-                ? `名称：${parsed.data.name} · ${parsed.data.provider} · ${parsed.data.model_id}`
-                : parsed.kind === "feature-toggles"
-                  ? "包含功能开关偏好"
-                  : "包含多项配置"
+            isSettingsBackup
+              ? "文件包含界面 / 应用设置，通用导入会忽略这些字段。请前往「设置 → 应用设置 → 数据同步与备份 → 配置备份」导入。"
+              : parsed.kind === "webdav-backend"
+                ? `名称：${parsed.data.name} · URL：${parsed.data.config.url}`
+                : parsed.kind === "ai-model"
+                  ? `名称：${parsed.data.name} · ${parsed.data.provider} · ${parsed.data.model_id}`
+                  : parsed.kind === "feature-toggles"
+                    ? "包含功能开关偏好"
+                    : "包含多项配置"
           }
         />
       )}
@@ -288,7 +300,7 @@ export function ImportConfigModal({
         </button>
         <button
           onClick={doImport}
-          disabled={!parsed || importing}
+          disabled={!parsed || importing || isSettingsBackup}
           className="flex-1 rounded-lg bg-[var(--kb-primary)] py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           {importing ? "导入中…" : "导入"}

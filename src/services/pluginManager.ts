@@ -268,8 +268,45 @@ export class PluginManager {
     // 搭建任务事件桥接（Tauri emit → 插件 handler）
     await this.setupEventBridge();
 
+    // 内置插件由启动时的后台线程安装，完成后通知前端刷新。
+    await this.listenBundledPluginInstalls();
+
     this.initialized = true;
     console.log(`[PluginManager] 初始化完成，${this.active.size} 个插件已激活`);
+  }
+
+  /** 监听内置插件自动安装事件：重新扫描并激活新插件。 */
+  private async listenBundledPluginInstalls(): Promise<void> {
+    try {
+      await listen("plugin:auto-installed", () => {
+        void this.refreshInstalledPlugins();
+      });
+    } catch (e) {
+      console.warn("[PluginManager] 监听内置插件安装事件失败:", e);
+    }
+  }
+
+  /** 重新扫描插件目录并激活尚未激活的已启用插件。 */
+  private async refreshInstalledPlugins(): Promise<void> {
+    try {
+      await pluginApi.scan();
+      const plugins = await pluginApi.list();
+      for (const plugin of plugins) {
+        if (
+          plugin.enabled &&
+          plugin.status === "installed" &&
+          !this.active.has(plugin.id)
+        ) {
+          try {
+            await this.activatePlugin(plugin);
+          } catch (e) {
+            console.error(`[PluginManager] 插件 ${plugin.id} 启动失败:`, e);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[PluginManager] 刷新内置插件失败:", e);
+    }
   }
 
   /** 激活单个插件 */

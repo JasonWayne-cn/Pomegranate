@@ -55,7 +55,7 @@ tauri-plugin-process = "2"
 # reqwest：移动端 NDK 不带 OpenSSL，统一用 rustls-tls（桌面端也能用，行为一致；
 # 系统证书池靠 rustls-native-certs 加载，避免迁移成本）
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "rustls-tls-native-roots"] }
-tokio = { version = "1", features = ["sync", "fs", "io-util", "rt", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["sync", "fs", "io-util", "net", "rt", "rt-multi-thread", "time"] }
 # T-024b S3 协议 backend：rust-s3 0.34 即使开 tokio-rustls-tls 也强制带 native-tls/openssl
 # 链接，移动端 NDK 不带 OpenSSL 编译失败 → 整段移到 target.desktop dependencies
 # 移动端按 T-M014 计划改"手动同步 + 仅 WebDAV/local"，等 rust-s3 修了 features 隔离再启用
@@ -114,6 +114,21 @@ dom_query = "0.28"
 # Excel / ODS 解析、Word 导出、txt 编码识别 — 双端通用纯 Rust 工具
 # 这些在原文件上面已声明 calamine / docx-rs / chardetng / encoding_rs 等，保持位置不变
 
+# ─── 局域网同步（桌面当主机；手机端只用客户端；L5 手机当主机也用同一套）────
+# 自签证书 + 指纹固定校验：与 reqwest 用同一个 rustls 0.23 + ring，不引入第二套加密后端
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+# axum::serve 不带 TLS：用 tokio-rustls 接 TLS、hyper-util 把 Router 接到每条 TLS 连接上
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem", "crypto"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["server", "http1", "tokio", "service"] }
+hyper = { version = "1", features = ["server", "http1"] }
+# 服务端（MCP HTTP 与局域网同步共用）
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query"] }
+# 列出本机所有局域网 IPv4 给配对二维码（多网卡 / VPN 时不只一个）
+if-addrs = "0.15"
+# mDNS 广播 / 发现：换 IP 后手机按证书指纹找回电脑
+mdns-sd = "0.21"
+
 # ─── 桌面专属依赖（cfg(desktop) 编译时启用；移动端不引入）────
 [target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
 # 系统托盘 feature
@@ -136,8 +151,6 @@ rmcp = { version = "1.5", features = [
     "transport-child-process",
     "transport-streamable-http-server",
 ] }
-# 承载 rmcp 的 streamable HTTP tower::Service
-axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 # rust-s3 S3 协议 backend：rust-s3 0.34 强引入 openssl，移动端编译失败
 rust-s3 = { version = "0.34", default-features = false, features = ["tokio-rustls-tls"] }
 # Excel / ODS 解析（calamine 在 Android target 编译失败，先桌面端独享；
@@ -164,6 +177,12 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_Shell",
     "Win32_UI_HiDpi",
 ] }
+
+# ─── Android 专属 ────────────────────────────────
+# APK 安装 / 局域网 mDNS 组播锁都需要 JNI 调应用自有 Kotlin 类
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
 
 # ─── 编译优化 ────────────────────────────────────
 

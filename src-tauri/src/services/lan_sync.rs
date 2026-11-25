@@ -1,0 +1,504 @@
+//! 局域网同步（主机端编排）：开关 / 配对 / 本机中转同步源 / 租约。
+//!
+//! 整体方案见 docs/tasks/lan-sync-tasks.md。电脑常驻当主机；手机也能当主机（只在「当主机」页面开着时），
+//! 让别的手机直接同步，不用电脑。主机做两件事：
+//! 1. 「本机中转」同步源：一个指向 `<数据目录>/lan-vault` 的普通「本地目录」同步源，
+//!    电脑照常把笔记同步进去（同步列表里看得到，自动同步默认开）
+//! 2. 局域网服务（lan_server）：把同一个目录按同步接口暴露给手机
+//!
+//! 两边写同一个目录，靠 [`LanSyncState::lease`] 互斥：手机写之前经网络申请，
+//! 电脑同步这个中转源之前在进程内申请（见 [`acquire_host_lease`]）。
+//!
+//! 配置都存在 app_config：证书 / 令牌换了，已配对的手机就要重新扫码。
+
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use base64::Engine;
+use tokio::sync::Mutex;
+
+use crate::database::Database;
+use crate::error::AppError;
+use crate::models::{SyncBackendInput, SyncBackendKind};
+use crate::services::lan_server::{self, LanIdentity, RunningLanServer, VaultLease};
+use crate::services::sync_v1::lan_protocol::{cert_fingerprint, LEASE_TTL_SECS};
+
+pub const KEY_ENABLED: &str = "lan_sync.enabled";
+pub const KEY_PORT: &str = "lan_sync.port";
+pub const KEY_TOKEN: &str = "lan_sync.token";
+pub const KEY_CERT: &str = "lan_sync.cert_der";
+pub const KEY_KEY: &str = "lan_sync.key_der";
+pub const KEY_BACKEND_ID: &str = "lan_sync.backend_id";
+/// 最近一次收到手机改动的时间（本地时间）。中转源自己每 5 分钟也会同步，不能拿它的时间当「手机同步时间」
+pub const KEY_LAST_CLIENT_SYNC: &str = "lan_sync.last_client_sync";
+
+/// 默认端口：避开常见开发端口；被占用时用户可在设置里改
+pub const DEFAULT_PORT: u16 = 47321;
+
+/// 中转库目录名（在数据目录下）
+const VAULT_DIR: &str = "lan-vault";
+
+/// 电脑同步中转源时，手机正拿着租约的话最多等多久
+const HOST_LEASE_WAIT: Duration = Duration::from_secs(30);
+
+/// 局域网同步运行时状态（放在 AppState 里）
+pub struct LanSyncState {
+    server: Mutex<Option<RunningLanServer>>,
+    /// mDNS 广播（和服务同生命周期；广播失败不影响服务，这里就是 None）
+    advertiser: Mutex<Option<crate::services::lan_discovery::Advertiser>>,
+    /// 中转库目录的写租约：服务端和电脑端同步共用这一把
+    pub lease: VaultLease,
+}
+
+impl Default for LanSyncState {
+    fn default() -> Self {
+        Self {
+            server: Mutex::new(None),
+            advertiser: Mutex::new(None),
+            lease: VaultLease::new(Duration::from_secs(LEASE_TTL_SECS)),
+        }
+    }
+}
+
+/// 给前端的状态
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LanSyncStatus {
+    pub enabled: bool,
+    pub running: bool,
+    pub port: u16,
+    /// 本机局域网地址（手机连这些）
+    pub hosts: Vec<String>,
+    pub device_name: String,
+    /// 证书指纹，用户可与手机上显示的核对
+    pub fingerprint: Option<String>,
+    /// 「本机中转」同步源 id
+    pub backend_id: Option<i64>,
+    /// 最近一次收到手机改动的时间；从没同步过为 None
+    pub last_client_sync: Option<String>,
+    /// 「本机中转」源最近一次同步失败的错误（合并手机改动失败时用户在这里能看到）
+    pub host_last_error: Option<String>,
+}
+
+fn get(db: &Database, key: &str) -> String {
+    db.get_config(key).ok().flatten().unwrap_or_default()
+}
+
+pub fn vault_root(data_dir: &Path) -> PathBuf {
+    data_dir.join(VAULT_DIR)
+}
+
+/// 主机名：配对码里给对方看、mDNS 实例名里用
+pub fn device_name() -> String {
+    // 安卓的 hostname 是 localhost 之类，对方看不出是哪台手机：取机型名
+    #[cfg(target_os = "android")]
+    if let Some(name) = android_model_name() {
+        return name;
+    }
+    hostname::get()
+        .ok()
+        .and_then(|h| h.into_string().ok())
+        .filter(|s| !s.trim().is_empty() && s != "localhost")
+        .unwrap_or_else(|| if cfg!(mobile) { "我的手机".into() } else { "我的电脑".into() })
+}
+
+/// 安卓机型名：先取营销名（如「Xiaomi 15 Ultra」），没有再取型号。应用进程可直接执行 getprop
+#[cfg(target_os = "android")]
+fn android_model_name() -> Option<String> {
+    ["ro.product.marketname", "ro.product.model"].iter().find_map(|prop| {
+        let out = std::process::Command::new("getprop").arg(prop).output().ok()?;
+        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!name.is_empty()).then_some(name)
+    })
+}
+
+pub fn port(db: &Database) -> u16 {
+    get(db, KEY_PORT).parse().unwrap_or(DEFAULT_PORT)
+}
+
+/// 读敏感配置：历史明文原样返回；密文解不开视为缺失（调用方重新生成，旧配对失效）
+fn get_secret(db: &Database, key: &str) -> Option<String> {
+    let stored = get(db, key);
+    if stored.trim().is_empty() {
+        return None;
+    }
+    if !crate::crypto::is_encrypted_field(&stored) {
+        return Some(stored); // 迁移前的明文，保留可用
+    }
+    crate::crypto::decrypt_field(&stored)
+        .map_err(|e| log::warn!("[lan-sync] {key} 解密失败（通常是换了机器 / 改了主机名）: {e}"))
+        .ok()
+}
+
+fn set_secret(db: &Database, key: &str, plain: &str) -> Result<(), AppError> {
+    db.set_config(key, &crate::crypto::encrypt_field(plain)?)
+}
+
+/// 取证书身份，没有就生成并持久化（换证书 = 所有手机要重新配对，所以只在缺失时生成）。
+/// 私钥（KEY_KEY）用字段加密存盘；公钥证书无需加密
+fn ensure_identity(db: &Database) -> Result<LanIdentity, AppError> {
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let cert = get(db, KEY_CERT);
+    let key = get_secret(db, KEY_KEY);
+    if !cert.is_empty() {
+        if let (Ok(cert_der), Some(key)) = (b64.decode(&cert), key) {
+            if let Ok(key_der) = b64.decode(&key) {
+                return Ok(LanIdentity { cert_der, key_der });
+            }
+        }
+        log::warn!("[lan-sync] 存的证书无法读取，重新生成（已配对的手机需重新扫码）");
+    }
+    let id = lan_server::generate_identity()?;
+    db.set_config(KEY_CERT, &b64.encode(&id.cert_der))?;
+    set_secret(db, KEY_KEY, &b64.encode(&id.key_der))?;
+    Ok(id)
+}
+
+fn ensure_token(db: &Database) -> Result<String, AppError> {
+    if let Some(t) = get_secret(db, KEY_TOKEN) {
+        if !t.trim().is_empty() {
+            return Ok(t);
+        }
+    }
+    let t = crate::services::sync_v1::lan_protocol::random_token();
+    set_secret(db, KEY_TOKEN, &t)?;
+    Ok(t)
+}
+
+/// 「本机中转」同步源 id（只读，不创建）。供同步流程判断要不要拿租约
+pub fn host_backend_id(db: &Database) -> Option<i64> {
+    get(db, KEY_BACKEND_ID).parse().ok()
+}
+
+/// 确保「本机中转」同步源存在：用户删了就重建，指向的目录不对就不动它（用户自己改的尊重用户）
+fn ensure_host_backend(db: &Database, vault: &Path) -> Result<i64, AppError> {
+    if let Some(id) = host_backend_id(db) {
+        if db.get_sync_backend(id)?.is_some() {
+            return Ok(id);
+        }
+    }
+    let path = vault.to_str().ok_or_else(|| AppError::Custom("数据目录路径不是 UTF-8".into()))?;
+    let id = db.create_sync_backend(&SyncBackendInput {
+        kind: SyncBackendKind::Local,
+        name: "局域网同步（本机中转）".into(),
+        config_json: serde_json::json!({ "path": path }).to_string(),
+        enabled: Some(true),
+        // 默认自动同步：电脑上的改动定时进中转库，手机连上就能拉到
+        auto_sync: Some(true),
+        sync_interval_min: Some(5),
+    })?;
+    db.set_config(KEY_BACKEND_ID, &id.to_string())?;
+    Ok(id)
+}
+
+impl LanSyncState {
+    /// 按库里的配置起服务（已在跑就先停）。开关 / 自动启动 / 重置令牌后都走这里。
+    /// `on_client_wrote`：手机同步写过数据并归还租约后调用，一般传 [`merge_trigger`]
+    pub async fn start(
+        &self,
+        db: &Database,
+        data_dir: &Path,
+        on_client_wrote: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    ) -> Result<(), AppError> {
+        self.stop().await;
+        let vault = vault_root(data_dir);
+        ensure_host_backend(db, &vault)?;
+        let identity = ensure_identity(db)?;
+        let fingerprint = cert_fingerprint(&identity.cert_der);
+        let params = lan_server::StartParams {
+            vault_root: vault,
+            // 监听所有网卡：手机从局域网连进来。首次监听 Windows 会弹防火墙询问，需用户允许
+            bind: ([0, 0, 0, 0], port(db)).into(),
+            token: ensure_token(db)?,
+            device_name: device_name(),
+            identity,
+            lease: self.lease.clone(),
+            on_client_wrote,
+        };
+        let running = lan_server::start(params).await?;
+        let bound_port = running.addr.port();
+        *self.server.lock().await = Some(running);
+
+        // 广播本机，手机换 IP 后按指纹找回来；失败只记日志（服务照常可用，换 IP 后重新扫码即可）
+        match crate::services::lan_discovery::advertise(&device_name(), &fingerprint, bound_port) {
+            Ok(a) => *self.advertiser.lock().await = Some(a),
+            Err(e) => log::warn!("[lan-sync] mDNS 广播失败（不影响同步）: {e}"),
+        }
+        Ok(())
+    }
+
+    pub async fn stop(&self) {
+        // 先停广播再停服务：别让手机找到一个已经关掉的地址
+        self.advertiser.lock().await.take();
+        if let Some(s) = self.server.lock().await.take() {
+            s.shutdown().await;
+        }
+    }
+
+    pub async fn status(&self, db: &Database) -> LanSyncStatus {
+        // 在跑就报实际监听的端口（改了配置还没重启时，以正在用的为准）
+        let running_port = self.server.lock().await.as_ref().map(|s| s.addr.port());
+        let running = running_port.is_some();
+        let fingerprint = base64::engine::general_purpose::STANDARD
+            .decode(get(db, KEY_CERT))
+            .ok()
+            .filter(|d| !d.is_empty())
+            .map(|d| cert_fingerprint(&d));
+        let host_last_error = host_backend_id(db)
+            .and_then(|id| db.get_sync_backend(id).ok().flatten())
+            .and_then(|b| b.last_error);
+        LanSyncStatus {
+            enabled: get(db, KEY_ENABLED) == "1",
+            running,
+            port: running_port.unwrap_or_else(|| port(db)),
+            hosts: lan_ipv4_hosts(),
+            device_name: device_name(),
+            fingerprint,
+            backend_id: host_backend_id(db),
+            last_client_sync: Some(get(db, KEY_LAST_CLIENT_SYNC)).filter(|s| !s.is_empty()),
+            host_last_error,
+        }
+    }
+}
+
+/// 手机同步完的回调：立即在后台同步一次「本机中转」源，把手机的改动合并进电脑的库
+/// （不等 5 分钟的定时同步）。电脑正在同步这个源时 trigger 自己会跳过
+pub fn merge_trigger(app: tauri::AppHandle) -> std::sync::Arc<dyn Fn() + Send + Sync> {
+    std::sync::Arc::new(move || {
+        use tauri::Manager;
+        let Some(state) = app.try_state::<crate::state::AppState>() else { return };
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        if let Err(e) = state.db.set_config(KEY_LAST_CLIENT_SYNC, &now) {
+            log::warn!("[lan-sync] 记录手机同步时间失败: {e}");
+        }
+        if let Some(id) = host_backend_id(&state.db) {
+            if state.sync_v1_gate.is_busy(id) {
+                return;
+            }
+            log::info!("[lan-sync] 手机同步完成，合并到本机（同步源 #{id}）");
+            crate::services::sync_v1_scheduler::trigger_background_sync(&app, id);
+        }
+    })
+}
+
+/// 配对二维码内容（手机扫码后保存）。含令牌 —— 只在界面上显示给用户扫，不写日志
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct PairingPayload {
+    /// 固定 "kb-lan"，手机端据此认出是配对码
+    pub t: String,
+    pub v: u32,
+    pub name: String,
+    pub hosts: Vec<String>,
+    pub port: u16,
+    pub fp: String,
+    pub token: String,
+}
+
+pub fn pairing_payload(db: &Database) -> Result<String, AppError> {
+    let id = ensure_identity(db)?;
+    let p = PairingPayload {
+        t: "kb-lan".into(),
+        v: 1,
+        name: device_name(),
+        hosts: lan_ipv4_hosts(),
+        port: port(db),
+        fp: cert_fingerprint(&id.cert_der),
+        token: ensure_token(db)?,
+    };
+    serde_json::to_string(&p).map_err(|e| AppError::Custom(e.to_string()))
+}
+
+/// 换令牌：所有已配对设备立即失效（服务在跑的话调用方要重启服务才生效）
+pub fn reset_token(db: &Database) -> Result<(), AppError> {
+    set_secret(db, KEY_TOKEN, &crate::services::sync_v1::lan_protocol::random_token())
+}
+
+/// 本机所有可用于局域网的 IPv4（配对二维码里带上，手机挨个试）。
+/// 多网卡 / VPN 时不止一个：默认路由那块网卡排第一（最可能和手机同网），其余私网地址随后
+pub fn lan_ipv4_hosts() -> Vec<String> {
+    let all: Vec<std::net::Ipv4Addr> = if_addrs::get_if_addrs()
+        .map(|ifs| {
+            ifs.into_iter()
+                // 手机当主机：移动数据网卡拿到的运营商地址也是 10.x 私网段，放进二维码对方会先试它、等超时
+                .filter(|i| !is_cellular_iface(&i.name))
+                .filter_map(|i| match i.ip() {
+                    std::net::IpAddr::V4(v4) => Some(v4),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    order_hosts(default_route_ipv4(), all)
+}
+
+/// 安卓移动数据网卡（高通 rmnet、联发科 ccmni 等）。真机实测 Xiaomi 15 Ultra 上 rmnet 拿到 10.95.x.x，
+/// 按私网段过滤拦不住，只能按网卡名排除。电脑上没有这些名字，不受影响
+fn is_cellular_iface(name: &str) -> bool {
+    ["rmnet", "ccmni", "pdp", "v4-rmnet", "clat"].iter().any(|p| name.starts_with(p))
+}
+
+/// 出口网卡地址：UDP connect 到公网地址只选路、不真的发包，断网时只要有默认路由也能拿到
+fn default_route_ipv4() -> Option<std::net::Ipv4Addr> {
+    let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    sock.connect("223.5.5.5:53").ok()?;
+    match sock.local_addr().ok()?.ip() {
+        std::net::IpAddr::V4(v4) => Some(v4),
+        _ => None,
+    }
+}
+
+/// 过滤并排序：只留私网地址（10/8、172.16/12、192.168/16），去掉回环 / 169.254 自动地址；
+/// 默认路由地址排第一，其余按地址排序去重。
+/// 默认路由地址必须本来就在 `all` 里才挪到第一位：手机只开移动数据时默认路由走 rmnet，
+/// 它已被按网卡名排除，不能从这里又塞回去
+fn order_hosts(default: Option<std::net::Ipv4Addr>, all: Vec<std::net::Ipv4Addr>) -> Vec<String> {
+    let mut v: Vec<std::net::Ipv4Addr> = all.into_iter().filter(|ip| ip.is_private()).collect();
+    v.sort();
+    v.dedup();
+    if let Some(d) = default.filter(|d| v.contains(d)) {
+        v.retain(|ip| *ip != d);
+        v.insert(0, d);
+    }
+    v.into_iter().map(|ip| ip.to_string()).collect()
+}
+
+/// 电脑同步「本机中转」源时持有的租约；Drop 自动释放
+pub struct HostLeaseGuard {
+    lease: VaultLease,
+    id: String,
+}
+
+impl Drop for HostLeaseGuard {
+    fn drop(&mut self) {
+        self.lease.release(&self.id);
+    }
+}
+
+/// 同步某个同步源前调用：是「本机中转」源就拿租约（手机正在同步则最多等 30 秒），否则返回 None。
+/// 在阻塞线程里调用（同步流程本身就跑在 spawn_blocking 里）
+pub fn acquire_host_lease(
+    state: &LanSyncState,
+    db: &Database,
+    backend_id: i64,
+) -> Result<Option<HostLeaseGuard>, String> {
+    if host_backend_id(db) != Some(backend_id) {
+        return Ok(None);
+    }
+    let deadline = std::time::Instant::now() + HOST_LEASE_WAIT;
+    loop {
+        if let Some(id) = state.lease.try_acquire("desktop") {
+            return Ok(Some(HostLeaseGuard { lease: state.lease.clone(), id }));
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("手机正在通过局域网同步，稍后会自动重试".into());
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn db() -> Database {
+        Database::init(":memory:").unwrap()
+    }
+
+    #[test]
+    fn hosts_keep_private_lan_only_with_default_route_first() {
+        let ip = |s: &str| s.parse::<std::net::Ipv4Addr>().unwrap();
+        let all = vec![
+            ip("127.0.0.1"),
+            ip("169.254.3.4"),
+            ip("192.168.1.23"),
+            ip("10.8.0.2"),
+            ip("8.8.8.8"),
+            ip("172.20.1.5"),
+            ip("192.168.1.23"),
+        ];
+        assert_eq!(
+            order_hosts(Some(ip("192.168.1.23")), all.clone()),
+            vec!["192.168.1.23", "10.8.0.2", "172.20.1.5"]
+        );
+        // 默认路由不是私网地址（比如直接拨号拿到公网 IP）就不放进来
+        assert_eq!(order_hosts(Some(ip("8.8.8.8")), all), vec!["10.8.0.2", "172.20.1.5", "192.168.1.23"]);
+        assert!(order_hosts(None, vec![ip("127.0.0.1")]).is_empty());
+        // 默认路由地址不在候选里（手机只开移动数据，rmnet 已按网卡名排除）→ 不塞回去
+        assert_eq!(order_hosts(Some(ip("10.95.156.27")), vec![ip("192.168.31.53")]), vec!["192.168.31.53"]);
+    }
+
+    #[test]
+    fn cellular_interfaces_excluded_by_name() {
+        for name in ["rmnet_data0", "rmnet1", "ccmni0", "v4-rmnet_data0", "clat4"] {
+            assert!(is_cellular_iface(name), "{name}");
+        }
+        for name in ["wlan0", "swlan0", "ap0", "eth0", "以太网", "Wi-Fi"] {
+            assert!(!is_cellular_iface(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn identity_and_token_are_stable_until_reset() {
+        let db = db();
+        let a = ensure_identity(&db).unwrap();
+        let b = ensure_identity(&db).unwrap();
+        assert_eq!(a.cert_der, b.cert_der, "已有证书不能每次重新生成，否则手机要反复配对");
+        let t1 = ensure_token(&db).unwrap();
+        assert_eq!(t1, ensure_token(&db).unwrap());
+        reset_token(&db).unwrap();
+        assert_ne!(t1, ensure_token(&db).unwrap());
+    }
+
+    #[test]
+    fn host_backend_created_once_and_recreated_if_deleted() {
+        let db = db();
+        let vault = std::env::temp_dir().join("kb-lan-vault-test");
+        let id = ensure_host_backend(&db, &vault).unwrap();
+        assert_eq!(ensure_host_backend(&db, &vault).unwrap(), id);
+        let b = db.get_sync_backend(id).unwrap().unwrap();
+        assert!(b.auto_sync);
+        db.delete_sync_backend(id).unwrap();
+        let id2 = ensure_host_backend(&db, &vault).unwrap();
+        assert_ne!(id, id2);
+    }
+
+    #[test]
+    fn status_reports_last_phone_sync_and_merge_error() {
+        let db = db();
+        let state = LanSyncState::default();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let s = rt.block_on(state.status(&db));
+        assert!(s.last_client_sync.is_none() && s.host_last_error.is_none());
+
+        let id = ensure_host_backend(&db, &std::env::temp_dir().join("kb-lan-vault-test3")).unwrap();
+        db.set_config(KEY_LAST_CLIENT_SYNC, "2026-11-15 11:21:31").unwrap();
+        db.set_sync_backend_error(id, Some("pull 失败: 磁盘满")).unwrap();
+        let s = rt.block_on(state.status(&db));
+        assert_eq!(s.last_client_sync.as_deref(), Some("2026-11-15 11:21:31"));
+        assert_eq!(s.host_last_error.as_deref(), Some("pull 失败: 磁盘满"));
+    }
+
+    #[test]
+    fn pairing_payload_has_everything_phone_needs() {
+        let db = db();
+        let p: PairingPayload = serde_json::from_str(&pairing_payload(&db).unwrap()).unwrap();
+        assert_eq!(p.t, "kb-lan");
+        assert_eq!(p.port, DEFAULT_PORT);
+        assert_eq!(p.fp.split(':').count(), 32);
+        assert_eq!(p.token, ensure_token(&db).unwrap());
+    }
+
+    #[test]
+    fn host_lease_only_for_host_backend_and_waits_out_phone() {
+        let db = db();
+        let state = LanSyncState::default();
+        let id = ensure_host_backend(&db, &std::env::temp_dir().join("kb-lan-vault-test2")).unwrap();
+        assert!(acquire_host_lease(&state, &db, id + 100).unwrap().is_none(), "别的同步源不拿租约");
+        {
+            let g = acquire_host_lease(&state, &db, id).unwrap();
+            assert!(g.is_some());
+            assert!(state.lease.try_acquire("phone").is_none(), "电脑同步期间手机拿不到");
+        }
+        assert!(state.lease.try_acquire("phone").is_some(), "守卫释放后可用");
+    }
+}

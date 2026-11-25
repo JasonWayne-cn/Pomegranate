@@ -12,7 +12,7 @@
 //!   2) 后续接外部 MCP server 时（GitHub / Filesystem / 高德地图…）可以走同样的 client API
 //!   3) 协议统一，UI 不需要区分"原生工具"和"外部工具"
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rmcp::model::CallToolRequestParams;
 use serde::Serialize;
@@ -143,10 +143,11 @@ pub fn mcp_get_claude_md_template(
 }
 
 fn build_claude_md_template() -> String {
-    // 这里硬编码模板，避免读盘 / 拼接复杂度。后续如果需要可填变量再扩展
-    r#"# 知识库助手 (kb-mcp)
+    // 这里硬编码模板，避免读盘 / 拼接复杂度。条目名跟随开发版 / 正式版，
+    // 否则开发版接入会把正式版那条改指到开发库。
+    let raw = r#"# 知识库助手 (kb-mcp)
 
-本环境已接入用户的本地知识库（MCP server `knowledge-base`，由 zhuawashi/knowledge_base 桌面应用提供）。
+本环境已接入用户的本地知识库（MCP server `{entry}`，由 zhuawashi/knowledge_base 桌面应用提供）。
 处理用户问题时遵循以下准则。
 
 ## 可用工具
@@ -288,7 +289,8 @@ fn build_claude_md_template() -> String {
 - 时间格式：`YYYY-MM-DD`
 
 > 上面的偏好可以按你的实际习惯改。
-"#.to_string()
+"#;
+    raw.replace("{entry}", client_entry_name())
 }
 
 fn build_settings_snippet(sidecar: &str, db: &str, writable: bool) -> String {
@@ -296,14 +298,15 @@ fn build_settings_snippet(sidecar: &str, db: &str, writable: bool) -> String {
     if writable {
         args.push("--writable".to_string());
     }
-    let cfg = serde_json::json!({
-        "mcpServers": {
-            "knowledge-base": {
-                "command": sidecar,
-                "args": args,
-            }
-        }
-    });
+    let mut servers = serde_json::Map::new();
+    servers.insert(
+        client_entry_name().to_string(),
+        serde_json::json!({
+            "command": sidecar,
+            "args": args,
+        }),
+    );
+    let cfg = serde_json::json!({ "mcpServers": servers });
     serde_json::to_string_pretty(&cfg).unwrap_or_else(|_| "{}".to_string())
 }
 
@@ -753,84 +756,215 @@ pub fn mcp_install_to_client(
             .ok_or_else(|| "无法定位 Claude Code (CLI) 配置文件 ~/.claude.json".to_string())?,
     };
 
-    // 父目录不存在则创建
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("创建配置目录失败 {}: {}", parent.display(), e))?;
-    }
-
-    let (created_new, mut root) = if config_path.exists() {
-        let raw = std::fs::read_to_string(&config_path)
-            .map_err(|e| format!("读取 {} 失败: {}", config_path.display(), e))?;
-        // 空文件 / 非法 JSON 都按"新建"处理（保险）
-        let val = if raw.trim().is_empty() {
-            serde_json::json!({})
-        } else {
-            serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!({}))
-        };
-        (false, val)
-    } else {
-        (true, serde_json::json!({}))
-    };
-
-    // 确保 root 是 object
-    if !root.is_object() {
-        root = serde_json::json!({});
-    }
-    let root_obj = root.as_object_mut().unwrap();
-
-    // 确保 mcpServers 是 object
-    let servers = root_obj
-        .entry("mcpServers".to_string())
-        .or_insert_with(|| serde_json::json!({}));
-    if !servers.is_object() {
-        *servers = serde_json::json!({});
-    }
-    let servers_obj = servers.as_object_mut().unwrap();
-
-    // 检查是否覆盖已有 + 提取已有 entry 里我们不应该动的字段（学 tauri-cc flatten extra 模式）
-    let existing = servers_obj.get("knowledge-base").cloned();
-    let overwritten = existing.is_some();
-
-    // 拼新配置
-    let mut args = vec![
-        serde_json::Value::String("--db-path".to_string()),
-        serde_json::Value::String(db_path_str),
-    ];
+    let mut args = vec!["--db-path".to_string(), db_path_str];
     if writable {
-        args.push(serde_json::Value::String("--writable".to_string()));
+        args.push("--writable".to_string());
     }
-    let mut kb_entry = serde_json::json!({
+    let fresh = serde_json::json!({
         "command": sidecar_str,
         "args": args,
     });
-
-    // 保留已有 entry 里我们不认识 / 不该覆盖的字段（disabled / type / url / 用户自加 description 等）
-    // 参考 tauri-cc::McpServerEntry 的 #[serde(flatten)] extra 模式：
-    // 用户/其它工具可能在 entry 里加了字段，覆盖前应该原样保留
-    if let Some(serde_json::Value::Object(old)) = existing {
-        let kb_obj = kb_entry.as_object_mut().unwrap();
-        for (key, value) in old {
-            // command / args 我们重写；env 用户没传我们不留（避免 stale env）
-            if key != "command" && key != "args" && key != "env" {
-                kb_obj.insert(key, value);
-            }
-        }
-    }
-
-    servers_obj.insert("knowledge-base".to_string(), kb_entry);
-
-    // 写回，pretty print 2 空格
-    let pretty =
-        serde_json::to_string_pretty(&root).map_err(|e| format!("序列化 JSON 失败: {e}"))?;
-    std::fs::write(&config_path, pretty)
-        .map_err(|e| format!("写入 {} 失败: {}", config_path.display(), e))?;
+    let (created_new, overwritten) =
+        install_entry_at(&config_path, client_entry_name(), fresh)?;
 
     Ok(InstallResult {
         config_path: config_path.to_string_lossy().into_owned(),
         created_new,
         overwritten,
     })
+}
+
+// ─── 客户端配置改写：读 / 合并 / 备份 / 原子写 ─────────────────────
+//
+// 这些文件是别人的主配置（`~/.claude.json` 还存着 Claude Code 的登录状态和会话记录），
+// 改坏了用户的客户端就起不来。所以一律：读不了 / 解析不了 / 结构不对 → 报错不写；
+// 写之前留备份；写用临时文件 + 改名，不留半截文件。
+
+/// 外部客户端配置里本应用条目的名字。开发版与正式版分开：
+/// 共用一个名字时，开发版一接入就把正式版那条改指到开发库，取消接入时两边一起没。
+const fn client_entry_name() -> &'static str {
+    if cfg!(debug_assertions) {
+        "knowledge-base-dev"
+    } else {
+        "knowledge-base"
+    }
+}
+
+/// 备份 / 临时文件名里的应用标记：`<文件名>.kb.orig` / `.kb.bak` / `.kb.tmp`
+const BACKUP_TAG: &str = "kb";
+
+/// 本地启动（stdio）条目里与之冲突的远程接法字段：用户手改成 `type: "http"` + `url` 后再一键接入，
+/// 去掉它们，免得 `command` 与 `url` 并存。`type: "stdio"` 不冲突，保留。
+const STDIO_CONFLICTS: &[&str] = &["url", "headers"];
+
+/// 读客户端配置。返回 `(文件原本是否存在, 内容)`。
+/// - 不存在 → `(false, {})`；空文件 → `(true, {})`
+/// - 读失败 / 不是合法 JSON → 报错。绝不当成空对象继续，否则写回时会把用户整份配置清掉
+fn read_client_config(path: &Path) -> Result<(bool, JsonValue), String> {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((false, serde_json::json!({})))
+        }
+        Err(e) => {
+            return Err(format!(
+                "读取 {} 失败（{e}）。为免覆盖你原来的内容，没有写入",
+                path.display()
+            ))
+        }
+    };
+    // 有的编辑器会给 JSON 加 BOM，serde_json 不认；去掉再解析
+    let text = raw.trim_start_matches('\u{feff}');
+    if text.trim().is_empty() {
+        return Ok((true, serde_json::json!({})));
+    }
+    let value = serde_json::from_str(text).map_err(|e| {
+        format!(
+            "{} 不是合法的 JSON（{e}）。为免覆盖你原来的内容，没有写入；请先手动改正这个文件",
+            path.display()
+        )
+    })?;
+    Ok((true, value))
+}
+
+/// 同目录兄弟文件名 `<原文件名>.<suffix>`（如 `.claude.json.kb.bak`）
+fn sibling_path(path: &Path, suffix: &str) -> PathBuf {
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "config".into());
+    path.with_file_name(format!("{name}.{suffix}"))
+}
+
+/// 改写前备份非空的原文件，两份都在同目录：
+/// - `<文件名>.kb.orig`：第一次改写之前的样子，之后不再覆盖
+/// - `<文件名>.kb.bak`：这一次改写之前的样子，每次覆盖
+///
+/// 用 `fs::copy` 而不是读出来再写：Unix 上连权限位一起复制，含 token 的配置不会因为多一份备份变成别人可读。
+fn backup_file(path: &Path) -> std::io::Result<()> {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.is_file() && meta.len() > 0 => {
+            let orig = sibling_path(path, &format!("{BACKUP_TAG}.orig"));
+            if !orig.exists() {
+                std::fs::copy(path, &orig)?;
+            }
+            std::fs::copy(path, sibling_path(path, &format!("{BACKUP_TAG}.bak")))?;
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+/// 先 [`backup_file`]，再写同目录临时文件、改名替换。
+/// - 目标是符号链接（dotfiles 仓库常这么管）→ 写到真实文件，不把链接换成普通文件
+/// - Unix 上临时文件先抄原文件权限再改名，600 不会变成 644
+/// - 写临时文件失败 → 删掉临时文件；改名失败（Windows 上目标被别的程序占着时会这样）→ 退回直接覆盖写，前面已有备份兜底
+fn write_with_backup(path: &Path, content: &str) -> std::io::Result<()> {
+    let target = match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_symlink() => std::fs::canonicalize(path)?,
+        _ => path.to_path_buf(),
+    };
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    backup_file(&target)?;
+    let tmp = sibling_path(&target, &format!("{BACKUP_TAG}.tmp"));
+    if let Err(e) = std::fs::write(&tmp, content) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    #[cfg(unix)]
+    if let Ok(meta) = std::fs::metadata(&target) {
+        let _ = std::fs::set_permissions(&tmp, meta.permissions());
+    }
+    if let Err(e) = std::fs::rename(&tmp, &target) {
+        log::warn!(
+            "[mcp] 改名替换 {} 失败（{e}），改为直接覆盖写",
+            target.display()
+        );
+        let _ = std::fs::remove_file(&tmp);
+        std::fs::write(&target, content)?;
+    }
+    Ok(())
+}
+
+fn not_object_error(file: &Path, what: &str) -> String {
+    format!(
+        "{} 里的{what}不是 JSON 对象。为免覆盖你原来的内容，没有写入；请先手动改正这个文件",
+        file.display()
+    )
+}
+
+/// 在 `root.mcpServers` 里合并写入 `name` 条目，返回原来是否已有这一条。
+/// - 根 / `mcpServers` 存在却不是对象 → 报错，不拿空对象顶替
+/// - 已有条目：只改 `fresh` 给出的键（command / args），去掉 [`STDIO_CONFLICTS`] 和非 stdio 的 `type`；
+///   `env` 和用户自加的键（disabled / timeout 之类）原样保留，条目位置不变
+fn upsert_client_entry(
+    root: &mut JsonValue,
+    file: &Path,
+    name: &str,
+    fresh: JsonValue,
+) -> Result<bool, String> {
+    let root_obj = root
+        .as_object_mut()
+        .ok_or_else(|| not_object_error(file, "最外层"))?;
+    let servers = root_obj
+        .entry("mcpServers")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| not_object_error(file, "「mcpServers」"))?;
+
+    let existed = servers.contains_key(name);
+    let mut entry = match servers.get(name) {
+        Some(JsonValue::Object(m)) => m.clone(),
+        _ => serde_json::Map::new(),
+    };
+    for k in STDIO_CONFLICTS {
+        entry.remove(*k);
+    }
+    if entry.get("type").and_then(|t| t.as_str()) != Some("stdio") {
+        entry.remove("type");
+    }
+    if let JsonValue::Object(fresh) = fresh {
+        for (k, v) in fresh {
+            entry.insert(k, v);
+        }
+    }
+    servers.insert(name.to_string(), JsonValue::Object(entry));
+    Ok(existed)
+}
+
+/// 把条目写进 `path` 这个客户端配置，返回 `(是否新建了文件, 是否已有同名条目)`
+fn install_entry_at(path: &Path, name: &str, fresh: JsonValue) -> Result<(bool, bool), String> {
+    let (existed_file, mut root) = read_client_config(path)?;
+    let overwritten = upsert_client_entry(&mut root, path, name, fresh)?;
+    let pretty =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("序列化 JSON 失败: {e}"))?;
+    write_with_backup(path, &pretty)
+        .map_err(|e| format!("写入 {} 失败: {}", path.display(), e))?;
+    Ok((!existed_file, overwritten))
+}
+
+/// 从 `path` 删掉 `name` 条目，返回是否真删了。文件不存在 / 没有这一条 → `false`，不写；解析失败 → 报错不写。
+fn remove_entry_at(path: &Path, name: &str) -> Result<bool, String> {
+    let (existed_file, mut root) = read_client_config(path)?;
+    if !existed_file {
+        return Ok(false);
+    }
+    // 本仓 serde_json 未开 preserve_order，remove 可能调整同级键顺序（内容不变）。
+    // 客户端只认 JSON 语义，不依赖键顺序，可接受。
+    let removed = root
+        .get_mut("mcpServers")
+        .and_then(|s| s.as_object_mut())
+        .and_then(|o| o.remove(name))
+        .is_some();
+    if removed {
+        let pretty =
+            serde_json::to_string_pretty(&root).map_err(|e| format!("序列化 JSON 失败: {e}"))?;
+        write_with_backup(path, &pretty)
+            .map_err(|e| format!("写入 {} 失败: {}", path.display(), e))?;
+    }
+    Ok(removed)
 }
 
 // ─── 客户端配置路径定位 ─────────────────────────────────────────
@@ -913,30 +1047,7 @@ pub fn mcp_uninstall_from_client(target: InstallTarget) -> Result<UninstallResul
             .ok_or_else(|| "无法定位 Claude Code (CLI) 配置文件 ~/.claude.json".to_string())?,
     };
 
-    if !config_path.exists() {
-        return Ok(UninstallResult {
-            config_path: config_path.to_string_lossy().into_owned(),
-            removed: false,
-        });
-    }
-
-    let raw = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("读取 {} 失败: {}", config_path.display(), e))?;
-    let mut root: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| format!("解析 JSON 失败: {}", e))?;
-
-    let removed = root
-        .get_mut("mcpServers")
-        .and_then(|s| s.as_object_mut())
-        .and_then(|o| o.remove("knowledge-base"))
-        .is_some();
-
-    if removed {
-        let pretty =
-            serde_json::to_string_pretty(&root).map_err(|e| format!("序列化 JSON 失败: {e}"))?;
-        std::fs::write(&config_path, pretty)
-            .map_err(|e| format!("写入 {} 失败: {}", config_path.display(), e))?;
-    }
+    let removed = remove_entry_at(&config_path, client_entry_name())?;
 
     Ok(UninstallResult {
         config_path: config_path.to_string_lossy().into_owned(),
@@ -1037,10 +1148,21 @@ pub fn mcp_check_install_status(target: InstallTarget) -> Result<ClientInstallSt
         });
     }
 
-    let raw = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let root: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+    let root = match read_client_config(&config_path) {
+        Ok((_, v)) => v,
+        Err(_) => {
+            return Ok(ClientInstallStatus {
+                config_path: config_path_str,
+                config_exists: true,
+                installed: false,
+                writable: false,
+            })
+        }
+    };
 
-    let kb_entry = root.get("mcpServers").and_then(|s| s.get("knowledge-base"));
+    let kb_entry = root
+        .get("mcpServers")
+        .and_then(|s| s.get(client_entry_name()));
 
     let (installed, writable) = match kb_entry {
         Some(entry) => {
@@ -1145,7 +1267,14 @@ pub async fn start_mcp_http(
     set(h::KEY_ENABLED, "1")?;
 
     let db_path = state.data_dir.join(crate::db_file_name());
-    h::start(&state.mcp_http, db_path, port, token, writable, bind_lan)
+    let params = h::StartParams {
+        db_path,
+        port,
+        token,
+        writable,
+        bind_lan,
+    };
+    h::start(&state.mcp_http, params)
         .await
         .map_err(|e| e.to_string())
 }

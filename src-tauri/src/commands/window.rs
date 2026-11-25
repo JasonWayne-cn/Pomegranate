@@ -1,15 +1,5 @@
 //! 主窗口尺寸相关 Command（仅桌面端 —— 移动端窗口由系统管理）。
 
-/// 窗口状态跟踪的 flags，插件注册处（`lib.rs`）与所有手动调用必须用同一份。
-///
-/// 刻意不含 VISIBLE：本应用支持「关闭时最小化到托盘」和 autostart `--start-minimized`，
-/// 窗口隐藏着退出是正常路径，跟踪 VISIBLE 会导致下次启动直接无窗口。
-#[cfg(desktop)]
-pub(crate) const TRACKED_STATE_FLAGS: tauri_plugin_window_state::StateFlags =
-    tauri_plugin_window_state::StateFlags::SIZE
-        .union(tauri_plugin_window_state::StateFlags::POSITION)
-        .union(tauri_plugin_window_state::StateFlags::MAXIMIZED);
-
 // ─── 跨 DPI / 显示器热插拔的几何自愈 ─────────────────────
 //
 // 🔴 要解决的现象（用户实测）：主屏 100% + 副屏 150%，软件全程留在主屏，但开关一次副屏
@@ -593,7 +583,6 @@ pub fn reset_window_size(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(desktop)]
     {
         use tauri::Manager;
-        use tauri_plugin_window_state::AppHandleExt;
 
         let window = app
             .get_webview_window("main")
@@ -638,10 +627,9 @@ pub fn reset_window_size(app: tauri::AppHandle) -> Result<(), String> {
         // 按工作区居中 + clamp：默认尺寸不一定装得进这块屏（小笔记本 / 投影仪 1280×720）
         fit_into_work_area(&window, true);
 
-        // 3. 立刻落盘。flags 与插件注册处同源，避免两处漂移 ——
-        //    传 all() 会顺带把 VISIBLE 写进去，而我们刻意不跟踪它（见 TRACKED_STATE_FLAGS）。
-        app.save_window_state(TRACKED_STATE_FLAGS)
-            .map_err(|e| e.to_string())?;
+        // 3. 立刻把新几何记进「按显示器组合分别记」的位置记忆。不记的话，用户点完
+        //    不重启直接关窗口，本组合仍留着旧位置，下次启动看起来像恢复失败。
+        crate::window_memory::capture_now(&app, "恢复默认大小");
         Ok(())
     }
     #[cfg(not(desktop))]

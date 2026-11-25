@@ -55,6 +55,8 @@ interface Props {
   onClick?: (key: string, e: React.MouseEvent) => void;
   /** 关闭回调（点空白 / Esc）；一般直传 ctx.close */
   onClose: () => void;
+  /** 浮层层级；全屏导图（zIndex 1100）内的菜单需要传更高值，默认 1050 */
+  zIndex?: number;
 }
 
 /**
@@ -79,6 +81,7 @@ export function ContextMenuOverlay({
   items,
   onClick,
   onClose,
+  zIndex = 1050,
 }: Props) {
   const { token } = antdTheme.useToken();
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -169,7 +172,7 @@ export function ContextMenuOverlay({
         position: "fixed",
         left: finalLeft,
         top: finalTop,
-        zIndex: 1050,
+        zIndex,
         background: token.colorBgElevated,
         border: `1px solid ${token.colorBorderSecondary}`,
         borderRadius: 8,

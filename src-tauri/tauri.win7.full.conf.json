@@ -7,7 +7,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev:clean",
     "devUrl": "http://localhost:2010",
-    "beforeBuildCommand": "npm run build:vite",
+    "beforeBuildCommand": "node scripts/installer-std/check-template.cjs && npm run build:vite",
     "beforeBundleCommand": "node scripts/win7-before-bundle.mjs",
     "frontendDist": "../dist"
   },
@@ -85,7 +85,12 @@
         "displayLanguageSelector": true,
         "languages": ["SimpChinese", "English"],
         "installerIcon": "icons/icon.ico",
-        "installerHooks": "./installer-hooks.nsi"
+        "installerHooks": "./installer-hooks.nsi",
+        "template": "./nsis/installer.nsi",
+        "customLanguageFiles": {
+          "SimpChinese": "./nsis/SimpChinese.nsh",
+          "English": "./nsis/English.nsh"
+        }
       }
     },
     "macOS": {

@@ -7,7 +7,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev:clean",
     "devUrl": "http://127.0.0.1:2010",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "node scripts/installer-std/check-template.cjs && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -84,7 +84,12 @@
           "English"
         ],
         "installerIcon": "icons/icon.ico",
-        "installerHooks": "./installer-hooks.nsi"
+        "installerHooks": "./installer-hooks.nsi",
+        "template": "./nsis/installer.nsi",
+        "customLanguageFiles": {
+          "SimpChinese": "./nsis/SimpChinese.nsh",
+          "English": "./nsis/English.nsh"
+        }
       }
     },
     "macOS": {
@@ -103,7 +108,8 @@
     },
     "resources": [
       "resources/ppt-extension/ppt-master-extension.zip",
-      "resources/ppt-extension/ppt-master-extension.version"
+      "resources/ppt-extension/ppt-master-extension.version",
+      "resources/plugins/research-assistant"
     ]
   }
 }

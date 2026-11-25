@@ -10,7 +10,10 @@
 import {
   parseDocx,
   saveDocx,
+  computeListMarkerInfos,
   type Block,
+  type NumberingDef,
+  type NumberingLevel,
   type Run,
   type SaveBlock,
 } from "@genoffice/docx-engine";
@@ -101,19 +104,86 @@ function blockAttr(index: number | undefined): string {
   return index == null ? "" : ` data-block-index="${index}"`;
 }
 
-function renderBlock(block: Block, blockIndex?: number): string {
+interface ListRenderInfo {
+  marker: string;
+  level?: NumberingLevel;
+}
+
+interface RenderContext {
+  list: Map<Block, ListRenderInfo>;
+}
+
+/**
+ * 按 numbering.xml 计算每个列表项的显示编号（支持 decimal / chineseCounting /
+ * lowerRoman / bullet 等真实格式），而不是一律用「1.」。
+ *
+ * 编号定义缺失时退回简单的按 numId+ilvl 自增，保证仍有可读的序号。
+ */
+function buildListMarkers(
+  blocks: Block[],
+  numbering: Map<string, NumberingDef> | undefined,
+): Map<Block, ListRenderInfo> {
+  const listBlocks = blocks.filter((block) => block.type === "listItem");
+  const defs = numbering ?? new Map<string, NumberingDef>();
+  const infos = computeListMarkerInfos(
+    listBlocks.map((block) => ({
+      numId: block.list?.numId ?? null,
+      ilvl: block.list?.ilvl ?? 0,
+    })),
+    defs,
+  );
+  const fallbackCounters = new Map<string, number>();
+  const map = new Map<Block, ListRenderInfo>();
+
+  listBlocks.forEach((block, index) => {
+    const info = infos[index];
+    let marker = info?.text;
+    if (marker == null) {
+      const ordered = block.list?.kind === "ordered";
+      if (ordered) {
+        const key = `${block.list?.numId ?? ""}:${block.list?.ilvl ?? 0}`;
+        const next = (fallbackCounters.get(key) ?? 0) + 1;
+        fallbackCounters.set(key, next);
+        marker = `${next}.`;
+      } else {
+        marker = "•";
+      }
+    }
+    const level = block.list
+      ? defs.get(block.list.numId)?.levels[block.list.ilvl]
+      : undefined;
+    map.set(block, { marker, level });
+  });
+
+  return map;
+}
+
+function renderBlock(block: Block, blockIndex: number | undefined, ctx: RenderContext): string {
   // 书签是零宽标记，不是内容：不渲染占位框。
   if (block.type === "passthrough" && /bookmark/i.test(block.label ?? "")) return "";
   if (block.type === "heading") {
     const level = Math.min(6, Math.max(1, block.level ?? 1));
-    return `<h${level}${blockAttr(blockIndex)} style="margin:18px 0 8px;font-size:${Math.max(16, 28 - level * 2)}px;color:#111827">${runsHtml(block.runs)}</h${level}>`;
+    // 保留段落对齐 / 缩进（如居中的文档标题），否则标题会被一律左对齐。
+    return `<h${level}${blockAttr(blockIndex)} style="${paragraphStyle(block)};margin-top:18px;font-size:${Math.max(16, 28 - level * 2)}px;color:#111827">${runsHtml(block.runs)}</h${level}>`;
   }
   if (block.type === "listItem") {
     const list = block.list;
-    const ordered = list?.kind === "ordered";
-    const indent = 20 + (list?.ilvl ?? 0) * 20;
-    const marker = ordered ? "1." : "•";
-    return `<div${blockAttr(blockIndex)} style="${paragraphStyle(block)};display:flex;gap:6px;padding-left:${indent}px"><span style="flex:none;color:#6b7280">${marker}</span><span>${runsHtml(block.runs)}</span></div>`;
+    const info = ctx.list.get(block);
+    const marker = info?.marker ?? (list?.kind === "ordered" ? "1." : "•");
+    const level = info?.level;
+    const directIndent = twipsToPx(block.format?.indentLeft);
+    const levelIndent = twipsToPx(level?.indentLeft);
+    const hanging = twipsToPx(level?.hanging) ?? 0;
+    // 直接段落缩进已由 paragraphStyle 写成 margin-left，不要再叠加 padding。
+    const indent =
+      directIndent != null
+        ? 0
+        : Math.max(0, (levelIndent ?? 20 + (list?.ilvl ?? 0) * 20) - hanging);
+    // w:suff=nothing 表示编号后不补空白（中文「一、」常见），否则留出间隔。
+    const gap = level?.suff === "nothing" ? 0 : 6;
+    const markerWidth = hanging > 0 ? `min-width:${hanging}px;` : "";
+    const markerAlign = level?.lvlJc ?? "left";
+    return `<div${blockAttr(blockIndex)} style="${paragraphStyle(block)};display:flex;padding-left:${indent}px"><span style="flex:none;${markerWidth}text-align:${markerAlign};padding-right:${gap}px;white-space:pre">${escapeHtml(marker)}</span><span style="flex:1">${runsHtml(block.runs)}</span></div>`;
   }
   if (block.type === "table") {
     const table = block.table;
@@ -173,6 +243,8 @@ export interface DocxRenderOptions {
   showPageNumbers?: boolean;
   /** 字体族（小写）→ 系统度量；缺失时退回近似值 */
   fontMetrics?: Record<string, DocxFontMetrics>;
+  /** word/numbering.xml 解析结果：用于还原真实列表编号（一、/1.等） */
+  numbering?: Map<string, NumberingDef>;
 }
 
 const PAGE_WIDTH_PX = 820;
@@ -186,6 +258,7 @@ function renderPage(
   pageIndex: number,
   pageCount: number,
   indexOf: (block: Block) => number | undefined,
+  ctx: RenderContext,
 ): string {
   const header = options.headerText
     ? `<div style="position:absolute;left:${PAGE_PADDING_X}px;right:${PAGE_PADDING_X}px;top:28px;font-size:11px;color:#9ca3af;border-bottom:1px solid #e5e7eb;padding-bottom:6px">${escapeHtml(options.headerText)}</div>`
@@ -196,8 +269,12 @@ function renderPage(
   const footer = footerParts.length
     ? `<div style="position:absolute;left:${PAGE_PADDING_X}px;right:${PAGE_PADDING_X}px;bottom:24px;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:6px;display:flex;justify-content:space-between"><span>${footerParts[0]}</span><span>${footerParts[1] ?? ""}</span></div>`
     : "";
-  const body = blocks.map((block) => renderBlock(block, indexOf(block))).join("");
-  return `<div style="position:relative;width:${PAGE_WIDTH_PX}px;min-height:${PAGE_MIN_HEIGHT_PX}px;margin:0 auto 24px;padding:${PAGE_PADDING_Y}px ${PAGE_PADDING_X}px;background:#fff;color:#1f2937;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-serif;font-size:14px;line-height:1.7;box-shadow:0 1px 4px rgba(0,0,0,.1);box-sizing:border-box">${header}${body || '<p style="color:#9ca3af">（空文档）</p>'}${footer}</div>`;
+  const body = blocks
+    .map((block) => renderBlock(block, indexOf(block), ctx))
+    .join("");
+  // text-autospace 近似 Word 的「中英文/数字自动间距」（autoSpaceDE/DN）；
+  // 不支持的 WebView 会忽略该声明，不影响其它排版。
+  return `<div style="position:relative;width:${PAGE_WIDTH_PX}px;min-height:${PAGE_MIN_HEIGHT_PX}px;margin:0 auto 24px;padding:${PAGE_PADDING_Y}px ${PAGE_PADDING_X}px;background:#fff;color:#1f2937;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-serif;font-size:14px;line-height:1.7;text-autospace:normal;box-shadow:0 1px 4px rgba(0,0,0,.1);box-sizing:border-box">${header}${body || '<p style="color:#9ca3af">（空文档）</p>'}${footer}</div>`;
 }
 
 const PAGE_CONTENT_HEIGHT = PAGE_MIN_HEIGHT_PX - PAGE_PADDING_Y * 2 - 48;
@@ -298,9 +375,18 @@ export function renderDocxHtml(
     usedHeight += height;
   }
 
+  // 列表编号按整篇文档顺序计算（跨页续号 / 重新开始都依赖前序项）。
+  const ctx: RenderContext = { list: buildListMarkers(limited, options.numbering) };
   const html = pages
     .map((page, index) =>
-      renderPage(page, { showPageNumbers: true, ...options }, index, pages.length, indexOf),
+      renderPage(
+        page,
+        { showPageNumbers: true, ...options },
+        index,
+        pages.length,
+        indexOf,
+        ctx,
+      ),
     )
     .join("");
   return { html, truncated, pageCount: pages.length };
@@ -369,6 +455,7 @@ export async function openDocxSession(
     footerText: parsed.footerText,
     showPageNumbers: true,
     fontMetrics: options.fontMetrics,
+    numbering: parsed.numbering,
   });
 
   let saved = bytes;

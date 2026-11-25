@@ -36,6 +36,13 @@ pub enum BackendAuth {
         secret_key: String,
         prefix: String,
     },
+    /// 局域网直连电脑：配对二维码里的地址列表 / 端口 / 证书指纹 / 令牌
+    Lan {
+        hosts: Vec<String>,
+        port: u16,
+        fingerprint: String,
+        token: String,
+    },
 }
 
 /// Manifest 在远端的标准位置（所有 backend 共用此约定）
@@ -148,6 +155,13 @@ pub trait SyncBackendImpl {
     fn list_root_files(&self) -> Result<Option<Vec<String>>, AppError> {
         Ok(None)
     }
+
+    /// 本次同步中找到的远端新地址（取走即清空），调用方写回同步源配置，下次直接连。
+    ///
+    /// 目前只有局域网同步用：电脑换了 IP 后客户端用 mDNS 找到它（见 backend_lan）。其它 backend 恒为 None
+    fn take_discovered_hosts(&self) -> Option<Vec<String>> {
+        None
+    }
 }
 
 /// 从 sync_backends.config_json 解析为 BackendAuth
@@ -173,6 +187,18 @@ pub fn parse_auth(
             .unwrap_or_else(|| default.into())
     };
 
+    // DAO 解不开凭据密文（换机器 / 改主机名）时会打这个标记并把凭据置空。在这里直接给出可操作的
+    // 提示，而不是拿空密码去请求、最后报一个让人摸不着头脑的「认证失败」
+    if v.get(crate::database::sync_v1::SECRET_UNREADABLE_KEY)
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false)
+    {
+        return Err(AppError::InvalidInput(
+            "保存的同步凭据无法解密（更换电脑或修改主机名后会出现），请在同步设置里编辑该后端、重新填写密码 / 令牌后保存"
+                .into(),
+        ));
+    }
+
     match kind {
         K::Local => Ok(BackendAuth::Local {
             root: get_str("path")?,
@@ -189,6 +215,24 @@ pub fn parse_auth(
             access_key: get_str("accessKey")?,
             secret_key: get_str("secretKey")?,
             prefix: get_str_or("prefix", ""),
+        }),
+        K::Lan => Ok(BackendAuth::Lan {
+            hosts: v
+                .get("hosts")
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|h| h.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            port: v
+                .get("port")
+                .and_then(|x| x.as_u64())
+                .and_then(|p| u16::try_from(p).ok())
+                .ok_or_else(|| AppError::InvalidInput("config_json 缺字段: port".into()))?,
+            fingerprint: get_str("fp")?,
+            token: get_str("token")?,
         }),
     }
 }
@@ -221,6 +265,17 @@ pub fn create_backend(auth: BackendAuth) -> Result<Box<dyn SyncBackendImpl>, App
             &access_key,
             &secret_key,
             &prefix,
+        )?)),
+        BackendAuth::Lan {
+            hosts,
+            port,
+            fingerprint,
+            token,
+        } => Ok(Box::new(super::backend_lan::LanBackend::with_hosts(
+            &hosts,
+            port,
+            &token,
+            &fingerprint,
         )?)),
     }
 }

@@ -382,7 +382,11 @@ impl AiProvider for OpenAiCompatibleProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_openai_api_error(status, &body)));
+            return Err(AppError::Custom(format!(
+                "模型服务「{}」：{}",
+                self.metadata.display_name,
+                format_openai_api_error(status, &body)
+            )));
         }
 
         Ok(Box::pin(openai_event_stream(response.bytes_stream())))
@@ -442,7 +446,11 @@ impl AiProvider for OpenAiCompatibleProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_openai_api_error(status, &body)));
+            return Err(AppError::Custom(format!(
+                "模型服务「{}」：{}",
+                self.metadata.display_name,
+                format_openai_api_error(status, &body)
+            )));
         }
 
         let data: Value = response
@@ -654,7 +662,11 @@ impl AiProvider for AnthropicProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_anthropic_error(status, &body)));
+            return Err(AppError::Custom(format!(
+                "模型服务「{}」：{}",
+                self.metadata.display_name,
+                format_anthropic_error(status, &body)
+            )));
         }
 
         Ok(Box::pin(anthropic_event_stream(response.bytes_stream())))
@@ -687,7 +699,11 @@ impl AiProvider for AnthropicProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_anthropic_error(status, &body)));
+            return Err(AppError::Custom(format!(
+                "模型服务「{}」：{}",
+                self.metadata.display_name,
+                format_anthropic_error(status, &body)
+            )));
         }
 
         let data: Value = response

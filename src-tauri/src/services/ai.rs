@@ -427,6 +427,10 @@ struct StreamOutcome {
     reasoning: String,
     tool_calls: Vec<ToolCallAccum>,
     cancelled: bool,
+    /// 上游给出的结束原因（stop / length / tool_calls / content_filter …）
+    ///
+    /// `length` 表示被输出上限截断，调用方据此决定是否自动续写（最多 3 次）。
+    finish_reason: Option<String>,
 }
 
 impl AiService {
@@ -434,6 +438,101 @@ impl AiService {
     fn provider_for_model(model: &AiModel) -> Result<Arc<dyn AiProvider>, AppError> {
         ensure_builtin();
         get_provider_registry().resolve(&AiProviderConfig::from_ai_model(model))
+    }
+
+    /// 自动续写次数上限（总长度最多约为单次输出上限的 4 倍）
+    const MAX_AUTO_CONTINUATIONS: usize = 3;
+
+    /// 构造「工具轮次用满」的最后一次请求消息：
+    /// 把 finalization 提示并入首条 user 消息，避免部分模型（Jan / Qwen3 等）
+    /// 对「system 只允许出现在首条」直接返回 500。
+    fn build_tool_round_messages(
+        messages: &[Value],
+        allow_tools: bool,
+        final_hint: &str,
+    ) -> Vec<Value> {
+        if allow_tools {
+            return messages.to_vec();
+        }
+        let mut out = Vec::with_capacity(messages.len());
+        let mut merged = false;
+        for m in messages {
+            if !merged && m.get("role").and_then(|r| r.as_str()) == Some("user") {
+                let original = m.get("content").and_then(|c| c.as_str()).unwrap_or("");
+                let mut cloned = m.clone();
+                cloned["content"] = json!(format!("{}\n\n{}", final_hint, original));
+                out.push(cloned);
+                merged = true;
+            } else {
+                out.push(m.clone());
+            }
+        }
+        if !merged {
+            out.push(json!({ "role": "user", "content": final_hint }));
+        }
+        out
+    }
+
+    /// 流式结束后若 `finish_reason=length`，最多自动续写 3 次。
+    ///
+    /// - 续写请求不带 tools（避免再次进入工具循环）
+    /// - 用户取消立即终止，已生成内容保留
+    /// - 续写失败只记日志，不丢弃已有正文
+    async fn continue_truncated(
+        app: &AppHandle,
+        provider: &Arc<dyn AiProvider>,
+        emitter: &dyn AiEventEmitter,
+        conversation_id: i64,
+        mut messages: Vec<Value>,
+        mut content: String,
+        mut finish_reason: Option<String>,
+        cancel_rx: watch::Receiver<bool>,
+    ) -> (String, Option<String>, bool) {
+        let mut cancelled = false;
+        let mut attempts = 0usize;
+        while !cancelled
+            && finish_reason.as_deref() == Some("length")
+            && attempts < Self::MAX_AUTO_CONTINUATIONS
+        {
+            attempts += 1;
+            let _ = app.emit(
+                "ai:continuing",
+                json!({
+                    "conversationId": conversation_id,
+                    "attempt": attempts,
+                    "max": Self::MAX_AUTO_CONTINUATIONS,
+                }),
+            );
+            messages.push(json!({ "role": "assistant", "content": content }));
+            messages.push(json!({
+                "role": "user",
+                "content": "请接着写，不要重复已有内容。"
+            }));
+
+            let result = async {
+                let stream = provider.stream_chat(messages.clone(), Vec::new()).await?;
+                Self::drive_provider_stream(emitter, stream, cancel_rx.clone()).await
+            }
+            .await;
+
+            match result {
+                Ok(outcome) => {
+                    if !outcome.content.is_empty() {
+                        content.push_str(&outcome.content);
+                    }
+                    cancelled = outcome.cancelled;
+                    finish_reason = outcome.finish_reason;
+                    if cancelled {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    log::warn!("[ai] 自动续写失败，保留已生成内容: {}", e);
+                    break;
+                }
+            }
+        }
+        (content, finish_reason, cancelled)
     }
 
     /// 消费 Provider 事件流：累加正文 / 推理 / tool_calls，并推送前端事件。
@@ -505,10 +604,10 @@ impl AiService {
                 content.push_str(&reasoning);
                 emitter.emit_token(&reasoning);
             }
-            // finish_reason 异常（length / content_filter）视为错误
+            // content_filter 仍视为错误；length 交给调用方自动续写
             if let Some(reason) = &finish_reason {
-                if reason != "stop" && reason != "tool_calls" {
-                    let msg = format!("AI 异常终止 (finish_reason={})", reason);
+                if reason == "content_filter" {
+                    let msg = format!("AI 输出被内容安全策略拦截 (finish_reason={})", reason);
                     crate::services::ai_metrics::record_error(
                         started.elapsed().as_millis() as u64,
                         &msg,
@@ -531,6 +630,7 @@ impl AiService {
             reasoning,
             tool_calls,
             cancelled,
+            finish_reason,
         })
     }
 
@@ -973,7 +1073,16 @@ impl AiService {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(AppError::Custom(format_openai_api_error(status, &body)));
+            let provider_label = if input.name.trim().is_empty() {
+                input.provider.as_str()
+            } else {
+                input.name.as_str()
+            };
+            return Err(AppError::Custom(format!(
+                "模型服务「{}」：{}",
+                provider_label,
+                format_openai_api_error(status, &body)
+            )));
         }
         let body: Value = response
             .json()
@@ -1120,24 +1229,44 @@ impl AiService {
             );
 
             let result = async {
-                let stream = provider.stream_chat(messages, Vec::new()).await?;
+                let stream = provider.stream_chat(messages.clone(), Vec::new()).await?;
                 Self::drive_provider_stream(&chat_emitter, stream, cancel_rx.clone()).await
             }
             .await;
 
             match result {
                 Ok(outcome) => {
-                    let response = outcome.content;
+                    let mut response = outcome.content;
+                    let mut cancelled = outcome.cancelled;
+                    let reasoning = outcome.reasoning;
+
+                    // A4：被输出上限截断时自动续写（最多 3 次）
+                    if !cancelled {
+                        let (merged, _, cont_cancelled) = Self::continue_truncated(
+                            &app,
+                            &provider,
+                            &chat_emitter,
+                            conversation_id,
+                            messages.clone(),
+                            response,
+                            outcome.finish_reason,
+                            cancel_rx.clone(),
+                        )
+                        .await;
+                        response = merged;
+                        cancelled = cont_cancelled;
+                    }
+
                     // 成功或用户手动停止：保存 AI 回复 + 收尾信息
                     let meta = TurnMeta {
-                        end_reason: if outcome.cancelled { "stopped" } else { "done" }.into(),
+                        end_reason: if cancelled { "stopped" } else { "done" }.into(),
                         error: None,
                         duration_ms: Some(turn_started.elapsed().as_millis() as u64),
                         round_texts: None,
-                        reasoning: if outcome.reasoning.trim().is_empty() {
+                        reasoning: if reasoning.trim().is_empty() {
                             None
                         } else {
-                            Some(outcome.reasoning)
+                            Some(reasoning)
                         },
                     };
                     let meta_json = serde_json::to_string(&meta).ok();
@@ -1388,6 +1517,8 @@ impl AiService {
         let mut round_texts: Vec<String> = Vec::new();
         let mut reasoning_all = String::new();
         let mut stopped = false;
+        // 最后一轮的 finish_reason，用于判断最终答复是否被截断（A4 自动续写）
+        let mut last_finish_reason: Option<String> = None;
         // M5-3：tool_schemas 现在融合内置 5 skills + 所有 enabled 外部 MCP server 的工具
         // 工具命名约定：MCP 工具加 mcp__<server_id>__ 前缀；dispatch 时按前缀路由
         let tool_schemas = if mcp_enabled {
@@ -1402,23 +1533,19 @@ impl AiService {
             // 最后一轮不给 tools，强制 AI 给出最终答复（防死循环）
             let allow_tools = round < max_tool_rounds;
 
-            // finalization 轮：临时往 messages 里加一条 system 提示，劝模型不要继续模仿
-            // 工具调用语法（前几轮的 tool_calls 历史会让模型有"再调一次"的惯性）。
-            // 用本地 Cow 避免污染主 messages 数组——下一轮请求又得用原始版。
-            let req_messages: std::borrow::Cow<'_, [Value]> = if allow_tools {
-                std::borrow::Cow::Borrowed(&messages[..])
-            } else {
-                let mut m = messages.clone();
-                m.push(json!({
-                    "role": "system",
-                    "content": "工具调用次数已达上限，工具不再可用。请基于你已经从工具拿到的信息，\
-                                直接给出最终中文答复。\
-                                绝对不要再输出 <tool_call>、<tool_use>、```tool_call、\
-                                functions.xxx(...) 等任何形式的工具调用语法或代码块；\
-                                如果信息不足以回答，明确告诉用户文档里没有相关内容。"
-                }));
-                std::borrow::Cow::Owned(m)
-            };
+            // finalization 轮：提醒模型不要再模仿工具调用语法（前几轮的 tool_calls 历史
+            // 会让模型有"再调一次"的惯性）。
+            //
+            // 关键：提示并入首条 user 消息，而不是再追加一条 system。
+            // 部分模型（Jan / Qwen3 等）只允许 system 出现在首条，末尾追加 system 会直接 500。
+            // 用本地 Vec 避免污染主 messages 数组——下一轮请求还得用原始版。
+            const FINAL_HINT: &str = "工具调用次数已达上限，工具不再可用。请基于你已经从工具拿到的信息，\
+                直接给出最终中文答复。\
+                绝对不要再输出 <tool_call>、<tool_use>、```tool_call、\
+                functions.xxx(...) 等任何形式的工具调用语法或代码块；\
+                如果信息不足以回答，明确告诉用户文档里没有相关内容。";
+            let req_messages =
+                Self::build_tool_round_messages(&messages, allow_tools, FINAL_HINT);
 
             let tools = if allow_tools {
                 tool_schemas.clone()
@@ -1429,7 +1556,7 @@ impl AiService {
             chat_emitter.emit_round(round);
 
             let result = async {
-                let stream = provider.stream_chat(req_messages.into_owned(), tools).await?;
+                let stream = provider.stream_chat(req_messages, tools).await?;
                 Self::drive_provider_stream(&chat_emitter, stream, cancel_rx.clone()).await
             }
             .await;
@@ -1441,7 +1568,9 @@ impl AiService {
                         reasoning,
                         tool_calls,
                         cancelled,
+                        finish_reason,
                     } = outcome;
+                    last_finish_reason = finish_reason;
                     if !reasoning.trim().is_empty() {
                         if !reasoning_all.is_empty() {
                             reasoning_all.push_str("\n\n");
@@ -1588,6 +1717,25 @@ impl AiService {
                 }));
             }
             // 继续下一轮请求
+        }
+
+        // A4：最终答复被输出上限截断时自动续写（续写请求不带 tools）
+        if !stopped && last_finish_reason.as_deref() == Some("length") {
+            let (merged, _, cont_cancelled) = Self::continue_truncated(
+                &app,
+                &provider,
+                &chat_emitter,
+                conversation_id,
+                messages.clone(),
+                std::mem::take(&mut final_content),
+                last_finish_reason.clone(),
+                cancel_rx.clone(),
+            )
+            .await;
+            final_content = merged;
+            if cont_cancelled {
+                stopped = true;
+            }
         }
 
         // 5. 保存 assistant 最终消息
@@ -2666,9 +2814,13 @@ mod draft_note_tests {
                 sort_order: 0,
                 children: vec![],
                 note_count: 0,
+                office_count: 0,
+                pdf_count: 0,
                 mount_id: None,
             }],
             note_count: 0,
+            office_count: 0,
+            pdf_count: 0,
             mount_id: None,
         };
         let mut out = Vec::new();
@@ -2913,5 +3065,50 @@ mod strip_pseudo_tool_calls_tests {
         // 不应留下连续 3+ 空行
         assert!(!out.contains("\n\n\n"), "残留连续空行：{:?}", out);
         assert!(out.contains('A') && out.contains('B'));
+    }
+}
+
+#[cfg(test)]
+mod tool_round_messages_tests {
+    //! A5：工具轮次用满时，finalization 提示必须并入首条 user 消息，
+    //! 而不是追加新的 system（部分模型会因此 500）。
+
+    use super::*;
+
+    fn sys() -> Value {
+        json!({ "role": "system", "content": "S" })
+    }
+    fn usr(text: &str) -> Value {
+        json!({ "role": "user", "content": text })
+    }
+
+    #[test]
+    fn allow_tools_returns_original() {
+        let messages = vec![sys(), usr("hello")];
+        let out = AiService::build_tool_round_messages(&messages, true, "HINT");
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[1]["content"], "hello");
+    }
+
+    #[test]
+    fn final_hint_merges_into_first_user_without_extra_system() {
+        let messages = vec![sys(), usr("q1"), sys(), usr("q2")];
+        let out = AiService::build_tool_round_messages(&messages, false, "HINT");
+
+        assert_eq!(out.len(), 4, "不得追加新的 system 消息");
+        assert_eq!(out[0]["role"], "system");
+        assert_eq!(out[1]["role"], "user");
+        assert!(out[1]["content"].as_str().unwrap().starts_with("HINT"));
+        assert!(out[1]["content"].as_str().unwrap().contains("q1"));
+        assert_eq!(out[3]["content"], "q2", "后续 user 消息保持原样");
+    }
+
+    #[test]
+    fn no_user_message_appends_user_hint() {
+        let messages = vec![sys()];
+        let out = AiService::build_tool_round_messages(&messages, false, "HINT");
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[1]["role"], "user");
+        assert_eq!(out[1]["content"], "HINT");
     }
 }

@@ -12,10 +12,20 @@ import {
   Pencil,
   Share2,
   Download,
+  ScanLine,
+  Wifi,
+  Smartphone,
+  ChevronRight,
 } from "lucide-react";
 import { ShareConfigModal } from "@/components/config-share/ShareConfigModal";
 import { ImportConfigModal } from "@/components/config-share/ImportConfigModal";
-import { exportWebDavBackend, type Envelope } from "@/lib/configShare";
+import { QrScanner } from "@/components/mobile/QrScanner";
+import { MobileLanHostSheet } from "@/components/mobile/MobileLanHostSheet";
+import {
+  exportSyncBackend,
+  exportWebDavBackend,
+  type Envelope,
+} from "@/lib/configShare";
 import { Modal, Form, Input, message } from "antd";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { syncV1Api } from "@/lib/api";
@@ -47,6 +57,36 @@ interface WebDavForm {
   password: string;
 }
 
+/** 电脑端「设置 → 数据同步与备份 → 局域网同步」二维码内容（对应 Rust PairingPayload） */
+interface LanPairing {
+  t: "kb-lan";
+  v: number;
+  name: string;
+  hosts: string[];
+  port: number;
+  fp: string;
+  token: string;
+}
+
+/** 解析配对码；不是局域网配对码 / 缺字段返回 null */
+function parseLanPairing(text: string): LanPairing | null {
+  try {
+    const p = JSON.parse(text.trim()) as Partial<LanPairing>;
+    if (
+      p.t !== "kb-lan" ||
+      !Array.isArray(p.hosts) ||
+      !p.port ||
+      !p.fp ||
+      !p.token
+    ) {
+      return null;
+    }
+    return p as LanPairing;
+  } catch {
+    return null;
+  }
+}
+
 export function MobileSync() {
   const navigate = useNavigate();
   const [backends, setBackends] = useState<SyncBackend[]>([]);
@@ -59,6 +99,10 @@ export function MobileSync() {
   // 配置分享 / 导入
   const [shareEnv, setShareEnv] = useState<Envelope | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  // 局域网：扫电脑的配对二维码直接建同步源
+  const [lanScanOpen, setLanScanOpen] = useState(false);
+  const [lanBusy, setLanBusy] = useState(false);
+  const [hostOpen, setHostOpen] = useState(false);
 
   // 监听后端推/拉进度事件，渲染到对应 backend 卡片下
   useEffect(() => {
@@ -106,6 +150,10 @@ export function MobileSync() {
   }
 
   function openEdit(b: SyncBackend) {
+    if (b.kind === "lan") {
+      message.info("局域网同步源由扫码创建；要换电脑请删除后重新扫码");
+      return;
+    }
     let cfg: WebDavConfig = { url: "", username: "" };
     try {
       cfg = JSON.parse(b.configJson) as WebDavConfig;
@@ -199,6 +247,36 @@ export function MobileSync() {
     }
   }
 
+  /** 扫电脑上的配对二维码 → 建一个 lan 同步源（token 由 DAO 加密入库） */
+  async function handleLanScanned(text: string) {
+    const p = parseLanPairing(text);
+    if (!p) {
+      message.error("这不是局域网配对二维码，请扫电脑「局域网同步」里的二维码");
+      return;
+    }
+    setLanBusy(true);
+    try {
+      await syncV1Api.createBackend({
+        kind: "lan",
+        name: `局域网 · ${p.name}`,
+        configJson: JSON.stringify({
+          hosts: p.hosts,
+          port: p.port,
+          fp: p.fp,
+          token: p.token,
+        }),
+        autoSync: false,
+      });
+      message.success(`已添加「${p.name}」，点推送 / 拉取即可同步`);
+      setLanScanOpen(false);
+      await load();
+    } catch (e) {
+      message.error(`添加失败：${e}`);
+    } finally {
+      setLanBusy(false);
+    }
+  }
+
   function remove(b: SyncBackend) {
     Modal.confirm({
       title: `删除「${b.name}」？`,
@@ -220,31 +298,38 @@ export function MobileSync() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-slate-50"
+      className="fixed inset-0 z-50 flex flex-col bg-[var(--m-page)]"
       style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
     >
       {/* 顶栏 */}
-      <header className="flex h-12 items-center justify-between border-b border-slate-200 bg-white px-2 shrink-0">
+      <header className="flex h-12 items-center justify-between border-b border-[var(--m-line)] bg-[var(--m-surface)] px-2 shrink-0">
         <button
           onClick={() => navigate(-1)}
           aria-label="返回"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <ChevronLeft size={24} className="text-slate-700" />
+          <ChevronLeft size={24} className="text-[var(--m-ink-2)]" />
         </button>
         <h1 className="text-base font-semibold">云端同步</h1>
         <div className="flex">
           <button
+            onClick={() => setLanScanOpen(true)}
+            aria-label="扫描局域网配对码"
+            className="flex h-10 w-10 items-center justify-center text-[var(--m-ink-2)]"
+          >
+            <ScanLine size={20} />
+          </button>
+          <button
             onClick={() => setImportOpen(true)}
             aria-label="导入配置"
-            className="flex h-10 w-10 items-center justify-center text-slate-600"
+            className="flex h-10 w-10 items-center justify-center text-[var(--m-ink-2)]"
           >
             <Download size={20} />
           </button>
           <button
             onClick={openAdd}
             aria-label="新增"
-            className="flex h-10 w-10 items-center justify-center text-[var(--kb-primary)]"
+            className="flex h-10 w-10 items-center justify-center text-[var(--m-primary)]"
           >
             <Plus size={22} />
           </button>
@@ -252,23 +337,38 @@ export function MobileSync() {
       </header>
 
       {/* 信息横幅 */}
-      <div className="flex items-start gap-2 border-b border-blue-200 bg-blue-50 px-4 py-2.5 shrink-0">
-        <CloudUpload size={16} className="mt-0.5 shrink-0 text-blue-600" />
-        <p className="text-xs leading-relaxed text-blue-800">
+      <div className="flex items-start gap-2 border-b border-[var(--m-primary)] bg-[var(--m-tint-primary)] px-4 py-2.5 shrink-0">
+        <CloudUpload size={16} className="mt-0.5 shrink-0 text-[var(--m-primary)]" />
+        <p className="text-xs leading-relaxed text-[var(--m-ink-1)]">
           移动端只支持手动同步，建议每次记录后手动 ↑推送，需要时再 ↓拉取。
-          仅支持 WebDAV（移动端不支持 S3）。
+          支持 WebDAV 与局域网直连（右上角扫码添加）。
         </p>
       </div>
 
       {/* 列表 */}
       <main className="flex-1 overflow-y-auto p-4">
+        {/* 手机之间直连：本机当主机，另一台手机扫码同步 */}
+        <button
+          type="button"
+          onClick={() => setHostOpen(true)}
+          className="mb-3 flex w-full items-center gap-3 rounded-2xl bg-[var(--m-surface)] px-3 py-3 text-left shadow-sm active:bg-[var(--m-well)]"
+        >
+          <Smartphone size={20} className="shrink-0 text-[var(--m-primary)]" />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-sm font-medium text-[var(--m-ink-1)]">让本机当主机</span>
+            <span className="text-[11px] text-[var(--m-ink-3)]">
+              手机之间同步：另一台手机扫码即可，不用电脑
+            </span>
+          </span>
+          <ChevronRight size={18} className="shrink-0 text-[var(--m-ink-3)]" />
+        </button>
         {loading ? (
-          <div className="text-center text-sm text-slate-400 py-8">加载中…</div>
+          <div className="text-center text-sm text-[var(--m-ink-3)] py-8">加载中…</div>
         ) : backends.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 px-4 py-16 text-slate-400">
-            <CloudUpload size={40} className="text-slate-300" />
+          <div className="flex flex-col items-center gap-2 px-4 py-16 text-[var(--m-ink-3)]">
+            <CloudUpload size={40} className="text-[var(--m-ink-3)]" />
             <span className="text-sm">还没有配置同步</span>
-            <span className="text-xs text-slate-300">点右上 + 添加 WebDAV</span>
+            <span className="text-xs text-[var(--m-ink-3)]">点右上 + 添加 WebDAV</span>
           </div>
         ) : (
           <div className="space-y-3">
@@ -287,7 +387,13 @@ export function MobileSync() {
                 onTest={() => testConn(b.id)}
                 onEdit={() => openEdit(b)}
                 onDelete={() => remove(b)}
-                onShare={() => setShareEnv(exportWebDavBackend(b))}
+                onShare={() =>
+                  setShareEnv(
+                    b.kind === "lan"
+                      ? exportSyncBackend(b)
+                      : exportWebDavBackend(b),
+                  )
+                }
               />
             ))}
           </div>
@@ -352,6 +458,34 @@ export function MobileSync() {
         onClose={() => setImportOpen(false)}
         onImported={() => void load()}
       />
+
+      <MobileLanHostSheet
+        open={hostOpen}
+        onClose={() => {
+          setHostOpen(false);
+          void load();
+        }}
+      />
+
+      {/* 局域配对：扫电脑上的二维码 */}
+      <Modal
+        title="扫描电脑的配对二维码"
+        open={lanScanOpen}
+        footer={null}
+        onCancel={() => setLanScanOpen(false)}
+        destroyOnClose
+      >
+        <p className="mb-2 text-xs leading-relaxed text-[var(--m-ink-2)]">
+          在电脑上打开「设置 → 数据同步与备份 → 局域网同步」，开启后扫描二维码。
+          手机和电脑需要连同一个 Wi-Fi。
+        </p>
+        {lanBusy && <div className="mb-2 text-xs text-[var(--m-ink-2)]">正在添加…</div>}
+        <QrScanner
+          onResult={(text) => {
+            if (!lanBusy) void handleLanScanned(text);
+          }}
+        />
+      </Modal>
     </div>
   );
 }
@@ -393,37 +527,54 @@ function BackendCard({
   const lastPull = backend.lastPullTs
     ? relativeTime(backend.lastPullTs)
     : "从未";
+  const kindLabel =
+    backend.kind === "lan"
+      ? "局域网"
+      : backend.kind === "s3"
+        ? "S3"
+        : backend.kind === "local"
+          ? "本地"
+          : "WebDAV";
   return (
-    <div className="rounded-2xl bg-white p-4 shadow-sm">
+    <div className="rounded-2xl bg-[var(--m-surface)] p-4 shadow-sm">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50">
-          <CloudUpload size={20} className="text-[var(--kb-primary)]" />
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--m-tint-primary)]">
+          {backend.kind === "lan" ? (
+            <Wifi size={20} className="text-[var(--m-primary)]" />
+          ) : (
+            <CloudUpload size={20} className="text-[var(--m-primary)]" />
+          )}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-slate-900">
+            <span className="truncate text-sm font-semibold text-[var(--m-ink-1)]">
               {backend.name}
             </span>
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 uppercase">
-              {backend.kind}
+            <span className="rounded bg-[var(--m-well)] px-1.5 py-0.5 text-[10px] text-[var(--m-ink-2)]">
+              {kindLabel}
             </span>
             {backend.enabled ? (
-              <CheckCircle2 size={12} className="text-green-500" />
+              <CheckCircle2 size={12} className="text-[var(--m-success)]" />
             ) : (
-              <AlertCircle size={12} className="text-slate-400" />
+              <AlertCircle size={12} className="text-[var(--m-ink-3)]" />
             )}
           </div>
-          <div className="mt-1 grid grid-cols-2 text-[11px] text-slate-500">
+          <div className="mt-1 grid grid-cols-2 text-[11px] text-[var(--m-ink-2)]">
             <span>↑ 推送 · {lastPush}</span>
             <span>↓ 拉取 · {lastPull}</span>
           </div>
+          {backend.lastError && (
+            <div className="mt-1 truncate text-[11px] text-[var(--m-danger)]" title={backend.lastError}>
+              上次失败：{backend.lastError}
+            </div>
+          )}
         </div>
       </div>
 
       {/* 进度条（仅在 busy 时显示） */}
       {busy && (
-        <div className="mt-3 rounded-lg bg-blue-50 px-3 py-2">
-          <div className="flex items-center justify-between text-[11px] text-blue-700">
+        <div className="mt-3 rounded-lg bg-[var(--m-tint-primary)] px-3 py-2">
+          <div className="flex items-center justify-between text-[11px] text-[var(--m-primary)]">
             <span className="font-medium">
               {progress
                 ? PHASE_LABELS[progress.phase] ?? progress.phase
@@ -436,13 +587,13 @@ function BackendCard({
             )}
           </div>
           {progress?.message && (
-            <div className="mt-0.5 truncate text-[10px] text-blue-600/80">
+            <div className="mt-0.5 truncate text-[10px] text-[var(--m-primary)]/80">
               {progress.message}
             </div>
           )}
-          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-blue-100">
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[var(--m-tint-primary)]">
             <div
-              className="h-full bg-[var(--kb-primary)] transition-all"
+              className="h-full bg-[var(--m-primary)] transition-all"
               style={{
                 width:
                   progress && progress.total > 0
@@ -459,14 +610,14 @@ function BackendCard({
         <button
           onClick={onPush}
           disabled={busy}
-          className="flex h-10 items-center justify-center gap-1 rounded-lg bg-[var(--kb-primary)] text-sm font-medium text-white active:scale-95 transition-transform disabled:opacity-50"
+          className="flex h-10 items-center justify-center gap-1 rounded-lg bg-[var(--m-primary)] text-sm font-medium text-[var(--m-on-primary)] active:scale-95 transition-transform disabled:opacity-50"
         >
           <CloudUpload size={14} /> 推送
         </button>
         <button
           onClick={onPull}
           disabled={busy}
-          className="flex h-10 items-center justify-center gap-1 rounded-lg bg-slate-100 text-sm font-medium text-slate-700 active:bg-slate-200 disabled:opacity-50"
+          className="flex h-10 items-center justify-center gap-1 rounded-lg bg-[var(--m-well)] text-sm font-medium text-[var(--m-ink-2)] active:bg-[var(--m-well)] disabled:opacity-50"
         >
           <CloudDownload size={14} /> 拉取
         </button>
@@ -475,28 +626,28 @@ function BackendCard({
         <button
           onClick={onTest}
           disabled={busy}
-          className="flex h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white text-xs text-slate-600 active:bg-slate-50 disabled:opacity-50"
+          className="flex h-9 items-center justify-center gap-1 rounded-lg border border-[var(--m-line)] bg-[var(--m-surface)] text-xs text-[var(--m-ink-2)] active:bg-[var(--m-well)] disabled:opacity-50"
         >
           <Plug size={12} /> 测试
         </button>
         <button
           onClick={onShare}
           disabled={busy}
-          className="flex h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white text-xs text-slate-600 active:bg-slate-50 disabled:opacity-50"
+          className="flex h-9 items-center justify-center gap-1 rounded-lg border border-[var(--m-line)] bg-[var(--m-surface)] text-xs text-[var(--m-ink-2)] active:bg-[var(--m-well)] disabled:opacity-50"
         >
           <Share2 size={12} /> 分享
         </button>
         <button
           onClick={onEdit}
           disabled={busy}
-          className="flex h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white text-xs text-slate-600 active:bg-slate-50 disabled:opacity-50"
+          className="flex h-9 items-center justify-center gap-1 rounded-lg border border-[var(--m-line)] bg-[var(--m-surface)] text-xs text-[var(--m-ink-2)] active:bg-[var(--m-well)] disabled:opacity-50"
         >
           <Pencil size={12} /> 编辑
         </button>
         <button
           onClick={onDelete}
           disabled={busy}
-          className="flex h-9 items-center justify-center gap-1 rounded-lg border border-red-200 bg-white text-xs text-red-600 active:bg-red-50 disabled:opacity-50"
+          className="flex h-9 items-center justify-center gap-1 rounded-lg border border-red-200 bg-[var(--m-surface)] text-xs text-[var(--m-danger)] active:bg-[var(--m-tint-danger)] disabled:opacity-50"
         >
           <Trash2 size={12} /> 删除
         </button>

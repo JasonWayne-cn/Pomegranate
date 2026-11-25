@@ -907,6 +907,7 @@ fn render_cards(slide: &PptSlide, motif: &str) -> String {
     let WHITE = __palette.white.as_str();
     let items = blocks(slide);
     let mut body = header(&slide.title, slide.page, slide_page_total(slide));
+    let mut icon_uses: HashMap<&'static str, usize> = HashMap::new();
     let rhythm = rhythm_factor(slide);
     let count = items.len().min(6).max(1);
     let cols = if count >= 5 { 3 } else { 2 };
@@ -984,9 +985,9 @@ fn render_cards(slide: &PptSlide, motif: &str) -> String {
                 2,
             ));
         }
-        // 图标化：非编号 motif 在右下角增加状态图标，增强页面识别度。
+        // 图标化：非编号 motif 在右下角增加语义图标，增强页面识别度。
         if motif != "numbered" {
-            let kind = if index % 2 == 0 { "check" } else { "arrow" };
+            let kind = pick_icon(label, text, index, &mut icon_uses);
             body.push_str(&icon_badge(
                 x + card_w - 32.0,
                 y + card_h - 32.0,
@@ -1525,6 +1526,7 @@ fn render_summary(slide: &PptSlide, motif: &str) -> String {
     let WHITE = __palette.white.as_str();
     let items = blocks(slide);
     let mut body = header(&slide.title, slide.page, slide_page_total(slide));
+    let mut icon_uses: HashMap<&'static str, usize> = HashMap::new();
     let count = items.len().min(6).max(1);
     if motif == "takeaway" {
         let first = items.first();
@@ -1541,11 +1543,12 @@ fn render_summary(slide: &PptSlide, motif: &str) -> String {
     } else {
         for (index, (label, text, _)) in items.iter().take(count).enumerate() {
             let y = 160.0 + index as f32 * 76.0;
-            if motif == "checklist" {
-                body.push_str(&icon_badge(104.0, y + 8.0, 14.0, BLUE, "check"));
+            let kind = if motif == "checklist" {
+                "check"
             } else {
-                body.push_str(&circle(104.0, y + 8.0, 14.0, ACCENT));
-            }
+                pick_icon(label, text, index, &mut icon_uses)
+            };
+            body.push_str(&icon_badge(104.0, y + 8.0, 13.0, BLUE, kind));
             body.push_str(&text_block(132.0, y + 14.0, 1020.0, 16.0, 22.0, TEXT, "bold", label, 1));
             body.push_str(&text_block(132.0, y + 40.0, 1020.0, 13.0, 19.0, MUTED, "normal", text, 2));
         }
@@ -1813,16 +1816,247 @@ fn wedge(cx: f32, cy: f32, r: f32, start: f32, end: f32, fill: &str) -> String {
     )
 }
 
+const ICON_ROTATION: [&str; 6] = ["check", "trend", "star", "arrow", "target", "clock"];
+
+/// 按关键词推断图标；未命中时按序号轮换，避免整页重复。
+fn infer_icon_kind(label: &str, text: &str, index: usize) -> &'static str {
+    const RULES: [(&str, &str); 40] = [
+        ("风险", "alert"),
+        ("问题", "alert"),
+        ("挑战", "alert"),
+        ("不足", "alert"),
+        ("时间", "clock"),
+        ("阶段", "clock"),
+        ("进度", "clock"),
+        ("周期", "clock"),
+        ("增长", "trend"),
+        ("数据", "trend"),
+        ("提升", "trend"),
+        ("指标", "trend"),
+        ("结论", "check"),
+        ("完成", "check"),
+        ("成果", "check"),
+        ("验证", "check"),
+        ("目标", "target"),
+        ("战略", "target"),
+        ("定位", "target"),
+        ("效率", "bolt"),
+        ("速度", "bolt"),
+        ("优化", "bolt"),
+        ("团队", "people"),
+        ("用户", "people"),
+        ("客户", "people"),
+        ("组织", "people"),
+        ("安全", "lock"),
+        ("合规", "lock"),
+        ("隐私", "lock"),
+        ("洞察", "search"),
+        ("探索", "search"),
+        ("调研", "search"),
+        ("引述", "quote"),
+        ("观点", "quote"),
+        ("关键", "star"),
+        ("重点", "star"),
+        ("亮点", "star"),
+        ("流程", "arrow"),
+        ("路径", "arrow"),
+        ("步骤", "arrow"),
+    ];
+    let haystack = format!("{label}{text}");
+    for (keyword, kind) in RULES {
+        if haystack.contains(keyword) {
+            return kind;
+        }
+    }
+    ICON_ROTATION[index % ICON_ROTATION.len()]
+}
+
+/// 页内同一种图标最多出现两次，超出后轮换。
+fn pick_icon(
+    label: &str,
+    text: &str,
+    index: usize,
+    used: &mut HashMap<&'static str, usize>,
+) -> &'static str {
+    let mut kind = infer_icon_kind(label, text, index);
+    if used.get(kind).copied().unwrap_or(0) >= 2 {
+        kind = ICON_ROTATION[index % ICON_ROTATION.len()];
+    }
+    *used.entry(kind).or_insert(0) += 1;
+    kind
+}
+
 fn icon_badge(x: f32, y: f32, radius: f32, fill: &str, kind: &str) -> String {
     let mut out = circle(x, y, radius, fill);
+    let s = (radius / 12.0).clamp(0.6, 1.6);
+    let px = |dx: f32| x + dx * s;
+    let py = |dy: f32| y + dy * s;
+    let line = |x1: f32, y1: f32, x2: f32, y2: f32| {
+        format!(
+            "M {:.1} {:.1} L {:.1} {:.1}",
+            px(x1),
+            py(y1),
+            px(x2),
+            py(y2)
+        )
+    };
+    let stroke = format!(
+        "fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"{:.2}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"",
+        2.4 * s
+    );
     let glyph = match kind {
-        "arrow" => format!(
-            "<path d=\"M {:.1} {:.1} L {:.1} {:.1} M {:.1} {:.1} L {:.1} {:.1} M {:.1} {:.1} L {:.1} {:.1}\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
-            x - 6.0, y, x + 6.0, y, x + 6.0, y, x + 1.0, y - 5.0, x + 6.0, y, x + 1.0, y + 5.0
-        ),
         "check" => format!(
-            "<path d=\"M {:.1} {:.1} L {:.1} {:.1} L {:.1} {:.1}\" fill=\"none\" stroke=\"#FFFFFF\" stroke-width=\"2.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
-            x - 6.0, y, x - 1.5, y + 5.0, x + 7.0, y - 6.0
+            "<path d=\"M {:.1} {:.1} L {:.1} {:.1} L {:.1} {:.1}\" {}\"/>",
+            px(-6.0),
+            py(0.0),
+            px(-1.5),
+            py(5.0),
+            px(7.0),
+            py(-6.0),
+            stroke
+        ),
+        "arrow" => format!(
+            "<path d=\"{}\" {}\"/>",
+            [
+                line(-7.0, 0.0, 7.0, 0.0),
+                line(7.0, 0.0, 2.0, -5.0),
+                line(7.0, 0.0, 2.0, 5.0),
+            ]
+            .join(" "),
+            stroke
+        ),
+        "star" => format!(
+            "<polygon points=\"{:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1}\" fill=\"#FFFFFF\"/>",
+            px(0.0), py(-8.0),
+            px(2.4), py(-2.5),
+            px(8.2), py(-2.5),
+            px(3.5), py(1.2),
+            px(5.2), py(7.0),
+            px(0.0), py(3.3),
+            px(-5.2), py(7.0),
+            px(-3.5), py(1.2),
+            px(-8.2), py(-2.5),
+            px(-2.4), py(-2.5)
+        ),
+        "alert" => format!(
+            "<path d=\"M {:.1} {:.1} L {:.1} {:.1} L {:.1} {:.1} Z {}\" {}\"/>",
+            px(0.0),
+            py(-7.0),
+            px(8.0),
+            py(7.0),
+            px(-8.0),
+            py(7.0),
+            [line(0.0, -1.0, 0.0, 3.0), line(0.0, 5.4, 0.0, 5.6)].join(" "),
+            stroke
+        ),
+        "clock" => format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"{:.1}\" {}/><path d=\"{}\" {}/>",
+            px(0.0),
+            py(0.0),
+            6.0 * s,
+            stroke,
+            [line(0.0, 0.0, 0.0, -4.0), line(0.0, 0.0, 3.0, 0.5)].join(" "),
+            stroke
+        ),
+        "trend" => format!(
+            "<path d=\"{}\" {}\"/>",
+            [
+                line(-7.0, 5.0, -2.0, 0.0),
+                line(-2.0, 0.0, 2.0, 3.0),
+                line(2.0, 3.0, 7.0, -4.0),
+                line(7.0, -4.0, 2.5, -4.0),
+                line(7.0, -4.0, 7.0, 0.5),
+            ]
+            .join(" "),
+            stroke
+        ),
+        "quote" => format!(
+            "<path d=\"M {:.1} {:.1} q {:.1} 0 {:.1} {:.1} M {:.1} {:.1} q {:.1} 0 {:.1} {:.1}\" {}\"/>",
+            px(-6.0),
+            py(-5.0),
+            px(5.0),
+            px(5.0),
+            py(5.0),
+            px(-1.0),
+            py(-5.0),
+            px(5.0),
+            px(5.0),
+            py(5.0),
+            stroke
+        ),
+        "target" => format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"{:.1}\" {}/><circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"{:.1}\" {}/><circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"{:.1}\" fill=\"#FFFFFF\"/>",
+            px(0.0),
+            py(0.0),
+            7.0 * s,
+            stroke,
+            px(0.0),
+            py(0.0),
+            3.6 * s,
+            stroke,
+            px(0.0),
+            py(0.0),
+            1.2 * s
+        ),
+        "bolt" => format!(
+            "<polygon points=\"{:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1} {:.1},{:.1}\" fill=\"#FFFFFF\"/>",
+            px(2.0), py(-9.0),
+            px(-5.0), py(1.0),
+            px(-1.0), py(1.0),
+            px(-2.0), py(9.0),
+            px(5.0), py(-1.0),
+            px(1.0), py(-1.0)
+        ),
+        "people" => format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"{:.1}\" {}/><circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"{:.1}\" {}/><path d=\"M {:.1} {:.1} Q {:.1} {:.1} {:.1} {:.1} Q {:.1} {:.1} {:.1} {:.1}\" {}/>",
+            px(-3.0),
+            py(-4.0),
+            2.8 * s,
+            stroke,
+            px(4.0),
+            py(-3.0),
+            2.2 * s,
+            stroke,
+            px(-7.0),
+            py(7.0),
+            px(-3.0),
+            py(3.0),
+            px(0.0),
+            py(3.0),
+            px(3.0),
+            py(3.0),
+            px(7.0),
+            py(7.0),
+            stroke
+        ),
+        "lock" => format!(
+            "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" rx=\"{:.1}\" {}/><path d=\"M {:.1} {:.1} L {:.1} {:.1} A {:.1} {:.1} 0 0 1 {:.1} {:.1} L {:.1} {:.1}\" {}/>",
+            px(-5.0),
+            py(-1.0),
+            10.0 * s,
+            8.0 * s,
+            1.5 * s,
+            stroke,
+            px(-3.2),
+            py(-1.0),
+            px(-3.2),
+            py(-4.0),
+            3.2 * s,
+            3.2 * s,
+            px(3.2),
+            py(-4.0),
+            px(3.2),
+            py(-1.0),
+            stroke
+        ),
+        "search" => format!(
+            "<circle cx=\"{:.1}\" cy=\"{:.1}\" r=\"{:.1}\" {}/><path d=\"{}\" {}/>",
+            px(-1.0),
+            py(-1.0),
+            5.6 * s,
+            stroke,
+            line(3.0, 3.0, 8.0, 8.0),
+            stroke
         ),
         _ => circle(x, y, radius * 0.32, "#FFFFFF"),
     };
@@ -1843,6 +2077,7 @@ fn render_content(slide: &PptSlide, motif: &str) -> String {
     let WHITE = __palette.white.as_str();
     let items = blocks(slide);
     let mut body = header(&slide.title, slide.page, slide_page_total(slide));
+    let mut icon_uses: HashMap<&'static str, usize> = HashMap::new();
     let count = items.len().min(6).max(1);
     if motif == "editorial" {
         let half = (count + 1) / 2;
@@ -1867,7 +2102,8 @@ fn render_content(slide: &PptSlide, motif: &str) -> String {
     } else {
         for (index, (label, text, _)) in items.iter().take(count).enumerate() {
             let y = 160.0 + index as f32 * 76.0;
-            body.push_str(&circle(100.0, y + 8.0, 5.0, BLUE));
+            let kind = pick_icon(label, text, index, &mut icon_uses);
+            body.push_str(&icon_badge(100.0, y + 8.0, 11.0, BLUE, kind));
             body.push_str(&text_block(120.0, y + 14.0, 1040.0, 16.0, 22.0, TEXT, "bold", label, 1));
             body.push_str(&text_block(120.0, y + 40.0, 1040.0, 13.0, 19.0, MUTED, "normal", text, 2));
         }
@@ -2197,5 +2433,43 @@ mod tests {
             .candidate_details
             .iter()
             .all(|candidate| candidate.svg.contains("<svg")));
+    }
+
+    #[test]
+    fn icon_kinds_render_valid_glyphs() {
+        for kind in [
+            "check", "arrow", "star", "alert", "clock", "trend", "quote", "target", "bolt",
+            "people", "lock", "search", "unknown",
+        ] {
+            let svg = icon_badge(100.0, 100.0, 14.0, "#123456", kind);
+            assert!(svg.contains("<circle"), "{kind} 缺少底色圆");
+            assert!(
+                svg.contains("<path")
+                    || svg.contains("<polygon")
+                    || svg.contains("<rect")
+                    || svg.contains("<circle"),
+                "{kind} 缺少图形"
+            );
+            assert!(!svg.contains("filter="), "{kind} 含禁用属性");
+            assert!(!svg.contains("mask="), "{kind} 含禁用属性");
+            assert!(!svg.contains("NaN"), "{kind} 坐标异常");
+        }
+    }
+
+    #[test]
+    fn icon_inference_uses_keywords_and_rotation() {
+        assert_eq!(infer_icon_kind("风险", "", 0), "alert");
+        assert_eq!(infer_icon_kind("", "同比增长 20%", 0), "trend");
+        assert_eq!(infer_icon_kind("团队", "", 0), "people");
+        assert_eq!(infer_icon_kind("普通内容", "", 0), "check");
+        assert_eq!(infer_icon_kind("普通内容", "", 1), "trend");
+    }
+
+    #[test]
+    fn icon_pick_caps_repeats() {
+        let mut used = HashMap::new();
+        assert_eq!(pick_icon("风险一", "", 0, &mut used), "alert");
+        assert_eq!(pick_icon("风险二", "", 1, &mut used), "alert");
+        assert_ne!(pick_icon("风险三", "", 2, &mut used), "alert");
     }
 }

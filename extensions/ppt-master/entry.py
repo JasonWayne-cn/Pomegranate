@@ -1593,6 +1593,51 @@ def _replace_with_chart(
     return True
 
 
+def _replace_with_native_placeholder(
+    root: ET.Element,
+    parents: dict[ET.Element, ET.Element],
+    element: ET.Element,
+    page: int,
+    bounds: tuple[float, float, float, float] | None = None,
+) -> bool:
+    """原生图表模式：把图表槽位替换为带名称的透明矩形。
+
+    该矩形由 svg_to_pptx 导出为同名 shape，导出后由 python-pptx
+    删除并在同一位置插入可编辑的原生图表。
+    """
+    parent = parents.get(element)
+    if parent is None:
+        return False
+    if bounds:
+        x, y, width, height = bounds
+    else:
+        try:
+            x = float(element.get("x") or 140)
+            y = float(element.get("y") or 180)
+            width = float(element.get("width") or 980)
+            height = float(element.get("height") or 340)
+        except ValueError:
+            x, y, width, height = 140.0, 180.0, 980.0, 340.0
+    rect = ET.Element(f"{{{SVG_NS}}}rect")
+    rect.set("x", f"{x:.1f}")
+    rect.set("y", f"{y:.1f}")
+    rect.set("width", f"{width:.1f}")
+    rect.set("height", f"{height:.1f}")
+    rect.set("fill", "none")
+    rect.set("stroke", "none")
+    rect.set("data-pptx-shape-name", f"NATIVE_CHART_P{page:02d}")
+    try:
+        position = list(parent).index(element)
+    except ValueError:
+        position = len(parent)
+    try:
+        parent.remove(element)
+        parent.insert(position, rect)
+    except ValueError:
+        return False
+    return True
+
+
 def fill_structured_layout(
     svg: str,
     slide: dict,
@@ -1602,8 +1647,13 @@ def fill_structured_layout(
     section_name: str,
     chart: dict | None = None,
     colors: list[str] | None = None,
+    native_placeholder: bool = False,
 ) -> str:
-    """填充使用 data-pptx-placeholder 的结构化版式。"""
+    """填充使用 data-pptx-placeholder 的结构化版式。
+
+    ``native_placeholder`` 为真时，图表槽位改为带名称的透明矩形，
+    供后续叠加可编辑的原生图表。
+    """
     try:
         ET.register_namespace("", SVG_NS)
         ET.register_namespace("xlink", "http://www.w3.org/1999/xlink")
@@ -1652,7 +1702,16 @@ def fill_structured_layout(
             continue
         if key in CHART_PLACEHOLDER_KEYS:
             if chart:
-                _replace_with_chart(root, parents, element, chart, palette, bounds)
+                if native_placeholder:
+                    _replace_with_native_placeholder(
+                        root,
+                        parents,
+                        element,
+                        int(slide.get("page") or index + 1),
+                        bounds,
+                    )
+                else:
+                    _replace_with_chart(root, parents, element, chart, palette, bounds)
             else:
                 parent = parents.get(element)
                 if parent is not None:
@@ -1670,7 +1729,15 @@ def fill_structured_layout(
 
         if key in CONTENT_PLACEHOLDER_KEYS:
             if chart and not has_chart_slot:
-                if not _replace_with_chart(
+                if native_placeholder:
+                    _replace_with_native_placeholder(
+                        root,
+                        parents,
+                        element,
+                        int(slide.get("page") or index + 1),
+                        bounds,
+                    )
+                elif not _replace_with_chart(
                     root, parents, element, chart, palette, bounds
                 ):
                     continue
@@ -2187,6 +2254,126 @@ def export_with_ppt_master(
     return target
 
 
+def attach_native_charts(
+    pptx_path: Path,
+    plan: dict,
+    palette: list[str] | None = None,
+) -> bool:
+    """在模板导出结果中，把 NATIVE_CHART_Pxx 占位替换为原生图表。"""
+    try:
+        from pptx import Presentation  # type: ignore
+        from pptx.chart.data import CategoryChartData  # type: ignore
+        from pptx.enum.chart import XL_CHART_TYPE  # type: ignore
+    except Exception:  # noqa: BLE001
+        return False
+    chart_types = {
+        "column": getattr(XL_CHART_TYPE, "COLUMN_CLUSTERED"),
+        "bar": getattr(XL_CHART_TYPE, "BAR_CLUSTERED"),
+        "line": getattr(XL_CHART_TYPE, "LINE_MARKERS"),
+        "area": getattr(XL_CHART_TYPE, "AREA"),
+        "pie": getattr(XL_CHART_TYPE, "PIE"),
+        "donut": getattr(XL_CHART_TYPE, "DOUGHNUT"),
+        "doughnut": getattr(XL_CHART_TYPE, "DOUGHNUT"),
+        "radar": getattr(
+            XL_CHART_TYPE, "RADAR", getattr(XL_CHART_TYPE, "LINE_MARKERS")
+        ),
+    }
+    colors = [color for color in (palette or []) if re.match(r"^#[0-9A-Fa-f]{6}$", color)]
+    colors = colors or ["#0071BC", "#FFC000", "#C1232D", "#0B4F8A"]
+    try:
+        prs = Presentation(str(pptx_path))
+    except Exception as exc:  # noqa: BLE001
+        log(f"打开导出结果失败: {exc}", "warn")
+        return False
+    slides = list(prs.slides)
+    attached = 0
+    for index, slide_spec in enumerate(plan["slides"]):
+        chart = normalize_chart(slide_spec.get("chart"))
+        if not chart or index >= len(slides):
+            continue
+        page_no = int(slide_spec.get("page") or index + 1)
+        name = f"NATIVE_CHART_P{page_no:02d}"
+        page = slides[index]
+        target = next((shape for shape in page.shapes if shape.name == name), None)
+        if target is None:
+            log(f"P{page_no:02d} 未找到图表占位，保留矢量图表", "warn")
+            continue
+        left, top, width, height = (
+            target.left,
+            target.top,
+            target.width,
+            target.height,
+        )
+        target._element.getparent().remove(target._element)
+        data = CategoryChartData()
+        data.categories = chart["categories"]
+        chart_kind = str(chart.get("type") or "column").lower()
+        kind = chart_types.get(chart_kind, getattr(XL_CHART_TYPE, "COLUMN_CLUSTERED"))
+        series = (
+            chart["series"][:1]
+            if kind in (
+                getattr(XL_CHART_TYPE, "PIE"),
+                getattr(XL_CHART_TYPE, "DOUGHNUT"),
+            )
+            else chart["series"][:4]
+        )
+        for item in series:
+            data.add_series(item["name"], item["values"])
+        frame = page.shapes.add_chart(kind, left, top, width, height, data)
+        apply_native_chart_style(frame.chart, kind, colors)
+        attached += 1
+        log(f"P{page_no:02d} 已叠加原生图表：{chart_kind} / {len(series)} 系列")
+    if attached == 0:
+        return False
+    prs.save(str(pptx_path))
+    return True
+
+
+def export_with_native_overlay(
+    script: Path | None,
+    project: Path,
+    output: Path,
+    plan: dict,
+    palette: list[str] | None = None,
+) -> Path | None:
+    """用模板版式导出 pptx，再把原生图表叠加到图表槽位。"""
+    if script is None:
+        return None
+    native_dir = project / "svg_native"
+    native_pages = sorted(native_dir.glob("*.svg")) if native_dir.is_dir() else []
+    if not native_pages:
+        log("缺少 svg_native，回退独立配色页导出", "warn")
+        return None
+    svg_dir = project / "svg_output"
+    backups: dict[str, bytes] = {}
+    for page in svg_dir.glob("*.svg"):
+        backups[page.name] = page.read_bytes()
+    try:
+        for page in native_pages:
+            (svg_dir / page.name).write_bytes(page.read_bytes())
+        # 原生占位页没有矢量图表，质量门禁可能不通过；与主流程一致，
+        # 未通过时使用兼容模式导出，优先保住模板版式。
+        quality_ok = True
+        checker = find_script("svg_quality_checker.py")
+        if checker is not None:
+            quality_ok = run_quality_check(checker, project)
+        if not quality_ok:
+            log("原生图表占位页未通过质量门禁，使用兼容模式导出", "warn")
+        artifact = export_with_ppt_master(
+            script, project, output, plan, force=not quality_ok
+        )
+        if artifact is None:
+            log("模板导出失败，回退独立配色页", "warn")
+            return None
+        if not attach_native_charts(artifact, plan, palette):
+            log("原生图表叠加失败，回退独立配色页", "warn")
+            return None
+        return artifact
+    finally:
+        for name, data in backups.items():
+            (svg_dir / name).write_bytes(data)
+
+
 def spec_palette(project: Path) -> list[str]:
     """从 spec_lock.md 提取模板主色，供原生图表使用。"""
     path = project / "spec_lock.md"
@@ -2203,6 +2390,62 @@ def spec_palette(project: Path) -> list[str]:
         if len(seen) >= 6:
             break
     return seen
+
+
+def apply_native_chart_style(chart_object, kind, colors: list[str]) -> None:
+    """统一原生图表的图例、配色、数据标签与网格线。"""
+    from pptx.dml.color import RGBColor  # type: ignore
+    from pptx.util import Pt  # type: ignore
+    from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION  # type: ignore
+
+    def rgb(hex_color: str):
+        value = hex_color.lstrip("#")
+        return RGBColor(
+            int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+        )
+
+    chart_object.has_legend = True
+    chart_object.legend.position = XL_LEGEND_POSITION.BOTTOM
+    chart_object.legend.include_in_layout = False
+    chart_object.legend.font.size = Pt(11)
+    chart_object.legend.font.name = "Microsoft YaHei"
+    chart_object.has_title = False
+    chart_object.font.size = Pt(11)
+    chart_object.font.name = "Microsoft YaHei"
+    plot = chart_object.plots[0]
+    if kind in (
+        getattr(XL_CHART_TYPE, "COLUMN_CLUSTERED"),
+        getattr(XL_CHART_TYPE, "BAR_CLUSTERED"),
+    ):
+        plot.gap_width = 60
+    # 系列配色沿用模板调色板。
+    for index, series_obj in enumerate(plot.series):
+        series_obj.format.fill.solid()
+        series_obj.format.fill.fore_color.rgb = rgb(colors[index % len(colors)])
+        if kind in (
+            getattr(XL_CHART_TYPE, "LINE_MARKERS"),
+            getattr(XL_CHART_TYPE, "AREA"),
+        ):
+            series_obj.format.line.color.rgb = rgb(colors[index % len(colors)])
+    # 数据标签与网格线，提升原生图表的可读性。
+    if kind not in (
+        getattr(XL_CHART_TYPE, "PIE"),
+        getattr(XL_CHART_TYPE, "DOUGHNUT"),
+    ):
+        plot.has_data_labels = True
+        plot.data_labels.font.size = Pt(10)
+        plot.data_labels.number_format = "0.##"
+        value_axis = chart_object.value_axis
+        value_axis.has_major_gridlines = True
+        value_axis.major_gridlines.format.line.color.rgb = rgb("#D9E2EC")
+        value_axis.tick_labels.font.size = Pt(10)
+        category_axis = chart_object.category_axis
+        category_axis.tick_labels.font.size = Pt(10)
+    if kind == getattr(XL_CHART_TYPE, "DOUGHNUT"):
+        try:
+            chart_object.plots[0].doughnut_hole_size = 55
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def export_with_python_pptx(
@@ -2315,53 +2558,7 @@ def export_with_python_pptx(
                     Inches(4.2),
                     data,
                 )
-                chart_object = frame.chart
-                chart_object.has_legend = True
-                chart_object.legend.position = XL_LEGEND_POSITION.BOTTOM
-                chart_object.legend.include_in_layout = False
-                chart_object.legend.font.size = Pt(11)
-                chart_object.legend.font.name = "Microsoft YaHei"
-                chart_object.has_title = False
-                chart_object.font.size = Pt(11)
-                chart_object.font.name = "Microsoft YaHei"
-                plot = chart_object.plots[0]
-                if kind in (
-                    getattr(XL_CHART_TYPE, "COLUMN_CLUSTERED"),
-                    getattr(XL_CHART_TYPE, "BAR_CLUSTERED"),
-                ):
-                    plot.gap_width = 60
-                # 系列配色沿用模板调色板。
-                for index, series_obj in enumerate(plot.series):
-                    series_obj.format.fill.solid()
-                    series_obj.format.fill.fore_color.rgb = rgb(
-                        colors[index % len(colors)]
-                    )
-                    if kind in (
-                        getattr(XL_CHART_TYPE, "LINE_MARKERS"),
-                        getattr(XL_CHART_TYPE, "AREA"),
-                    ):
-                        series_obj.format.line.color.rgb = rgb(
-                            colors[index % len(colors)]
-                        )
-                # 数据标签与网格线，提升原生图表的可读性。
-                if kind not in (
-                    getattr(XL_CHART_TYPE, "PIE"),
-                    getattr(XL_CHART_TYPE, "DOUGHNUT"),
-                ):
-                    plot.has_data_labels = True
-                    plot.data_labels.font.size = Pt(10)
-                    plot.data_labels.number_format = "0.##"
-                    value_axis = chart_object.value_axis
-                    value_axis.has_major_gridlines = True
-                    value_axis.major_gridlines.format.line.color.rgb = rgb("#D9E2EC")
-                    value_axis.tick_labels.font.size = Pt(10)
-                    category_axis = chart_object.category_axis
-                    category_axis.tick_labels.font.size = Pt(10)
-                if kind == getattr(XL_CHART_TYPE, "DOUGHNUT"):
-                    try:
-                        chart_object.plots[0].doughnut_hole_size = 55
-                    except Exception:  # noqa: BLE001
-                        pass
+                apply_native_chart_style(frame.chart, kind, colors)
                 log(
                     f"P{slide.get('page', '?')} 原生图表：{chart_kind} / "
                     f"{len(series)} 系列",
@@ -2476,6 +2673,9 @@ def main() -> int:
         return export_pptx(plan, project, output, options)
 
     progress("render", 40, "生成 SVG 页面")
+    native_charts = bool(options.get("nativeCharts"))
+    native_dir = project / "svg_native"
+    native_dir.mkdir(parents=True, exist_ok=True)
     # AI 页级生成失败时只渲染 fallbackPages，保留已生成的 AI 页面。
     fallback_pages: set[int] = set()
     raw_fallback = options.get("fallbackPages")
@@ -2495,9 +2695,22 @@ def main() -> int:
                 stale.unlink()
             except OSError:
                 pass
+        for stale in native_dir.glob("*.svg"):
+            match = re.match(r"^P(\d+)\.svg$", stale.name, re.I)
+            if not match or int(match.group(1)) not in fallback_pages:
+                continue
+            try:
+                stale.unlink()
+            except OSError:
+                pass
     else:
         # 完整渲染时清理旧页，避免删减页数后残留过期 SVG。
         for stale in (project / "svg_output").glob("*.svg"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+        for stale in native_dir.glob("*.svg"):
             try:
                 stale.unlink()
             except OSError:
@@ -2513,11 +2726,16 @@ def main() -> int:
     previous_type = None
 
     for index, slide in enumerate(plan["slides"]):
+        filename = f"P{slide['page']:02d}.svg"
         if fallback_pages and int(slide.get("page") or 0) not in fallback_pages:
             log(f"P{slide.get('page', 0):02d} 保留 AI 草稿，跳过模板渲染")
+            if native_charts:
+                existing = project / "svg_output" / filename
+                if existing.is_file():
+                    (native_dir / filename).write_bytes(existing.read_bytes())
             continue
-        filename = f"P{slide['page']:02d}.svg"
         svg: str | None = None
+        svg_native: str | None = None
         chart = chart_data_for_slide(slide, preferred_chart)
         chart_path = chart_template_path(chart, preferred_chart) if chart else None
         colors = chart_colors(chart_path) if chart else None
@@ -2539,6 +2757,18 @@ def main() -> int:
                         chart=chart,
                         colors=colors,
                     )
+                    if native_charts:
+                        svg_native = fill_structured_layout(
+                            base,
+                            slide,
+                            index,
+                            plan,
+                            job,
+                            section_name,
+                            chart=chart,
+                            colors=colors,
+                            native_placeholder=True,
+                        )
                     previous_type = content_type
                     log(
                         f"P{slide['page']:02d} 使用结构化版式+图表: "
@@ -2584,8 +2814,14 @@ def main() -> int:
         if svg is None:
             svg = render_svg(slide, len(plan["slides"]), layout)
             log(f"P{slide['page']:02d} 使用内置渲染器")
-        svg = strip_pptx_structure_attrs(svg)
-        (project / "svg_output" / filename).write_text(svg, encoding="utf-8")
+        (project / "svg_output" / filename).write_text(
+            strip_pptx_structure_attrs(svg), encoding="utf-8"
+        )
+        if native_charts:
+            native_svg = svg_native if svg_native is not None else svg
+            (native_dir / filename).write_text(
+                strip_pptx_structure_attrs(native_svg), encoding="utf-8"
+            )
     log(f"已生成 {len(plan['slides'])} 页 SVG")
     # 模板实际字号可能超出预置角色；把实际使用到的字号补进 spec_lock，
     # 避免质量检查把模板固有字号判为未声明的重复字号。
@@ -2639,20 +2875,31 @@ def export_pptx(plan: dict, project: Path, output: Path, options: dict) -> int:
     has_chart = any(
         normalize_chart(slide.get("chart")) for slide in plan["slides"]
     )
-    if native_charts and has_chart:
-        try:
-            artifact = export_with_python_pptx(
-                plan,
-                output,
-                native_charts=True,
-                palette=spec_palette(project),
-            )
-            log("使用 PowerPoint 原生图表导出")
-        except Exception as exc:  # noqa: BLE001
-            log(f"原生图表导出失败，回退标准导出: {exc}", "warn")
-            artifact = None
-
     script = find_svg_to_pptx()
+    if native_charts and has_chart:
+        # 优先保留模板版式：先把图表槽位换成占位形状，导出后再叠加原生图表。
+        artifact = export_with_native_overlay(
+            script,
+            project,
+            output,
+            plan,
+            spec_palette(project),
+        )
+        if artifact is not None:
+            log("使用模板版式 + 原生图表导出")
+        else:
+            try:
+                artifact = export_with_python_pptx(
+                    plan,
+                    output,
+                    native_charts=True,
+                    palette=spec_palette(project),
+                )
+                log("使用独立配色页导出原生图表")
+            except Exception as exc:  # noqa: BLE001
+                log(f"原生图表导出失败，回退标准导出: {exc}", "warn")
+                artifact = None
+
     quality_ok = True
     if artifact is None and script is not None:
         checker = find_script("svg_quality_checker.py")

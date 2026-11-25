@@ -8,7 +8,54 @@
 
 !include "WinVer.nsh"
 
+; ---------------------------------------------------------------------------
+; [installer-std] sidecar-aside v1
+; kb-mcp.exe 常被外部 MCP host（Claude Code / Codex / Cursor 等）通过 stdio 占着，
+; 安装器直接覆盖会写不进去，杀进程又会让 AI 会话断掉且不会自动重连。
+; Windows 不允许覆盖/删除运行中的 exe，但允许改名：把旧文件改成 <exe>.old，
+; 旧进程继续用它，新文件写到原路径，外部会话不断。
+; .old 到 .old5 覆盖连续多次升级；五个名字都占用才 taskkill 兜底。
+; 用法：
+;   PREINSTALL     !insertmacro SIDECAR_ASIDE "foo-mcp.exe" "foo_mcp"
+;   POSTINSTALL    Delete "$INSTDIR\foo-mcp.exe.old*"
+;   POSTUNINSTALL  Delete "$INSTDIR\foo-mcp.exe.old*" 后再 RMDir "$INSTDIR"
+; ---------------------------------------------------------------------------
+!macro SIDECAR_ASIDE EXE UNIQ
+  Push $R8
+  Push $R9
+  ; 之前升级留下的残留：对应进程已退出就能删
+  Delete "$INSTDIR\${EXE}.old*"
+  ClearErrors
+  IfFileExists "$INSTDIR\${EXE}" 0 sidecar_aside_done_${UNIQ}
+  StrCpy $R8 ""
+  StrCpy $R9 1
+  sidecar_aside_try_${UNIQ}:
+    ClearErrors
+    Rename "$INSTDIR\${EXE}" "$INSTDIR\${EXE}.old$R8"
+    IfErrors 0 sidecar_aside_done_${UNIQ}
+    IntOp $R9 $R9 + 1
+    StrCpy $R8 $R9
+    IntCmp $R9 5 sidecar_aside_try_${UNIQ} sidecar_aside_try_${UNIQ} sidecar_aside_kill_${UNIQ}
+  sidecar_aside_kill_${UNIQ}:
+    ; 五个名字都被占：杀掉所有实例（AI 会话会断），重试一次
+    nsExec::Exec 'taskkill /F /IM ${EXE}'
+    Pop $R8
+    Sleep 800
+    Delete "$INSTDIR\${EXE}.old*"
+    ClearErrors
+    Rename "$INSTDIR\${EXE}" "$INSTDIR\${EXE}.old"
+    ClearErrors
+  sidecar_aside_done_${UNIQ}:
+  Pop $R9
+  Pop $R8
+!macroend
+; ---------------------------------------------------------------------------
+
 !macro NSIS_HOOK_PREINSTALL
+  ; ─── sidecar 让位 ─────────────────────────
+  ; 必须在写任何文件之前执行：旧 kb-mcp.exe 被占用时先改名腾出原路径。
+  !insertmacro SIDECAR_ASIDE "kb-mcp.exe" "kb_mcp"
+
   ; ─── 操作系统版本检测 ─────────────────────
   ${If} ${IsWin7}
   ${AndIfNot} ${AtLeastServicePack} 1
@@ -76,6 +123,10 @@
     IfFileExists "$INSTDIR\binaries\api-ms-win-core-winrt-l1-1-0.dll" 0 winrt_shim_ok
     CopyFiles /SILENT "$INSTDIR\binaries\api-ms-win-core-winrt-l1-1-0.dll" "$INSTDIR\api-ms-win-core-winrt-l1-1-0.dll"
   winrt_shim_ok:
+
+  ; 让位下来的旧 sidecar：进程已退出就删，还在跑就留给下次安装或卸载
+  Delete "$INSTDIR\kb-mcp.exe.old*"
+  ClearErrors
 !macroend
 
 !macro NSIS_HOOK_POSTUNINSTALL
@@ -88,4 +139,11 @@
   Delete "$INSTDIR\api-ms-win-core-winrt-l1-1-0.dll"
   Delete "$INSTDIR\bcryptprimitives.dll"
   Delete "$INSTDIR\api-ms-win-core-synch-l1-2-0.dll"
+
+  ; 卸载不杀 sidecar：被占的 kb-mcp.exe 留在原地，下次安装让位时清掉。
+  ; 删完让位残留再删一次目录（模板的 RMDir 在本钩子之前，那时 .old 还在，目录删不掉）
+  Delete "$INSTDIR\kb-mcp.exe.old*"
+  ClearErrors
+  RMDir "$INSTDIR"
+  ClearErrors
 !macroend

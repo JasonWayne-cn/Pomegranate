@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Modal, message } from "antd";
 import {
@@ -17,6 +17,7 @@ import type { Task } from "@/types";
 import { useLongPress } from "@/hooks/useLongPress";
 import { ActionSheet, type ActionSheetItem } from "@/components/mobile/ActionSheet";
 import { TaskCreateSheet } from "@/components/mobile/TaskCreateSheet";
+import { SwipeRow } from "@/components/mobile/SwipeRow";
 
 /**
  * 移动端待办（设计稿：08-tasks.html）
@@ -182,13 +183,13 @@ export function MobileTasks() {
     : [];
 
   return (
-    <div className="text-slate-800">
+    <div className="text-[var(--m-ink-1)]">
       {/* 顶栏 */}
-      <div className="bg-white px-4 pt-3 pb-3">
+      <div className="bg-[var(--m-surface)] px-4 pt-3 pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">待办</h1>
-            <div className="mt-0.5 text-xs text-slate-400">
+            <h1 className="text-2xl font-bold text-[var(--m-ink-1)]">待办</h1>
+            <div className="mt-0.5 text-xs text-[var(--m-ink-3)]">
               今日 {stats.today} 项 · 本周 {stats.week} 项 · 已完成 {stats.done}
             </div>
           </div>
@@ -199,12 +200,12 @@ export function MobileTasks() {
                 setSearchOpen((v) => !v);
                 if (searchOpen) setKeyword("");
               }}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 active:bg-slate-200"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--m-well)] active:bg-slate-200"
             >
               {searchOpen ? (
-                <X size={18} className="text-slate-700" />
+                <X size={18} className="text-[var(--m-ink-2)]" />
               ) : (
-                <Search size={18} className="text-slate-700" />
+                <Search size={18} className="text-[var(--m-ink-2)]" />
               )}
             </button>
           </div>
@@ -217,12 +218,12 @@ export function MobileTasks() {
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             placeholder="搜索待办标题 / 备注"
-            className="mt-3 w-full rounded-xl bg-slate-100 px-4 py-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400"
+            className="mt-3 w-full rounded-xl bg-[var(--m-well)] px-4 py-2.5 text-sm text-[var(--m-ink-1)] outline-none placeholder:text-[var(--m-ink-3)]"
           />
         )}
 
         {/* 分类 chips */}
-        <div className="mt-3 flex gap-2 overflow-x-auto -mx-4 px-4 pb-1 scrollbar-none">
+        <div className="m-scroll-x mt-3 flex gap-2 -mx-4 px-4 pb-1">
           <Chip
             active={activeTab === "all"}
             onClick={() => setActiveTab("all")}
@@ -232,43 +233,43 @@ export function MobileTasks() {
             active={activeTab === "today"}
             onClick={() => setActiveTab("today")}
             label={`⏰ 今日 ${stats.today}`}
-            activeColor="bg-red-100 text-red-700"
+            activeColor="bg-[var(--m-tint-danger)] text-[var(--m-danger)]"
           />
           <Chip
             active={activeTab === "week"}
             onClick={() => setActiveTab("week")}
             label={`📅 本周 ${stats.week}`}
-            activeColor="bg-orange-100 text-orange-700"
+            activeColor="bg-[var(--m-tint-warning)] text-[var(--m-warning)]"
           />
           <Chip
             active={activeTab === "done"}
             onClick={() => setActiveTab("done")}
             label={`✅ 已完成 ${stats.done}`}
-            activeColor="bg-green-100 text-green-700"
+            activeColor="bg-[var(--m-tint-success)] text-[var(--m-success)]"
           />
         </div>
       </div>
 
       {/* 列表 */}
-      <div className="bg-slate-50 pb-24">
+      <div className="bg-[var(--m-page)] pb-24">
         {loading && tasks.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-slate-400">
+          <div className="px-4 py-8 text-center text-sm text-[var(--m-ink-3)]">
             加载中...
           </div>
         ) : todoTasks.length === 0 && doneTasks.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 px-4 py-16 text-slate-400">
+          <div className="flex flex-col items-center gap-2 px-4 py-16 text-[var(--m-ink-3)]">
             {kw ? (
               <>
-                <Search size={40} className="text-slate-300" />
+                <Search size={40} className="text-[var(--m-ink-3)]" />
                 <span className="text-sm">没有匹配「{keyword.trim()}」的待办</span>
               </>
             ) : (
               <>
-                <Plus size={40} className="text-slate-300" />
+                <Plus size={40} className="text-[var(--m-ink-3)]" />
                 <span className="text-sm">暂无待办，享受当下 ✨</span>
                 <button
                   onClick={() => setCreateOpen(true)}
-                  className="mt-2 rounded-full bg-[var(--kb-primary)] px-5 py-2 text-sm font-medium text-white active:opacity-80"
+                  className="mt-2 rounded-full bg-[var(--m-primary)] px-5 py-2 text-sm font-medium text-[var(--m-on-primary)] active:opacity-80"
                 >
                   添加第一条
                 </button>
@@ -282,11 +283,11 @@ export function MobileTasks() {
               todayTasks.length > 0 && (
                 <>
                   <SectionHeader
-                    icon={<Flame size={14} className="text-red-500" />}
+                    icon={<Flame size={14} className="text-[var(--m-danger)]" />}
                     text={`今日 · ${todayTasks.length} 项`}
-                    color="text-red-600"
+                    color="text-[var(--m-danger)]"
                   />
-                  <Group tasks={todayTasks} onToggle={toggleTask} onOpen={(t) => navigate(`/task-detail/${t.id}`)} onLongPress={setSheetTask} />
+                  <Group tasks={todayTasks} onToggle={toggleTask} onDelete={confirmDeleteTask} onOpen={(t) => navigate(`/task-detail/${t.id}`)} onLongPress={setSheetTask} />
                 </>
               )}
 
@@ -295,11 +296,11 @@ export function MobileTasks() {
               weekTasks.length > 0 && (
                 <>
                   <SectionHeader
-                    icon={<Calendar size={14} className="text-orange-500" />}
+                    icon={<Calendar size={14} className="text-[var(--m-warning)]" />}
                     text="本周"
-                    color="text-orange-600"
+                    color="text-[var(--m-warning)]"
                   />
-                  <Group tasks={weekTasks} onToggle={toggleTask} onOpen={(t) => navigate(`/task-detail/${t.id}`)} onLongPress={setSheetTask} />
+                  <Group tasks={weekTasks} onToggle={toggleTask} onDelete={confirmDeleteTask} onOpen={(t) => navigate(`/task-detail/${t.id}`)} onLongPress={setSheetTask} />
                 </>
               )}
 
@@ -307,7 +308,7 @@ export function MobileTasks() {
             {activeTab === "all" && noDateTasks.length > 0 && (
               <>
                 <SectionHeader text={`其它 · ${noDateTasks.length} 项`} />
-                <Group tasks={noDateTasks} onToggle={toggleTask} onOpen={(t) => navigate(`/task-detail/${t.id}`)} onLongPress={setSheetTask} />
+                <Group tasks={noDateTasks} onToggle={toggleTask} onDelete={confirmDeleteTask} onOpen={(t) => navigate(`/task-detail/${t.id}`)} onLongPress={setSheetTask} />
               </>
             )}
 
@@ -316,7 +317,7 @@ export function MobileTasks() {
               doneTasks.length > 0 && (
                 <>
                   <SectionHeader text={`已完成 · ${doneTasks.length} 项`} />
-                  <Group tasks={doneTasks} onToggle={toggleTask} onOpen={(t) => navigate(`/task-detail/${t.id}`)} onLongPress={setSheetTask} faded />
+                  <Group tasks={doneTasks} onToggle={toggleTask} onDelete={confirmDeleteTask} onOpen={(t) => navigate(`/task-detail/${t.id}`)} onLongPress={setSheetTask} faded />
                 </>
               )}
           </>
@@ -327,7 +328,7 @@ export function MobileTasks() {
       <button
         onClick={() => setCreateOpen(true)}
         aria-label="新建待办"
-        className="fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--kb-primary)] text-white shadow-[0_8px_24px_var(--kb-primary-light)] active:scale-95 transition-transform"
+        className="fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--m-primary)] text-[var(--m-on-primary)] shadow-[0_8px_24px_var(--kb-primary-light)] active:scale-95 transition-transform"
         style={{
           bottom: `calc(64px + env(safe-area-inset-bottom, 0px) + 16px)`,
         }}
@@ -369,8 +370,8 @@ function Chip({
       onClick={onClick}
       className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium ${
         active
-          ? activeColor || "bg-[var(--kb-primary)] text-white"
-          : "bg-slate-100 text-slate-600"
+          ? activeColor || "bg-[var(--m-primary)] text-[var(--m-on-primary)]"
+          : "bg-[var(--m-well)] text-[var(--m-ink-2)]"
       }`}
     >
       {label}
@@ -381,7 +382,7 @@ function Chip({
 function SectionHeader({
   icon,
   text,
-  color = "text-slate-400",
+  color = "text-[var(--m-ink-3)]",
 }: {
   icon?: React.ReactNode;
   text: string;
@@ -400,23 +401,26 @@ function SectionHeader({
 function Group({
   tasks,
   onToggle,
+  onDelete,
   onOpen,
   onLongPress,
   faded,
 }: {
   tasks: Task[];
   onToggle: (task: Task) => void;
+  onDelete: (task: Task) => void;
   onOpen: (task: Task) => void;
   onLongPress: (task: Task) => void;
   faded?: boolean;
 }) {
   return (
-    <div className="mx-4 mb-2 divide-y divide-slate-100 rounded-2xl bg-white">
+    <div className="mx-4 mb-2 divide-y divide-[var(--m-line-weak)] overflow-hidden rounded-2xl bg-[var(--m-surface)]">
       {tasks.map((task) => (
         <TaskRow
           key={task.id}
           task={task}
           onToggle={onToggle}
+          onDelete={onDelete}
           onOpen={onOpen}
           onLongPress={onLongPress}
           faded={faded}
@@ -429,12 +433,14 @@ function Group({
 function TaskRow({
   task,
   onToggle,
+  onDelete,
   onOpen,
   onLongPress,
   faded,
 }: {
   task: Task;
   onToggle: (task: Task) => void;
+  onDelete: (task: Task) => void;
   onOpen: (task: Task) => void;
   onLongPress: (task: Task) => void;
   faded?: boolean;
@@ -442,12 +448,33 @@ function TaskRow({
   const due = task.due_date ? new Date(task.due_date) : null;
   const overdue = due && due.getTime() < Date.now() && task.status === 0;
 
-  // 长按任务文本区唤起动作面板；轻点仍进详情。checkbox 独立不受影响
-  const longPress = useLongPress(() => onLongPress(task), {
-    onClick: () => onOpen(task),
+  // 长按任务文本区唤起动作面板；轻点仍进详情。checkbox 独立不受影响。
+  // 长按后紧接的 click 用 firedRef 吞掉，避免「弹面板后手抬起又进详情」。
+  const firedRef = useRef(false);
+  const longPress = useLongPress(() => {
+    firedRef.current = true;
+    onLongPress(task);
   });
 
   return (
+    <SwipeRow
+      actions={[
+        {
+          key: "toggle",
+          label: task.status === 1 ? "撤销" : "完成",
+          icon: task.status === 1 ? <Circle size={18} /> : <CheckCircle2 size={18} />,
+          tone: "primary",
+          onAction: () => onToggle(task),
+        },
+        {
+          key: "delete",
+          label: "删除",
+          icon: <Trash2 size={18} />,
+          tone: "danger",
+          onAction: () => onDelete(task),
+        },
+      ]}
+    >
     <div className={`px-4 py-3 ${faded ? "opacity-50" : ""}`}>
       <div className="flex items-start gap-3">
         <input
@@ -459,29 +486,39 @@ function TaskRow({
         <div
           {...longPress}
           role="button"
+          onTouchStart={() => {
+            firedRef.current = false;
+          }}
+          onClick={() => {
+            if (firedRef.current) {
+              firedRef.current = false;
+              return;
+            }
+            onOpen(task);
+          }}
           className="flex-1 min-w-0 select-none text-left active:opacity-60"
           style={{ WebkitTouchCallout: "none" }}
         >
           <div
             className={`text-sm ${
               task.status === 1
-                ? "text-slate-400 line-through"
-                : "font-medium text-slate-800"
+                ? "text-[var(--m-ink-3)] line-through"
+                : "font-medium text-[var(--m-ink-1)]"
             }`}
           >
             {task.title}
           </div>
           {(due || task.priority === 0) && (
-            <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
+            <div className="mt-1 flex items-center gap-2 text-[11px] text-[var(--m-ink-3)]">
               {task.priority === 0 && (
-                <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-600">
+                <span className="rounded bg-[var(--m-tint-danger)] px-1.5 py-0.5 text-[var(--m-danger)]">
                   紧急
                 </span>
               )}
               {due && (
                 <span
                   className={
-                    overdue ? "font-medium text-red-500" : "text-slate-400"
+                    overdue ? "font-medium text-[var(--m-danger)]" : "text-[var(--m-ink-3)]"
                   }
                 >
                   {overdue ? "⏰ 已逾期 " : "📅 "}
@@ -500,5 +537,6 @@ function TaskRow({
         </div>
       </div>
     </div>
+    </SwipeRow>
   );
 }

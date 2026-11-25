@@ -12,12 +12,14 @@ import {
   Flag,
 } from "lucide-react";
 import { Drawer, Modal, message } from "antd";
-import { taskApi } from "@/lib/api";
+import { taskApi, taskCategoryApi } from "@/lib/api";
 import { describeRepeat } from "@/lib/taskRepeat";
 import { useAppStore } from "@/store";
-import type { Task } from "@/types";
+import type { Task, TaskCategory, UpdateTaskInput } from "@/types";
+import { MSheet } from "@/components/mobile/MSheet";
 import TaskAttachments from "@/components/tasks/TaskAttachments";
 import { AttachmentPreviewModal } from "@/components/preview/AttachmentPreviewModal";
+import { TextPromptModal } from "@/components/mobile/TextPromptModal";
 
 /**
  * 移动端任务详情页（设计稿：12-task-edit.html）
@@ -47,10 +49,48 @@ type SaveStatus = "idle" | "dirty" | "saving" | "saved";
 // 后端 TaskPriority = 0 | 1 | 2（紧急 / 普通 / 低）
 const PRIORITY_LABELS = ["紧急", "普通", "低"];
 const PRIORITY_COLORS = [
-  "bg-red-50 text-red-700 border-red-200",
-  "bg-blue-50 text-blue-700 border-blue-200",
-  "bg-slate-50 text-slate-600 border-slate-200",
+  "bg-[var(--m-tint-danger)] text-[var(--m-danger)] border-[var(--m-danger)]",
+  "bg-[var(--m-tint-primary)] text-[var(--m-primary)] border-[var(--m-primary)]",
+  "bg-[var(--m-well)] text-[var(--m-ink-2)] border-[var(--m-line)]",
 ];
+
+const REPEAT_OPTIONS: { key: string; label: string; patch: UpdateTaskInput }[] = [
+  { key: "none", label: "不重复", patch: { repeat_kind: "none" } },
+  {
+    key: "daily",
+    label: "每天",
+    patch: { repeat_kind: "daily", repeat_interval: 1, clear_repeat_weekdays: true },
+  },
+  {
+    key: "weekly",
+    label: "每周",
+    patch: { repeat_kind: "weekly", repeat_interval: 1, clear_repeat_weekdays: true },
+  },
+  {
+    key: "weekday",
+    label: "工作日（周一至周五）",
+    patch: { repeat_kind: "weekly", repeat_interval: 1, repeat_weekdays: "1,2,3,4,5" },
+  },
+  {
+    key: "monthly",
+    label: "每月",
+    patch: { repeat_kind: "monthly", repeat_interval: 1, clear_repeat_weekdays: true },
+  },
+];
+
+function isRepeatActive(task: Task | null, key: string): boolean {
+  if (!task) return false;
+  if (key === "none") return task.repeat_kind === "none";
+  if (key === "daily") return task.repeat_kind === "daily";
+  if (key === "monthly") return task.repeat_kind === "monthly";
+  if (key === "weekly") {
+    return task.repeat_kind === "weekly" && !task.repeat_weekdays;
+  }
+  if (key === "weekday") {
+    return task.repeat_kind === "weekly" && task.repeat_weekdays === "1,2,3,4,5";
+  }
+  return false;
+}
 
 const REMIND_OPTIONS: { value: number | null; label: string }[] = [
   { value: null, label: "不提醒" },
@@ -92,6 +132,10 @@ export function MobileTaskDetail() {
   const [dueInput, setDueInput] = useState("");
   const [remindOpen, setRemindOpen] = useState(false);
   const [priorityOpen, setPriorityOpen] = useState(false);
+  const [subAddOpen, setSubAddOpen] = useState(false);
+  const [repeatOpen, setRepeatOpen] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [categories, setCategories] = useState<TaskCategory[]>([]);
 
   const dirtyRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
@@ -218,12 +262,11 @@ export function MobileTaskDetail() {
     }
   }
 
-  async function addSubtask() {
-    const t = window.prompt("子任务标题");
-    if (!t?.trim() || !task) return;
+  async function addSubtask(subTitle: string) {
+    if (!task) return;
     try {
       await taskApi.create({
-        title: t.trim(),
+        title: subTitle,
         parent_task_id: task.id,
       });
       const subs = await taskApi.listSubtasks(taskId);
@@ -275,6 +318,50 @@ export function MobileTaskDetail() {
     }
   }
 
+  // 打开分类面板时拉取最新分类（桌面端可能新增）
+  useEffect(() => {
+    if (!categoryOpen) return;
+    let alive = true;
+    taskCategoryApi
+      .list()
+      .then((list) => {
+        if (alive) setCategories(list);
+      })
+      .catch(() => {
+        if (alive) setCategories([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [categoryOpen]);
+
+  async function setRepeat(patch: UpdateTaskInput) {
+    if (!task) return;
+    try {
+      await taskApi.update(task.id, patch);
+      setRepeatOpen(false);
+      await load();
+    } catch (e) {
+      message.error(`保存失败: ${e}`);
+    }
+  }
+
+  async function setCategory(categoryId: number | null) {
+    if (!task) return;
+    try {
+      await taskApi.update(
+        task.id,
+        categoryId == null
+          ? { clear_category_id: true }
+          : { category_id: categoryId },
+      );
+      setCategoryOpen(false);
+      await load();
+    } catch (e) {
+      message.error(`保存失败: ${e}`);
+    }
+  }
+
   async function setPriority(p: 0 | 1 | 2) {
     if (!task) return;
     try {
@@ -309,7 +396,7 @@ export function MobileTaskDetail() {
 
   if (Number.isNaN(taskId)) {
     return (
-      <div className="p-4 text-center text-sm text-slate-400">任务 ID 无效</div>
+      <div className="p-4 text-center text-sm text-[var(--m-ink-3)]">任务 ID 无效</div>
     );
   }
 
@@ -331,20 +418,20 @@ export function MobileTaskDetail() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-slate-50"
+      className="fixed inset-0 z-50 flex flex-col bg-[var(--m-page)] text-[var(--m-ink-1)]"
       style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
     >
       {/* 顶栏 */}
-      <header className="flex h-12 items-center justify-between border-b border-slate-200 bg-white px-2 shrink-0">
+      <header className="flex h-12 items-center justify-between border-b border-[var(--m-line)] bg-[var(--m-surface)] px-2 shrink-0">
         <button
           onClick={() => void flushAndExit()}
           aria-label="返回"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <ChevronLeft size={24} className="text-slate-700" />
+          <ChevronLeft size={24} className="text-[var(--m-ink-2)]" />
         </button>
         <div className="flex flex-col items-center min-w-0 flex-1 leading-tight">
-          <span className="text-sm font-semibold text-slate-900">任务详情</span>
+          <span className="text-sm font-semibold text-[var(--m-ink-1)]">任务详情</span>
           <SaveBadge status={status} />
         </div>
         <button
@@ -352,22 +439,22 @@ export function MobileTaskDetail() {
           aria-label="删除"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <Trash2 size={20} className="text-red-500" />
+          <Trash2 size={20} className="text-[var(--m-danger)]" />
         </button>
       </header>
 
       {/* 主体 */}
       <main className="flex-1 overflow-y-auto pb-4">
         {/* 标题 + 备注 */}
-        <div className="border-b border-slate-200 bg-white px-4 py-4">
+        <div className="border-b border-[var(--m-line)] bg-[var(--m-surface)] px-4 py-4">
           <div className="flex items-start gap-3">
             <button
               onClick={toggleSelf}
               aria-label={isDone ? "标记未完成" : "标记完成"}
               className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border-2 ${
                 isDone
-                  ? "border-[var(--kb-primary)] bg-[var(--kb-primary)] text-white"
-                  : "border-slate-300"
+                  ? "border-[var(--m-primary)] bg-[var(--m-primary)] text-[var(--m-on-primary)]"
+                  : "border-[var(--m-line)]"
               }`}
             >
               {isDone && <Check size={14} />}
@@ -382,8 +469,8 @@ export function MobileTaskDetail() {
                   scheduleSave();
                 }}
                 placeholder="任务标题"
-                className={`w-full bg-transparent text-lg font-semibold outline-none placeholder:text-slate-300 ${
-                  isDone ? "text-slate-400 line-through" : "text-slate-900"
+                className={`w-full bg-transparent text-lg font-semibold outline-none placeholder:text-[var(--m-ink-3)] ${
+                  isDone ? "text-[var(--m-ink-3)] line-through" : "text-[var(--m-ink-1)]"
                 }`}
               />
               <textarea
@@ -396,7 +483,7 @@ export function MobileTaskDetail() {
                 }}
                 placeholder="备注…"
                 rows={2}
-                className="mt-1 w-full resize-none bg-transparent text-sm text-slate-500 outline-none placeholder:text-slate-300"
+                className="mt-1 w-full resize-none bg-transparent text-sm text-[var(--m-ink-2)] outline-none placeholder:text-[var(--m-ink-3)]"
               />
               {/* 附件：点缩略图全屏预览，「＋」从相册 / 文件选 */}
               <div className="mt-2">
@@ -408,23 +495,23 @@ export function MobileTaskDetail() {
 
         {/* 子任务 */}
         <div className="px-4 py-3">
-          <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-400">
+          <div className="mb-2 flex items-center justify-between text-xs font-medium text-[var(--m-ink-3)]">
             <span>
               子任务 · {completedSubs}/{subtasks.length}
             </span>
             <button
-              onClick={addSubtask}
-              className="flex items-center gap-0.5 text-[var(--kb-primary)]"
+              onClick={() => setSubAddOpen(true)}
+              className="flex items-center gap-0.5 text-[var(--m-primary)]"
             >
               <Plus size={12} /> 添加
             </button>
           </div>
           {subtasks.length === 0 ? (
-            <div className="rounded-2xl bg-white py-6 text-center text-xs text-slate-400 shadow-sm">
+            <div className="rounded-2xl bg-[var(--m-surface)] py-6 text-center text-xs text-[var(--m-ink-3)] shadow-sm">
               还没有子任务
             </div>
           ) : (
-            <div className="divide-y divide-slate-100 rounded-2xl bg-white">
+            <div className="divide-y divide-[var(--m-line-weak)] rounded-2xl bg-[var(--m-surface)]">
               {subtasks.map((sub) => {
                 const subDone = sub.status === 1;
                 return (
@@ -440,7 +527,7 @@ export function MobileTaskDetail() {
                     />
                     <span
                       className={`flex-1 text-sm ${
-                        subDone ? "text-slate-400 line-through" : "text-slate-700"
+                        subDone ? "text-[var(--m-ink-3)] line-through" : "text-[var(--m-ink-2)]"
                       }`}
                     >
                       {sub.title}
@@ -454,16 +541,16 @@ export function MobileTaskDetail() {
 
         {/* 元属性（暂只读） */}
         <div className="px-4 py-2">
-          <div className="divide-y divide-slate-100 rounded-2xl bg-white">
+          <div className="divide-y divide-[var(--m-line-weak)] rounded-2xl bg-[var(--m-surface)]">
             <MetaRow
-              icon={<Clock size={18} className="text-red-500" />}
+              icon={<Clock size={18} className="text-[var(--m-danger)]" />}
               label="截止时间"
               value={
                 <span
                   className={
                     overdue
-                      ? "text-xs font-medium text-red-500"
-                      : "text-xs text-slate-500"
+                      ? "text-xs font-medium text-[var(--m-danger)]"
+                      : "text-xs text-[var(--m-ink-2)]"
                   }
                 >
                   {overdue ? "⏰ 已逾期 " : ""}
@@ -473,10 +560,10 @@ export function MobileTaskDetail() {
               onClick={openDueEditor}
             />
             <MetaRow
-              icon={<Bell size={18} className="text-amber-500" />}
+              icon={<Bell size={18} className="text-[var(--m-warning)]" />}
               label="提醒"
               value={
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-[var(--m-ink-2)]">
                   {/* 0 = 到点准时提醒，不是「不提醒」；只有 null 才是不提醒 */}
                   {task?.remind_before_minutes == null
                     ? "不提醒"
@@ -488,23 +575,28 @@ export function MobileTaskDetail() {
               onClick={() => setRemindOpen(true)}
             />
             <MetaRow
-              icon={<Repeat size={18} className="text-blue-500" />}
+              icon={<Repeat size={18} className="text-[var(--m-primary)]" />}
               label="重复"
               value={
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-[var(--m-ink-3)]">
                   {(task && describeRepeat(task)) || "不重复"}
                 </span>
               }
-              onClick={() => message.info("重复规则需要在桌面端编辑")}
+              onClick={() => setRepeatOpen(true)}
             />
             <MetaRow
-              icon={<Folder size={18} className="text-orange-500" />}
+              icon={<Folder size={18} className="text-[var(--m-warning)]" />}
               label="分类"
-              value={<span className="text-xs text-slate-400">未分类</span>}
-              onClick={() => message.info("分类需要在桌面端管理")}
+              value={
+                <span className="text-xs text-[var(--m-ink-3)]">
+                  {categories.find((c) => c.id === task?.category_id)?.name ??
+                    "未分类"}
+                </span>
+              }
+              onClick={() => setCategoryOpen(true)}
             />
             <MetaRow
-              icon={<Flag size={18} className="text-red-500" />}
+              icon={<Flag size={18} className="text-[var(--m-danger)]" />}
               label="优先级"
               value={
                 <span
@@ -520,7 +612,7 @@ export function MobileTaskDetail() {
 
         {/* 元信息 */}
         {task && (
-          <div className="px-4 py-2 text-center text-[11px] text-slate-400">
+          <div className="px-4 py-2 text-center text-[11px] text-[var(--m-ink-3)]">
             创建于 {new Date(task.created_at).toLocaleString("zh-CN")}
             {task.completed_at && (
               <>
@@ -533,20 +625,20 @@ export function MobileTaskDetail() {
 
       {/* 底部操作栏 */}
       <footer
-        className="border-t border-slate-200 bg-white px-4 py-3 shrink-0"
+        className="border-t border-[var(--m-line)] bg-[var(--m-surface)] px-4 py-3 shrink-0"
         style={{ paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}
       >
         <div className="flex gap-2">
           <button
             onClick={snooze}
             disabled={snoozing}
-            className="flex h-11 flex-1 items-center justify-center rounded-xl bg-slate-100 text-sm font-medium text-slate-700 active:bg-slate-200 disabled:opacity-50"
+            className="flex h-11 flex-1 items-center justify-center rounded-xl bg-[var(--m-well)] text-sm font-medium text-[var(--m-ink-2)] active:opacity-70 disabled:opacity-50"
           >
             推迟 30 分钟
           </button>
           <button
             onClick={toggleSelf}
-            className="flex h-11 flex-1 items-center justify-center rounded-xl bg-[var(--kb-primary)] text-sm font-medium text-white active:scale-95 transition-transform"
+            className="flex h-11 flex-1 items-center justify-center rounded-xl bg-[var(--m-primary)] text-sm font-medium text-[var(--m-on-primary)] active:scale-95 transition-transform"
           >
             {isDone ? "标记未完成" : "完成"}
           </button>
@@ -562,19 +654,19 @@ export function MobileTaskDetail() {
           <div className="flex gap-2">
             <button
               onClick={() => void saveDue(true)}
-              className="flex-1 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700"
+              className="flex-1 rounded-lg bg-[var(--m-well)] px-3 py-2 text-sm text-[var(--m-ink-2)]"
             >
               清除
             </button>
             <button
               onClick={() => setDueOpen(false)}
-              className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              className="flex-1 rounded-lg border border-[var(--m-line)] bg-[var(--m-surface)] px-3 py-2 text-sm text-[var(--m-ink-2)]"
             >
               取消
             </button>
             <button
               onClick={() => void saveDue(false)}
-              className="flex-1 rounded-lg bg-[var(--kb-primary)] px-3 py-2 text-sm font-medium text-white"
+              className="flex-1 rounded-lg bg-[var(--m-primary)] px-3 py-2 text-sm font-medium text-[var(--m-on-primary)]"
             >
               保存
             </button>
@@ -585,9 +677,9 @@ export function MobileTaskDetail() {
           type="datetime-local"
           value={dueInput}
           onChange={(e) => setDueInput(e.target.value)}
-          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          className="w-full rounded-lg border border-[var(--m-line)] px-3 py-2 text-sm"
         />
-        <div className="mt-2 text-xs text-slate-400">
+        <div className="mt-2 text-xs text-[var(--m-ink-3)]">
           只填日期不填时间会默认为当天 23:59
         </div>
       </Modal>
@@ -609,13 +701,13 @@ export function MobileTaskDetail() {
                 onClick={() => void setRemind(opt.value)}
                 className={`flex items-center justify-between rounded-xl px-4 py-3 text-left ${
                   active
-                    ? "border border-[var(--kb-primary)] bg-blue-50"
-                    : "border border-slate-100 bg-white"
+                    ? "border border-[var(--m-primary)] bg-[var(--m-tint-primary)]"
+                    : "border border-[var(--m-line-weak)] bg-[var(--m-surface)]"
                 }`}
               >
-                <span className="text-sm text-slate-800">{opt.label}</span>
+                <span className="text-sm text-[var(--m-ink-1)]">{opt.label}</span>
                 {active && (
-                  <span className="text-xs font-semibold text-[var(--kb-primary)]">
+                  <span className="text-xs font-semibold text-[var(--m-primary)]">
                     ✓ 当前
                   </span>
                 )}
@@ -651,6 +743,96 @@ export function MobileTaskDetail() {
           })}
         </div>
       </Drawer>
+      {/* 重复规则 */}
+      <MSheet
+        open={repeatOpen}
+        title="重复"
+        onClose={() => setRepeatOpen(false)}
+        maxHeight="70vh"
+      >
+        <div className="pb-2">
+          {REPEAT_OPTIONS.map((opt) => {
+            const active = isRepeatActive(task, opt.key);
+            return (
+              <button
+                key={opt.key}
+                onClick={() => void setRepeat(opt.patch)}
+                className={`flex w-full items-center justify-between px-5 text-left active:bg-[var(--m-well)] ${
+                  active
+                    ? "text-[var(--m-primary)]"
+                    : "text-[var(--m-ink-1)]"
+                }`}
+                style={{ minHeight: 52 }}
+              >
+                <span className="text-sm">{opt.label}</span>
+                {active && <span className="text-xs font-semibold">✓ 当前</span>}
+              </button>
+            );
+          })}
+        </div>
+      </MSheet>
+
+      {/* 任务分类 */}
+      <MSheet
+        open={categoryOpen}
+        title="分类"
+        onClose={() => setCategoryOpen(false)}
+        maxHeight="70vh"
+      >
+        <div className="pb-2">
+          <button
+            onClick={() => void setCategory(null)}
+            className={`flex w-full items-center px-5 text-left active:bg-[var(--m-well)] ${
+              task?.category_id == null
+                ? "text-[var(--m-primary)]"
+                : "text-[var(--m-ink-1)]"
+            }`}
+            style={{ minHeight: 52 }}
+          >
+            <span className="text-sm">未分类</span>
+          </button>
+          {categories.length === 0 ? (
+            <div className="px-5 py-3 text-center text-xs text-[var(--m-ink-3)]">
+              还没有任务分类，可在桌面端创建
+            </div>
+          ) : (
+            categories.map((c) => {
+              const active = task?.category_id === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => void setCategory(c.id)}
+                  className={`flex w-full items-center gap-2 px-5 text-left active:bg-[var(--m-well)] ${
+                    active
+                      ? "text-[var(--m-primary)]"
+                      : "text-[var(--m-ink-1)]"
+                  }`}
+                  style={{ minHeight: 52 }}
+                >
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: c.color || "var(--m-ink-3)" }}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-sm">
+                    {c.name}
+                  </span>
+                  {active && <span className="text-xs font-semibold">✓</span>}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </MSheet>
+
+      <TextPromptModal
+        open={subAddOpen}
+        title="添加子任务"
+        placeholder="子任务标题"
+        maxLength={120}
+        onClose={() => setSubAddOpen(false)}
+        onSubmit={addSubtask}
+      />
+
       {/* 本页是独立路由、不挂 AppLayout，附件条点开非图片文件要自己挂预览弹窗 */}
       <AttachmentPreviewModal />
     </div>
@@ -671,10 +853,10 @@ function MetaRow({
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center gap-3 px-4 py-3 active:bg-slate-50"
+      className="flex w-full items-center gap-3 px-4 py-3 active:bg-[var(--m-well)]"
     >
       {icon}
-      <span className="flex-1 text-left text-sm text-slate-800">{label}</span>
+      <span className="flex-1 text-left text-sm text-[var(--m-ink-1)]">{label}</span>
       {value}
     </button>
   );
@@ -682,10 +864,10 @@ function MetaRow({
 
 function SaveBadge({ status }: { status: SaveStatus }) {
   if (status === "saving")
-    return <span className="mt-0.5 text-[10px] text-orange-600">保存中…</span>;
+    return <span className="mt-0.5 text-[10px] text-[var(--m-warning)]">保存中…</span>;
   if (status === "saved")
     return (
-      <span className="mt-0.5 text-[10px] text-green-600">已保存 · 刚刚</span>
+      <span className="mt-0.5 text-[10px] text-[var(--m-success)]">已保存 · 刚刚</span>
     );
   return <span className="mt-0.5 h-3.5 text-[10px]" aria-hidden />;
 }

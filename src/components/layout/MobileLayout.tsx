@@ -140,7 +140,7 @@ export function MobileLayout() {
 
   return (
     <div
-      className={`flex h-screen w-screen overflow-hidden bg-slate-50 ${
+      className={`flex h-screen w-screen overflow-hidden bg-[var(--m-page)] ${
         isRail ? "flex-row" : "flex-col"
       }`}
       // Android 状态栏让出 padding（系统会在这块绘制信号/电量）。
@@ -186,8 +186,8 @@ export function MobileLayout() {
       <nav
         className={
           isRail
-            ? "order-first flex w-20 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white"
-            : "border-t border-slate-200 bg-white"
+            ? "order-first flex w-20 shrink-0 flex-col overflow-y-auto border-r border-[var(--m-line)] bg-[var(--m-surface)]"
+            : "border-t border-[var(--m-line)] bg-[var(--m-surface)]"
         }
         style={
           isRail
@@ -224,13 +224,13 @@ export function MobileLayout() {
                 onClick={() => navigate(tab.path)}
                 className={
                   isRail
-                    ? `flex flex-col items-center justify-center gap-1 rounded-2xl py-2.5 active:bg-slate-100 ${
-                        active ? "bg-slate-100" : ""
+                    ? `flex flex-col items-center justify-center gap-1 rounded-2xl py-2.5 active:bg-[var(--m-well)] ${
+                        active ? "bg-[var(--m-well)]" : ""
                       }`
-                    : "flex flex-1 flex-col items-center justify-center gap-0.5 py-1 active:bg-slate-100"
+                    : "flex flex-1 flex-col items-center justify-center gap-0.5 py-1 active:bg-[var(--m-well)]"
                 }
                 style={{
-                  color: active ? activeColor : "var(--kb-text-tertiary)",
+                  color: active ? activeColor : "var(--m-ink-3)",
                   minHeight: 44,
                 }}
               >

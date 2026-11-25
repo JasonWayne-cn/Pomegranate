@@ -1,5 +1,5 @@
 /**
- * Emoji 选择器：工具栏触发的 Popover，按分类 Tab 列出常用 emoji。
+ * Emoji 选择面板：嵌入工具栏「批注 / 插入 Emoji」下拉中，按分类列出常用 emoji。
  *
  * 不引入第三方 emoji 数据库（emoji-mart 等体积 ~500KB+），用手写常用集 ~280 个。
  * 90% 文档场景够用；用户输入特殊 emoji 仍可直接粘贴。
@@ -7,8 +7,6 @@
  * 选中后通过 editor.chain().focus().insertContent(emoji) 插入到光标处。
  */
 import { useState } from "react";
-import { Popover, Tooltip, Button } from "antd";
-import { Smile } from "lucide-react";
 import type { Editor } from "@tiptap/react";
 
 const CATEGORIES: { key: string; label: string; icon: string; emojis: string }[] = [
@@ -84,17 +82,21 @@ const CATEGORIES: { key: string; label: string; icon: string; emojis: string }[]
   },
 ];
 
-interface EmojiPickerProps {
+interface EmojiPanelProps {
   editor: Editor;
+  /** 插入 emoji 后的回调（例如关闭外层下拉） */
+  onInsert?: () => void;
 }
 
-export function EmojiPicker({ editor }: EmojiPickerProps) {
-  const [open, setOpen] = useState(false);
+/**
+ * 纯面板内容（分类条 + emoji 网格），可嵌入 Popover 或 Dropdown 使用。
+ */
+export function EmojiPanel({ editor, onInsert }: EmojiPanelProps) {
   const [activeKey, setActiveKey] = useState<string>("common");
 
   function insertEmoji(emoji: string) {
     editor.chain().focus().insertContent(emoji).run();
-    setOpen(false);
+    onInsert?.();
   }
 
   function stopMouseDown(e: React.MouseEvent) {
@@ -104,54 +106,37 @@ export function EmojiPicker({ editor }: EmojiPickerProps) {
   const active = CATEGORIES.find((c) => c.key === activeKey) ?? CATEGORIES[0];
 
   return (
-    <Popover
-      trigger="click"
-      placement="bottomLeft"
-      open={open}
-      onOpenChange={setOpen}
-      content={
-        <div onMouseDown={stopMouseDown} style={{ width: 380 }}>
-          {/* 顶部水平分类条：emoji 图标按钮，紧凑布局，10 个全部直接展示 */}
-          <div className="emoji-cat-bar">
-            {CATEGORIES.map((cat) => (
-              <button
-                type="button"
-                key={cat.key}
-                className={`emoji-cat-btn ${cat.key === activeKey ? "active" : ""}`}
-                onClick={() => setActiveKey(cat.key)}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
-          {/* 当前分类的 emoji 网格 */}
-          <div
-            className="emoji-grid"
-            style={{ maxHeight: 280, overflowY: "auto", paddingRight: 4 }}
+    <div onMouseDown={stopMouseDown} style={{ width: 380 }}>
+      {/* 顶部水平分类条：emoji 图标按钮，紧凑布局，10 个全部直接展示 */}
+      <div className="emoji-cat-bar">
+        {CATEGORIES.map((cat) => (
+          <button
+            type="button"
+            key={cat.key}
+            className={`emoji-cat-btn ${cat.key === activeKey ? "active" : ""}`}
+            onClick={() => setActiveKey(cat.key)}
           >
-            {active.emojis.split(/\s+/).filter(Boolean).map((e, i) => (
-              <button
-                type="button"
-                key={`${e}-${i}`}
-                className="emoji-grid-item"
-                onClick={() => insertEmoji(e)}
-                title={e}
-              >
-                {e}
-              </button>
-            ))}
-          </div>
-        </div>
-      }
-    >
-      <Tooltip title="插入 Emoji" mouseEnterDelay={0.5}>
-        <Button
-          type="text"
-          size="small"
-          icon={<Smile size={15} />}
-          style={{ minWidth: 28, height: 28, padding: 0 }}
-        />
-      </Tooltip>
-    </Popover>
+            {cat.label}
+          </button>
+        ))}
+      </div>
+      {/* 当前分类的 emoji 网格 */}
+      <div
+        className="emoji-grid"
+        style={{ maxHeight: 280, overflowY: "auto", paddingRight: 4 }}
+      >
+        {active.emojis.split(/\s+/).filter(Boolean).map((e, i) => (
+          <button
+            type="button"
+            key={`${e}-${i}`}
+            className="emoji-grid-item"
+            onClick={() => insertEmoji(e)}
+            title={e}
+          >
+            {e}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

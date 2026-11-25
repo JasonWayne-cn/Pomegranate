@@ -18,7 +18,7 @@ import type { ColumnsType } from "antd/es/table";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
-  FolderPlus,
+  PackagePlus,
   Plug,
   RefreshCw,
   RotateCw,
@@ -261,13 +261,14 @@ export default function PluginsPage() {
   async function handleInstall() {
     try {
       const picked = await openDialog({
-        directory: true,
+        directory: false,
         multiple: false,
-        title: "选择插件目录",
+        title: "选择插件包",
+        filters: [{ name: "插件包", extensions: ["zip"] }],
       });
       if (!picked || Array.isArray(picked)) return;
       setInstalling(true);
-      const installed = await pluginApi.installFromDir(picked);
+      const installed = await pluginApi.installFromZip(picked);
       message.success("插件已安装");
       const data = await scanPlugins();
       // 安装后立即打开详情，引导用户完成权限授权，避免启用后因未授权而无法使用
@@ -489,11 +490,11 @@ export default function PluginsPage() {
             </Button>
             <Button
               type="primary"
-              icon={<FolderPlus size={14} />}
+              icon={<PackagePlus size={14} />}
               loading={installing}
               onClick={handleInstall}
             >
-              安装本地插件
+              安装插件包
             </Button>
           </Space>
         }

@@ -365,9 +365,13 @@ export default function PptPage() {
   useEffect(() => {
     if (!status?.installed || !status.enabled || !layoutKey) return;
     let disposed = false;
+    // 记录本轮已发出但未完成的请求；StrictMode 的首次 effect 会被立即
+    // 清理，若不释放标记，第二轮 effect 会跳过请求，封面将一直停在加载态。
+    const pending = new Set<string>();
     for (const id of layoutKey.split("|")) {
       if (!id || previewLoaded.current.has(id)) continue;
       previewLoaded.current.add(id);
+      pending.add(id);
       const meta = catalog?.layouts[id];
       const request =
         meta?.source === "user"
@@ -378,11 +382,13 @@ export default function PptPage() {
             );
       request
         .then((svg) => {
+          pending.delete(id);
           if (!disposed) {
             setLayoutPreviews((prev) => ({ ...prev, [id]: svg }));
           }
         })
         .catch(() => {
+          pending.delete(id);
           previewLoaded.current.delete(id);
           if (!disposed) {
             setPreviewFailed((prev) => ({ ...prev, [id]: true }));
@@ -391,6 +397,9 @@ export default function PptPage() {
     }
     return () => {
       disposed = true;
+      for (const id of pending) {
+        previewLoaded.current.delete(id);
+      }
     };
   }, [catalog, layoutKey, status?.installed, status?.enabled]);
 
@@ -2548,7 +2557,13 @@ export default function PptPage() {
                                     className="w-full"
                                   />
                                   <div className="mt-1 flex items-center justify-between text-xs">
-                                    <span>{candidate.motif}</span>
+                                    <Tooltip
+                                      title={candidate.note || undefined}
+                                    >
+                                      <span className="truncate">
+                                        {candidate.label || candidate.motif}
+                                      </span>
+                                    </Tooltip>
                                     <Tag
                                       color={
                                         candidate.score >= 70 ? "green" : "gold"

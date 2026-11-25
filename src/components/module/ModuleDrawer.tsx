@@ -22,9 +22,9 @@ interface Props {
 }
 
 /**
- * 模块设置中心抽屉：配置 / 使用说明两个页签。
+ * 模块设置中心抽屉：使用说明 / 配置两个页签。
  *
- * 两个入口按钮只是把初始页签定位到 config 或 help，
+ * 「使用说明」固定为第一个页签；配置入口只是把初始页签定位到 config，
  * 用户可以在抽屉内自由切换。
  */
 export function ModuleDrawer({
@@ -43,7 +43,7 @@ export function ModuleDrawer({
   const hasConfigTab = moduleHasConfig(meta);
   const featureTabs = meta.featureTabs ?? [];
   const activeTabKey =
-    tab === "config" && !hasConfigTab ? "help" : tab ?? (hasConfigTab ? "config" : "help");
+    tab === "config" && !hasConfigTab ? "help" : tab ?? "help";
   const activeTabLabel =
     activeTabKey === "help"
       ? "使用说明"
@@ -86,6 +86,16 @@ export function ModuleDrawer({
         activeKey={activeTabKey}
         onChange={(key) => onTabChange(key as ModuleDrawerTab)}
         items={[
+          {
+            key: "help",
+            label: (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <BookOpen size={15} />
+                使用说明
+              </span>
+            ),
+            children: <ModuleHelpPanel meta={meta} />,
+          },
           ...(hasConfigTab
             ? [
                 {
@@ -102,16 +112,6 @@ export function ModuleDrawer({
                 },
               ]
             : []),
-          {
-            key: "help",
-            label: (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                <BookOpen size={15} />
-                使用说明
-              </span>
-            ),
-            children: <ModuleHelpPanel meta={meta} />,
-          },
           ...featureTabs.map((feature) => {
             const FeatureIcon = feature.icon;
             return {

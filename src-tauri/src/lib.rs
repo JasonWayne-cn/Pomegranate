@@ -942,6 +942,38 @@ pub fn run() {
                 });
             }
 
+            // 局域网同步：上次开着的话启动时自动拉起（同 MCP HTTP）。
+            // 只在桌面端：手机当主机是临时的，只在「当主机」页面开着时提供服务，
+            // 冷启动不该自己开监听端口
+            #[cfg(desktop)]
+            if instance_id.is_none() {
+                let app_handle_lan = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let Some(state) = app_handle_lan.try_state::<AppState>() else {
+                        return;
+                    };
+                    let enabled = state
+                        .db
+                        .get_config(crate::services::lan_sync::KEY_ENABLED)
+                        .ok()
+                        .flatten()
+                        .as_deref()
+                        == Some("1");
+                    if !enabled {
+                        return;
+                    }
+                    let merge =
+                        crate::services::lan_sync::merge_trigger(app_handle_lan.clone());
+                    if let Err(e) = state
+                        .lan_sync
+                        .start(&state.db, &state.data_dir, Some(merge))
+                        .await
+                    {
+                        log::warn!("[lan-sync] 自动启动失败: {e}");
+                    }
+                });
+            }
+
             // 回收站自动清理：删除满 N 天（默认 30，回收站页可改）后永久删除
             let app_handle_purge = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -1067,6 +1099,7 @@ pub fn run() {
             commands::plugins::list_plugins,
             commands::plugins::scan_plugins,
             commands::plugins::install_plugin_from_dir,
+            commands::plugins::install_plugin_from_zip,
             commands::plugins::enable_plugin,
             commands::plugins::disable_plugin,
             commands::plugins::uninstall_plugin,
@@ -1252,6 +1285,12 @@ pub fn run() {
             commands::sync_v1::sync_v1_gc_attachments,
             commands::sync_v1::sync_v1_list_conflicts,
             commands::sync_v1::sync_v1_resolve_conflict,
+            // 局域网同步（主机端）
+            commands::lan_sync::lan_sync_status,
+            commands::lan_sync::lan_sync_enable,
+            commands::lan_sync::lan_sync_disable,
+            commands::lan_sync::lan_sync_pairing_payload,
+            commands::lan_sync::lan_sync_reset_pairing,
             // 文件夹模块
             commands::folders::create_folder,
             commands::folders::rename_folder,

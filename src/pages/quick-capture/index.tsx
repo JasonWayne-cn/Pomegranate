@@ -144,7 +144,7 @@ export default function QuickCapturePage() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600"
+      className="fixed inset-0 z-50 flex flex-col bg-gradient-to-br from-[var(--m-warning)] via-[var(--m-accent)] to-[var(--m-accent-strong)]"
       style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
     >
       {/* 顶栏 */}
@@ -154,7 +154,7 @@ export default function QuickCapturePage() {
           aria-label="关闭"
           className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 backdrop-blur"
         >
-          <X size={20} className="text-white" />
+          <X size={20} className="text-[var(--m-on-primary)]" />
         </button>
         <div className="flex items-center gap-1.5 text-xs text-white/90">
           <Zap size={12} />
@@ -166,7 +166,7 @@ export default function QuickCapturePage() {
       {/* 主体 */}
       <main className="flex-1 px-5 py-4 flex flex-col min-h-0">
         <div className="mb-3">
-          <div className="text-3xl font-bold text-white leading-tight">
+          <div className="text-3xl font-bold text-[var(--m-on-primary)] leading-tight">
             脑子里有个想法？
           </div>
           <div className="mt-1 text-sm text-white/80">
@@ -175,22 +175,22 @@ export default function QuickCapturePage() {
         </div>
 
         {/* 输入卡 */}
-        <div className="flex flex-1 flex-col rounded-3xl bg-white p-5 shadow-2xl min-h-0">
+        <div className="flex flex-1 flex-col rounded-3xl bg-[var(--m-surface)] p-5 shadow-2xl min-h-0">
           <textarea
             value={text}
             onChange={(e) => onChange(e.target.value)}
             placeholder={"比如…\n\n移动端 AI Tab 应该比 PC 更突出\n「剪藏 + 提问」组合操作 ——\n用户在地铁上读到一段文字，\n截图 + 问 AI 摘要 + 存为文档\n一气呵成。"}
-            className="w-full flex-1 resize-none bg-transparent text-base leading-relaxed text-slate-800 outline-none placeholder:text-slate-300 min-h-0"
+            className="w-full flex-1 resize-none bg-transparent text-base leading-relaxed text-[var(--m-ink-1)] outline-none placeholder:text-[var(--m-ink-3)] min-h-0"
             autoFocus
           />
 
           {/* 状态栏 */}
-          <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
+          <div className="mt-2 flex items-center justify-between border-t border-[var(--m-line-weak)] pt-3 text-xs text-[var(--m-ink-3)]">
             <div className="flex items-center gap-3">
               <span>{wordCount} 字</span>
               {draftSavedAt && (
                 <span className="flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-[var(--m-success)]" />
                   已自动保存
                 </span>
               )}
@@ -201,26 +201,26 @@ export default function QuickCapturePage() {
           {/* 工具栏（占位） */}
           <div className="mt-3 flex items-center gap-2">
             <ToolButton onClick={() => message.info("图片插入待开发")}>
-              <ImageIcon size={20} className="text-slate-600" />
+              <ImageIcon size={20} className="text-[var(--m-ink-2)]" />
             </ToolButton>
             <ToolButton onClick={() => message.info("相机待开发")}>
-              <Camera size={20} className="text-slate-600" />
+              <Camera size={20} className="text-[var(--m-ink-2)]" />
             </ToolButton>
             <ToolButton onClick={() => message.info("语音录入待开发")}>
-              <Mic size={20} className="text-slate-600" />
+              <Mic size={20} className="text-[var(--m-ink-2)]" />
             </ToolButton>
             <ToolButton onClick={() => message.info("AI 整理待开发")}>
-              <Sparkles size={20} className="text-orange-600" />
+              <Sparkles size={20} className="text-[var(--m-accent)]" />
             </ToolButton>
             <div className="flex-1" />
             <ToolButton onClick={() => message.info("标签待开发")}>
-              <Hash size={20} className="text-slate-600" />
+              <Hash size={20} className="text-[var(--m-ink-2)]" />
             </ToolButton>
           </div>
         </div>
 
         {/* 保存目标提示 */}
-        <div className="mt-3 flex items-center gap-3 rounded-2xl bg-white/15 px-4 py-3 text-white backdrop-blur">
+        <div className="mt-3 flex items-center gap-3 rounded-2xl bg-white/15 px-4 py-3 text-[var(--m-on-primary)] backdrop-blur">
           <FolderOpen size={18} />
           <div className="flex-1 text-sm">
             保存到 <strong>📅 当天日记</strong>
@@ -234,14 +234,14 @@ export default function QuickCapturePage() {
         >
           <button
             onClick={handleClose}
-            className="rounded-2xl bg-white/20 py-3 text-sm font-medium text-white backdrop-blur active:bg-white/30"
+            className="rounded-2xl bg-white/20 py-3 text-sm font-medium text-[var(--m-on-primary)] backdrop-blur active:bg-white/30"
           >
             关闭
           </button>
           <button
             onClick={handleSave}
             disabled={!text.trim() || savingMain}
-            className="flex items-center justify-center gap-1.5 rounded-2xl bg-white py-3 font-bold text-orange-600 shadow-lg active:scale-95 transition-transform disabled:opacity-50"
+            className="flex items-center justify-center gap-1.5 rounded-2xl bg-[var(--m-surface)] py-3 font-bold text-[var(--m-accent)] shadow-lg active:scale-95 transition-transform disabled:opacity-50"
           >
             <Check size={16} />
             {savingMain ? "保存中…" : "保存到今日"}
@@ -262,7 +262,7 @@ function ToolButton({
   return (
     <button
       onClick={onClick}
-      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 active:bg-slate-200"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[var(--m-well)] active:bg-[var(--m-well)]"
     >
       {children}
     </button>

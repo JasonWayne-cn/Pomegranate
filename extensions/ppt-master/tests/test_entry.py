@@ -489,6 +489,74 @@ class EntryTests(unittest.TestCase):
                 self.assertIn("第一页备注", note_text)
                 self.assertIn("第二页备注", note_text)
 
+    def test_native_placeholder_marks_chart_slot(self):
+        template = """<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" lang="zh-CN">
+  <rect width="1280" height="720" fill="#F7F9FC"/>
+  <text x="100" y="106" font-size="30" fill="#1F4E79" data-pptx-placeholder="title" data-pptx-bounds="100,70,1000,50">标题</text>
+  <rect x="120" y="220" width="1040" height="380" fill="#EAF1F8" data-pptx-placeholder="chart" data-pptx-bounds="120,220,1040,380"/>
+</svg>"""
+        slide = {
+            "page": 1,
+            "title": "季度复盘",
+            "bullets": ["完成率 92%"],
+            "chart": {
+                "type": "column",
+                "categories": ["Q1", "Q2"],
+                "series": [{"name": "营收", "values": [12, 18]}],
+            },
+        }
+        plan = {"title": "季度复盘", "slides": [slide]}
+        job = {"options": {"language": "zh-CN", "audience": "管理层"}, "templates": {}}
+        svg = entry.fill_structured_layout(
+            template,
+            slide,
+            0,
+            plan,
+            job,
+            "季度复盘",
+            chart=slide["chart"],
+            native_placeholder=True,
+        )
+        self.assertIn("NATIVE_CHART_P01", svg)
+        self.assertNotIn("营收", svg)
+        self.assertIn('fill="none"', svg)
+
+    def test_attach_native_charts_replaces_named_shape(self):
+        from pptx import Presentation
+        from pptx.enum.shapes import MSO_SHAPE
+        from pptx.util import Inches
+
+        root = Path(tempfile.mkdtemp(prefix="ppt-native-attach-"))
+        prs = Presentation()
+        prs.slide_width = Inches(13.333)
+        prs.slide_height = Inches(7.5)
+        page = prs.slides.add_slide(prs.slide_layouts[6])
+        box = page.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE, Inches(1), Inches(2), Inches(10), Inches(4)
+        )
+        box.name = "NATIVE_CHART_P01"
+        target = root / "native.pptx"
+        prs.save(str(target))
+        plan = {
+            "title": "季度复盘",
+            "slides": [
+                {
+                    "page": 1,
+                    "title": "季度复盘",
+                    "chart": {
+                        "type": "column",
+                        "categories": ["Q1", "Q2"],
+                        "series": [{"name": "营收", "values": [12, 18]}],
+                    },
+                }
+            ],
+        }
+        self.assertTrue(entry.attach_native_charts(target, plan, ["#1F4E79"]))
+        reopened = Presentation(str(target))
+        shapes = list(reopened.slides[0].shapes)
+        self.assertFalse(any(shape.name == "NATIVE_CHART_P01" for shape in shapes))
+        self.assertTrue(any(shape.has_chart for shape in shapes))
+
 
 if __name__ == "__main__":
     unittest.main()

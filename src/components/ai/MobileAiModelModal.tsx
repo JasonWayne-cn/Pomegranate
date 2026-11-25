@@ -26,12 +26,15 @@ export function MobileAiModelModal({
   onSaved,
   okText = "保存",
   defaultProvider = "deepseek",
+  editing = null,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: (model: AiModel) => void;
   okText?: string;
   defaultProvider?: string;
+  /** 传入则进入编辑模式（不回显 API Key；留空表示保持原 Key） */
+  editing?: AiModel | null;
 }) {
   const [form] = Form.useForm<AiModelInput>();
   const presets = useAiProviderPresets();
@@ -49,15 +52,27 @@ export function MobileAiModelModal({
     });
   }
 
-  // 每次打开都重置到默认服务商。预置是异步加载的，加载完再回填一次
+  // 每次打开重置：编辑回填已保存字段（Key 留空=保持），新建回到默认服务商
   useEffect(() => {
     if (!open) return;
+    if (editing) {
+      setProvider(editing.provider);
+      form.setFieldsValue({
+        name: editing.name,
+        provider: editing.provider,
+        api_url: editing.api_url,
+        api_key: "",
+        model_id: editing.model_id,
+        max_context: editing.max_context || undefined,
+      });
+      return;
+    }
     setProvider(defaultProvider);
     form.setFieldsValue({ provider: defaultProvider });
     if (presets.length > 0) fillFrom(defaultProvider);
     // fillFrom 只读 presets / form，随它们变化即可
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, defaultProvider, presets]);
+  }, [open, defaultProvider, presets, editing]);
 
   function onProviderChange(p: string) {
     setProvider(p);
@@ -68,17 +83,23 @@ export function MobileAiModelModal({
     try {
       const values = await form.validateFields();
       const ctx = values.max_context && values.max_context > 0 ? values.max_context : null;
-      const created = await aiModelApi.create({
+      // 编辑时 Key 留空 = 保持原值（后端三态：省略字段）
+      const input: AiModelInput = {
         ...values,
         max_context: ctx ?? undefined,
         limits_source: ctx !== null ? "user" : null,
-      });
-      message.success(`已添加 ${created.name}`);
-      onSaved(created);
+      };
+      if (editing && !values.api_key) delete input.api_key;
+
+      const saved = editing
+        ? await aiModelApi.update(editing.id, input)
+        : await aiModelApi.create(input);
+      message.success(editing ? `已更新 ${saved.name}` : `已添加 ${saved.name}`);
+      onSaved(saved);
       onClose();
     } catch (e) {
       if ((e as { errorFields?: unknown }).errorFields) return;
-      message.error(`添加失败: ${e}`);
+      message.error(`${editing ? "更新" : "添加"}失败: ${e}`);
     }
   }
 
@@ -87,7 +108,7 @@ export function MobileAiModelModal({
 
   return (
     <Modal
-      title="新建模型服务"
+      title={editing ? "编辑模型服务" : "新建模型服务"}
       open={open}
       onOk={submit}
       onCancel={onClose}

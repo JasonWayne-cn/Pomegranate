@@ -7,7 +7,6 @@ import { RouteErrorFallback } from "@/components/ui/ErrorBoundary";
 // 首屏常用页面 — 同步加载，不拆 chunk
 import HomePage from "@/pages/home";
 import NoteListPage from "@/pages/notes";
-import NoteEditorPage from "@/pages/notes/editor";
 import OpeningNotePage from "@/pages/notes/opening";
 import SearchPage from "@/pages/search";
 import TagsPage from "@/pages/tags";
@@ -17,6 +16,8 @@ import SettingsPage from "@/pages/settings";
 import AboutPage from "@/pages/about";
 import { useIsMobile } from "@/hooks/useIsMobile";
 // 非首屏页面 — React.lazy 动态加载，减少主 bundle 体积
+// 编辑器依赖 TipTap（vendor-editor），移动端冷启动不应提前加载
+const NoteEditorPage = lazy(() => import("@/pages/notes/editor"));
 const GraphPage = lazy(() => import("@/pages/graph"));
 const AiChatPage = lazy(() => import("@/pages/ai"));
 const MobileAiChat = lazy(() => import("@/pages/ai/MobileAiChat").then(m => ({ default: m.MobileAiChat })));
@@ -148,7 +149,7 @@ const router = createHashRouter([
       { path: "mounts", element: <LazyPage><MountsPage /></LazyPage> },
       // 外部 .md shell-first 打开页：必须排在 notes/:id 之前
       { path: "notes/opening", element: <OpeningNotePage /> },
-      { path: "notes/:id", element: <NoteEditorPage /> },
+      { path: "notes/:id", element: <LazyPage><NoteEditorPage /></LazyPage> },
       // 白板本质是 note_type='whiteboard' 的文档
       { path: "whiteboard/:id", element: <LazyPage><WhiteboardPage /></LazyPage> },
       { path: "search", element: <SearchPage /> },

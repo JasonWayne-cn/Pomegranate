@@ -1,8 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ChevronLeft, Search as SearchIcon, XCircle } from "lucide-react";
-import { searchApi } from "@/lib/api";
-import type { SearchResult } from "@/types";
+import {
+  ChevronLeft,
+  Search as SearchIcon,
+  XCircle,
+  CheckSquare,
+} from "lucide-react";
+import { searchApi, taskApi } from "@/lib/api";
+import type { SearchResult, TaskSearchHit } from "@/types";
 
 /**
  * 移动端搜索页（设计稿：03-search.html）
@@ -31,6 +36,7 @@ export function MobileSearch() {
 
   const [keyword, setKeyword] = useState(initialQ);
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [taskResults, setTaskResults] = useState<TaskSearchHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
 
@@ -39,17 +45,24 @@ export function MobileSearch() {
   const runSearch = useCallback(async (q: string) => {
     if (!q.trim()) {
       setResults([]);
+      setTaskResults([]);
       setSearched(false);
       return;
     }
     setLoading(true);
     try {
-      const list = await searchApi.search(q.trim(), 50);
-      setResults(list);
+      // 文档与待办并行检索；任一失败不阻塞另一类结果
+      const [notes, tasks] = await Promise.all([
+        searchApi.search(q.trim(), 50).catch(() => [] as SearchResult[]),
+        taskApi.search(q.trim(), 30).catch(() => [] as TaskSearchHit[]),
+      ]);
+      setResults(notes);
+      setTaskResults(tasks);
       setSearched(true);
     } catch (e) {
       console.error("[MobileSearch] failed:", e);
       setResults([]);
+      setTaskResults([]);
       setSearched(true);
     } finally {
       setLoading(false);
@@ -80,18 +93,18 @@ export function MobileSearch() {
   }, [keyword]);
 
   return (
-    <div className="text-slate-800">
+    <div className="text-[var(--m-ink-1)]">
       {/* 搜索栏 */}
-      <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+      <div className="flex items-center gap-2 border-b border-[var(--m-line)] bg-[var(--m-surface)] px-3 py-2">
         <button
           onClick={() => navigate(-1)}
           aria-label="返回"
           className="flex h-10 w-10 shrink-0 items-center justify-center"
         >
-          <ChevronLeft size={24} className="text-slate-700" />
+          <ChevronLeft size={24} className="text-[var(--m-ink-2)]" />
         </button>
-        <div className="flex h-10 flex-1 items-center gap-2 rounded-xl bg-slate-100 px-3">
-          <SearchIcon size={16} className="text-slate-400" />
+        <div className="flex h-10 flex-1 items-center gap-2 rounded-xl bg-[var(--m-well)] px-3">
+          <SearchIcon size={16} className="text-[var(--m-ink-3)]" />
           <input
             autoFocus
             value={keyword}
@@ -105,49 +118,71 @@ export function MobileSearch() {
               aria-label="清空"
               className="flex h-6 w-6 items-center justify-center"
             >
-              <XCircle size={16} className="text-slate-400" />
+              <XCircle size={16} className="text-[var(--m-ink-3)]" />
             </button>
           )}
         </div>
       </div>
 
       {/* 结果 */}
-      <div className="bg-slate-50 min-h-[60vh] pb-24">
+      <div className="bg-[var(--m-page)] min-h-[60vh] pb-24">
         {!keyword.trim() ? (
           <EmptyHint
-            icon={<SearchIcon size={32} className="text-slate-300" />}
+            icon={<SearchIcon size={32} className="text-[var(--m-ink-3)]" />}
             text="搜索文档标题 / 正文"
             sub="支持中文分词，输入即时搜索"
           />
         ) : loading && results.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-slate-400">
+          <div className="px-4 py-8 text-center text-sm text-[var(--m-ink-3)]">
             搜索中…
           </div>
-        ) : searched && results.length === 0 ? (
+        ) : searched && results.length === 0 && taskResults.length === 0 ? (
           <EmptyHint
-            icon={<SearchIcon size={32} className="text-slate-300" />}
+            icon={<SearchIcon size={32} className="text-[var(--m-ink-3)]" />}
             text={`未找到「${keyword}」`}
             sub="换个关键词试试，或检查输入"
           />
         ) : (
           <>
-            <div className="px-4 pt-3 pb-1 text-xs font-medium text-slate-400">
-              搜索结果 · {results.length} 篇
-            </div>
-            {results.map((r) => (
-              <ResultCard
-                key={r.id}
-                result={r}
-                keyword={keyword}
-                onClick={() =>
-                  r.ext_index_only && r.abs_path
-                    ? navigate(
-                        `/office?path=${encodeURIComponent(r.abs_path)}&readonly=${r.read_only ? "1" : "0"}&t=${Date.now()}`,
-                      )
-                    : navigate(`/notes/${r.id}?q=${encodeURIComponent(keyword)}`)
-                }
-              />
-            ))}
+            {results.length > 0 && (
+              <>
+                <div className="px-4 pt-3 pb-1 text-xs font-medium text-[var(--m-ink-3)]">
+                  文档 · {results.length} 篇
+                </div>
+                {results.map((r) => (
+                  <ResultCard
+                    key={r.id}
+                    result={r}
+                    keyword={keyword}
+                    onClick={() =>
+                      r.ext_index_only && r.abs_path
+                        ? navigate(
+                            `/office?path=${encodeURIComponent(r.abs_path)}&readonly=${r.read_only ? "1" : "0"}&t=${Date.now()}`,
+                          )
+                        : navigate(
+                            `/notes/${r.id}?q=${encodeURIComponent(keyword)}`,
+                          )
+                    }
+                  />
+                ))}
+              </>
+            )}
+
+            {taskResults.length > 0 && (
+              <>
+                <div className="px-4 pt-3 pb-1 text-xs font-medium text-[var(--m-ink-3)]">
+                  待办 · {taskResults.length} 项
+                </div>
+                {taskResults.map((t) => (
+                  <TaskHitCard
+                    key={t.id}
+                    hit={t}
+                    keyword={keyword}
+                    onClick={() => navigate(`/task-detail/${t.id}`)}
+                  />
+                ))}
+              </>
+            )}
           </>
         )}
       </div>
@@ -169,22 +204,76 @@ function ResultCard({
       onClick={onClick}
       className="block w-full px-4 mb-2 text-left active:opacity-80"
     >
-      <div className="rounded-2xl bg-white p-4">
-        <h3 className="text-base font-semibold text-slate-900 line-clamp-1">
+      <div className="rounded-2xl bg-[var(--m-surface)] p-4">
+        <h3 className="text-base font-semibold text-[var(--m-ink-1)] line-clamp-1">
           <Highlight text={result.title || "未命名文档"} keyword={keyword} />
         </h3>
         {result.snippet && (
-          <p className="mt-1 line-clamp-2 text-sm text-slate-500">
+          <p className="mt-1 line-clamp-2 text-sm text-[var(--m-ink-2)]">
             <Highlight text={result.snippet} keyword={keyword} />
           </p>
         )}
-        <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+        <div className="mt-2 flex items-center gap-2 text-xs text-[var(--m-ink-3)]">
           <span className="ml-auto">
             {new Date(result.updated_at).toLocaleDateString("zh-CN", {
               month: "numeric",
               day: "numeric",
             })}
           </span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function TaskHitCard({
+  hit,
+  keyword,
+  onClick,
+}: {
+  hit: TaskSearchHit;
+  keyword: string;
+  onClick: () => void;
+}) {
+  const done = hit.status === 1;
+  return (
+    <button
+      onClick={onClick}
+      className="mb-2 block w-full px-4 text-left active:opacity-80"
+    >
+      <div className="rounded-2xl bg-[var(--m-surface)] p-4">
+        <div className="flex items-center gap-2">
+          <CheckSquare
+            size={16}
+            className={
+              done ? "text-[var(--m-ink-3)]" : "text-[var(--m-warning)]"
+            }
+          />
+          <h3
+            className={`min-w-0 flex-1 text-base font-semibold line-clamp-1 ${
+              done
+                ? "text-[var(--m-ink-3)] line-through"
+                : "text-[var(--m-ink-1)]"
+            }`}
+          >
+            <Highlight text={hit.title || "未命名任务"} keyword={keyword} />
+          </h3>
+        </div>
+        {hit.snippet && (
+          <p className="mt-1 line-clamp-2 text-sm text-[var(--m-ink-2)]">
+            <Highlight text={hit.snippet} keyword={keyword} />
+          </p>
+        )}
+        <div className="mt-2 flex items-center gap-2 text-xs text-[var(--m-ink-3)]">
+          <span>{done ? "已完成" : "未完成"}</span>
+          {hit.dueDate && (
+            <span className="ml-auto">
+              {new Date(hit.dueDate).toLocaleDateString("zh-CN", {
+                month: "numeric",
+                day: "numeric",
+              })}
+            </span>
+          )}
         </div>
       </div>
     </button>
@@ -215,7 +304,7 @@ function Highlight({ text, keyword }: { text: string; keyword: string }) {
         p.hit ? (
           <mark
             key={idx}
-            className="rounded-sm bg-amber-100 px-0.5 text-amber-800"
+            className="rounded-sm bg-[var(--m-tint-warning)] px-0.5 text-[var(--m-warning)]"
           >
             {p.t}
           </mark>
@@ -237,10 +326,10 @@ function EmptyHint({
   sub?: string;
 }) {
   return (
-    <div className="flex flex-col items-center gap-2 px-4 py-16 text-slate-400">
+    <div className="flex flex-col items-center gap-2 px-4 py-16 text-[var(--m-ink-3)]">
       {icon}
       <span className="text-sm">{text}</span>
-      {sub && <span className="text-xs text-slate-300">{sub}</span>}
+      {sub && <span className="text-xs text-[var(--m-ink-3)]">{sub}</span>}
     </div>
   );
 }

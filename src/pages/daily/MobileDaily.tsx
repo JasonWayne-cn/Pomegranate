@@ -3,12 +3,12 @@ import { useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
   ChevronRight,
-  Settings2,
   Edit3,
+  CheckSquare,
 } from "lucide-react";
 import { message } from "antd";
-import { dailyApi } from "@/lib/api";
-import type { Note } from "@/types";
+import { dailyApi, taskApi } from "@/lib/api";
+import type { Note, Task } from "@/types";
 
 /**
  * 移动端每日笔记页（设计稿：04-daily.html）
@@ -49,6 +49,7 @@ export function MobileDaily() {
   const [datesWithNote, setDatesWithNote] = useState<Set<DateStr>>(new Set());
   const [selectedNote, setSelectedNote] = useState<Note | null>(null);
   const [loadingNote, setLoadingNote] = useState(false);
+  const [todayTasks, setTodayTasks] = useState<Task[]>([]);
 
   const loadMonth = useCallback(async (y: number, m: number) => {
     try {
@@ -79,6 +80,27 @@ export function MobileDaily() {
   useEffect(() => {
     void loadDay(selected);
   }, [selected, loadDay]);
+
+  // 今日待办速览：未完成且截止日期落在今天
+  useEffect(() => {
+    let alive = true;
+    taskApi
+      .list({ status: 0 })
+      .then((list) => {
+        if (!alive) return;
+        setTodayTasks(
+          list
+            .filter((t) => (t.due_date ?? "").slice(0, 10) === todayStr)
+            .slice(0, 5),
+        );
+      })
+      .catch(() => {
+        if (alive) setTodayTasks([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [todayStr]);
 
   function prevMonth() {
     if (month === 1) {
@@ -143,33 +165,28 @@ export function MobileDaily() {
   const isToday = selected === todayStr;
 
   return (
-    <div className="text-slate-800">
+    <div className="text-[var(--m-ink-1)]">
       {/* 顶栏 */}
-      <header className="flex h-12 items-center justify-between border-b border-slate-200 bg-white px-2">
+      <header className="flex h-12 items-center justify-between border-b border-[var(--m-line)] bg-[var(--m-surface)] px-2">
         <button
           onClick={() => navigate(-1)}
           aria-label="返回"
           className="flex h-10 w-10 items-center justify-center"
         >
-          <ChevronLeft size={24} className="text-slate-700" />
+          <ChevronLeft size={24} className="text-[var(--m-ink-2)]" />
         </button>
-        <h1 className="text-base font-semibold text-slate-900">日记</h1>
-        <button
-          aria-label="设置"
-          className="flex h-10 w-10 items-center justify-center"
-        >
-          <Settings2 size={20} className="text-slate-700" />
-        </button>
+        <h1 className="text-base font-semibold text-[var(--m-ink-1)]">日记</h1>
+        <span className="h-10 w-10" aria-hidden />
       </header>
 
       {/* 月份切换 */}
-      <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 pt-3 pb-2">
+      <div className="flex items-center justify-between border-b border-[var(--m-line)] bg-[var(--m-surface)] px-4 pt-3 pb-2">
         <button
           onClick={prevMonth}
           aria-label="上个月"
-          className="flex h-9 w-9 items-center justify-center rounded-lg active:bg-slate-100"
+          className="flex h-9 w-9 items-center justify-center rounded-lg active:bg-[var(--m-well)]"
         >
-          <ChevronLeft size={20} className="text-slate-700" />
+          <ChevronLeft size={20} className="text-[var(--m-ink-2)]" />
         </button>
         <div className="text-base font-semibold">
           {year} 年 {month} 月
@@ -177,15 +194,15 @@ export function MobileDaily() {
         <button
           onClick={nextMonth}
           aria-label="下个月"
-          className="flex h-9 w-9 items-center justify-center rounded-lg active:bg-slate-100"
+          className="flex h-9 w-9 items-center justify-center rounded-lg active:bg-[var(--m-well)]"
         >
-          <ChevronRight size={20} className="text-slate-700" />
+          <ChevronRight size={20} className="text-[var(--m-ink-2)]" />
         </button>
       </div>
 
       {/* 日历 */}
-      <div className="bg-white px-3 pb-4">
-        <div className="mb-1.5 grid grid-cols-7 text-center text-xs text-slate-400">
+      <div className="bg-[var(--m-surface)] px-3 pb-4">
+        <div className="mb-1.5 grid grid-cols-7 text-center text-xs text-[var(--m-ink-3)]">
           {WEEKDAYS.map((w) => (
             <div key={w}>{w}</div>
           ))}
@@ -201,14 +218,14 @@ export function MobileDaily() {
                 onClick={() => setSelected(c.date)}
                 className={`flex h-9 items-center justify-center rounded-lg text-sm transition-colors ${
                   !c.inMonth
-                    ? "text-slate-300"
+                    ? "text-[var(--m-ink-3)]"
                     : isSelected
-                      ? "bg-[var(--kb-primary)] text-white font-bold ring-2 ring-[var(--kb-primary)] ring-offset-1"
+                      ? "bg-[var(--m-primary)] text-[var(--m-on-primary)] font-bold"
                       : has
-                        ? "bg-blue-100 text-blue-700 font-semibold"
+                        ? "bg-[var(--m-tint-primary)] text-[var(--m-primary)] font-semibold"
                         : isTodayCell
-                          ? "border border-[var(--kb-primary)] text-[var(--kb-primary)] font-semibold"
-                          : "text-slate-700 active:bg-slate-100"
+                          ? "border border-[var(--m-primary)] text-[var(--m-primary)] font-semibold"
+                          : "text-[var(--m-ink-2)] active:bg-[var(--m-well)]"
                 }`}
               >
                 {c.day}
@@ -216,57 +233,85 @@ export function MobileDaily() {
             );
           })}
         </div>
-        <div className="mt-3 flex items-center justify-end gap-1.5 text-xs text-slate-400">
+        <div className="mt-3 flex items-center justify-end gap-1.5 text-xs text-[var(--m-ink-3)]">
           <span>无</span>
-          <div className="h-3 w-3 rounded bg-slate-100" />
-          <div className="h-3 w-3 rounded bg-blue-100" />
-          <div className="h-3 w-3 rounded bg-[var(--kb-primary)]" />
+          <div className="h-3 w-3 rounded bg-[var(--m-well)]" />
+          <div className="h-3 w-3 rounded bg-[var(--m-tint-primary)]" />
+          <div className="h-3 w-3 rounded bg-[var(--m-primary)]" />
           <span>当前</span>
         </div>
       </div>
 
       {/* 选中日的文档预览 */}
-      <div className="bg-slate-50 px-4 py-3 pb-24">
+      <div className="bg-[var(--m-page)] px-4 py-3 pb-24">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-800">
+          <h2 className="text-base font-semibold text-[var(--m-ink-1)]">
             {selectedLabel}
             {isToday && (
-              <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-600">
+              <span className="ml-2 rounded bg-[var(--m-tint-primary)] px-1.5 py-0.5 text-xs text-[var(--m-primary)]">
                 今天
               </span>
             )}
           </h2>
           {selectedNote && (
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-[var(--m-ink-3)]">
               {selectedNote.word_count} 字
             </span>
           )}
         </div>
 
         {loadingNote ? (
-          <div className="rounded-2xl bg-white p-4 text-center text-sm text-slate-400 shadow-sm">
+          <div className="rounded-2xl bg-[var(--m-surface)] p-4 text-center text-sm text-[var(--m-ink-3)] shadow-sm">
             加载中…
           </div>
         ) : selectedNote ? (
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <div className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap line-clamp-12">
+          <div className="rounded-2xl bg-[var(--m-surface)] p-4 shadow-sm">
+            <div className="text-sm leading-relaxed text-[var(--m-ink-2)] whitespace-pre-wrap line-clamp-12">
               {selectedNote.content || (
-                <span className="italic text-slate-400">空白</span>
+                <span className="italic text-[var(--m-ink-3)]">空白</span>
               )}
             </div>
           </div>
         ) : (
-          <div className="rounded-2xl bg-white p-6 text-center shadow-sm">
-            <div className="text-sm text-slate-500">这一天还没有日记</div>
-            <div className="mt-1 text-xs text-slate-400">
+          <div className="rounded-2xl bg-[var(--m-surface)] p-6 text-center shadow-sm">
+            <div className="text-sm text-[var(--m-ink-2)]">这一天还没有日记</div>
+            <div className="mt-1 text-xs text-[var(--m-ink-3)]">
               点击下方按钮开始记录
+            </div>
+          </div>
+        )}
+
+        {todayTasks.length > 0 && (
+          <div className="mt-3 rounded-2xl bg-[var(--m-surface)] p-4">
+            <div className="mb-2 flex items-center justify-between text-xs">
+              <span className="flex items-center gap-1 font-medium text-[var(--m-ink-3)]">
+                <CheckSquare size={13} /> 今日待办 · {todayTasks.length}
+              </span>
+              <button
+                onClick={() => navigate("/tasks")}
+                className="text-[var(--m-primary)]"
+              >
+                全部 →
+              </button>
+            </div>
+            <div className="flex flex-col">
+              {todayTasks.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => navigate(`/task-detail/${t.id}`)}
+                  className="flex items-center gap-2 py-1.5 text-left text-sm text-[var(--m-ink-1)] active:opacity-70"
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--m-warning)]" />
+                  <span className="truncate">{t.title}</span>
+                </button>
+              ))}
             </div>
           </div>
         )}
 
         <button
           onClick={openSelectedDay}
-          className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-[var(--kb-primary)] font-medium text-white active:scale-[0.98] transition-transform"
+          className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-[var(--m-primary)] font-medium text-[var(--m-on-primary)] active:scale-[0.98] transition-transform"
         >
           <Edit3 size={16} className="mr-1.5" />
           {selectedNote ? "继续编辑" : "开始记录"}当天日记

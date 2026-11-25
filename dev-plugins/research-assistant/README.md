@@ -44,7 +44,7 @@ node --check dev-plugins/research-assistant/main.js
 node --test dev-plugins/research-assistant/test/core.test.mjs
 ```
 
-安装：在应用「插件」页从目录安装本文件夹，或放入应用数据目录的 `plugins/research-assistant/` 后扫描。
+安装：把本文件夹打成 zip（根目录含 `plugin.json`），在应用「插件」页选择插件包安装；也可解压后放入应用数据目录的 `plugins/research-assistant/` 再扫描。
 
 安装后在插件详情里**授予清单声明的权限**（AI、笔记、设置、network:request），否则对应功能会被宿主拒绝。
 

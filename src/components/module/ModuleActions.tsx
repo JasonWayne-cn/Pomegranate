@@ -7,10 +7,16 @@ import { MODULE_REGISTRY, moduleHasConfig } from "@/modules/registry";
 import { ModuleDrawer, type ModuleDrawerTab } from "./ModuleDrawer";
 
 /**
+ * 高频模块的标题栏只保留「使用说明」入口，不再显示「配置」按钮；
+ * 配置页签仍保留在抽屉内，打开使用说明后可切换。
+ */
+const HIDE_CONFIG_BUTTON_VIEWS = new Set(["notes", "daily", "tasks", "ai"]);
+
+/**
  * Header 左侧的模块操作组。
  *
- * 模块名与两个入口都跟随当前路由变化：
- *   ⚙ 打开「配置」页签
+ * 模块名与入口都跟随当前路由变化：
+ *   ⚙ 打开「配置」页签（仅部分模块）
  *   ? 打开「使用说明」页签（Shift + F1 等效）
  *
  * 独立页（设置/关于/插件视图）不显示，避免与全局设置语义重复。
@@ -113,7 +119,7 @@ export function ModuleActions() {
           {meta.label}
         </span>
 
-        {moduleHasConfig(meta) && (
+        {moduleHasConfig(meta) && !HIDE_CONFIG_BUTTON_VIEWS.has(meta.view) && (
           <Tooltip title={`${meta.label}配置`} mouseEnterDelay={0.15}>
             <Button
               type="text"
