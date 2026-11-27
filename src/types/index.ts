@@ -1709,6 +1709,22 @@ export interface OpenMarkdownResult {
   isScratch: boolean;
 }
 
+/** 外部 Markdown「仅浏览」预览结果（只读，不写入数据库） */
+export interface MarkdownFilePreview {
+  /** 规范化后的绝对路径 */
+  path: string;
+  /** 文件显示名（含扩展名） */
+  fileName: string;
+  /** 标题（取正文首个 H1，否则用文件名去扩展名） */
+  title: string;
+  /** 原始 Markdown 文本 */
+  content: string;
+  /** 最后修改时间（秒级 unix timestamp） */
+  modifiedAt: number | null;
+  /** 文件字节数 */
+  size: number;
+}
+
 /** 孤儿素材类型 */
 export type OrphanKind = "image" | "video" | "attachment" | "pdf" | "source" | "task_file";
 

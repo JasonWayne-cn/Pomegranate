@@ -51,8 +51,9 @@ export default function OpeningNotePage() {
     };
   }, [path, navigate]);
 
+  // useSearchParams 已解码，不能再 decodeURIComponent（文件名含 % 会抛 URIError）
   const fileName = path
-    ? decodeURIComponent(path).split(/[\\/]/).pop() || path
+    ? path.split(/[\\/]/).pop() || path
     : "外部文档";
 
   return (

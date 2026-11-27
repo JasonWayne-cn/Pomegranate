@@ -715,6 +715,24 @@ pub struct OpenMarkdownResult {
     pub is_scratch: bool,
 }
 
+/// 外部 Markdown「仅浏览」预览结果：只读读取磁盘文件，不写入数据库
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkdownFilePreview {
+    /// 规范化后的绝对路径
+    pub path: String,
+    /// 文件显示名（含扩展名）
+    pub file_name: String,
+    /// 标题（取正文首个 H1，否则用文件名去扩展名）
+    pub title: String,
+    /// 原始 Markdown 文本
+    pub content: String,
+    /// 最后修改时间（秒级 unix timestamp）
+    pub modified_at: Option<i64>,
+    /// 文件字节数
+    pub size: u64,
+}
+
 // ─── 附件 ─────────────────────────────────────
 
 /// 附件信息（保存后回传给前端，用于插入 Tiptap 链接）

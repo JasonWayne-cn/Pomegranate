@@ -7,7 +7,8 @@ use walkdir::WalkDir;
 use crate::database::Database;
 use crate::error::AppError;
 use crate::models::{
-    ImportConflictPolicy, ImportProgress, ImportResult, NoteInput, OpenMarkdownResult, ScannedFile,
+    ImportConflictPolicy, ImportProgress, ImportResult, MarkdownFilePreview, NoteInput,
+    OpenMarkdownResult, ScannedFile,
 };
 use crate::services::hash::sha256_hex;
 use crate::services::quick_capture::{
@@ -718,6 +719,50 @@ impl ImportService {
             note_id: note.id,
             was_synced: false,
             is_scratch: as_scratch,
+        })
+    }
+
+    /// 只读预览外部 Markdown 文件（「仅浏览」用，不写数据库）。
+    ///
+    /// 与 `import_single_markdown` 的区别：不创建文档、不处理图片、不记录 mtime，
+    /// 只把磁盘内容原样返回给前端渲染只读视图。
+    pub fn read_markdown_preview(file_path: &str) -> Result<MarkdownFilePreview, AppError> {
+        let path = Path::new(file_path);
+        if !path.is_file() {
+            return Err(AppError::InvalidInput(format!("文件不存在: {}", file_path)));
+        }
+        if !is_text_extension(&ext_lower(path)) {
+            return Err(AppError::InvalidInput(format!(
+                "不支持的文件类型: {}",
+                file_path
+            )));
+        }
+
+        let content = read_text_auto_encoding(path)
+            .map_err(|e| AppError::Custom(format!("读取文件失败: {} ({})", file_path, e)))?;
+        let file_name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("未命名")
+            .to_string();
+        let file_stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("未命名")
+            .to_string();
+        let title = extract_title(&content).unwrap_or(file_stem);
+        let canonical = std::fs::canonicalize(path)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| file_path.to_string());
+        let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+
+        Ok(MarkdownFilePreview {
+            path: canonical,
+            file_name,
+            title,
+            content,
+            modified_at: read_file_mtime(path),
+            size,
         })
     }
 }

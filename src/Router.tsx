@@ -4,6 +4,7 @@ import { Spin } from "antd";
 import { LayoutSwitch } from "@/components/layout/LayoutSwitch";
 import { OnboardingProvider } from "@/components/onboarding/OnboardingProvider";
 import { RouteErrorFallback } from "@/components/ui/ErrorBoundary";
+import BrowseMarkdownPage from "@/pages/notes/browse";
 // 首屏常用页面 — 同步加载，不拆 chunk
 import HomePage from "@/pages/home";
 import NoteListPage from "@/pages/notes";
@@ -147,8 +148,9 @@ const router = createHashRouter([
       { index: true, element: <HomePage /> },
       { path: "notes", element: <NoteListPage /> },
       { path: "mounts", element: <LazyPage><MountsPage /></LazyPage> },
-      // 外部 .md shell-first 打开页：必须排在 notes/:id 之前
+      // 外部 .md shell-first 打开页 / 只读浏览页：必须排在 notes/:id 之前
       { path: "notes/opening", element: <OpeningNotePage /> },
+      { path: "notes/browse", element: <BrowseMarkdownPage /> },
       { path: "notes/:id", element: <LazyPage><NoteEditorPage /></LazyPage> },
       // 白板本质是 note_type='whiteboard' 的文档
       { path: "whiteboard/:id", element: <LazyPage><WhiteboardPage /></LazyPage> },

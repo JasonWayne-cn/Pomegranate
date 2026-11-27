@@ -1,0 +1,81 @@
+.external-open-file {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--kb-bg-hover);
+  color: var(--kb-text-secondary);
+}
+
+.external-open-file-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.external-open-file-path {
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.external-open-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.external-open-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--kb-border);
+  background: var(--kb-bg-elevated);
+  color: var(--kb-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--kb-duration-fast, 160ms) ease,
+    border-color var(--kb-duration-fast, 160ms) ease;
+}
+
+.external-open-option:hover {
+  background: var(--kb-bg-hover);
+  border-color: var(--kb-primary);
+}
+
+.external-open-option:focus-visible {
+  outline: 2px solid var(--kb-primary);
+  outline-offset: 2px;
+}
+
+.external-open-option-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--kb-primary);
+}
+
+.external-open-option-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.external-open-option-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--kb-text-secondary);
+}
+
+.external-open-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}

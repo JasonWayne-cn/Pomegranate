@@ -1,6 +1,8 @@
 use tauri::AppHandle;
 
-use crate::models::{ImportConflictPolicy, ImportResult, OpenMarkdownResult, ScannedFile};
+use crate::models::{
+    ImportConflictPolicy, ImportResult, MarkdownFilePreview, OpenMarkdownResult, ScannedFile,
+};
 use crate::services;
 use crate::state::AppState;
 
@@ -96,4 +98,10 @@ pub fn take_pending_open_md_path(
         .lock()
         .map_err(|e| e.to_string())?;
     Ok(guard.take())
+}
+
+/// 只读读取外部 Markdown 文件（「仅浏览」预览，不写入数据库）
+#[tauri::command(async)]
+pub fn read_markdown_file_preview(path: String) -> Result<MarkdownFilePreview, String> {
+    services::import::ImportService::read_markdown_preview(&path).map_err(|e| e.to_string())
 }

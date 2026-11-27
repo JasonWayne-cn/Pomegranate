@@ -67,6 +67,7 @@ import type {
   AiMessage,
   ImportConflictPolicy,
   ImportResult,
+  MarkdownFilePreview,
   OpenMarkdownResult,
   OrphanAssetScan,
   OrphanAssetClean,
@@ -1189,6 +1190,12 @@ export const importApi = {
    */
   openMarkdownFile: (filePath: string, asScratch = false) =>
     invoke<OpenMarkdownResult>("open_markdown_file", { filePath, asScratch }),
+  /**
+   * 只读读取外部 md 文件，用于「仅浏览」预览。
+   * 不创建文档、不写数据库、不修改原文件。
+   */
+  readPreview: (path: string) =>
+    invoke<MarkdownFilePreview>("read_markdown_file_preview", { path }),
 };
 
 /** 外部目录挂载 API */

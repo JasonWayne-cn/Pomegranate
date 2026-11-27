@@ -1,0 +1,157 @@
+/* 外部 Markdown「仅浏览」阅读排版（/notes/browse）
+   与编辑器无关，只影响 md-reader 作用域。 */
+
+.md-reader-card {
+  background: var(--kb-bg-card-solid, var(--kb-bg-card));
+  border: 1px solid var(--kb-border-card, var(--kb-border));
+  border-radius: var(--kb-radius-card, 14px);
+  padding: 28px 36px;
+}
+
+@media (max-width: 768px) {
+  .md-reader-card {
+    padding: 18px 16px;
+  }
+}
+
+.md-reader {
+  color: var(--kb-text-primary);
+  font-size: 15.5px;
+  line-height: 1.8;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.md-reader > :first-child {
+  margin-top: 0;
+}
+
+.md-reader > :last-child {
+  margin-bottom: 0;
+}
+
+.md-reader h1,
+.md-reader h2,
+.md-reader h3,
+.md-reader h4,
+.md-reader h5,
+.md-reader h6 {
+  color: var(--kb-text-primary);
+  line-height: 1.35;
+  font-weight: 650;
+  margin: 1.4em 0 0.6em;
+}
+
+.md-reader h1 {
+  font-size: 1.7em;
+}
+
+.md-reader h2 {
+  font-size: 1.35em;
+}
+
+.md-reader h3 {
+  font-size: 1.15em;
+}
+
+.md-reader h4,
+.md-reader h5,
+.md-reader h6 {
+  font-size: 1em;
+}
+
+.md-reader p {
+  margin: 0.75em 0;
+}
+
+.md-reader ul {
+  list-style: disc;
+  padding-left: 1.5em;
+  margin: 0.75em 0;
+}
+
+.md-reader ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+  margin: 0.75em 0;
+}
+
+.md-reader li {
+  margin: 0.3em 0;
+}
+
+.md-reader li > input[type="checkbox"] {
+  margin-right: 0.4em;
+}
+
+.md-reader a {
+  color: var(--kb-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md-reader strong {
+  font-weight: 650;
+}
+
+.md-reader blockquote {
+  margin: 1em 0;
+  padding: 0.2em 0 0.2em 1em;
+  border-left: 3px solid var(--kb-border);
+  color: var(--kb-text-secondary);
+}
+
+.md-reader code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  background: var(--kb-bg-hover);
+}
+
+.md-reader pre {
+  margin: 1em 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--kb-border);
+  background: var(--kb-bg-elevated);
+  overflow: auto;
+}
+
+.md-reader pre code {
+  padding: 0;
+  background: transparent;
+  font-size: 0.88em;
+}
+
+.md-reader img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 0.8em 0;
+}
+
+.md-reader hr {
+  margin: 1.6em 0;
+  border: none;
+  border-top: 1px solid var(--kb-border);
+}
+
+.md-reader table {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+
+.md-reader th,
+.md-reader td {
+  border: 1px solid var(--kb-border);
+  padding: 6px 12px;
+}
+
+.md-reader th {
+  background: var(--kb-bg-hover);
+  font-weight: 600;
+}

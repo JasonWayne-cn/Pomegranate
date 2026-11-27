@@ -29,6 +29,7 @@ import { ShortcutsPanel } from "@/components/ui/ShortcutsPanel";
 import { createBlankAndOpen } from "@/lib/noteCreator";
 import { UpdateBadge } from "@/components/ui/UpdateBadge";
 import { UpdateModal } from "@/components/ui/UpdateModal";
+import { ExternalOpenPrompt } from "@/components/ExternalOpenPrompt";
 import { ExitConfirmListener } from "@/components/ui/ExitConfirmListener";
 import { CloseRequestedListener } from "@/components/ui/CloseRequestedListener";
 import { useUpdater } from "@/components/updater/UpdaterProvider";
@@ -134,10 +135,13 @@ export function AppLayout() {
 
   const location = useLocation();
 
+  // 外部 md 打开方式选择弹窗（资源管理器双击 / 单实例转交）
+  const [externalOpenPath, setExternalOpenPath] = useState<string | null>(null);
+
   // 专注模式只属于「文档编辑页」：离开编辑器（返回列表 / 搜索 / 标签切到白板等）
   // 自动退出。否则 Header / 侧栏 / 标签栏全被隐藏，列表页变成一具没有出口的空壳。
-  // 排除 /notes/opening（外部 .md 打开页），它只是过渡页，不是编辑态。
-  const isNoteEditorRoute = /^\/notes\/(?!opening$)[^/]+$/.test(location.pathname);
+  // 排除 /notes/opening、/notes/browse（外部 .md 过渡页 / 只读浏览页），它们不是编辑态。
+  const isNoteEditorRoute = /^\/notes\/(?!opening$|browse$)[^/]+$/.test(location.pathname);
 
   useEffect(() => {
     if (focusModeRaw && !isNoteEditorRoute) setFocusMode(false);
@@ -238,8 +242,8 @@ export function AppLayout() {
     let unlisten: UnlistenFn | null = null;
 
     function openByPath(path: string) {
-      // shell-first：交给打开中页面异步导入，避免这里阻塞白屏
-      navigate(`/notes/opening?path=${encodeURIComponent(path)}`);
+      // 先询问「加入文档库 / 仅浏览」，由选择弹窗决定后续路由
+      setExternalOpenPath(path);
     }
 
     // 启动时拉一次
@@ -261,7 +265,7 @@ export function AppLayout() {
     return () => {
       unlisten?.();
     };
-    // 依赖只放 navigate，避免重复注册
+    // 只在挂载时注册一次监听；setState 稳定，无需其它依赖
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -653,6 +657,10 @@ export function AppLayout() {
           )}
         </>
       )}
+      <ExternalOpenPrompt
+        path={externalOpenPath}
+        onClose={() => setExternalOpenPath(null)}
+      />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

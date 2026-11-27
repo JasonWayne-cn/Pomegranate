@@ -1408,6 +1408,7 @@ pub fn run() {
             commands::import::scan_markdown_folder,
             commands::import::import_selected_files,
             commands::import::open_markdown_file,
+            commands::import::read_markdown_file_preview,
             commands::import::take_pending_open_md_path,
             // 外部目录挂载模块
             commands::mount::mount_add,
