@@ -52,14 +52,36 @@ pub fn plugin_acquire_token(
         }
     }
 
-    state.plugin_tokens.acquire(&plugin_id)
+    // 整目录完整性校验（含静态资源/样式/子文件）
+    if !plugin.package_hash.is_empty() {
+        crate::services::plugin_integrity::verify_dir(
+            std::path::Path::new(&plugin.path),
+            &plugin.package_hash,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // 令牌绑定当前启用代际：代际变化后旧令牌自动过期
+    let generation = state
+        .db
+        .get_activation_generation(&plugin_id)
+        .map_err(|e| e.to_string())?;
+    let (token, _session) = state
+        .plugin_tokens
+        .acquire(&plugin_id, generation)
+        .map_err(|e| e.to_string())?;
+    Ok(token)
 }
 
-/// 作废插件令牌
+/// 作废插件全部会话令牌
 #[tauri::command]
 pub fn plugin_revoke_token(
     state: State<'_, AppState>,
     plugin_id: String,
 ) -> Result<(), String> {
-    state.plugin_tokens.revoke(&plugin_id)
+    state
+        .plugin_tokens
+        .revoke_plugin(&plugin_id)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }

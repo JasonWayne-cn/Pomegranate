@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>文档生成 PPT · 流程界面效果</title>
+<style>
+  :root {
+    --primary: #1677ff;
+    --primary-weak: #e6f0ff;
+    --border: #e5e7eb;
+    --border-strong: #cbd5e1;
+    --text: #111827;
+    --muted: #6b7280;
+    --bg: #f3f5f8;
+    --card: #ffffff;
+    --success: #16a34a;
+    --success-weak: #ecfdf3;
+    --warning: #d97706;
+    --warning-weak: #fffbeb;
+    --purple: #7c3aed;
+    --shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 4px 14px rgba(15, 23, 42, .04);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1180px; margin: 0 auto; padding: 26px 22px 72px; }
+  h1, h2, h3, p { margin: 0; }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: .2px; }
+  .subtitle { color: var(--muted); margin-top: 6px; font-size: 13px; }
+
+  .topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .topbar .actions { display: flex; gap: 8px; flex: none; }
+
+  /* 步骤条 */
+  .stepnav {
+    position: sticky; top: 0; z-index: 20;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+    background: rgba(255,255,255,.92); backdrop-filter: blur(8px);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 18px; margin-bottom: 8px; box-shadow: var(--shadow);
+  }
+  .stepnav a {
+    display: flex; align-items: flex-start; gap: 10px; text-decoration: none; color: var(--muted);
+    padding: 4px 8px 4px 0; position: relative;
+  }
+  .stepnav a:not(:last-child)::after {
+    content: ""; position: absolute; right: 6px; top: 15px; width: calc(100% - 84px);
+    height: 1px; background: var(--border);
+  }
+  .stepnav .dot {
+    width: 30px; height: 30px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    background: #f1f5f9; color: #64748b; font-weight: 600; font-size: 13px;
+    border: 1px solid var(--border);
+  }
+  .stepnav a.active .dot { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .stepnav a.done .dot { background: var(--primary-weak); color: var(--primary); border-color: #bcd7ff; }
+  .stepnav b { display: block; font-size: 13px; color: #334155; font-weight: 600; }
+  .stepnav a.active b { color: var(--primary); }
+  .stepnav small { display: block; color: #94a3b8; font-size: 11.5px; margin-top: 2px; }
+  .hintline { color: #94a3b8; font-size: 12px; margin: 0 0 18px 4px; }
+
+  /* 通用组件 */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 18px; border-bottom: 1px solid #f1f5f9;
+  }
+  .card-head h3 { font-size: 15px; font-weight: 650; }
+  .card-body { padding: 16px 18px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .tiny { font-size: 11px; }
+  .stack { display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .grow { flex: 1; min-width: 0; }
+  .divider { height: 1px; background: #f1f5f9; margin: 4px 0; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 14px;
+    border: 1px solid var(--border-strong); border-radius: 8px; background: #fff;
+    color: #334155; font-size: 13px; font-family: inherit; cursor: default; white-space: nowrap;
+  }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 1px 2px rgba(22,119,255,.25); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--primary); padding: 0 8px; }
+  .btn.small { height: 26px; padding: 0 10px; font-size: 12px; border-radius: 7px; }
+  .btn.icon { width: 28px; padding: 0; justify-content: center; }
+  .btn.danger { color: #ef4444; }
+  .btn .ico { width: 14px; height: 14px; display: inline-block; }
+
+  .tag {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 5px;
+    font-size: 11.5px; border: 1px solid #e2e8f0; background: #f8fafc; color: #475569; white-space: nowrap;
+  }
+  .tag.blue { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+  .tag.green { background: #f0fdf4; border-color: #bbf7d0; color: #15803d; }
+  .tag.gold { background: #fffbeb; border-color: #fde68a; color: #b45309; }
+  .tag.purple { background: #f5f3ff; border-color: #ddd6fe; color: #6d28d9; }
+  .tag.red { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+
+  .alert {
+    display: flex; gap: 10px; padding: 11px 14px; border-radius: 9px; font-size: 12.5px;
+    border: 1px solid #bfdbfe; background: #eff6ff; color: #1e40af;
+  }
+  .alert.warn { border-color: #fde68a; background: var(--warning-weak); color: #92400e; }
+  .alert.ok { border-color: #bbf7d0; background: var(--success-weak); color: #166534; }
+  .alert .dot { width: 16px; height: 16px; border-radius: 50%; flex: none; border: 1.5px solid currentColor; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+  .alert b { display: block; font-weight: 600; margin-bottom: 1px; }
+
+  .field label { display: block; font-size: 13px; color: #334155; margin-bottom: 5px; font-weight: 500; }
+  .input {
+    height: 34px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff;
+    display: flex; align-items: center; padding: 0 11px; color: #64748b; font-size: 13px;
+  }
+  .input.text { color: #111827; }
+  .input.area { height: 74px; align-items: flex-start; padding-top: 9px; border-radius: 8px; }
+  .input .ph { color: #9ca3af; }
+  .input .caret { margin-left: auto; color: #94a3b8; font-size: 11px; }
+  .input-row { display: flex; }
+  .input-row .input { border-radius: 8px 0 0 8px; flex: 1; }
+  .input-row .btn { border-radius: 0 8px 8px 0; margin-left: -1px; height: 34px; }
+
+  /* 文档列表 */
+  .doclist { border: 1px solid #f1f5f9; border-radius: 9px; overflow: hidden; }
+  .docrow { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #f8fafc; }
+  .docrow:last-child { border-bottom: 0; }
+  .docrow:hover { background: #f8fbff; }
+  .docicon { width: 28px; height: 28px; border-radius: 7px; background: #eff6ff; color: var(--primary); display: flex; align-items: center; justify-content: center; flex: none; font-size: 14px; }
+  .docrow .title { font-size: 13px; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .docrow .meta { font-size: 11.5px; color: #94a3b8; margin-top: 1px; }
+  .docrow .plus { margin-left: auto; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--border); background: #fff; color: #64748b; display: flex; align-items: center; justify-content: center; font-size: 16px; flex: none; }
+  .selected-box { border: 1px solid #e2e8f0; border-radius: 9px; max-height: 132px; overflow: auto; }
+  .selected-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #f8fafc; font-size: 12.5px; }
+  .selected-row:last-child { border-bottom: 0; }
+  .selected-row .del { margin-left: auto; color: #ef4444; font-size: 12px; }
+
+  /* 预览页 */
+  .toolbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    border: 1px solid var(--border); border-radius: 9px; padding: 9px 12px; background: #fff;
+  }
+  .num { width: 64px; height: 32px; border: 1px solid var(--border-strong); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #334155; font-size: 13px; }
+  .preview-grid { display: grid; grid-template-columns: 262px minmax(0, 1fr); gap: 16px; }
+  .pagelist { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #fff; }
+  .pageitem { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #f8fafc; cursor: default; }
+  .pageitem:last-child { border-bottom: 0; }
+  .pageitem.active { background: #eff6ff; box-shadow: inset 3px 0 0 var(--primary); }
+  .pageitem .pno { width: 34px; flex: none; }
+  .pageitem .ptitle { font-size: 12.5px; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pageitem .pfile { font-size: 10.5px; color: #94a3b8; }
+  .pageitem .score { margin-left: auto; }
+  .slide-wrap { border: 1px solid var(--border); border-radius: 10px; background: #f8fafc; padding: 10px; display: flex; justify-content: center; }
+  .slide { width: 100%; max-width: 640px; height: auto; border-radius: 4px; box-shadow: 0 6px 20px rgba(15,23,42,.12); background: #fff; display: block; }
+  .candidates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .cand { border: 1px solid var(--border); border-radius: 8px; padding: 4px; background: #fff; }
+  .cand.active { border-color: var(--primary); box-shadow: 0 0 0 2px #dbeafe; }
+  .cand .mini { width: 100%; display: block; border-radius: 4px; }
+  .cand .cap { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; color: #64748b; margin-top: 4px; padding: 0 2px; }
+  .editcard { border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+  .editcard .card-head { padding: 11px 14px; }
+  .editcard .card-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; }
+
+  /* 模板卡 */
+  .layout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .layout-card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #fff; }
+  .layout-card.active { border-color: var(--primary); box-shadow: 0 0 0 3px #dbeafe; }
+  .layout-cover { height: 118px; display: flex; align-items: center; justify-content: center; }
+  .cover-a { background: linear-gradient(135deg,#0f3b73,#1d6fd1); }
+  .cover-b { background: linear-gradient(135deg,#1f2937,#4b5563); }
+  .cover-c { background: linear-gradient(135deg,#7c2d12,#ea580c); }
+  .cover-d { background: linear-gradient(135deg,#064e3b,#059669); }
+  .cover-e { background: linear-gradient(135deg,#1e3a8a,#6366f1); }
+  .cover-f { background: linear-gradient(135deg,#3f1d38,#a21caf); }
+  .cover-inner { width: 76%; }
+  .cover-inner .bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,.92); margin-bottom: 7px; }
+  .cover-inner .bar.sm { width: 56%; opacity: .7; height: 4px; }
+  .cover-inner .bar.xs { width: 34%; opacity: .45; height: 4px; }
+  .layout-info { padding: 10px 12px 12px; }
+  .layout-info .name { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; font-weight: 600; }
+  .layout-info .desc { color: #64748b; font-size: 11.5px; margin-top: 4px; }
+  .layout-info .support { color: #94a3b8; font-size: 10.5px; margin-top: 3px; }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; font-size: 12px; }
+  .chip .x { color: #60a5fa; font-size: 11px; }
+  .switch { width: 40px; height: 22px; border-radius: 11px; background: var(--primary); position: relative; flex: none; }
+  .switch::after { content: ""; position: absolute; width: 18px; height: 18px; border-radius: 50%; background: #fff; top: 2px; right: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .segmented { display: inline-flex; background: #f1f5f9; border-radius: 8px; padding: 3px; gap: 2px; }
+  .segmented span { padding: 5px 12px; border-radius: 6px; font-size: 12.5px; color: #475569; }
+  .segmented span.on { background: #fff; color: #0f172a; box-shadow: 0 1px 2px rgba(15,23,42,.12); font-weight: 600; }
+
+  /* 导出 */
+  .progress { height: 8px; border-radius: 99px; background: #eef2f7; overflow: hidden; }
+  .progress > i { display: block; height: 100%; width: 100%; border-radius: 99px; background: linear-gradient(90deg,#1677ff,#3b82f6); }
+  .pathbox { font-family: Consolas, "SFMono-Regular", monospace; font-size: 12px; color: #334155; background: #f8fafc; border: 1px solid #eef2f7; border-radius: 8px; padding: 9px 11px; word-break: break-all; }
+  .logs { font-family: Consolas, "SFMono-Regular", monospace; font-size: 11.5px; color: #475569; background: #f8fafc; border: 1px solid #eef2f7; border-radius: 8px; padding: 10px 12px; line-height: 1.7; max-height: 150px; overflow: auto; }
+  .logs .ok { color: #16a34a; }
+  .logs .dim { color: #94a3b8; }
+
+  .step-section { margin-top: 18px; scroll-margin-top: 92px; }
+  .section-label { display: inline-flex; align-items: center; gap: 8px; color: #94a3b8; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 8px 4px; }
+  .section-label::after { content: ""; width: 60px; height: 1px; background: #e2e8f0; }
+  .section-title { font-size: 16px; font-weight: 650; margin: 0 0 10px 4px; }
+
+  .kpi { display: flex; gap: 18px; color: #64748b; font-size: 11.5px; }
+  .kpi b { color: #334155; font-weight: 600; }
+
+  @media (max-width: 900px) {
+    .grid2, .preview-grid, .layout-grid { grid-template-columns: 1fr; }
+    .stepnav { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stepnav a::after { display: none; }
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f172a; --card: #111c33; --border: #1e2b45; --border-strong: #2b3b5c;
+      --text: #e5edf9; --muted: #94a3b8; --primary-weak: #10294d;
+    }
+    body { background: var(--bg); color: var(--text); }
+    .stepnav { background: rgba(17,28,51,.92); }
+    .stepnav b, .layout-info .name, .pageitem .ptitle, .docrow .title { color: #e2e8f0; }
+    .input, .num, .btn { background: #0d1830; color: #cbd5e1; }
+    .card-head { border-color: #1a2740; }
+    .slide-wrap, .logs, .pathbox { background: #0d1830; }
+    .doclist, .selected-box, .pagelist, .toolbar, .editcard { background: var(--card); }
+    .segmented { background: #0b1426; }
+    .segmented span.on { background: #1b2b4a; color: #e2e8f0; }
+    .cand { background: #0d1830; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="topbar">
+    <div>
+      <h1>文档生成 PPT</h1>
+      <p class="subtitle">选择文档后先程序化快速排版，立即查看文案效果；确认内容后再选择模板与效果，生成正式 PPT 并导出。</p>
+    </div>
+    <div class="actions">
+      <span class="btn">打开 Office 文档（实验）</span>
+      <span class="btn">历史作业</span>
+    </div>
+  </div>
+
+  <nav class="stepnav" id="stepnav">
+    <a href="#step1" class="step" data-target="step1">
+      <span class="dot">1</span>
+      <div><b>素材与文案</b><small>选择文档 / 填写标题</small></div>
+    </a>
+    <a href="#step2" class="step" data-target="step2">
+      <span class="dot">2</span>
+      <div><b>快速预览</b><small>程序化快速排版看文案</small></div>
+    </a>
+    <a href="#step3" class="step" data-target="step3">
+      <span class="dot">3</span>
+      <div><b>效果与模板</b><small>选模板与效果后正式生成</small></div>
+    </a>
+    <a href="#step4" class="step" data-target="step4">
+      <span class="dot">4</span>
+      <div><b>导出</b><small>导出可编辑 PPTX</small></div>
+    </a>
+  </nav>
+  <p class="hintline">点击步骤可跳转；效果稿为静态模拟，数据仅作示意。</p>
+
+  <!-- ============ STEP 1 ============ -->
+  <section class="step-section" id="step1">
+    <div class="section-label">Step 1</div>
+    <h2 class="section-title">素材与文案</h2>
+    <div class="grid2">
+      <div class="card">
+        <div class="card-head">
+          <h3>素材来源（已选 3 项）</h3>
+          <span class="small muted">文档约 12,480 字符 · 本地文件 1 个</span>
+        </div>
+        <div class="card-body stack">
+          <div class="row">
+            <div class="input grow"><span class="ph">🔍 搜索文档</span></div>
+            <span class="btn">＋ 添加本地文件</span>
+          </div>
+          <div class="doclist">
+            <div class="docrow">
+              <div class="docicon">📄</div>
+              <div class="grow">
+                <div class="title">2026 技术路线图与研发规划</div>
+                <div class="meta">研发 / 3,240 字 · 2026-11-20 14:20</div>
+              </div>
+              <span class="tag">研发</span>
+              <span class="plus">＋</span>
+            </div>
+            <div class="docrow">
+              <div class="docicon">📄</div>
+              <div class="grow">
+                <div class="title">行业趋势与竞品分析（第三季度）</div>
+                <div class="meta">市场 / 5,120 字 · 2026-11-18 09:05</div>
+              </div>
+              <span class="tag">市场</span>
+              <span class="plus">＋</span>
+            </div>
+            <div class="docrow">
+              <div class="docicon">📄</div>
+              <div class="grow">
+                <div class="title">产品交付复盘与改进措施</div>
+                <div class="meta">项目 / 2,860 字 · 2026-11-12 16:40</div>
+              </div>
+              <span class="tag">项目</span>
+              <span class="plus">＋</span>
+            </div>
+          </div>
+          <div class="selected-box">
+            <div class="selected-row"><span>📄</span><span>2026 技术路线图与研发规划</span><span class="tag blue">文档</span><span class="small muted">3,240 字</span><span class="del">删除</span></div>
+            <div class="selected-row"><span>📄</span><span>行业趋势与竞品分析（第三季度）</span><span class="tag blue">文档</span><span class="small muted">5,120 字</span><span class="del">删除</span></div>
+            <div class="selected-row"><span>📎</span><span>年度技术评审材料</span><span class="tag">PDF</span><span class="del">删除</span></div>
+          </div>
+          <div class="field">
+            <label>补充材料（可选，会追加到素材末尾）</label>
+            <div class="input area"><span class="ph">例如：本次汇报的重点、必须包含的案例或数据</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>生成设置</h3>
+          <div class="row">
+            <span class="btn">↺ 回到快速预览</span>
+            <span class="btn primary">✨ 生成文案并快速预览</span>
+          </div>
+        </div>
+        <div class="card-body stack">
+          <div class="field">
+            <label>PPT 标题</label>
+            <div class="input text">技术研究及发展趋势分析</div>
+            <div class="tiny muted" style="margin-top:4px">作为主题参与大纲规划，同时用于导出文件名</div>
+          </div>
+          <div class="field">
+            <label>汇报对象</label>
+            <div class="input text">公司技术评审委员会</div>
+            <div class="tiny muted" style="margin-top:4px">告诉 AI 讲给谁听，会影响内容深度与语气</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="field"><label>语言</label><div class="input">简体中文 <span class="caret">▾</span></div></div>
+            <div class="field"><label>AI 模型</label><div class="input">DeepSeek Chat <span class="caret">▾</span></div></div>
+          </div>
+          <div class="field">
+            <label>额外要求</label>
+            <div class="input area" style="height:60px"><span class="ph">例如：偏重工艺流程图、少用文字</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STEP 2 ============ -->
+  <section class="step-section" id="step2">
+    <div class="section-label">Step 2</div>
+    <h2 class="section-title">快速预览 · 程序化排版</h2>
+    <div class="card">
+      <div class="card-head">
+        <h3>快速预览 · 程序化排版（6 页）</h3>
+        <div class="row">
+          <span class="btn">返回素材</span>
+          <span class="btn">↺ 重新生成快速预览</span>
+          <span class="btn primary">✨ 下一步：选择效果与模板</span>
+        </div>
+      </div>
+      <div class="card-body stack">
+        <div class="alert">
+          <span class="dot">i</span>
+          <div><b>先看文案效果，再决定模板与样式</b>当前用 Rust 程序化排版快速生成页面，不调用 AI 逐页作画，几秒内即可检查每页文案与结构；确认文案后再选择模板生成正式 PPT。</div>
+        </div>
+        <div class="toolbar">
+          <span class="small" style="color:#334155">目标页数</span>
+          <span class="num">6</span>
+          <span class="tiny muted">留空由 AI 决定；修改页数后点击「重新生成大纲」</span>
+          <span class="btn">↺ 重新生成大纲</span>
+          <span class="grow"></span>
+          <span class="tag gold">文案已修改 · 预览为旧版本</span>
+        </div>
+
+        <div class="preview-grid">
+          <div class="pagelist">
+            <div class="pageitem active">
+              <span class="tag blue pno">P1</span>
+              <div class="grow"><div class="ptitle">封面：技术研究及发展趋势</div><div class="pfile">P01.svg</div></div>
+              <span class="tag green score">86</span>
+            </div>
+            <div class="pageitem">
+              <span class="tag blue pno">P2</span>
+              <div class="grow"><div class="ptitle">研究背景与目标</div><div class="pfile">P02.svg</div></div>
+              <span class="tag gold score">74</span>
+            </div>
+            <div class="pageitem">
+              <span class="tag blue pno">P3</span>
+              <div class="grow"><div class="ptitle">三条技术主线</div><div class="pfile">P03.svg</div></div>
+              <span class="tag green score">82</span>
+            </div>
+            <div class="pageitem">
+              <span class="tag blue pno">P4</span>
+              <div class="grow"><div class="ptitle">关键数据：研发投入趋势</div><div class="pfile">P04.svg</div></div>
+              <span class="tag gold score">71</span>
+            </div>
+            <div class="pageitem">
+              <span class="tag blue pno">P5</span>
+              <div class="grow"><div class="ptitle">风险与应对</div><div class="pfile">P05.svg</div></div>
+              <span class="tag green score">80</span>
+            </div>
+            <div class="pageitem">
+              <span class="tag blue pno">P6</span>
+              <div class="grow"><div class="ptitle">结论与下一步</div><div class="pfile">P06.svg</div></div>
+              <span class="tag gold score">76</span>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div class="slide-wrap">
+              <svg class="slide" viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="快速预览封面">
+                <defs>
+                  <linearGradient id="bg1" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#f1f5f9"/><stop offset="1" stop-color="#e2e8f0"/>
+                  </linearGradient>
+                </defs>
+                <rect width="640" height="360" fill="#ffffff"/>
+                <rect width="640" height="360" fill="url(#bg1)" opacity=".55"/>
+                <rect x="46" y="86" width="7" height="96" rx="3" fill="#1677ff"/>
+                <text x="68" y="120" font-family="Microsoft YaHei, sans-serif" font-size="32" font-weight="700" fill="#0f172a">技术研究及发展趋势分析</text>
+                <text x="68" y="152" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#64748b">2026 年度技术评审 · 研发中心</text>
+                <g opacity=".9">
+                  <rect x="68" y="196" width="150" height="44" rx="6" fill="#eff6ff" stroke="#bfdbfe"/>
+                  <text x="82" y="223" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#1d4ed8">三条技术主线</text>
+                  <rect x="230" y="196" width="150" height="44" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+                  <text x="244" y="223" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#475569">研发投入 +18%</text>
+                  <rect x="392" y="196" width="150" height="44" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+                  <text x="406" y="223" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#475569">交付周期 -12%</text>
+                </g>
+                <line x1="68" y1="300" x2="572" y2="300" stroke="#e2e8f0"/>
+                <text x="68" y="326" font-family="Microsoft YaHei, sans-serif" font-size="11" fill="#94a3b8">P1 · 程序化排版预览</text>
+                <text x="560" y="326" font-family="Microsoft YaHei, sans-serif" font-size="11" fill="#94a3b8">01 / 06</text>
+              </svg>
+            </div>
+
+            <div>
+              <div class="row between" style="margin-bottom:7px">
+                <span class="small" style="color:#334155;font-weight:600">结构候选</span>
+                <span class="tiny muted">得分接近时按语义选择</span>
+              </div>
+              <div class="candidates">
+                <div class="cand active">
+                  <svg class="mini" viewBox="0 0 160 90"><rect width="160" height="90" fill="#f8fafc"/><rect x="14" y="16" width="5" height="26" fill="#1677ff"/><rect x="26" y="18" width="90" height="7" rx="2" fill="#334155"/><rect x="26" y="30" width="58" height="5" rx="2" fill="#cbd5e1"/><rect x="14" y="52" width="38" height="20" rx="3" fill="#eff6ff"/><rect x="60" y="52" width="38" height="20" rx="3" fill="#f1f5f9"/><rect x="106" y="52" width="38" height="20" rx="3" fill="#f1f5f9"/></svg>
+                  <div class="cap"><span>左侧强调</span><span class="tag green">86</span></div>
+                </div>
+                <div class="cand">
+                  <svg class="mini" viewBox="0 0 160 90"><rect width="160" height="90" fill="#f8fafc"/><rect x="14" y="14" width="132" height="24" rx="3" fill="#0f3b73"/><rect x="22" y="22" width="86" height="7" rx="2" fill="#ffffff"/><rect x="14" y="48" width="62" height="26" rx="3" fill="#e2e8f0"/><rect x="84" y="48" width="62" height="26" rx="3" fill="#e2e8f0"/></svg>
+                  <div class="cap"><span>顶部横幅</span><span class="tag gold">79</span></div>
+                </div>
+                <div class="cand">
+                  <svg class="mini" viewBox="0 0 160 90"><rect width="160" height="90" fill="#f8fafc"/><rect x="50" y="18" width="60" height="8" rx="2" fill="#334155"/><rect x="42" y="33" width="76" height="5" rx="2" fill="#cbd5e1"/><rect x="30" y="50" width="100" height="22" rx="3" fill="#eff6ff"/></svg>
+                  <div class="cap"><span>居中主张</span><span class="tag gold">75</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="editcard">
+              <div class="card-head">
+                <h3>编辑 P1</h3>
+                <div class="row">
+                  <span class="btn small icon">＋</span>
+                  <span class="btn small icon">↺</span>
+                  <span class="btn small icon">↑</span>
+                  <span class="btn small icon">↓</span>
+                  <span class="btn small icon danger">🗑</span>
+                </div>
+              </div>
+              <div class="card-body">
+                <div class="input text">技术研究及发展趋势分析</div>
+                <div class="input area" style="height:44px"><span style="color:#334155">2026 年度技术评审 · 研发中心</span></div>
+                <div class="input area" style="height:92px;color:#334155">三条技术主线：平台化、智能化、工程化<br>研发投入同比增长 18%<br>重点交付周期缩短 12%</div>
+                <div class="row between">
+                  <span class="tag purple">图表：line · 4 类</span>
+                  <span class="tiny muted">修改后点击「重新生成快速预览」刷新</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STEP 3 ============ -->
+  <section class="step-section" id="step3">
+    <div class="section-label">Step 3</div>
+    <h2 class="section-title">效果与模板 · 正式生成</h2>
+    <div class="stack">
+      <div class="card">
+        <div class="card-head">
+          <h3>效果与模板 · 中文商务蓝</h3>
+          <div class="row">
+            <span class="btn">返回快速预览</span>
+            <span class="btn primary">✨ 生成正式 PPT</span>
+            <span class="btn">⬇ 进入导出</span>
+          </div>
+        </div>
+        <div class="card-body stack">
+          <div class="alert">
+            <span class="dot">i</span>
+            <div><b>选择模板与效果，生成正式 PPT</b>文案已在快速预览中确认。选择版式模板、图表与生成方式后点击「生成正式 PPT」，会按所选效果重新渲染页面，再进入导出。</div>
+          </div>
+
+          <div class="layout-grid">
+            <div class="layout-card active">
+              <div class="layout-cover cover-a"><div class="cover-inner"><div class="bar" style="width:72%"></div><div class="bar sm"></div><div class="bar xs"></div></div></div>
+              <div class="layout-info">
+                <div class="name"><span>中文商务蓝</span><span class="tag blue">已选</span></div>
+                <div class="desc">正式汇报 / 技术评审，稳重清晰</div>
+                <div class="support">结构化占位符 12 页 · {{}} 4 页</div>
+              </div>
+            </div>
+            <div class="layout-card">
+              <div class="layout-cover cover-b"><div class="cover-inner"><div class="bar" style="width:64%"></div><div class="bar sm"></div><div class="bar xs"></div></div></div>
+              <div class="layout-info">
+                <div class="name"><span>深色科技对比</span></div>
+                <div class="desc">技术方案对比 / 产品发布</div>
+                <div class="support">结构化占位符 10 页</div>
+              </div>
+            </div>
+            <div class="layout-card">
+              <div class="layout-cover cover-c"><div class="cover-inner"><div class="bar" style="width:70%"></div><div class="bar sm"></div><div class="bar xs"></div></div></div>
+              <div class="layout-info">
+                <div class="name"><span>东方经典研究</span></div>
+                <div class="desc">研究报告 / 学术汇报</div>
+                <div class="support">结构化占位符 9 页 · {{}} 6 页</div>
+              </div>
+            </div>
+            <div class="layout-card">
+              <div class="layout-cover cover-d"><div class="cover-inner"><div class="bar" style="width:60%"></div><div class="bar sm"></div><div class="bar xs"></div></div></div>
+              <div class="layout-info">
+                <div class="name"><span>航空培训蓝</span><span class="tag green">用户</span></div>
+                <div class="desc">培训课件 / 流程讲解</div>
+                <div class="support">结构化占位符 8 页</div>
+              </div>
+            </div>
+            <div class="layout-card">
+              <div class="layout-cover cover-e"><div class="cover-inner"><div class="bar" style="width:68%"></div><div class="bar sm"></div><div class="bar xs"></div></div></div>
+              <div class="layout-info">
+                <div class="name"><span>高端策略深色</span></div>
+                <div class="desc">战略规划 / 高层汇报</div>
+                <div class="support">结构化占位符 11 页</div>
+              </div>
+            </div>
+            <div class="layout-card">
+              <div class="layout-cover cover-f"><div class="cover-inner"><div class="bar" style="width:58%"></div><div class="bar sm"></div><div class="bar xs"></div></div></div>
+              <div class="layout-info">
+                <div class="name"><span>洞察解释器</span></div>
+                <div class="desc">观点表达 / 知识科普</div>
+                <div class="support">结构化占位符 7 页 · {{}} 3 页</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>图表模板（可选）</label>
+            <div class="chips">
+              <span class="chip">折线图 · 趋势变化 <span class="x">✕</span></span>
+              <span class="chip">柱状图 · 分类对比 <span class="x">✕</span></span>
+              <span class="chip">环形图 · 结构占比 <span class="x">✕</span></span>
+            </div>
+          </div>
+
+          <div class="row between" style="border:1px solid var(--border);border-radius:9px;padding:10px 12px">
+            <div>
+              <div style="font-size:13px;color:#334155">原生 PowerPoint 图表</div>
+              <div class="tiny muted">开启后优先用 python-pptx 生成可编辑图表；图表页可能不沿用版式模板</div>
+            </div>
+            <span class="switch"></span>
+          </div>
+
+          <div class="row">
+            <span class="small" style="color:#334155;font-weight:600">生成方式</span>
+            <div class="segmented">
+              <span class="on">一次性生成</span><span>多次生成</span><span>程序化应用模板</span>
+            </div>
+            <span class="tiny muted">每页 1 次 AI 连续生成，速度与质量平衡</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>正式草稿预览</h3><span class="tag green">正式版已生成</span></div>
+        <div class="card-body">
+          <div class="preview-grid">
+            <div class="pagelist">
+              <div class="pageitem active"><span class="tag blue pno">P1</span><div class="grow"><div class="ptitle">封面：技术研究及发展趋势</div><div class="pfile">P01.svg</div></div><span class="tag green score">92</span></div>
+              <div class="pageitem"><span class="tag blue pno">P2</span><div class="grow"><div class="ptitle">研究背景与目标</div><div class="pfile">P02.svg</div></div><span class="tag green score">88</span></div>
+              <div class="pageitem"><span class="tag blue pno">P3</span><div class="grow"><div class="ptitle">三条技术主线</div><div class="pfile">P03.svg</div></div><span class="tag green score">90</span></div>
+              <div class="pageitem"><span class="tag blue pno">P4</span><div class="grow"><div class="ptitle">关键数据：研发投入趋势</div><div class="pfile">P04.svg</div></div><span class="tag gold score">84</span></div>
+              <div class="pageitem"><span class="tag blue pno">P5</span><div class="grow"><div class="ptitle">风险与应对</div><div class="pfile">P05.svg</div></div><span class="tag green score">87</span></div>
+              <div class="pageitem"><span class="tag blue pno">P6</span><div class="grow"><div class="ptitle">结论与下一步</div><div class="pfile">P06.svg</div></div><span class="tag green score">89</span></div>
+            </div>
+            <div class="stack">
+              <div class="slide-wrap">
+                <svg class="slide" viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="正式草稿封面">
+                  <defs>
+                    <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0" stop-color="#0f3b73"/><stop offset="1" stop-color="#1d6fd1"/>
+                    </linearGradient>
+                  </defs>
+                  <rect width="640" height="360" fill="url(#bg2)"/>
+                  <circle cx="560" cy="64" r="120" fill="#ffffff" opacity=".05"/>
+                  <circle cx="610" cy="300" r="90" fill="#ffffff" opacity=".04"/>
+                  <rect x="52" y="88" width="5" height="88" rx="2.5" fill="#7cc4ff"/>
+                  <text x="72" y="122" font-family="Microsoft YaHei, sans-serif" font-size="34" font-weight="700" fill="#ffffff">技术研究及发展趋势分析</text>
+                  <text x="72" y="156" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#c7def8">2026 年度技术评审 · 研发中心</text>
+                  <rect x="72" y="200" width="128" height="34" rx="4" fill="#ffffff" opacity=".12"/>
+                  <text x="86" y="222" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#e8f3ff">平台化 · 智能化 · 工程化</text>
+                  <text x="72" y="312" font-family="Microsoft YaHei, sans-serif" font-size="11" fill="#9fc3ea">P1 · 正式版（模板：中文商务蓝）</text>
+                  <text x="560" y="312" font-family="Microsoft YaHei, sans-serif" font-size="11" fill="#9fc3ea">01 / 06</text>
+                </svg>
+              </div>
+              <div class="row between">
+                <span class="tag green">质量分 92 · 候选 1/3</span>
+                <span class="btn small">✨ 按提示词重新生成此页</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ STEP 4 ============ -->
+  <section class="step-section" id="step4">
+    <div class="section-label">Step 4</div>
+    <h2 class="section-title">导出 PPTX</h2>
+    <div class="card">
+      <div class="card-head">
+        <h3>导出 PPTX</h3>
+        <div class="row">
+          <span class="btn">返回效果与模板</span>
+          <span class="btn">返回素材</span>
+          <span class="btn">修改文案</span>
+          <span class="btn primary">✨ 重新导出</span>
+        </div>
+      </div>
+      <div class="card-body stack">
+        <div class="progress"><i></i></div>
+        <div class="alert ok">
+          <span class="dot">✓</span>
+          <div style="flex:1">
+            <b>导出完成</b>
+            D:\AI\W-Pomegranate\ppt-workspace\job-20261127\output\技术研究及发展趋势分析.pptx
+          </div>
+          <div class="row" style="flex:none">
+            <span class="btn small">打开 PPT</span>
+            <span class="btn small">打开工程目录</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>导出目录</label>
+          <div class="input-row">
+            <div class="input text">D:\AI\W-Pomegranate\ppt-workspace\job-20261127\output</div>
+            <span class="btn">📂 选择</span>
+          </div>
+        </div>
+        <div class="pathbox">工程目录：D:\AI\W-Pomegranate\ppt-workspace\job-20261127\project</div>
+        <div class="logs">
+          <div class="dim">[14:02:11] 开始导出 PPTX（模板：中文商务蓝）</div>
+          <div class="dim">[14:02:12] 复制版式资源到工程目录…</div>
+          <div class="dim">[14:02:13] 原生图表：3 个（折线 / 柱状 / 环形）</div>
+          <div class="ok">[14:02:15] 导出完成：output/技术研究及发展趋势分析.pptx</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  // 滚动时高亮当前步骤
+  const steps = Array.from(document.querySelectorAll('.stepnav .step'));
+  const sections = steps.map((s) => document.getElementById(s.dataset.target));
+  const setActive = (id) => {
+    steps.forEach((s) => {
+      const active = s.dataset.target === id;
+      s.classList.toggle('active', active);
+      const index = steps.indexOf(s);
+      const current = steps.findIndex((x) => x.dataset.target === id);
+      s.classList.toggle('done', index < current);
+    });
+  };
+  const observer = new IntersectionObserver(
+    (entries) => {
+      const visible = entries
+        .filter((e) => e.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+      if (visible[0]) setActive(visible[0].target.id);
+    },
+    { rootMargin: '-40% 0px -50% 0px', threshold: [0, 0.2, 0.6] }
+  );
+  sections.forEach((el) => el && observer.observe(el));
+  setActive('step1');
+</script>
+</body>
+</html>

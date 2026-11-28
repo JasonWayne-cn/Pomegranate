@@ -28,12 +28,15 @@ export function updatePlanSlide(
   };
 }
 
-/** 在末尾追加一页。 */
-export function addPlanSlide(plan: PptPlan): PptPlan {
-  return {
-    ...plan,
-    slides: renumber([...plan.slides, blankSlide(plan.slides.length)]),
-  };
+/** 新增一页；传入 afterIndex 时插入到该页之后，否则追加到末尾。 */
+export function addPlanSlide(plan: PptPlan, afterIndex?: number): PptPlan {
+  const slides = [...plan.slides];
+  const at =
+    afterIndex == null
+      ? slides.length
+      : Math.min(Math.max(afterIndex + 1, 0), slides.length);
+  slides.splice(at, 0, blankSlide(at));
+  return { ...plan, slides: renumber(slides) };
 }
 
 /** 删除一页并重新编号。 */

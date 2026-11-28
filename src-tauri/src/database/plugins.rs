@@ -9,10 +9,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::Database;
 use crate::error::AppError;
-use crate::models::{PluginInfo, PluginManifest};
+use crate::models::{PluginInfo, PluginManifest, PluginQuarantineEntry};
 
 const SELECT_COLUMNS: &str = "id, name, version, description, author, path, main, styles, \
-     min_app_version, manifest_json, enabled, status, installed_at, updated_at";
+     min_app_version, manifest_json, enabled, status, installed_at, updated_at, content_hash, \
+     install_source, package_hash, approved_hash";
 
 fn list_plugin_permissions(
     conn: &Connection,
@@ -60,9 +61,11 @@ fn row_to_plugin(conn: &Connection, row: &rusqlite::Row<'_>) -> Result<PluginInf
         granted_permissions,
         manifest,
         installed_at: row.get(12)?,
-
         updated_at: row.get(13)?,
-	    content_hash: row.get(14).unwrap_or_default(),
+        content_hash: row.get(14).unwrap_or_default(),
+        install_source: row.get(15).unwrap_or_else(|_| "local-dir".to_string()),
+        package_hash: row.get(16).unwrap_or_default(),
+        approved_hash: row.get(17).unwrap_or_default(),
     })
 }
 
@@ -98,6 +101,8 @@ impl Database {
         manifest: &PluginManifest,
         plugin_path: &str,
         content_hash: &str,
+        install_source: &str,
+        package_hash: &str,
     ) -> Result<PluginInfo, AppError> {
         let manifest_json = serde_json::to_string(manifest)?;
         let conn = self.conn_lock()?;
@@ -105,9 +110,10 @@ impl Database {
             "INSERT INTO plugins
                 (id, name, version, description, author, path, main, styles,
                  min_app_version, manifest_json, enabled, status,
-                 content_hash, installed_at, updated_at)
+                 content_hash, install_source, package_hash, approved_hash,
+                 installed_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 'installed',
-                     ?11, datetime('now','localtime'), datetime('now','localtime'))
+                     ?11, ?12, ?13, ?13, datetime('now','localtime'), datetime('now','localtime'))
              ON CONFLICT(id) DO UPDATE SET
                  name = excluded.name,
                  version = excluded.version,
@@ -119,6 +125,9 @@ impl Database {
                  min_app_version = excluded.min_app_version,
                  manifest_json = excluded.manifest_json,
                  content_hash = excluded.content_hash,
+                 install_source = excluded.install_source,
+                 package_hash = excluded.package_hash,
+                 approved_hash = excluded.approved_hash,
                  status = 'installed',
                  updated_at = excluded.updated_at",
             params![
@@ -133,6 +142,8 @@ impl Database {
                 manifest.min_app_version,
                 manifest_json,
                 content_hash,
+                install_source,
+                package_hash,
             ],
         )?;
 
@@ -159,6 +170,27 @@ impl Database {
                 conn.execute(
                     "DELETE FROM plugin_permissions WHERE plugin_id = ?1 AND permission = ?2",
                     params![manifest.id, permission],
+                )?;
+            }
+        }
+
+        // 授权事实随清单同步：不再声明的能力删除；仍在声明的能力绑定到新版本。
+        // 版本升级新增的能力不会自动获得授权，需用户显式授权后才能调用。
+        let authorized = conn
+            .prepare("SELECT capability FROM plugin_authorizations WHERE plugin_id = ?1")?
+            .query_map([manifest.id.as_str()], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        for capability in authorized {
+            if requested.contains(&capability) {
+                conn.execute(
+                    "UPDATE plugin_authorizations SET version = ?2
+                     WHERE plugin_id = ?1 AND capability = ?3",
+                    params![manifest.id, manifest.version, capability],
+                )?;
+            } else {
+                conn.execute(
+                    "DELETE FROM plugin_authorizations WHERE plugin_id = ?1 AND capability = ?2",
+                    params![manifest.id, capability],
                 )?;
             }
         }
@@ -396,6 +428,221 @@ impl Database {
             |row| row.get(0),
         ).optional()?)
     }
+
+    // ─── 运行代际（A1/A2） ──────────────────────
+
+    /// 读取当前启用代际；从未启用过的插件返回 0。
+    pub fn get_activation_generation(&self, plugin_id: &str) -> Result<i64, AppError> {
+        let conn = self.conn_lock()?;
+        let generation: Option<i64> = conn
+            .query_row(
+                "SELECT generation FROM plugin_activation_generations WHERE plugin_id = ?1",
+                [plugin_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(generation.unwrap_or(0))
+    }
+
+    /// 启用时递增代际并清空停用时间；返回新代际。
+    pub fn bump_activation_generation(&self, plugin_id: &str) -> Result<i64, AppError> {
+        let conn = self.conn_lock()?;
+        let tx = conn.unchecked_transaction()?;
+        let exists: Option<i32> = tx
+            .query_row("SELECT 1 FROM plugins WHERE id = ?1", [plugin_id], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        if exists.is_none() {
+            return Err(AppError::NotFound(format!("插件 {} 不存在", plugin_id)));
+        }
+        tx.execute(
+            "INSERT INTO plugin_activation_generations (plugin_id, generation, activated_at)
+             VALUES (?1, 1, datetime('now','localtime'))
+             ON CONFLICT(plugin_id) DO UPDATE SET
+                 generation = generation + 1,
+                 activated_at = datetime('now','localtime'),
+                 deactivated_at = NULL",
+            [plugin_id],
+        )?;
+        let generation: i64 = tx.query_row(
+            "SELECT generation FROM plugin_activation_generations WHERE plugin_id = ?1",
+            [plugin_id],
+            |row| row.get(0),
+        )?;
+        tx.commit()?;
+        Ok(generation)
+    }
+
+    /// 记录停用时间；插件从未启用过时插入一条 generation=0 的记录。
+    pub fn mark_plugin_deactivated(&self, plugin_id: &str) -> Result<(), AppError> {
+        let conn = self.conn_lock()?;
+        conn.execute(
+            "INSERT INTO plugin_activation_generations (plugin_id, generation, deactivated_at)
+             VALUES (?1, 0, datetime('now','localtime'))
+             ON CONFLICT(plugin_id) DO UPDATE SET
+                 deactivated_at = datetime('now','localtime')",
+            [plugin_id],
+        )?;
+        Ok(())
+    }
+
+    /// 读取代际与启停时间，供状态查询。
+    pub fn get_activation_state(
+        &self,
+        plugin_id: &str,
+    ) -> Result<(i64, Option<String>, Option<String>), AppError> {
+        let conn = self.conn_lock()?;
+        let row: Option<(i64, Option<String>, Option<String>)> = conn
+            .query_row(
+                "SELECT generation, activated_at, deactivated_at
+                 FROM plugin_activation_generations WHERE plugin_id = ?1",
+                [plugin_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        Ok(row.unwrap_or((0, None, None)))
+    }
+
+    // ─── 授权事实（C1/C2） ──────────────────────
+
+    /// 授权能力：写入授权事实，绑定当前插件版本。
+    pub fn grant_plugin_authorizations(
+        &self,
+        plugin_id: &str,
+        version: &str,
+        capabilities: &[String],
+    ) -> Result<usize, AppError> {
+        let conn = self.conn_lock()?;
+        let mut affected = 0;
+        for capability in capabilities {
+            affected += conn.execute(
+                "INSERT INTO plugin_authorizations (plugin_id, version, capability, scope)
+                 VALUES (?1, ?2, ?3, '*')
+                 ON CONFLICT(plugin_id, capability) DO UPDATE SET
+                     version = excluded.version,
+                     granted_at = datetime('now','localtime')",
+                params![plugin_id, version, capability],
+            )?;
+        }
+        Ok(affected)
+    }
+
+    /// 撤销能力授权。
+    pub fn revoke_plugin_authorizations(
+        &self,
+        plugin_id: &str,
+        capabilities: &[String],
+    ) -> Result<usize, AppError> {
+        let conn = self.conn_lock()?;
+        let mut affected = 0;
+        for capability in capabilities {
+            affected += conn.execute(
+                "DELETE FROM plugin_authorizations WHERE plugin_id = ?1 AND capability = ?2",
+                params![plugin_id, capability],
+            )?;
+        }
+        Ok(affected)
+    }
+
+    /// 授权事实校验：能力已授权且授权版本与当前安装版本一致。
+    pub fn has_plugin_authorization(
+        &self,
+        plugin_id: &str,
+        capability: &str,
+    ) -> Result<bool, AppError> {
+        let conn = self.conn_lock()?;
+        let found: Option<i32> = conn
+            .query_row(
+                "SELECT 1 FROM plugin_authorizations a
+                 JOIN plugins p ON p.id = a.plugin_id
+                 WHERE a.plugin_id = ?1 AND a.capability = ?2 AND a.version = p.version
+                 LIMIT 1",
+                params![plugin_id, capability],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(found.is_some())
+    }
+
+    // ─── 卸载隔离区（C4） ──────────────────────
+
+    /// 记录一条隔离条目，返回条目 ID。
+    pub fn insert_quarantine(
+        &self,
+        plugin_id: &str,
+        version: &str,
+        original_path: &str,
+        quarantine_path: &str,
+        package_hash: &str,
+    ) -> Result<i64, AppError> {
+        let conn = self.conn_lock()?;
+        conn.execute(
+            "INSERT INTO plugin_uninstall_quarantine
+                (plugin_id, version, original_path, quarantine_path, package_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![plugin_id, version, original_path, quarantine_path, package_hash],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// 查询某插件最近一条未恢复的隔离条目。
+    pub fn latest_unrestored_quarantine(
+        &self,
+        plugin_id: &str,
+    ) -> Result<Option<PluginQuarantineEntry>, AppError> {
+        let conn = self.conn_lock()?;
+        let entry = conn
+            .query_row(
+                "SELECT id, plugin_id, version, quarantine_path, package_hash,
+                        quarantined_at, restored_at
+                 FROM plugin_uninstall_quarantine
+                 WHERE plugin_id = ?1 AND restored_at IS NULL
+                 ORDER BY id DESC LIMIT 1",
+                [plugin_id],
+                row_to_quarantine,
+            )
+            .optional()?;
+        Ok(entry)
+    }
+
+    /// 列出全部隔离条目（最近在前）。
+    pub fn list_quarantines(&self) -> Result<Vec<PluginQuarantineEntry>, AppError> {
+        let conn = self.conn_lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, plugin_id, version, quarantine_path, package_hash,
+                    quarantined_at, restored_at
+             FROM plugin_uninstall_quarantine
+             ORDER BY id DESC",
+        )?;
+        let rows = stmt
+            .query_map([], row_to_quarantine)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// 标记隔离条目已恢复。
+    pub fn mark_quarantine_restored(&self, id: i64) -> Result<(), AppError> {
+        let conn = self.conn_lock()?;
+        conn.execute(
+            "UPDATE plugin_uninstall_quarantine
+             SET restored_at = datetime('now','localtime') WHERE id = ?1",
+            [id],
+        )?;
+        Ok(())
+    }
+}
+
+fn row_to_quarantine(row: &rusqlite::Row<'_>) -> rusqlite::Result<PluginQuarantineEntry> {
+    Ok(PluginQuarantineEntry {
+        id: row.get(0)?,
+        plugin_id: row.get(1)?,
+        version: row.get(2)?,
+        quarantine_path: row.get(3)?,
+        package_hash: row.get(4)?,
+        quarantined_at: row.get(5)?,
+        restored_at: row.get(6)?,
+    })
 }
 
 #[cfg(test)]

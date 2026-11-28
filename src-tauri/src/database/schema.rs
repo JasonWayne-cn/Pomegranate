@@ -3,7 +3,7 @@ use rusqlite::Connection;
 use crate::error::AppError;
 
 /// 当前 Schema 版本
-pub const SCHEMA_VERSION: i32 = 95;
+pub const SCHEMA_VERSION: i32 = 96;
 
 /// v51 之前的 ai_models.max_context 默认值；KB v51 起抬到 128000。
 pub const LEGACY_DEFAULT_MAX_CONTEXT: i64 = 128_000;
@@ -132,6 +132,7 @@ pub fn migrate(conn: &Connection) -> Result<(), AppError> {
             92 => migrate_v92_to_v93(conn)?,
             93 => migrate_v93_to_v94(conn)?,
             94 => migrate_v94_to_v95(conn)?,
+            95 => migrate_v95_to_v96(conn)?,
             _ => {
                 return Err(AppError::Custom(format!("未知的数据库版本: {}", version)));
             }
@@ -3507,6 +3508,69 @@ fn migrate_v94_to_v95(conn: &Connection) -> Result<(), AppError> {
     }
 
     set_version(conn, 95)?;
+    Ok(())
+}
+
+/// v95 -> v96：插件运行时生命周期、授权事实、卸载隔离。
+///
+/// - `plugins` 增加来源与完整性列：`install_source` / `package_hash` / `approved_hash`
+///   （`content_hash` 仍保留入口文件哈希，向后兼容）
+/// - `plugin_activation_generations`：每次启用递增代际，旧会话全部失效
+/// - `plugin_authorizations`：授权事实绑定「安装 + 版本 + 能力 + 作用域」
+/// - `plugin_uninstall_quarantine`：卸载先隔离再删除，支持恢复
+fn migrate_v95_to_v96(conn: &Connection) -> Result<(), AppError> {
+    log::info!("数据库迁移: v95 -> v96 (插件生命周期/授权事实/卸载隔离)");
+
+    conn.execute_batch(
+        "-- plugins 来源与完整性
+         ALTER TABLE plugins ADD COLUMN install_source TEXT NOT NULL DEFAULT 'local-dir';
+         ALTER TABLE plugins ADD COLUMN package_hash TEXT NOT NULL DEFAULT '';
+         ALTER TABLE plugins ADD COLUMN approved_hash TEXT NOT NULL DEFAULT '';
+
+         -- 运行代际：启用时 +1，旧代际令牌一律失效
+         CREATE TABLE IF NOT EXISTS plugin_activation_generations (
+             plugin_id    TEXT PRIMARY KEY REFERENCES plugins(id) ON DELETE CASCADE,
+             generation   INTEGER NOT NULL DEFAULT 0,
+             activated_at TEXT,
+             deactivated_at TEXT
+         );
+
+         -- 授权事实：能力 + 版本 + 作用域；升级时新增能力默认无授权
+         CREATE TABLE IF NOT EXISTS plugin_authorizations (
+             id          INTEGER PRIMARY KEY AUTOINCREMENT,
+             plugin_id   TEXT NOT NULL REFERENCES plugins(id) ON DELETE CASCADE,
+             version     TEXT NOT NULL,
+             capability  TEXT NOT NULL,
+             scope       TEXT NOT NULL DEFAULT '*',
+             granted_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+             UNIQUE(plugin_id, capability)
+         );
+         CREATE INDEX IF NOT EXISTS idx_plugin_authorizations_plugin
+             ON plugin_authorizations(plugin_id);
+
+         -- 卸载隔离区：先移动到隔离目录，再删数据库记录；可恢复
+         CREATE TABLE IF NOT EXISTS plugin_uninstall_quarantine (
+             id              INTEGER PRIMARY KEY AUTOINCREMENT,
+             plugin_id       TEXT NOT NULL,
+             version         TEXT NOT NULL,
+             original_path   TEXT NOT NULL,
+             quarantine_path TEXT NOT NULL,
+             package_hash    TEXT NOT NULL DEFAULT '',
+             quarantined_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+             restored_at     TEXT
+         );
+         CREATE INDEX IF NOT EXISTS idx_plugin_quarantine_plugin
+             ON plugin_uninstall_quarantine(plugin_id, restored_at);
+
+         -- 已有授权回填为授权事实（版本取当前安装版本），避免升级后全部失效
+         INSERT OR IGNORE INTO plugin_authorizations (plugin_id, version, capability, scope)
+         SELECT pp.plugin_id, p.version, pp.permission, '*'
+         FROM plugin_permissions pp
+         JOIN plugins p ON p.id = pp.plugin_id
+         WHERE pp.granted = 1;",
+    )?;
+
+    set_version(conn, 96)?;
     Ok(())
 }
 

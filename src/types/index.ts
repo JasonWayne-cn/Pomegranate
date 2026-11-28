@@ -52,6 +52,52 @@ export interface PluginInfo {
   manifest: PluginManifest;
   installedAt: string;
   updatedAt: string;
+  /** 入口文件 SHA-256（向后兼容） */
+  contentHash: string;
+  /** 安装来源：local-dir / local-zip / bundled / scan / restore / rollback */
+  installSource: string;
+  /** 整目录哈希（pom-dir-sha256-v1） */
+  packageHash: string;
+  /** 安装/审核时锁定的哈希 */
+  approvedHash: string;
+}
+
+/** 插件运行状态（代际 + 活跃会话） */
+export interface PluginActivationState {
+  pluginId: string;
+  generation: number;
+  enabled: boolean;
+  activeSessions: number;
+  activatedAt: string | null;
+  deactivatedAt: string | null;
+}
+
+/** 插件版本记录（当前 + 已归档） */
+export interface PluginVersionEntry {
+  version: string;
+  isCurrent: boolean;
+  archived: boolean;
+}
+
+/** 卸载隔离区条目（可恢复） */
+export interface PluginQuarantineEntry {
+  id: number;
+  pluginId: string;
+  version: string;
+  quarantinePath: string;
+  packageHash: string;
+  quarantinedAt: string;
+  restoredAt: string | null;
+}
+
+/** 安装包类型（由 zip 清单自动识别） */
+export type PackageKind = "plugin" | "extension";
+
+/** 插件 zip 预检结果（安装前展示） */
+export interface PluginInspection {
+  manifest: PluginManifest;
+  fileCount: number;
+  uncompressedBytes: number;
 }
 
 /** 插件审计日志（T25） */
@@ -1905,6 +1951,23 @@ export interface DailyWritingStat {
   date: string;
   note_count: number;
   word_count: number;
+}
+
+/** 某天编辑过的一篇笔记（首页热力图点开当天时列出） */
+export interface DayNoteItem {
+  id: number;
+  title: string;
+  word_count: number;
+  is_daily: boolean;
+  note_type: NoteType;
+  updated_at: string;
+}
+
+/** 某天编辑过的笔记 */
+export interface NotesOnDay {
+  notes: DayNoteItem[];
+  /** 隐藏笔记只报数量 */
+  hidden_count: number;
 }
 
 // ─── 文档模板 ─────────────────────────────────

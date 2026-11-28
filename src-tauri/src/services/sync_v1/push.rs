@@ -754,6 +754,7 @@ mod tests {
             is_hidden: false,
             tags: None,
             note_type: None,
+            created_at: None,
         }
     }
 

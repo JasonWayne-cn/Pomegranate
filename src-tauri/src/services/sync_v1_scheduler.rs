@@ -226,6 +226,8 @@ pub(crate) fn run_pull_blocking(
         app, // AppHandle 自身实现 Emitter
     );
 
+    // 拉下来的任务可能改了截止 / 提前量：唤醒提醒调度重算下次时刻
+    state.reminder_notify.notify_one();
     // 成败都要看：地址是连上之后才记下的，哪怕后面同步出错，新地址本身是对的
     remember_discovered_hosts(&state.db, &cfg, backend_impl.as_ref());
     record_sync_error(&state.db, backend_id, "pull", result.as_ref().err());

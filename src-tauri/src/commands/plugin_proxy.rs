@@ -32,8 +32,8 @@ fn verify(
     token: &str,
     required_permission: Option<&str>,
 ) -> Result<String, AppError> {
-    // 1. 令牌反查
-    let plugin_id = state
+    // 1. 令牌反查（返回插件 + 启用代际 + 会话）
+    let session = state
         .plugin_tokens
         .lookup(token)
         .map_err(AppError::Custom)?
@@ -41,12 +41,37 @@ fn verify(
             plugin_id: None,
             required_permission: None,
         })?;
+    let plugin_id = session.plugin_id;
 
-    // 2. 权限校验
+    // 2. 插件仍处于启用状态（停用是权威门，即使令牌未及时清理也会被拒绝）
+    let plugin = state
+        .db
+        .get_plugin(&plugin_id)
+        .map_err(|e| AppError::Custom(e.to_string()))?;
+    if !plugin.enabled {
+        return Err(AppError::PluginPermissionDenied {
+            plugin_id: Some(plugin_id),
+            required_permission: None,
+        });
+    }
+
+    // 3. 代际校验：启用一次即轮换，旧代际令牌全部失效
+    let current_generation = state
+        .db
+        .get_activation_generation(&plugin_id)
+        .map_err(|e| AppError::Custom(e.to_string()))?;
+    if current_generation != session.generation {
+        return Err(AppError::PluginPermissionDenied {
+            plugin_id: Some(plugin_id),
+            required_permission: None,
+        });
+    }
+
+    // 4. 授权事实校验（授权 + 版本一致）
     if let Some(perm) = required_permission {
         let granted = state
             .db
-            .has_plugin_permission(&plugin_id, perm)
+            .has_plugin_authorization(&plugin_id, perm)
             .map_err(|e| AppError::Custom(e.to_string()))?;
         if !granted {
             return Err(AppError::PluginPermissionDenied {

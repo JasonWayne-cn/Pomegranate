@@ -2,28 +2,23 @@
  * PluginPanelViewPage —— 插件面板视图渲染页面
  *
  * 路由 /plugin-view/:viewId
- * 从 PluginManager 查找已注册的插件面板视图，调用其 render 函数
- * 把 DOM 内容注入到容器 div 中。
+ * 从 PluginManager 查找已注册的插件面板视图，交给统一的 ModuleViewFrame 挂载。
  *
  * 使用模式：插件侧边栏按钮点击 → navigate(`#/plugin-view/${viewId}`)
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Button, Result, Typography, theme as antdTheme } from "antd";
+import { Button, Result } from "antd";
 import { ArrowLeft, Puzzle } from "lucide-react";
 import { pluginManager } from "@/services/pluginManager";
+import { ModuleViewFrame } from "@/components/module/ModuleViewFrame";
 import type { PluginPanelViewDef } from "@/types";
-
-const { Text } = Typography;
 
 export default function PluginPanelViewPage() {
   const { viewId } = useParams<{ viewId: string }>();
   const navigate = useNavigate();
-  const { token } = antdTheme.useToken();
-  const containerRef = useRef<HTMLDivElement>(null);
   const [viewDef, setViewDef] = useState<PluginPanelViewDef | null>(null);
-  const [title, setTitle] = useState("插件视图");
   const [renderKey, setRenderKey] = useState(0);
 
   // 查询视图定义并触发重渲染（每次 viewId 变化或注册表变化都重新查询）
@@ -33,7 +28,6 @@ export default function PluginPanelViewPage() {
       const def = pluginManager.getPanelView(viewId);
       if (def) {
         setViewDef(def);
-        setTitle(def.title);
         setRenderKey((k) => k + 1); // 强制 DOM 重新挂载
       } else {
         const allIds = pluginManager
@@ -54,21 +48,14 @@ export default function PluginPanelViewPage() {
     return unsubscribe;
   }, [viewId]);
 
-  // 挂载 / 卸载插件视图 DOM（用 renderKey 保证可重入）
-  useEffect(() => {
-    if (!viewDef || !containerRef.current) return;
-    const container = containerRef.current;
-    container.innerHTML = "";
-    const cleanup = viewDef.render(container);
-    return () => {
-      if (typeof cleanup === "function") {
-        cleanup();
-      } else {
-        container.innerHTML = "";
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewDef, renderKey]);
+  const mountView = useCallback(
+    (container: HTMLElement) => {
+      if (!viewDef) return;
+      container.innerHTML = "";
+      return viewDef.render(container);
+    },
+    [viewDef],
+  );
 
   if (!viewId || !viewDef) {
     const activeIds = pluginManager.getActiveIds();
@@ -100,55 +87,21 @@ export default function PluginPanelViewPage() {
     );
   }
 
-  const isFullscreen = viewDef.layout === "fullscreen";
-
   return (
-    <div
-      style={{
-        height: "100%",
-        minHeight: 0,
-        display: "flex",
-        flexDirection: "column",
+    <ModuleViewFrame
+      meta={{
+        id: viewDef.id,
+        title: viewDef.title,
+        source: "plugin",
+        sourceLabel: "插件",
+        icon: <Puzzle size={16} />,
+        layout: viewDef.layout === "fullscreen" ? "fullscreen" : "standard",
+        pluginId: viewDef.pluginId,
       }}
-    >
-      {!isFullscreen && (
-        <div
-          style={{
-            padding: "8px 16px",
-            borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            background: token.colorBgContainer,
-          }}
-        >
-          <Button
-            type="text"
-            size="small"
-            icon={<ArrowLeft size={16} />}
-            onClick={() => navigate("/notes")}
-          />
-          <Puzzle size={16} style={{ color: token.colorPrimary }} />
-          <Text strong style={{ fontSize: 15 }}>
-            {title}
-          </Text>
-          <div style={{ flex: 1 }} />
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            插件: {viewDef.pluginId}
-          </Text>
-        </div>
-      )}
-
-      <div
-        ref={containerRef}
-        style={{
-          flex: 1,
-          minHeight: 0,
-          height: "100%",
-          overflow: isFullscreen ? "hidden" : "auto",
-          padding: isFullscreen ? 0 : 16,
-        }}
-      />
-    </div>
+      mount={mountView}
+      mountKey={viewDef.id}
+      resetKey={renderKey}
+      onBack={() => navigate("/notes")}
+    />
   );
 }

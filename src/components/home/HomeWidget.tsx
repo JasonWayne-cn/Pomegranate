@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 import { Card, Select, Tooltip, type CardProps } from "antd";
 import { GripVertical, ChevronDown, ChevronRight } from "lucide-react";
 import type { WidgetSize, WidgetHeight } from "@/store/homeLayout";
@@ -18,8 +18,12 @@ const BLUR_KEY_BY_WIDGET: Record<string, HomeWidgetKey> = {
 
 export interface HomeWidgetProps {
   id: string;
-  title: string;
+  title: ReactNode;
   icon?: ReactNode;
+  /** 卡片外层 className（用于首页样式定制） */
+  className?: string;
+  /** 卡片 body 样式覆盖（默认由 antd Card 决定） */
+  bodyStyle?: CSSProperties;
   collapsed: boolean;
   onToggle: () => void;
   /** 拖拽手柄 props（由 dnd-kit useSortable 注入） */
@@ -44,6 +48,8 @@ export function HomeWidget({
   id,
   title,
   icon,
+  className,
+  bodyStyle,
   collapsed,
   onToggle,
   dragHandleProps,
@@ -58,23 +64,25 @@ export function HomeWidget({
 
   const cardProps: CardProps = {
     size: "small",
+    className,
     style: { height: "100%", display: "flex", flexDirection: "column" },
     styles: {
       body: {
-        padding: collapsed ? 0 : undefined,
         flex: 1,
         minHeight: 0,
         overflow: "hidden",
+        ...bodyStyle,
+        ...(collapsed ? { padding: 0 } : {}),
       },
     },
     title: (
       <div
-        className="flex items-center gap-2 cursor-grab active:cursor-grabbing select-none"
+        className="flex items-center gap-2 cursor-grab active:cursor-grabbing select-none flex-1 min-w-0"
         {...dragHandleProps}
       >
         <GripVertical size={14} className="text-gray-400 shrink-0" />
         {icon}
-        <span style={{ fontSize: 13, fontWeight: 600, userSelect: "none" }}>
+        <span style={{ fontSize: 13, fontWeight: 600, userSelect: "none", minWidth: 0, flex: 1 }}>
           {title}
         </span>
       </div>

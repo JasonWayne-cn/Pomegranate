@@ -4,11 +4,12 @@ import { Spin } from "antd";
 import { LayoutSwitch } from "@/components/layout/LayoutSwitch";
 import { OnboardingProvider } from "@/components/onboarding/OnboardingProvider";
 import { RouteErrorFallback } from "@/components/ui/ErrorBoundary";
-import BrowseMarkdownPage from "@/pages/notes/browse";
+import { ModuleViewFrame } from "@/components/module/ModuleViewFrame";
 // 首屏常用页面 — 同步加载，不拆 chunk
 import HomePage from "@/pages/home";
 import NoteListPage from "@/pages/notes";
 import OpeningNotePage from "@/pages/notes/opening";
+import BrowseMarkdownPage from "@/pages/notes/browse";
 import SearchPage from "@/pages/search";
 import TagsPage from "@/pages/tags";
 import TrashPage from "@/pages/trash";
@@ -164,10 +165,28 @@ const router = createHashRouter([
       { path: "prompts", element: <LazyPage><PromptsPage /></LazyPage> },
       { path: "push", element: <LazyPage><PushPage /></LazyPage> },
       // 插件 / 扩展包管理已并入「关于」页（设置 Tab），旧地址重定向保持深链可用
-      { path: "plugins", element: <Navigate to="/about?tab=plugins" replace /> },
+      { path: "plugins", element: <Navigate to="/about?tab=extensions" replace /> },
       { path: "plugin-view/:viewId", element: <LazyPage><PluginPanelViewPage /></LazyPage> },
       { path: "extensions", element: <Navigate to="/about?tab=extensions" replace /> },
-      { path: "ppt", element: <LazyPage><PptPage /></LazyPage> },
+      {
+        path: "ppt",
+        element: (
+          <LazyPage>
+            <ModuleViewFrame
+              meta={{
+                id: "ppt-master",
+                title: "PPT 生成",
+                source: "extension",
+                sourceLabel: "扩展包",
+                layout: "fullscreen",
+              }}
+              chrome={false}
+            >
+              <PptPage />
+            </ModuleViewFrame>
+          </LazyPage>
+        ),
+      },
       { path: "research", element: <LazyPage><ResearchPage /></LazyPage> },
       { path: "tasks", element: <LazyPage><TasksPage /></LazyPage> },
       { path: "task-session", element: <LazyPage><TaskSessionPage /></LazyPage> },

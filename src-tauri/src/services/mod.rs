@@ -35,6 +35,7 @@ pub mod export_html;
 // 功能扩展包（Engine Pack）：安装、校验、启停、运行
 pub mod extension;
 pub mod extension_runner;
+pub mod ppt_draft_manifest;
 pub mod ppt_extension;
 pub mod ppt_plan;
 pub mod ppt_programmatic_renderer;
@@ -83,8 +84,11 @@ pub mod pdf;
 pub mod pdf_layout;
 pub mod plugin;
 pub mod plugin_http;
+// 插件目录完整性：整目录哈希，用于安装双校验与激活校验
+pub mod plugin_integrity;
 pub mod plugin_token;
 pub mod plugin_rate_limit;
+pub mod package;
 // 插件系统：元数据管理、manifest 校验、安装/卸载
 pub mod plugins;
 // 文档 pop-out 窗口仅桌面端（移动端改 Modal）

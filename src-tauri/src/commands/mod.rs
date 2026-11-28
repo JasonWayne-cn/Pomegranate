@@ -34,6 +34,7 @@ pub mod mobile_update;
 pub mod notes;
 pub mod ocr;
 pub mod orphan;
+pub mod package;
 pub mod pdf;
 pub mod plugin_proxy;
 pub mod plugin_runtime;

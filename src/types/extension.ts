@@ -99,6 +99,18 @@ export interface PptMetaSource {
   excerpt: string;
 }
 
+/** 历史作业固化下来的素材条目（source_manifest.json）。 */
+export interface PptSourceMeta {
+  id: number;
+  sourceType: string;
+  title: string;
+  wordCount: number;
+  updatedAt: string;
+  path?: string;
+  originalChars?: number;
+  truncated?: boolean;
+}
+
 export interface PptMetaSuggestion {
   title: string;
   audience: string;
@@ -233,6 +245,37 @@ export interface PptPlanProgressEvent {
 
 export type PptDraftGenerationMode = "bestOf" | "oneShot" | "programmatic";
 
+/** 草稿产物类别：preview 写 svg_preview，formal 写 svg_output。 */
+export type PptDraftKind = "preview" | "formal";
+
+/** 页级草稿状态：以大纲/选项/SVG 指纹判定。 */
+export type PptDraftPageStatus =
+  | "ready"
+  | "outline_changed"
+  | "options_changed"
+  | "missing";
+
+export type PptDraftOverallStatus =
+  | "fresh"
+  | "order_stale"
+  | "partial"
+  | "stale"
+  | "missing";
+
+export interface PptDraftPageState {
+  page: number;
+  status: PptDraftPageStatus;
+  message: string;
+}
+
+export interface PptDraftStatus {
+  status: PptDraftOverallStatus;
+  orderChanged: boolean;
+  deckHash?: string | null;
+  exportedDeckHash?: string | null;
+  pages: PptDraftPageState[];
+}
+
 export interface PptDraftPageEvent {
   jobId: string;
   page: number;
@@ -313,12 +356,30 @@ export interface PptCatalog {
 export interface PptLogEvent {
   jobId: string;
   stream: string;
+  /** 日志通道：system = 引擎/系统，plan = 素材理解/大纲规划（按 phase 分流） */
+  channel?: "system" | "plan" | string;
+  /** plan 通道的阶段：material 素材处理，understanding 素材理解，planning 大纲生成 */
+  phase?: "material" | "understanding" | "planning" | string;
   line: string;
+}
+
+/** 大纲快照：标题清单完成 / 每扩展一批页面后推送，用于左侧列表实时增长。 */
+export interface PptPlanSnapshotEvent {
+  jobId: string;
+  title: string;
+  slides: Array<{
+    page: number;
+    title: string;
+    coreMessage: string;
+    bullets: string[];
+  }>;
 }
 
 export interface PptJobEvent {
   jobId: string;
   status: string;
   stage?: string;
+  /** 本次渲染产物类别；导出等非草稿事件为空。 */
+  kind?: PptDraftKind;
   job?: PptJob;
 }

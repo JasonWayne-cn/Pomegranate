@@ -19,7 +19,7 @@ import {
   Spin,
 } from "antd";
 import { SyncOutlined, PlusOutlined, PictureOutlined } from "@ant-design/icons";
-import { Trash2, Pencil, LayoutTemplate, Power, Palette, Cog, UserRound, Monitor, Rocket, Info, Layers, Plug, Package, Heart } from "lucide-react";
+import { Trash2, Pencil, LayoutTemplate, Power, Palette, Cog, UserRound, Monitor, Rocket, Info, Layers, Package, Heart } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useLocation, useSearchParams } from "react-router-dom";
@@ -38,7 +38,6 @@ import { TiptapEditor } from "@/components/editor";
 import { AboutDetails, CommunitySection, SponsorSection } from "@/pages/about";
 
 // 插件 / 扩展包管理按需加载：只有切到对应 Tab 才拉取，不影响设置页首屏
-const PluginsPage = lazy(() => import("@/pages/plugins"));
 const ExtensionsPage = lazy(() => import("@/pages/extensions"));
 
 const { Title, Text } = Typography;
@@ -353,7 +352,10 @@ function DesktopSettingsPage() {
 
   // ─── 竖直 Tab 状态 ────────────────────────────────
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = (searchParams.get("tab") as TabKey | null) ?? TAB_KEYS.about;
+  const rawTab = searchParams.get("tab") as TabKey | null;
+  // 「插件」页签已并入「扩展」：旧链接仍然落到扩展管理
+  const activeTab =
+    rawTab === TAB_KEYS.plugins ? TAB_KEYS.extensions : (rawTab ?? TAB_KEYS.about);
   function setActiveTab(key: TabKey) {
     setSearchParams({ tab: key }, { replace: true });
   }
@@ -496,28 +498,10 @@ function DesktopSettingsPage() {
               </div>
             ),
           },
-          // ─── Tab 2: 插件（原 ActivityBar 入口，移入此处）─────
-          {
-            key: TAB_KEYS.plugins,
-            label: <span className="flex items-center gap-2"><Plug size={16} />插件</span>,
-            children: (
-              <div className="settings-tabs-stack">
-                <Suspense
-                  fallback={
-                    <div className="flex justify-center py-12">
-                      <Spin />
-                    </div>
-                  }
-                >
-                  <PluginsPage />
-                </Suspense>
-              </div>
-            ),
-          },
-          // ─── Tab 3: 扩展包（原 ActivityBar 入口，移入此处）───
+          // ─── Tab 2: 扩展（统一管理内部插件与扩展包）─────
           {
             key: TAB_KEYS.extensions,
-            label: <span className="flex items-center gap-2"><Package size={16} />扩展包</span>,
+            label: <span className="flex items-center gap-2"><Package size={16} />扩展</span>,
             children: (
               <div className="settings-tabs-stack">
                 <Suspense

@@ -155,9 +155,14 @@ import type {
   AsrVocabularyTerm,
   AsrCorrectionResult,
   AsrLocalModelStatus,
+  PackageKind,
   PluginInfo,
+  PluginInspection,
   PluginManifest,
   PluginAuditLogEntry,
+  PluginActivationState,
+  PluginQuarantineEntry,
+  PluginVersionEntry,
   TaskSession,
   ExecutionPhase,
   ExecutionLog,
@@ -181,6 +186,7 @@ import type {
   SnapshotUsage,
   NoteExcerpt,
   HiddenFolderCount,
+  NotesOnDay,
 } from "@/types";
 
 /** 系统相关 API */
@@ -193,6 +199,9 @@ export const systemApi = {
   getDashboardStats: () => invoke<DashboardStats>("get_dashboard_stats"),
   getWritingTrend: (days?: number) =>
     invoke<DailyWritingStat[]>("get_writing_trend", { days }),
+  /** 某天编辑过的笔记（首页写作活力热力图点格子） */
+  listNotesWrittenOn: (date: string) =>
+    invoke<NotesOnDay>("list_notes_written_on", { date }),
   /**
    * 枚举本机已安装的所有字体族名（去重 + 排序），供设置页「正文字体」自选。
    * 仅桌面端注册；移动端该 Command 不存在，invoke 会 reject —— 调用方 catch 后
@@ -362,6 +371,12 @@ export const moduleConfigApi = {
     invoke<void>("set_configs", { entries }),
 };
 
+/** 安装包通用 API（自动识别插件 / 扩展包） */
+export const packageApi = {
+  detectKind: (path: string) =>
+    invoke<PackageKind>("detect_package_kind", { path }),
+};
+
 /** 插件系统 API（MVP：管理元数据，不执行第三方 JS） */
 export const pluginApi = {
   list: () => invoke<PluginInfo[]>("list_plugins"),
@@ -370,10 +385,27 @@ export const pluginApi = {
     invoke<PluginInfo>("install_plugin_from_dir", { path }),
   installFromZip: (path: string) =>
     invoke<PluginInfo>("install_plugin_from_zip", { path }),
+  inspectZip: (path: string) =>
+    invoke<PluginInspection>("inspect_plugin_zip", { path }),
   enable: (pluginId: string) => invoke<void>("enable_plugin", { pluginId }),
   disable: (pluginId: string) => invoke<void>("disable_plugin", { pluginId }),
   uninstall: (pluginId: string) =>
     invoke<boolean>("uninstall_plugin", { pluginId }),
+  /** 列出插件版本（当前 + 已归档） */
+  listVersions: (pluginId: string) =>
+    invoke<PluginVersionEntry[]>("list_plugin_versions", { pluginId }),
+  /** 回滚到已归档版本（要求插件已禁用） */
+  rollback: (pluginId: string, targetVersion: string) =>
+    invoke<PluginInfo>("rollback_plugin", { pluginId, targetVersion }),
+  /** 从隔离区恢复最近一次卸载的插件 */
+  restoreQuarantined: (pluginId: string) =>
+    invoke<PluginInfo>("restore_quarantined_plugin", { pluginId }),
+  /** 列出卸载隔离区条目 */
+  listQuarantine: () =>
+    invoke<PluginQuarantineEntry[]>("list_plugin_quarantine"),
+  /** 查询插件运行状态（代际 / 活跃会话） */
+  getActivationState: (pluginId: string) =>
+    invoke<PluginActivationState>("get_plugin_activation_state", { pluginId }),
   getManifest: (pluginId: string) =>
     invoke<PluginManifest>("get_plugin_manifest", { pluginId }),
   grantPermissions: (pluginId: string, permissions: string[]) =>

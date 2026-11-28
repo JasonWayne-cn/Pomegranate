@@ -95,6 +95,10 @@ interface Props {
   presetImportant?: boolean;
   /** 新建时预设截止日期 YYYY-MM-DD（日历双击格子传进来） */
   presetDueDate?: string;
+  /** 新建时预设标题（首页快速添加粘贴截图时带上已打的字） */
+  presetTitle?: string;
+  /** 新建时预设附件（首页快速添加粘贴的截图） */
+  presetFiles?: File[];
   /** 新建时预设分类 ID；null 表示未分类 */
   presetCategoryId?: number | null;
   onClose: () => void;
@@ -114,6 +118,8 @@ export function CreateTaskModal({
   presetPriority,
   presetImportant,
   presetDueDate,
+  presetTitle,
+  presetFiles,
   presetCategoryId,
   onClose,
   onSaved,
@@ -224,6 +230,22 @@ export function CreateTaskModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, discardDraftAttachments]);
   useEffect(() => () => discardDraftAttachments(), [discardDraftAttachments]);
+
+  /** 首页快速添加粘贴的截图：等 TaskAttachments 挂载后加入草稿附件 */
+  const presetFilesAppliedRef = useRef<File[] | null>(null);
+  useEffect(() => {
+    if (!open) {
+      presetFilesAppliedRef.current = null;
+      return;
+    }
+    if (!presetFiles || presetFiles.length === 0) return;
+    if (presetFilesAppliedRef.current === presetFiles) return;
+    presetFilesAppliedRef.current = presetFiles;
+    const timer = setTimeout(() => {
+      void attachmentsRef.current?.addFiles(presetFiles);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [open, presetFiles]);
   /** 回车追加草稿子任务后，保持焦点在输入框（连续录入体验） */
   const draftSubInputRef = useRef<InputRef>(null);
 
@@ -334,7 +356,7 @@ export function CreateTaskModal({
       }
     } else {
       const cfg = taskConfigRef.current;
-      setTitle("");
+      setTitle(presetTitle ?? "");
       setDescription("");
       setPriority(presetPriority ?? priorityFromConfig(cfg.default_priority));
       setImportant(presetImportant ?? false);
@@ -371,7 +393,7 @@ export function CreateTaskModal({
     setDraftSubInput("");
     setProjectCreating(false);
     setNewProjectName("");
-  }, [open, editing, presetPriority, presetImportant, presetDueDate, presetCategoryId]);
+  }, [open, editing, presetPriority, presetImportant, presetDueDate, presetTitle, presetCategoryId]);
 
   /** 拉候选文档：keyword 空 → 最近 8 条，非空 → 模糊搜前 10 条 */
   const loadNoteCandidates = useCallback(async (keyword: string) => {

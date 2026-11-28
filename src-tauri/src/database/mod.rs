@@ -384,15 +384,28 @@ impl Database {
         // total_notes / today_updated 与笔记列表（list_notes）同口径：排除隐藏 / 临时 / 日记 /
         // 外部索引文档，否则只点过「今日日记」的新用户首页显示「总数 1」而列表里一篇都没有。
         // 今日字数仍计入日记（属手写内容），只排除回收站 / 外部索引文档。
-        let (total_notes, today_updated, total_words): (usize, usize, usize) = conn.query_row(
+        let (total_notes, today_updated, total_words, last_written_at): (
+            usize,
+            usize,
+            usize,
+            Option<String>,
+        ) = conn.query_row(
             "SELECT
                 COUNT(*) FILTER (WHERE is_deleted = 0 AND is_hidden = 0 AND is_scratch = 0 AND is_daily = 0 AND ext_index_only = 0),
                 COUNT(*) FILTER (WHERE is_deleted = 0 AND is_hidden = 0 AND is_scratch = 0 AND is_daily = 0 AND ext_index_only = 0
                                  AND substr(updated_at, 1, 10) = ?1),
-                COALESCE(SUM(word_count) FILTER (WHERE is_deleted = 0 AND ext_index_only = 0), 0)
+                COALESCE(SUM(word_count) FILTER (WHERE is_deleted = 0 AND ext_index_only = 0), 0),
+                MAX(updated_at) FILTER (WHERE is_deleted = 0 AND ext_index_only = 0)
              FROM notes",
             [&today],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? as usize)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get::<_, i64>(2)? as usize,
+                    row.get(3)?,
+                ))
+            },
         )?;
 
         let total_folders: usize =
@@ -409,6 +422,54 @@ impl Database {
             total_links,
             today_updated,
             total_words,
+            last_written_at,
+        })
+    }
+
+    /// 某天（本地日期 YYYY-MM-DD）编辑过的笔记。
+    ///
+    /// 口径和 [`get_writing_trend`](Self::get_writing_trend) 一致：按最后编辑日期算、含日记、
+    /// 排除外部索引文档，这样点开热力图的格子，列出来的字数加起来就是格子上的数。
+    pub fn list_notes_written_on(
+        &self,
+        date: &str,
+    ) -> Result<crate::models::NotesOnDay, AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, title, word_count, is_daily, note_type, updated_at, is_hidden
+             FROM notes
+             WHERE is_deleted = 0
+               AND ext_index_only = 0
+               AND DATE(updated_at) = ?1
+             ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt
+            .query_map([date], |row| {
+                Ok((
+                    crate::models::DayNoteItem {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        word_count: row.get::<_, i64>(2)? as usize,
+                        is_daily: row.get::<_, i32>(3)? != 0,
+                        note_type: row.get(4)?,
+                        updated_at: row.get(5)?,
+                    },
+                    row.get::<_, i32>(6)? != 0,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let hidden_count = rows.iter().filter(|(_, hidden)| *hidden).count();
+        let notes = rows
+            .into_iter()
+            .filter(|(_, hidden)| !hidden)
+            .map(|(n, _)| n)
+            .collect();
+        Ok(crate::models::NotesOnDay {
+            notes,
+            hidden_count,
         })
     }
 

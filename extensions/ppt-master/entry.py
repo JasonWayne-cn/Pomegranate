@@ -2135,8 +2135,75 @@ def find_svg_to_pptx() -> Path | None:
     return find_script("svg_to_pptx.py")
 
 
-def collect_font_sizes(project: Path) -> list[float]:
-    svg_dir = project / "svg_output"
+_RUNNER_PYTHON: list[str] | None = None
+
+
+def _python_candidates() -> list[list[str]]:
+    """系统 Python 候选。可用 PPT_MASTER_PYTHON 显式指定解释器路径。"""
+    override = (os.environ.get("PPT_MASTER_PYTHON") or "").strip()
+    candidates: list[list[str]] = []
+    if override:
+        candidates.append([override])
+    if os.name == "nt":
+        # py launcher 优先，其次 PATH 中的 python。
+        candidates.extend([["py", "-3"], ["python"], ["python3"]])
+    else:
+        candidates.extend([["python3"], ["python"]])
+    return candidates
+
+
+def _probe_runner(command: list[str]) -> bool:
+    """系统 Python 必须 >=3.10 且安装 python-pptx，才可运行上游脚本。"""
+    try:
+        result = subprocess.run(
+            [
+                *command,
+                "-c",
+                "import sys; assert sys.version_info >= (3, 10); import pptx",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+        )
+    except Exception:  # noqa: BLE001
+        return False
+    return result.returncode == 0
+
+
+def runner_python() -> list[str]:
+    """上游脚本解释器：优先系统 Python 3.10+，否则回退内嵌解释器（3.8）。"""
+    global _RUNNER_PYTHON
+    if _RUNNER_PYTHON is not None:
+        return _RUNNER_PYTHON
+    for candidate in _python_candidates():
+        if _probe_runner(candidate):
+            _RUNNER_PYTHON = candidate
+            log(f"上游脚本使用系统 Python: {' '.join(candidate)}")
+            return _RUNNER_PYTHON
+    _RUNNER_PYTHON = [sys.executable]
+    log(
+        "未找到可用的系统 Python 3.10+（需包含 python-pptx），回退内嵌解释器；"
+        "上游脚本可能因 PEP 604 语法失败",
+        "warn",
+    )
+    return _RUNNER_PYTHON
+
+
+def script_env(script: Path) -> dict[str, str]:
+    """把脚本目录加入 PYTHONPATH，修复 Windows `\\\\?\\` 路径下的同目录导入。"""
+    env = os.environ.copy()
+    paths = [str(script.parent)]
+    existing = env.get("PYTHONPATH")
+    if existing:
+        paths.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(paths)
+    return env
+
+
+def collect_font_sizes(project: Path, svg_dir: Path | None = None) -> list[float]:
+    svg_dir = svg_dir or project / "svg_output"
     if not svg_dir.is_dir():
         return []
     sizes: set[float] = set()
@@ -2155,17 +2222,18 @@ def collect_font_sizes(project: Path) -> list[float]:
     return sorted(sizes)
 
 
-def restamp_native_fallbacks(project: Path) -> None:
+def restamp_native_fallbacks(project: Path, svg_dir: Path | None = None) -> None:
     """内容替换后重新计算 Chart/Table 可见回退的基线哈希。"""
     script = find_script("stamp_native_fallbacks.py")
-    svg_dir = project / "svg_output"
+    svg_dir = svg_dir or project / "svg_output"
     if script is None or not svg_dir.is_dir():
         return
     log("重新计算原生对象回退基线")
     try:
         result = subprocess.run(
-            [sys.executable, str(script), str(svg_dir), "--write"],
+            [*runner_python(), str(script), str(svg_dir), "--write"],
             cwd=str(script.parent),
+            env=script_env(script),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -2185,7 +2253,7 @@ def run_quality_check(script: Path, project: Path) -> bool:
     try:
         result = subprocess.run(
             [
-                sys.executable,
+                *runner_python(),
                 str(script),
                 str(project),
                 "--canonical-authoring",
@@ -2194,6 +2262,7 @@ def run_quality_check(script: Path, project: Path) -> bool:
                 "--json",
             ],
             cwd=str(script.parent),
+            env=script_env(script),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -2220,13 +2289,14 @@ def export_with_ppt_master(
     force: bool = False,
 ) -> Path | None:
     log(f"使用 ppt-master 导出: {script}{'（兼容模式）' if force else ''}")
-    command = [sys.executable, str(script), str(project)]
+    command = [*runner_python(), str(script), str(project)]
     if force:
         command.append("--enable-dangerous-nonconforming-svg-export")
     try:
         result = subprocess.run(
             command,
             cwd=str(script.parent),
+            env=script_env(script),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -2598,13 +2668,21 @@ def main() -> int:
 
     project = JOB_DIR / job.get("projectDir", "project")
     output = JOB_DIR / job.get("outputDir", "output")
+    options = job.get("options") or {}
+    # 渲染目标：preview 写 svg_preview（步骤三模板预览），其余写 svg_output（正式草稿/导出）。
+    render_target = str(options.get("renderTarget") or "formal").strip().lower()
+    svg_dir = project / ("svg_preview" if render_target == "preview" else "svg_output")
     (project / "svg_output").mkdir(parents=True, exist_ok=True)
+    svg_dir.mkdir(parents=True, exist_ok=True)
     (project / "templates").mkdir(parents=True, exist_ok=True)
     (project / "notes").mkdir(parents=True, exist_ok=True)
     (project / "exports").mkdir(parents=True, exist_ok=True)
     output.mkdir(parents=True, exist_ok=True)
 
-    source_path = JOB_DIR / job.get("source", {}).get("markdownPath", "input/source.md")
+    source_path = JOB_DIR / job.get("source", {}).get("markdownPath", "input/understanding.md")
+    if not source_path.is_file():
+        # 兼容旧作业：没有 understanding.md 时回退到 source.md
+        source_path = JOB_DIR / "input" / "source.md"
     source = read_text(source_path) if source_path.is_file() else ""
     plan = normalize_plan(job.get("plan") or {}, source, job)
 
@@ -2674,7 +2752,9 @@ def main() -> int:
 
     progress("render", 40, "生成 SVG 页面")
     native_charts = bool(options.get("nativeCharts"))
-    native_dir = project / "svg_native"
+    native_dir = project / (
+        "svg_native_preview" if render_target == "preview" else "svg_native"
+    )
     native_dir.mkdir(parents=True, exist_ok=True)
     # AI 页级生成失败时只渲染 fallbackPages，保留已生成的 AI 页面。
     fallback_pages: set[int] = set()
@@ -2687,7 +2767,7 @@ def main() -> int:
                 continue
     if fallback_pages:
         log(f"仅渲染模板兜底页: {sorted(fallback_pages)}")
-        for stale in (project / "svg_output").glob("*.svg"):
+        for stale in svg_dir.glob("*.svg"):
             match = re.match(r"^P(\d+)\.svg$", stale.name, re.I)
             if not match or int(match.group(1)) not in fallback_pages:
                 continue
@@ -2705,7 +2785,7 @@ def main() -> int:
                 pass
     else:
         # 完整渲染时清理旧页，避免删减页数后残留过期 SVG。
-        for stale in (project / "svg_output").glob("*.svg"):
+        for stale in svg_dir.glob("*.svg"):
             try:
                 stale.unlink()
             except OSError:
@@ -2730,7 +2810,7 @@ def main() -> int:
         if fallback_pages and int(slide.get("page") or 0) not in fallback_pages:
             log(f"P{slide.get('page', 0):02d} 保留 AI 草稿，跳过模板渲染")
             if native_charts:
-                existing = project / "svg_output" / filename
+                existing = svg_dir / filename
                 if existing.is_file():
                     (native_dir / filename).write_bytes(existing.read_bytes())
             continue
@@ -2814,7 +2894,7 @@ def main() -> int:
         if svg is None:
             svg = render_svg(slide, len(plan["slides"]), layout)
             log(f"P{slide['page']:02d} 使用内置渲染器")
-        (project / "svg_output" / filename).write_text(
+        (svg_dir / filename).write_text(
             strip_pptx_structure_attrs(svg), encoding="utf-8"
         )
         if native_charts:
@@ -2826,10 +2906,10 @@ def main() -> int:
     # 模板实际字号可能超出预置角色；把实际使用到的字号补进 spec_lock，
     # 避免质量检查把模板固有字号判为未声明的重复字号。
     (project / "spec_lock.md").write_text(
-        build_spec_lock(plan, job, collect_font_sizes(project)),
+        build_spec_lock(plan, job, collect_font_sizes(project, svg_dir)),
         encoding="utf-8",
     )
-    restamp_native_fallbacks(project)
+    restamp_native_fallbacks(project, svg_dir)
 
     if stage == "render":
         progress("draft_ready", 100, "草稿已生成")

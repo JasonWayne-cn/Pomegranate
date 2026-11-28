@@ -4,10 +4,12 @@
   "protocolVersion": 1,
   "id": "ppt-master",
   "name": "PPT Master 生成引擎",
-  "version": "1.2.6",
+  "version": "1.2.8",
   "kind": "ppt-engine",
   "minAppVersion": "2.1.0",
-  "platforms": ["windows-x86_64"],
+  "platforms": [
+    "windows-x86_64"
+  ],
   "runtime": {
     "type": "python-script",
     "entry": "entry.py",

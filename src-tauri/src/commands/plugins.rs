@@ -6,7 +6,10 @@ use std::collections::HashMap;
 
 use tauri::State;
 
-use crate::models::{PluginInfo, PluginManifest};
+use crate::models::{
+    PluginActivationState, PluginInfo, PluginInspection, PluginManifest, PluginQuarantineEntry,
+    PluginVersionEntry,
+};
 use crate::services::plugins::PluginService;
 use crate::state::AppState;
 
@@ -31,6 +34,15 @@ pub fn install_plugin_from_dir(
     PluginService::install_from_dir(&state.db, &state.data_dir, &path).map_err(|e| e.to_string())
 }
 
+/// 预检插件 zip（安装前展示清单、文件数与解压体积）
+#[tauri::command]
+pub fn inspect_plugin_zip(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<PluginInspection, String> {
+    PluginService::inspect_zip(&state.data_dir, &path).map_err(|e| e.to_string())
+}
+
 /// 从本地 zip 压缩包安装插件
 #[tauri::command]
 pub fn install_plugin_from_zip(
@@ -40,22 +52,72 @@ pub fn install_plugin_from_zip(
     PluginService::install_from_zip(&state.db, &state.data_dir, &path).map_err(|e| e.to_string())
 }
 
-/// 启用插件
+/// 启用插件（递增运行代际并失效旧会话）
 #[tauri::command]
 pub fn enable_plugin(state: State<'_, AppState>, plugin_id: String) -> Result<(), String> {
-    PluginService::enable(&state.db, &plugin_id).map_err(|e| e.to_string())
+    PluginService::enable(&state.db, &state.plugin_tokens, &plugin_id).map_err(|e| e.to_string())
 }
 
-/// 禁用插件
+/// 禁用插件（先关门再失效会话）
 #[tauri::command]
 pub fn disable_plugin(state: State<'_, AppState>, plugin_id: String) -> Result<(), String> {
-    PluginService::disable(&state.db, &plugin_id).map_err(|e| e.to_string())
+    PluginService::disable(&state.db, &state.plugin_tokens, &plugin_id).map_err(|e| e.to_string())
 }
 
-/// 卸载插件
+/// 卸载插件（目录移入隔离区，可恢复）
 #[tauri::command]
 pub fn uninstall_plugin(state: State<'_, AppState>, plugin_id: String) -> Result<bool, String> {
-    PluginService::uninstall(&state.db, &state.data_dir, &plugin_id).map_err(|e| e.to_string())
+    PluginService::uninstall(&state.db, &state.data_dir, &state.plugin_tokens, &plugin_id)
+        .map_err(|e| e.to_string())
+}
+
+/// 列出插件版本（当前 + 已归档）
+#[tauri::command]
+pub fn list_plugin_versions(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> Result<Vec<PluginVersionEntry>, String> {
+    PluginService::list_versions(&state.db, &state.data_dir, &plugin_id)
+        .map_err(|e| e.to_string())
+}
+
+/// 回滚到已归档版本（要求插件已禁用）
+#[tauri::command]
+pub fn rollback_plugin(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    target_version: String,
+) -> Result<PluginInfo, String> {
+    PluginService::rollback(&state.db, &state.data_dir, &plugin_id, &target_version)
+        .map_err(|e| e.to_string())
+}
+
+/// 从隔离区恢复插件
+#[tauri::command]
+pub fn restore_quarantined_plugin(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> Result<PluginInfo, String> {
+    PluginService::restore_quarantined(&state.db, &state.data_dir, &plugin_id)
+        .map_err(|e| e.to_string())
+}
+
+/// 列出卸载隔离区条目
+#[tauri::command]
+pub fn list_plugin_quarantine(
+    state: State<'_, AppState>,
+) -> Result<Vec<PluginQuarantineEntry>, String> {
+    PluginService::list_quarantined(&state.db).map_err(|e| e.to_string())
+}
+
+/// 查询插件运行状态（代际 / 活跃会话）
+#[tauri::command]
+pub fn get_plugin_activation_state(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> Result<PluginActivationState, String> {
+    PluginService::activation_state(&state.db, &state.plugin_tokens, &plugin_id)
+        .map_err(|e| e.to_string())
 }
 
 /// 获取插件 manifest

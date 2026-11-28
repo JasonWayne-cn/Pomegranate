@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -115,8 +115,12 @@ pub async fn ppt_extension_create_job(
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let cancel = Arc::new(AtomicBool::new(false));
+    let pause = Arc::new(AtomicBool::new(false));
     if let Ok(mut map) = state.ppt_plan_cancel.lock() {
         map.insert(planning_id.clone(), cancel.clone());
+    }
+    if let Ok(mut map) = state.ppt_plan_pause.lock() {
+        map.insert(planning_id.clone(), pause.clone());
     }
     let result = PptExtensionService::create_job(
         &db,
@@ -124,10 +128,14 @@ pub async fn ppt_extension_create_job(
         input,
         Some(app),
         cancel,
+        pause,
         Duration::from_secs(420),
     )
     .await;
     if let Ok(mut map) = state.ppt_plan_cancel.lock() {
+        map.remove(&planning_id);
+    }
+    if let Ok(mut map) = state.ppt_plan_pause.lock() {
         map.remove(&planning_id);
     }
     result.map_err(Into::into)
@@ -145,6 +153,174 @@ pub fn ppt_extension_cancel_planning(
         .ok_or_else(|| "大纲规划不在进行中".to_string())?;
     flag.store(true, std::sync::atomic::Ordering::SeqCst);
     Ok(())
+}
+
+/// 暂停大纲规划（在阶段/分块边界生效）。
+#[tauri::command]
+pub fn ppt_extension_pause_planning(
+    state: State<'_, AppState>,
+    planning_id: String,
+) -> Result<(), String> {
+    let mut map = state.ppt_plan_pause.lock().map_err(|e| e.to_string())?;
+    let flag = map
+        .entry(planning_id)
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)));
+    flag.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// 继续已暂停的大纲规划。
+#[tauri::command]
+pub fn ppt_extension_resume_planning(
+    state: State<'_, AppState>,
+    planning_id: String,
+) -> Result<(), String> {
+    let mut map = state.ppt_plan_pause.lock().map_err(|e| e.to_string())?;
+    let flag = map
+        .entry(planning_id)
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)));
+    flag.store(false, Ordering::SeqCst);
+    Ok(())
+}
+
+/// 查询大纲规划是否处于暂停状态（重新进入页面时恢复按钮）。
+#[tauri::command]
+pub fn ppt_extension_planning_paused(
+    state: State<'_, AppState>,
+    planning_id: String,
+) -> Result<bool, String> {
+    let map = state.ppt_plan_pause.lock().map_err(|e| e.to_string())?;
+    Ok(map
+        .get(&planning_id)
+        .map(|flag| flag.load(Ordering::SeqCst))
+        .unwrap_or(false))
+}
+
+/// 读取历史作业的素材清单（打开历史作业时恢复素材来源）。
+#[tauri::command]
+pub fn ppt_extension_job_sources(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<Vec<crate::models::extension::PptSourceMeta>, String> {
+    PptExtensionService::job_sources(&state.db, &job_id).map_err(Into::into)
+}
+
+/// 移除历史作业的一项素材，并同步 source.md 与素材清单。
+#[tauri::command]
+pub fn ppt_extension_remove_job_source(
+    state: State<'_, AppState>,
+    job_id: String,
+    source_id: i64,
+    path: Option<String>,
+) -> Result<Vec<crate::models::extension::PptSourceMeta>, String> {
+    PptExtensionService::remove_job_source(&state.db, &job_id, source_id, path)
+        .map_err(Into::into)
+}
+
+/// 读取素材理解（understanding.md）。
+#[tauri::command]
+pub fn ppt_extension_read_understanding(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<String, String> {
+    PptExtensionService::read_understanding(&state.db, &job_id).map_err(Into::into)
+}
+
+/// 返回素材理解文件路径。
+#[tauri::command]
+pub fn ppt_extension_understanding_file(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<String, String> {
+    PptExtensionService::understanding_file(&state.db, &job_id).map_err(Into::into)
+}
+
+/// 读取已落盘的步骤日志（素材处理/理解/大纲/引擎）。
+#[tauri::command]
+pub fn ppt_extension_read_step_logs(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<Value, String> {
+    PptExtensionService::read_step_logs(&state.db, &job_id).map_err(Into::into)
+}
+
+/// 返回补充素材文件路径（不存在时为空）。
+#[tauri::command]
+pub fn ppt_extension_manual_source_file(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<Option<String>, String> {
+    PptExtensionService::manual_source_file(&state.db, &job_id).map_err(Into::into)
+}
+
+/// 返回单条素材对应的源文件路径。
+#[tauri::command]
+pub fn ppt_extension_source_item_file(
+    state: State<'_, AppState>,
+    job_id: String,
+    source_id: i64,
+    path: Option<String>,
+) -> Result<String, String> {
+    PptExtensionService::source_item_file(&state.db, &job_id, source_id, path)
+        .map_err(Into::into)
+}
+
+/// 删除补充素材 manual.md。
+#[tauri::command]
+pub fn ppt_extension_delete_manual_source(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<(), String> {
+    PptExtensionService::delete_manual_source(&state.db, &job_id).map_err(Into::into)
+}
+
+/// 生成或重新生成素材理解。
+#[tauri::command]
+pub async fn ppt_extension_build_understanding(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+    model_id: Option<i64>,
+    force: Option<bool>,
+) -> Result<String, String> {
+    PptExtensionService::build_understanding(
+        &state.db,
+        &job_id,
+        model_id,
+        force.unwrap_or(false),
+        Some(app),
+    )
+    .await
+    .map_err(Into::into)
+}
+
+/// 向历史作业追加素材。
+#[tauri::command]
+pub fn ppt_extension_append_job_sources(
+    state: State<'_, AppState>,
+    job_id: String,
+    note_ids: Vec<i64>,
+    local_files: Vec<crate::models::extension::PptLocalFileInput>,
+    manual_text: Option<String>,
+) -> Result<Vec<crate::models::extension::PptSourceMeta>, String> {
+    PptExtensionService::append_job_sources(
+        &state.db,
+        &job_id,
+        note_ids,
+        local_files,
+        manual_text.unwrap_or_default(),
+    )
+    .map_err(Into::into)
+}
+
+/// 仅更新单页大纲（不清空已有草稿）。
+#[tauri::command]
+pub fn ppt_extension_patch_plan_slide(
+    state: State<'_, AppState>,
+    job_id: String,
+    slide: Value,
+) -> Result<(), String> {
+    PptExtensionService::patch_plan_slide(&state.db, &job_id, slide).map_err(Into::into)
 }
 
 /// 读取作业大纲（用于渲染前预览/编辑）。
@@ -184,8 +360,12 @@ pub async fn ppt_extension_regenerate_plan(
 ) -> Result<PptPlan, String> {
     let planning_id = planning_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let cancel = Arc::new(AtomicBool::new(false));
+    let pause = Arc::new(AtomicBool::new(false));
     if let Ok(mut map) = state.ppt_plan_cancel.lock() {
         map.insert(planning_id.clone(), cancel.clone());
+    }
+    if let Ok(mut map) = state.ppt_plan_pause.lock() {
+        map.insert(planning_id.clone(), pause.clone());
     }
     let result = PptExtensionService::regenerate_plan(
         &state.db,
@@ -193,10 +373,14 @@ pub async fn ppt_extension_regenerate_plan(
         slide_count,
         model_id,
         cancel,
+        pause,
         Some(app),
     )
     .await;
     if let Ok(mut map) = state.ppt_plan_cancel.lock() {
+        map.remove(&planning_id);
+    }
+    if let Ok(mut map) = state.ppt_plan_pause.lock() {
         map.remove(&planning_id);
     }
     result.map_err(Into::into)
@@ -211,6 +395,7 @@ pub fn ppt_extension_update_job_options(
     chart_ids: Vec<String>,
     native_charts: bool,
     timeout_secs: Option<u64>,
+    model_id: Option<i64>,
 ) -> Result<PptJob, String> {
     PptExtensionService::update_job_options(
         &state.db,
@@ -219,6 +404,7 @@ pub fn ppt_extension_update_job_options(
         chart_ids,
         native_charts,
         timeout_secs,
+        model_id,
     )
     .map_err(Into::into)
 }
@@ -268,8 +454,9 @@ pub fn ppt_extension_start_job(
     .map_err(Into::into)
 }
 
-/// 生成草稿：只渲染 `project/svg_output/*.svg`，不导出 PPTX。
+/// 生成草稿：只渲染 SVG，不导出 PPTX。kind=preview 写 svg_preview，formal 写 svg_output。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn ppt_extension_render_draft(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -278,6 +465,7 @@ pub fn ppt_extension_render_draft(
     layout_id: Option<String>,
     chart_ids: Option<Vec<String>>,
     native_charts: Option<bool>,
+    kind: Option<String>,
 ) -> Result<(), String> {
     PptExtensionService::render_draft(
         app,
@@ -288,6 +476,7 @@ pub fn ppt_extension_render_draft(
         layout_id,
         chart_ids,
         native_charts,
+        crate::services::ppt_extension::PptDraftKind::parse(kind.as_deref()),
     )
     .map_err(Into::into)
 }
@@ -305,12 +494,65 @@ pub async fn ppt_extension_render_ai_draft(
         app,
         state.db.clone(),
         state.ppt_job_cancel.clone(),
+        state.ppt_job_pause.clone(),
         job_id,
         candidate_count.unwrap_or(3).clamp(1, 3),
         crate::services::ppt_extension::DraftGenerationMode::parse(mode.as_deref()),
     )
     .await
     .map_err(Into::into)
+}
+
+/// 暂停 AI 草稿生成（在页块边界生效；已完成的页保持不变）。
+#[tauri::command]
+pub fn ppt_extension_pause_job(state: State<'_, AppState>, job_id: String) -> Result<(), String> {
+    let mut map = state.ppt_job_pause.lock().map_err(|e| e.to_string())?;
+    let flag = map
+        .entry(job_id)
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)));
+    flag.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// 重新进入页面时恢复作业：若 running 但本进程已无生成循环，标记为中断失败。
+#[tauri::command]
+pub fn ppt_extension_recover_job(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<Option<PptJob>, String> {
+    PptExtensionService::recover_inactive_job(
+        &state.db,
+        &state.ppt_job_cancel,
+        &app,
+        &job_id,
+    )
+    .map_err(Into::into)
+}
+
+/// 查询作业当前是否处于暂停状态（重新进入页面时恢复按钮状态用）。
+#[tauri::command]
+pub fn ppt_extension_job_paused(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<bool, String> {
+    let map = state.ppt_job_pause.lock().map_err(|e| e.to_string())?;
+    Ok(map
+        .get(&job_id)
+        .map(|flag| flag.load(Ordering::SeqCst))
+        .unwrap_or(false))
+}
+
+/// 继续已暂停的 AI 草稿生成。
+#[tauri::command]
+pub fn ppt_extension_resume_job(state: State<'_, AppState>, job_id: String) -> Result<(), String> {
+    let mut map = state.ppt_job_pause.lock().map_err(|e| e.to_string())?;
+    // 保留同一条 flag：再次暂停要作用在渲染循环持有的那个 Arc 上
+    let flag = map
+        .entry(job_id)
+        .or_insert_with(|| Arc::new(AtomicBool::new(false)));
+    flag.store(false, Ordering::SeqCst);
+    Ok(())
 }
 
 /// 单页重新生成 AI 草稿。
@@ -389,6 +631,7 @@ pub fn ppt_extension_select_page_candidate(
 
 /// 修改大纲后重新生成草稿。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn ppt_extension_rerender_draft(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -397,6 +640,7 @@ pub fn ppt_extension_rerender_draft(
     layout_id: Option<String>,
     chart_ids: Option<Vec<String>>,
     native_charts: Option<bool>,
+    kind: Option<String>,
 ) -> Result<(), String> {
     PptExtensionService::render_draft(
         app,
@@ -407,6 +651,7 @@ pub fn ppt_extension_rerender_draft(
         layout_id,
         chart_ids,
         native_charts,
+        crate::services::ppt_extension::PptDraftKind::parse(kind.as_deref()),
     )
     .map_err(Into::into)
 }
@@ -429,13 +674,28 @@ pub fn ppt_extension_export_draft(
     .map_err(Into::into)
 }
 
-/// 列出草稿页（project/svg_output）。
+/// 读取草稿页级指纹状态（fresh/order_stale/partial/stale/missing）。
+#[tauri::command]
+pub fn ppt_extension_draft_status(
+    state: State<'_, AppState>,
+    job_id: String,
+) -> Result<crate::services::ppt_draft_manifest::DraftStatus, String> {
+    PptExtensionService::draft_status(&state.db, &job_id).map_err(Into::into)
+}
+
+/// 列出草稿页（preview→svg_preview，formal→svg_output）。
 #[tauri::command]
 pub fn ppt_extension_list_draft_pages(
     state: State<'_, AppState>,
     job_id: String,
+    kind: Option<String>,
 ) -> Result<Vec<PptDraftPage>, String> {
-    PptExtensionService::list_draft_pages(&state.db, &job_id).map_err(Into::into)
+    PptExtensionService::list_draft_pages(
+        &state.db,
+        &job_id,
+        crate::services::ppt_extension::PptDraftKind::parse(kind.as_deref()),
+    )
+    .map_err(Into::into)
 }
 
 /// 读取单页草稿 SVG。
@@ -444,8 +704,15 @@ pub fn ppt_extension_read_draft_page(
     state: State<'_, AppState>,
     job_id: String,
     file: String,
+    kind: Option<String>,
 ) -> Result<String, String> {
-    PptExtensionService::read_draft_page(&state.db, &job_id, &file).map_err(Into::into)
+    PptExtensionService::read_draft_page(
+        &state.db,
+        &job_id,
+        &file,
+        crate::services::ppt_extension::PptDraftKind::parse(kind.as_deref()),
+    )
+    .map_err(Into::into)
 }
 
 #[tauri::command]

@@ -89,8 +89,65 @@ pub struct PluginInfo {
     pub manifest: PluginManifest,
     pub installed_at: String,
     pub updated_at: String,
-    /// T26: main.js 的 SHA-256 哈希，用于完整性校验
+    /// T26: main.js 的 SHA-256 哈希，用于入口完整性校验（向后兼容）
     pub content_hash: String,
+    /// 安装来源：local-dir / local-zip / bundled / scan / restore / rollback
+    pub install_source: String,
+    /// 整目录哈希（`pom-dir-sha256-v1`）
+    pub package_hash: String,
+    /// 安装/审核时锁定的哈希；更新与回滚用于确认来源一致
+    pub approved_hash: String,
+}
+
+/// 插件运行时激活状态（代际 + 活跃会话数）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginActivationState {
+    pub plugin_id: String,
+    pub generation: i64,
+    pub enabled: bool,
+    pub active_sessions: usize,
+    pub activated_at: Option<String>,
+    pub deactivated_at: Option<String>,
+}
+
+/// 插件版本记录（当前版本 + 已归档版本）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginVersionEntry {
+    pub version: String,
+    pub is_current: bool,
+    pub archived: bool,
+}
+
+/// 卸载隔离区条目（可恢复）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginQuarantineEntry {
+    pub id: i64,
+    pub plugin_id: String,
+    pub version: String,
+    pub quarantine_path: String,
+    pub package_hash: String,
+    pub quarantined_at: String,
+    pub restored_at: Option<String>,
+}
+
+/// 安装包类型（由 zip 内清单自动识别）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PackageKind {
+    Plugin,
+    Extension,
+}
+
+/// 插件 zip 预检结果（安装前展示，不落库）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInspection {
+    pub manifest: PluginManifest,
+    pub file_count: usize,
+    pub uncompressed_bytes: u64,
 }
 
 /// T25: 插件审计日志条目
@@ -607,6 +664,8 @@ pub struct DashboardStats {
     pub total_links: usize,
     pub today_updated: usize,
     pub total_words: usize,
+    /// 最后一次「写作」时间（含日记，排除导入文档）；无手写文档时为 None
+    pub last_written_at: Option<String>,
 }
 
 // ─── 导入 ─────────────────────────────────────
@@ -865,6 +924,25 @@ pub struct DailyWritingStat {
     pub note_count: usize,
     /// 当日总字数（更新过的文档的字数之和）
     pub word_count: usize,
+}
+
+/// 某天编辑过的一篇笔记（首页热力图点开当天时列出）
+#[derive(Debug, Clone, Serialize)]
+pub struct DayNoteItem {
+    pub id: i64,
+    pub title: String,
+    pub word_count: usize,
+    pub is_daily: bool,
+    pub note_type: String,
+    pub updated_at: String,
+}
+
+/// 某天编辑过的笔记
+#[derive(Debug, Clone, Serialize)]
+pub struct NotesOnDay {
+    pub notes: Vec<DayNoteItem>,
+    /// 隐藏笔记要解锁才能看，只报数量，免得热力图上的字数对不上又找不到原因
+    pub hidden_count: usize,
 }
 
 // ─── 文档模板 ─────────────────────────────────
@@ -1772,6 +1850,10 @@ pub struct ManifestEntry {
     /// 文档类型："markdown" / "whiteboard"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note_type: Option<String>,
+    /// 笔记创建时间（notes.created_at）。拉取端新建笔记时照抄，否则对端看到的创建时间
+    /// 全是「第一次同步那一刻」。不参与 content_hash，也不参与新旧判断。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
 }
 
 /// V1 同步顶层携带的 vault 元数据。
@@ -2978,6 +3060,9 @@ pub struct TaskManifestEntry {
     pub repeat_count: Option<i32>,
     #[serde(default)]
     pub tombstone: bool,
+    /// 截止前多少分钟提醒（None = 不提醒）。提醒时间是任务属性，随同步传递。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remind_before_minutes: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

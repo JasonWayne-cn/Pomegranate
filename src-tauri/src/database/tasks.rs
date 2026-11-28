@@ -1310,8 +1310,8 @@ impl super::Database {
     /// 同步 pull 端用：按 local_id 把任务全字段对齐远端 entry，updated_at 用远端值
     /// （避免双端 push/pull 互相 bump 引起震荡）。
     ///
-    /// 不跨端字段保持本地原样：reminded_at / repeat_done_count /
-    /// remind_before_minutes / source_batch_id（不在 SET 列表里）。
+    /// 不跨端字段保持本地原样：reminded_at / repeat_done_count / source_batch_id
+    /// （remind_before_minutes 单独由 apply_synced_task_reminder 处理）。
     #[allow(dead_code)]
     pub fn update_task_synced(
         &self,
@@ -1372,6 +1372,38 @@ impl super::Database {
                 local_id,
             ],
         )?;
+        Ok(())
+    }
+
+    /// 同步 pull 写入提前量，并按新的提醒时刻重置本地「已提醒」标记。
+    ///
+    /// - 提醒时刻还没到 → 清掉 reminded_at
+    /// - 已经过了 → 记为已提醒，避免升级后第一次同步把一批过期老任务一口气全弹出来
+    ///
+    /// 不碰 updated_at（被动接收）。
+    pub fn apply_synced_task_reminder(
+        &self,
+        local_id: i64,
+        remind_before_minutes: Option<i32>,
+        all_day_base_time: &str,
+    ) -> Result<(), AppError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AppError::Custom(e.to_string()))?;
+        conn.execute(
+            "UPDATE tasks SET remind_before_minutes = ?1 WHERE id = ?2",
+            params![remind_before_minutes, local_id],
+        )?;
+        let sql = format!(
+            "UPDATE tasks
+             SET reminded_at = CASE
+                 WHEN {REMIND_AT_SQL} <= datetime('now','localtime')
+                 THEN COALESCE(reminded_at, datetime('now','localtime'))
+                 ELSE NULL END
+             WHERE id = ?2 AND status = 0 AND is_deleted = 0 AND {REMINDABLE_SQL}"
+        );
+        conn.execute(&sql, params![all_day_base_time, local_id])?;
         Ok(())
     }
 }

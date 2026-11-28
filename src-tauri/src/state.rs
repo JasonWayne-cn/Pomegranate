@@ -69,8 +69,12 @@ pub struct AppState {
     pub claude_agent_processes: Arc<Mutex<std::collections::HashMap<String, AgentProcessHandle>>>,
     /// PPT 扩展作业取消标志（job_id → cancel flag）
     pub ppt_job_cancel: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
+    /// PPT 扩展作业暂停标志（job_id → pause flag）；在页块边界生效
+    pub ppt_job_pause: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
     /// PPT 大纲规划取消标志（planning_id → cancel flag）
     pub ppt_plan_cancel: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
+    /// PPT 大纲规划暂停标志（planning_id → pause flag）；在阶段/分块边界生效
+    pub ppt_plan_pause: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
 }
 
 /// [`AppState::pause_mcp_http`] 的返回值；移动端没有 HTTP MCP，恒为 None
@@ -173,7 +177,9 @@ impl AppState {
             plugin_rate_limiter: PluginRateLimiter::new(),
             claude_agent_processes: Arc::new(Mutex::new(std::collections::HashMap::new())),
             ppt_job_cancel: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            ppt_job_pause: Arc::new(Mutex::new(std::collections::HashMap::new())),
             ppt_plan_cancel: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            ppt_plan_pause: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 }

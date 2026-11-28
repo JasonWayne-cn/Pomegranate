@@ -24,7 +24,6 @@ import {
   Select,
   Skeleton,
   Space,
-  Steps,
   Switch,
   Table,
   Tag,
@@ -39,12 +38,20 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   ArrowDown,
   ArrowUp,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
   Download,
+  Eye,
   FilePlus2,
   FileText,
-  FileUp,
   FolderOpen,
   History,
+  Info,
+  Loader2,
+  Minus,
+  Pause,
+  Play,
   Plus,
   RotateCcw,
   Square,
@@ -62,7 +69,6 @@ import {
 } from "@/lib/pptPlan";
 import { layoutDescription, layoutDisplayName } from "@/lib/pptLayouts";
 import { chartDescription, chartDisplayName } from "@/lib/pptCharts";
-import { canReuseDraft, canReuseExport } from "@/lib/pptFlow";
 import { loadLastExportDir, saveLastExportDir } from "@/lib/pptPrefs";
 import type { Folder, Note } from "@/types";
 import type {
@@ -74,14 +80,18 @@ import type {
   PptLocalFileSource,
   PptLogEvent,
   PptDraftGenerationMode,
+  PptDraftKind,
   PptDraftPageEvent,
+  PptDraftStatus,
   PptMetaSource,
   PptPageCandidatesResponse,
   PptPageRegenEvent,
   PptPageSelection,
   PptPlan,
   PptPlanProgressEvent,
+  PptPlanSnapshotEvent,
   PptSlide,
+  PptSourceMeta,
 } from "@/types/extension";
 import type { PptTemplateCatalog } from "@/types/pptTemplate";
 
@@ -132,30 +142,289 @@ function jobStatusTag(status: string, stage?: string) {
   return <Tag color={meta.color}>{meta.label}</Tag>;
 }
 
-function stepForStage(stage?: string): number {
-  switch (stage) {
-    case "style":
-      return 1;
-    case "outline_ready":
-      return 2;
-    case "rendering_draft":
-    case "draft_ready":
-      return 3;
-    case "exporting":
-    case "done":
-      return 4;
-    default:
-      return 2;
-  }
+const PPT_STEP_TITLES = [
+  "设置与素材",
+  "制定大纲",
+  "效果与模板",
+  "草稿预览",
+  "导出",
+] as const;
+
+/** 每个步骤的静态说明。短句常显，长说明进标题旁的 ⓘ 悬停提示。 */
+const PPT_STEP_META = [
+  {
+    short: "选择文档并填写生成要求",
+    tip: "选择文档或添加本地文件作为素材，可补充正文素材与生成要求。确认后进入下一步生成大纲。",
+  },
+  {
+    short: "编辑标题、要点与页序",
+    tip: "AI 逐页扩展出大纲；左侧选择页面，右侧编辑标题、核心信息与要点。此步不渲染页面，模板与效果在下一步查看。",
+  },
+  {
+    short: "选模板并程序化预览",
+    tip: "左侧选择版式模板与中性样式，右侧用「模板生成预览」快速查看效果。预览只写入 svg_preview，不会覆盖正式草稿。",
+  },
+  {
+    short: "AI 生成并确认正式草稿",
+    tip: "进入本步骤不会自动生成。选择单候选或三候选后点击「生成预览」，按所选模板与效果逐页渲染，确认后进入导出。",
+  },
+  {
+    short: "导出可编辑 PPTX",
+    tip: "确认正式草稿后选择导出目录并导出 PPTX；导出只读取正式草稿，不含模板预览页。",
+  },
+] as const;
+
+/** 单页大纲签名：只比较影响预览的内容。 */
+function slideSignature(slide: PptSlide): string {
+  return JSON.stringify({
+    page: slide.page,
+    title: slide.title,
+    coreMessage: slide.coreMessage,
+    bullets: slide.bullets,
+    chart: slide.chart ?? null,
+  });
 }
 
-const PPT_STEP_TITLES = [
-  "素材与设置",
-  "风格确认",
-  "大纲确认",
-  "草稿修改",
-  "最终导出",
-] as const;
+/** 保存/载入时的每页签名基线。 */
+function planBaselineOf(plan: PptPlan | null): Map<number, string> | null {
+  if (!plan) return null;
+  return new Map(plan.slides.map((slide) => [slide.page, slideSignature(slide)]));
+}
+
+/** 把评分扣分项翻译成可执行的修改建议。 */
+function scoreSuggestion(issue: string): string {
+  if (issue.startsWith("未覆盖 evidence")) {
+    return "在页面文字中加入大纲 evidence 的关键短句或数字。";
+  }
+  if (issue.startsWith("evidence 覆盖不足")) {
+    return "补充更多 evidence 中的关键事实/数据，建议至少覆盖一半。";
+  }
+  if (issue.includes("结构过于相似")) {
+    return "更换版式结构（时间轴/左右对比/卡片等）或调整视觉重心。";
+  }
+  if (issue.startsWith("文本泄漏")) {
+    return "删除页面中不应出现的内部术语或占位文本。";
+  }
+  if (issue.includes("过于简单")) {
+    return "增加内容层级、要点或图形元素，避免页面过空。";
+  }
+  if (issue.includes("颜色不在 spec_lock")) {
+    return "改用模板规范色板，减少自定义颜色。";
+  }
+  if (issue.includes("字号越界")) {
+    return "将字号调整到 10–72 范围，保持层级清晰。";
+  }
+  return "按提示调整内容或结构后点击「重新生成此页」。";
+}
+
+function StepTitle({
+  title,
+  short,
+  tip,
+}: {
+  title: string;
+  short?: string;
+  tip?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5">
+        <span className="truncate">{title}</span>
+        {tip && (
+          <Tooltip title={tip} placement="bottomLeft" mouseEnterDelay={0.15}>
+            <Info
+              size={14}
+              tabIndex={0}
+              aria-label="步骤说明"
+              className="shrink-0 cursor-help text-slate-400 outline-none"
+            />
+          </Tooltip>
+        )}
+      </div>
+      {short && (
+        <div className="mt-0.5 text-xs font-normal text-slate-500">{short}</div>
+      )}
+    </div>
+  );
+}
+
+/** 当前作业持久化键：离开页面后重新进入可继续上次流程 */
+const PPT_ACTIVE_JOB_KEY = "ppt.activeJobId";
+
+/** 从草稿文件名解析页码，草稿未生成时也能定位对应文案页。 */
+function pageFromDraftFile(file: string | null): number | null {
+  if (!file) return null;
+  const match = /P(\d+)\.svg$/i.exec(file);
+  return match ? Number(match[1]) : null;
+}
+
+interface StepRailItem {
+  title: string;
+  description: string;
+  tip?: string;
+  disabled?: boolean;
+}
+
+/** 右侧竖向步骤导航：状态、摘要与直接跳转都在这里。 */
+/** 每页标题行右侧的 AI 模型选择。 */
+function ModelPicker({
+  models,
+  value,
+  onChange,
+  disabled,
+}: {
+  models: { id: number; name: string }[];
+  value: number | undefined;
+  onChange: (value: number | undefined) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <span className="flex items-center gap-1 text-xs text-slate-500">
+      AI 模型
+      <Select
+        size="small"
+        allowClear
+        placeholder="默认"
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        options={models.map((model) => ({
+          value: model.id,
+          label: model.name,
+        }))}
+        className="w-40"
+      />
+    </span>
+  );
+}
+
+/** 表单字段标签 + 悬停说明。 */
+function FieldLabel({ label, tip }: { label: string; tip?: string }) {
+  return (
+    <span className="mb-1 flex items-center gap-1 text-sm">
+      {label}
+      {tip && (
+        <Tooltip title={tip} placement="topLeft" mouseEnterDelay={0.15}>
+          <Info
+            size={13}
+            tabIndex={0}
+            aria-label={`${label}说明`}
+            className="cursor-help text-slate-400 outline-none"
+          />
+        </Tooltip>
+      )}
+    </span>
+  );
+}
+
+function StepRail({
+  items,
+  current,
+  viewStep,
+  onSelect,
+  onNewJob,
+  onOpenHistory,
+  recentJobs,
+  currentJobId,
+  onOpenJob,
+}: {
+  items: StepRailItem[];
+  current: number;
+  viewStep: number;
+  onSelect: (index: number) => void;
+  onNewJob: () => void;
+  onOpenHistory: () => void;
+  recentJobs: PptJob[];
+  currentJobId?: string;
+  onOpenJob: (job: PptJob) => void;
+}) {
+  return (
+    <aside className="flex h-full w-14 shrink-0 flex-col gap-1.5 overflow-y-auto border-l border-slate-200 bg-white/70 px-2 py-3 xl:w-44">
+      <button
+        type="button"
+        title="新建PPT作业"
+        onClick={onNewJob}
+        className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-left text-sm text-blue-600 transition hover:border-blue-300"
+      >
+        <Plus size={16} className="shrink-0" />
+        <span className="hidden truncate xl:block">新建PPT作业</span>
+      </button>
+      <button
+        type="button"
+        title="历史PPT作业"
+        onClick={onOpenHistory}
+        className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-2 text-left text-sm text-slate-600 transition hover:border-blue-300 hover:text-blue-600"
+      >
+        <History size={16} className="shrink-0" />
+        <span className="hidden truncate xl:block">历史PPT作业</span>
+      </button>
+      {recentJobs.length > 0 && (
+        <div className="mb-1 hidden flex-col gap-0.5 xl:flex">
+          {recentJobs.map((record) => (
+            <button
+              key={record.id}
+              type="button"
+              title={record.title}
+              onClick={() => onOpenJob(record)}
+              className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition hover:bg-slate-50 ${
+                record.id === currentJobId ? "bg-blue-50 text-blue-600" : ""
+              }`}
+            >
+              <FileText size={12} className="shrink-0 text-slate-400" />
+              <span className="truncate text-slate-600">{record.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="mb-0.5 mt-3 hidden border-t border-slate-200 px-2 pt-2 text-xs font-medium text-slate-400 xl:block">
+        PPT制作流程
+      </div>
+      <div className="mx-1 my-1 border-t border-slate-200 xl:hidden" />
+      {items.map((item, index) => {
+        const done = index < current;
+        const isCurrent = index === current;
+        const viewing = index === viewStep;
+        return (
+          <button
+            key={item.title}
+            type="button"
+            title={item.title}
+            aria-current={isCurrent ? "step" : undefined}
+            onClick={() => onSelect(index)}
+            className={`flex items-center gap-2 rounded-lg px-2 py-2 text-left transition ${
+              viewing
+                ? "bg-blue-50 ring-1 ring-blue-200"
+                : "hover:bg-slate-50"
+            }`}
+          >
+            <span
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium ${
+                done
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                  : isCurrent
+                    ? "border-blue-500 bg-blue-500 text-white"
+                    : "border-slate-200 bg-white text-slate-400"
+              }`}
+            >
+              {done ? <CheckCircle2 size={14} /> : index + 1}
+            </span>
+            <span className="hidden min-w-0 flex-1 xl:block">
+              <span className="flex items-center gap-1 text-sm font-medium text-slate-700">
+                <span className="truncate">{item.title}</span>
+                {viewing && !isCurrent && (
+                  <Eye size={12} className="shrink-0 text-blue-500" />
+                )}
+              </span>
+              <span className="line-clamp-2 text-xs leading-4 text-slate-500">
+                {item.description}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </aside>
+  );
+}
 
 function StepPreviewPlaceholder({
   step,
@@ -169,28 +438,20 @@ function StepPreviewPlaceholder({
   return (
     <Card
       className="mt-4"
-      title={`${PPT_STEP_TITLES[step]} · 预览`}
+      title={<StepTitle title={`${PPT_STEP_TITLES[step]} · 预览`} short={description} />}
       extra={<Tag color="blue">尚未开始</Tag>}
     >
-      <Space direction="vertical" size="middle" className="w-full">
-        <Alert
-          type="info"
-          showIcon
-          message={`第 ${step + 1} 步尚未开始，以下是该步骤的页面结构预览`}
-          description={description}
-        />
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          {hints.map((hint) => (
-            <div
-              key={hint}
-              className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-600"
-            >
-              {hint}
-            </div>
-          ))}
-        </div>
-        <Skeleton active title={false} paragraph={{ rows: 5 }} />
-      </Space>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {hints.map((hint) => (
+          <div
+            key={hint}
+            className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-600"
+          >
+            {hint}
+          </div>
+        ))}
+      </div>
+      <Skeleton active title={false} paragraph={{ rows: 4 }} />
     </Card>
   );
 }
@@ -232,6 +493,13 @@ export default function PptPage() {
 
   // 本地文件素材（只保存路径/标题，正文在创建作业时由后端提取一次）
   const [localSources, setLocalSources] = useState<PptLocalFileSource[]>([]);
+  /** 打开历史作业时从 source_manifest.json 恢复的素材（只读展示） */
+  const [restoredSources, setRestoredSources] = useState<PptSourceMeta[]>([]);
+  /** 素材理解（understanding.md） */
+  const [understanding, setUnderstanding] = useState("");
+  const [understandingLoading, setUnderstandingLoading] = useState(false);
+  /** 补充素材文件 manual.md 的路径（存在时显示查看链接） */
+  const [manualPath, setManualPath] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [audience, setAudience] = useState("");
@@ -257,6 +525,8 @@ export default function PptPage() {
   const [slideCount, setSlideCount] = useState<number | undefined>();
   const [planDirty, setPlanDirty] = useState(false);
   const [styleDirty, setStyleDirty] = useState(false);
+  /** 后端按页级指纹判定的草稿状态；用于导出前置校验。 */
+  const [draftStatus, setDraftStatus] = useState<PptDraftStatus | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [job, setJob] = useState<PptJob | null>(null);
   const [engineProgress, setEngineProgress] = useState(0);
@@ -272,9 +542,14 @@ export default function PptPage() {
   const [layoutPreviews, setLayoutPreviews] = useState<Record<string, string>>({});
   const [previewFailed, setPreviewFailed] = useState<Record<string, true>>({});
   const previewLoaded = useRef<Set<string>>(new Set());
-  const [draftPages, setDraftPages] = useState<PptDraftPage[]>([]);
   const [draftSvgs, setDraftSvgs] = useState<Record<string, string>>({});
   const [draftLoading, setDraftLoading] = useState(false);
+  // 步骤三模板预览（svg_preview），与正式草稿状态分离。
+  const [previewPages, setPreviewPages] = useState<PptDraftPage[]>([]);
+  const [previewSvgs, setPreviewSvgs] = useState<Record<string, string>>({});
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewSelectedFile, setPreviewSelectedFile] = useState<string | null>(null);
+  const [previewStale, setPreviewStale] = useState(false);
   const [pageSelection, setPageSelection] = useState<PptPageSelection | null>(null);
   const [pageCandidates, setPageCandidates] =
     useState<PptPageCandidatesResponse | null>(null);
@@ -282,14 +557,37 @@ export default function PptPage() {
   const [regenPage, setRegenPage] = useState<number | null>(null);
   const [regenPromptPage, setRegenPromptPage] = useState<number | null>(null);
   const [regenInstruction, setRegenInstruction] = useState("");
+  /** 草稿预览页内联提示词（按当前选中页） */
+  const [inlineRegenText, setInlineRegenText] = useState("");
   const [regenProgress, setRegenProgress] = useState<PptPageRegenEvent | null>(null);
   const [selectedDraftFile, setSelectedDraftFile] = useState<string | null>(null);
   const [planProgress, setPlanProgress] = useState<PptPlanProgressEvent | null>(null);
+  /** 大纲生成日志（仅 planning 阶段） */
+  const [planLogs, setPlanLogs] = useState<string[]>([]);
+  /** 素材处理日志（material / understanding 阶段） */
+  const [materialLogs, setMaterialLogs] = useState<string[]>([]);
+  /** 规划中的大纲快照：标题清单/逐页扩展，实时喂给左侧列表 */
+  const [planningSlides, setPlanningSlides] = useState<PptSlide[]>([]);
+  const [planningPaused, setPlanningPaused] = useState(false);
   const [draftProgress, setDraftProgress] = useState<PptDraftPageEvent | null>(null);
   const [draftDoneCount, setDraftDoneCount] = useState(0);
-  const [draftMode, setDraftMode] =
-    useState<PptDraftGenerationMode>("programmatic");
+  // 正式生成方式（正式草稿预览步骤）：快速预览固定使用程序化排版
+  const [formalMode, setFormalMode] =
+    useState<PptDraftGenerationMode>("oneShot");
+  // 当前草稿是否已按模板/正式效果渲染，用于区分「快速预览草稿」与「正式草稿」
+  const [formalized, setFormalized] = useState(false);
+  // 用户是否暂停了本轮 AI 草稿生成（后端在页块边界生效）
+  const [paused, setPaused] = useState(false);
+  const renderPurposeRef = useRef<"preview" | "formal" | null>(null);
+  /** 正在进行中的渲染产物类别，用于 done 事件分流。 */
+  const renderKindRef = useRef<PptDraftKind>("formal");
+  /** 已自动加载过模板预览的作业 id，避免 effect 循环触发。 */
+  const previewAutoLoadedJob = useRef<string | null>(null);
+  /** 最近一次保存/加载的每页大纲签名，用于内容级脏检测。 */
+  const planBaselineRef = useRef<Map<number, string> | null>(null);
   const draftDonePages = useRef<Set<number>>(new Set());
+  /** 只在首次挂载时恢复上次作业，避免重复触发 */
+  const restoredActiveJob = useRef(false);
 
   const folderName = useMemo(() => {
     const map = new Map<number, string>();
@@ -322,6 +620,90 @@ export default function PptPage() {
       })
       .catch(() => undefined);
   }, [loadStatus]);
+
+  // 记住当前作业：离开页面后重新进入可以恢复上次流程
+  useEffect(() => {
+    if (!job?.id) return;
+    try {
+      localStorage.setItem(PPT_ACTIVE_JOB_KEY, job.id);
+    } catch {
+      // localStorage 不可用时忽略
+    }
+  }, [job?.id]);
+
+  // 重新进入页面：恢复上次作业；若任务仍在后台运行或已暂停，界面直接接上
+  useEffect(() => {
+    if (restoredActiveJob.current) return;
+    restoredActiveJob.current = true;
+    let activeId: string | null = null;
+    try {
+      activeId = localStorage.getItem(PPT_ACTIVE_JOB_KEY);
+    } catch {
+      activeId = null;
+    }
+    if (!activeId) return;
+    void (async () => {
+      try {
+        // listJobs 会顺手回收超时无进展的 running 作业；
+        // recoverJob 再判断当前进程是否真的还有生成循环，没有就标记中断失败
+        const jobs = await pptExtensionApi
+          .listJobs(30)
+          .catch(() => [] as PptJob[]);
+        const recovered = await pptExtensionApi
+          .recoverJob(activeId)
+          .catch(() => null);
+        const record =
+          recovered ??
+          jobs.find((item) => item.id === activeId) ??
+          (await pptExtensionApi.getJob(activeId));
+        if (!record) {
+          try {
+            localStorage.removeItem(PPT_ACTIVE_JOB_KEY);
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        await resumeJob(record);
+        if (record.status === "running") {
+          setRunning(true);
+          const isPaused = await pptExtensionApi
+            .jobPaused(activeId)
+            .catch(() => false);
+          setPaused(isPaused);
+        }
+      } catch {
+        // 恢复失败不阻塞新开作业
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 生成中健康检查：若 Rust 侧生成循环已消失（应用重启/强杀），把界面从
+  // 「永远卡在 5% 且没有日志」的假运行状态里拉回来，标记为中断。
+  useEffect(() => {
+    if (!running || !job?.id) return;
+    const timer = setInterval(() => {
+      void (async () => {
+        try {
+          const fresh = await pptExtensionApi.recoverJob(job.id);
+          if (
+            fresh &&
+            fresh.status === "failed" &&
+            fresh.errorCode === "interrupted"
+          ) {
+            setJob(fresh);
+            setRunning(false);
+            setPaused(false);
+            message.error("生成进程已中断（应用可能已重启），请点击重试或重新生成");
+          }
+        } catch {
+          // 查询失败不打断当前界面
+        }
+      })();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [running, job?.id, message]);
 
   useEffect(() => {
     const handler = () => {
@@ -403,31 +785,70 @@ export default function PptPage() {
     };
   }, [catalog, layoutKey, status?.installed, status?.enabled]);
 
-  const loadDraft = useCallback(async (jobId: string) => {
+  const refreshDraftStatus = useCallback(async (jobId: string) => {
+    try {
+      setDraftStatus(await pptExtensionApi.draftStatus(jobId));
+    } catch {
+      setDraftStatus(null);
+    }
+  }, []);
+
+  const loadDraft = useCallback(async (jobId: string, kind: PptDraftKind = "formal") => {
     setDraftLoading(true);
     try {
-      const pages = await pptExtensionApi.listDraftPages(jobId);
-      setDraftPages(pages);
+      const pages = await pptExtensionApi.listDraftPages(jobId, kind);
+      // 重新进入/续跑时：已落盘的页数就是当前完成数
+      setDraftDoneCount(pages.length);
       const entries = await Promise.all(
         pages.map(
           async (page) =>
-            [page.file, await pptExtensionApi.readDraftPage(jobId, page.file)] as const,
+            [page.file, await pptExtensionApi.readDraftPage(jobId, page.file, kind)] as const,
         ),
       );
       const map = Object.fromEntries(entries);
       setDraftSvgs(map);
-      try {
-        setPageSelection(await pptExtensionApi.getPageSelection(jobId));
-      } catch {
-        setPageSelection(null);
+      if (kind === "formal") {
+        try {
+          setPageSelection(await pptExtensionApi.getPageSelection(jobId));
+        } catch {
+          setPageSelection(null);
+        }
       }
       setSelectedDraftFile((current) =>
         current && map[current] ? current : pages[0]?.file ?? null,
       );
+      if (kind === "formal") {
+        void refreshDraftStatus(jobId);
+      }
     } catch (e) {
       message.error(`加载草稿失败：${String(e)}`);
     } finally {
       setDraftLoading(false);
+    }
+  }, [refreshDraftStatus]);
+
+  /** 加载步骤三的模板预览页（svg_preview）。 */
+  const loadPreview = useCallback(async (jobId: string) => {
+    setPreviewLoading(true);
+    try {
+      const pages = await pptExtensionApi.listDraftPages(jobId, "preview");
+      const entries = await Promise.all(
+        pages.map(
+          async (page) =>
+            [page.file, await pptExtensionApi.readDraftPage(jobId, page.file, "preview")] as const,
+        ),
+      );
+      const map = Object.fromEntries(entries);
+      setPreviewPages(pages);
+      setPreviewSvgs(map);
+      setPreviewSelectedFile((current) =>
+        current && map[current] ? current : pages[0]?.file ?? null,
+      );
+      setPreviewStale(false);
+    } catch (e) {
+      message.error(`加载模板预览失败：${String(e)}`);
+    } finally {
+      setPreviewLoading(false);
     }
   }, []);
 
@@ -577,6 +998,29 @@ export default function PptPage() {
           );
         }),
       );
+      // 大纲规划独立日志：快速预览页单独展示
+      register(
+        await listen<PptLogEvent>("ppt-extension://plan-log", (event) => {
+          const append = (prev: string[]) => {
+            const next = [...prev, event.payload.line];
+            return next.length > 300 ? next.slice(next.length - 300) : next;
+          };
+          if (event.payload.phase === "planning") {
+            setPlanLogs(append);
+          } else {
+            setMaterialLogs(append);
+          }
+        }),
+      );
+      // 大纲快照：标题清单/逐页扩展实时刷新左侧列表
+      register(
+        await listen<PptPlanSnapshotEvent>(
+          "ppt-extension://plan-snapshot",
+          (event) => {
+            setPlanningSlides(event.payload.slides as PptSlide[]);
+          },
+        ),
+      );
       const onJobEvent = (event: { payload: PptJobEvent }) => {
         const payload = event.payload;
         if (payload.job) {
@@ -596,23 +1040,50 @@ export default function PptPage() {
           setRunning(true);
           return;
         }
+        if (payload.status === "paused") {
+          // 已暂停：释放 UI 锁，允许切换步骤、修改生成方式/模型后继续。
+          setRunning(false);
+          setDraftLoading(false);
+          setPreviewLoading(false);
+          setPaused(true);
+          renderPurposeRef.current = null;
+          message.info("已暂停：已完成页面已保存，可修改生成方式/模型后继续");
+          if (payload.job?.id) void loadDraft(payload.job.id, "formal");
+          return;
+        }
         if (["succeeded", "failed", "cancelled"].includes(payload.status)) {
           setRunning(false);
+          setPaused(false);
+          setDraftLoading(false);
+          setPreviewLoading(false);
+          const kind = payload.kind ?? renderKindRef.current;
           if (payload.status === "succeeded") {
             setEngineProgress(100);
             setPlanDirty(false);
             setStyleDirty(false);
             const stage = payload.job?.stage ?? payload.stage;
             const jobId = payload.job?.id;
+            if (kind === "preview") {
+              // 模板预览不推进流程，也不改正式草稿状态。
+              message.success("模板预览已生成");
+              if (jobId) void loadPreview(jobId);
+              return;
+            }
             if (stage === "draft_ready") {
-              message.success("草稿已生成，可预览和修改");
+              renderPurposeRef.current = null;
+              setFormalized(true);
+              message.success("正式 PPT 已生成，可预览后导出");
+              // 正式草稿预览是独立步骤
               setStep(3);
-              if (jobId) void loadDraft(jobId);
+              if (jobId) void loadDraft(jobId, "formal");
             } else {
+              setFormalized(true);
               message.success("PPT 导出完成");
               setStep(4);
+              if (jobId) void refreshDraftStatus(jobId);
             }
           } else {
+            renderPurposeRef.current = null;
             message.error(
               payload.job?.errorMessage ??
                 (payload.status === "cancelled" ? "已取消生成" : "PPT 生成失败"),
@@ -640,13 +1111,6 @@ export default function PptPage() {
             void (async () => {
               try {
                 const svg = await pptExtensionApi.readDraftPage(payload.jobId, file);
-                setDraftPages((prev) => {
-                  if (prev.some((item) => item.file === file)) return prev;
-                  return [
-                    ...prev,
-                    { file, page: payload.page, title: `P${payload.page}` },
-                  ].sort((left, right) => left.page - right.page);
-                });
                 setDraftSvgs((prev) => ({ ...prev, [file]: svg }));
                 setSelectedDraftFile((current) => current ?? file);
               } catch {
@@ -679,6 +1143,19 @@ export default function PptPage() {
     (sum, note) => sum + (note.word_count || note.content.length),
     0,
   );
+  // 历史作业：没有新的临时选择时，展示从 source_manifest 恢复的原始素材
+  const showRestoredSources =
+    !!job &&
+    selectedNotes.length === 0 &&
+    localSources.length === 0 &&
+    restoredSources.length > 0;
+  const restoredSourceChars = showRestoredSources
+    ? restoredSources.reduce((sum, source) => sum + (source.wordCount ?? 0), 0)
+    : 0;
+  const displaySelectedCount =
+    selectedCount +
+    (showRestoredSources ? restoredSources.length : 0) +
+    (job && selectedCount === 0 && manualPath ? 1 : 0);
   const progressPercent = running
     ? Math.max(5, Math.min(95, engineProgress || 5))
     : job?.status === "succeeded"
@@ -691,6 +1168,19 @@ export default function PptPage() {
   );
 
   function addNoteSource(note: Note) {
+    if (job) {
+      // 已存在作业：直接追加到作业素材并持久化。
+      void (async () => {
+        try {
+          await pptExtensionApi.appendJobSources(job.id, [note.id], []);
+          await refreshJobSources(job.id);
+          message.success(`已加入作业：${note.title || "无标题"}`);
+        } catch (e) {
+          message.error(`添加素材失败：${String(e)}`);
+        }
+      })();
+      return;
+    }
     if (selectedNoteIds.has(note.id)) return;
     const next = [...selectedNotesRef.current, note];
     selectedNotesRef.current = next;
@@ -738,18 +1228,39 @@ export default function PptPage() {
     }
     if (!selected) return;
     const paths = Array.isArray(selected) ? selected : [selected];
-    const existing = new Set(
-      localSourcesRef.current.map((source) => source.path),
-    );
+    const existing = new Set([
+      ...localSourcesRef.current.map((source) => source.path),
+      ...restoredSources
+        .map((source) => source.path)
+        .filter((value): value is string => !!value),
+    ]);
     const added = paths
       .filter((path) => !existing.has(path))
       .map(localFileSource);
-    if (added.length > 0) {
-      const next = [...localSourcesRef.current, ...added];
-      localSourcesRef.current = next;
-      setLocalSources(next);
-      requestMetaSuggestion(selectedNotesRef.current, next);
+    if (added.length === 0) return;
+    if (job) {
+      // 已存在作业：直接追加本地文件到作业素材。
+      try {
+        await pptExtensionApi.appendJobSources(
+          job.id,
+          [],
+          added.map((item) => ({
+            path: item.path,
+            title: item.title,
+            sourceType: item.sourceType,
+          })),
+        );
+        await refreshJobSources(job.id);
+        message.success(`已加入 ${added.length} 个本地文件`);
+      } catch (e) {
+        message.error(`添加本地文件失败：${String(e)}`);
+      }
+      return;
     }
+    const next = [...localSourcesRef.current, ...added];
+    localSourcesRef.current = next;
+    setLocalSources(next);
+    requestMetaSuggestion(selectedNotesRef.current, next);
   }
 
   async function pickExportDir() {
@@ -778,30 +1289,43 @@ export default function PptPage() {
       return true;
     }
     if (selectedCount === 0 && !manualText.trim()) {
-      message.warning("请至少添加一个文档/本地文件，或填写补充材料");
+      message.warning("请至少添加一个文档/本地文件，或填写补充素材");
       return false;
     }
     return true;
   }
 
-  function goToStyle() {
-    if (!validateSources()) return;
-    setStep(1);
-  }
-
   async function handleGenerate() {
+    // 历史作业的素材已固化在 source.md，不能再走 createJob（否则没有可用正文）。
+    // 这里改为“用现有素材重新生成大纲”。
+    if (job) {
+      await handleRegenerateOutline();
+      return;
+    }
     if (!validateSources()) return;
     setCreating(true);
     setLogs([]);
+    setPlanLogs([]);
+    setMaterialLogs([]);
+    setPlanningSlides([]);
+    setPlanningPaused(false);
+    setPlanProgress(null);
+    // 立即进入快速预览步骤，边生成大纲边展示日志与页面标题
+    setStep(1);
     setJob(null);
     setPlan(null);
-    setDraftPages([]);
+    planBaselineRef.current = null;
+    setRestoredSources([]);
     setDraftSvgs({});
     setSelectedDraftFile(null);
     setEngineProgress(0);
-    setSlideCount(undefined);
     setPlanDirty(false);
     setStyleDirty(false);
+    setFormalized(false);
+    // 新作业从快速预览开始，模板与图表效果留到「效果与模板」步骤再选
+    setLayoutId(undefined);
+    setChartIds([]);
+    setNativeCharts(false);
     const requestId = newPlanningId();
     setPlanningId(requestId);
     try {
@@ -817,47 +1341,96 @@ export default function PptPage() {
         title: title.trim(),
         audience,
         slideCount: slideCount ?? null,
-        layoutId: layoutId ?? null,
-        chartIds,
+        layoutId: null,
+        chartIds: [],
         language,
         extraRequirements: extraRequirements.trim() || null,
         exportDir,
         modelId: modelId ?? null,
         planningId: requestId,
-        nativeCharts,
+        nativeCharts: false,
       });
       setJob(created);
       const nextPlan = await pptExtensionApi.getPlan(created.id);
-      setPlan(nextPlan);
+      applySavedPlan(nextPlan);
+      setPlanningSlides([]);
       setPlanDirty(false);
       setStyleDirty(false);
-      setStep(2);
-      message.success("大纲已生成，请确认或编辑后生成草稿");
+      // 作业创建后素材以作业清单为准，清空临时选择并读取清单/理解。
+      setRestoredSources(
+        await pptExtensionApi.jobSources(created.id).catch(() => []),
+      );
+      selectedNotesRef.current = [];
+      localSourcesRef.current = [];
+      setSelectedNotes([]);
+      setLocalSources([]);
+      setManualText("");
+      pptExtensionApi
+        .readUnderstanding(created.id)
+        .then(setUnderstanding)
+        .catch(() => undefined);
+      message.success("文案大纲已生成，请确认并编辑后进入下一步");
+      setStep(1);
+      void loadHistory();
     } catch (e) {
       message.error(`生成大纲失败：${String(e)}`);
+      setStep(0);
     } finally {
       setCreating(false);
       setPlanningId(null);
+      setPlanningPaused(false);
+      setPlanProgress(null);
     }
   }
 
-  async function goToOutline() {
-    if (!job) {
-      void handleGenerate();
-      return;
-    }
-    if (plan) {
-      setStep(2);
-      return;
-    }
-    try {
-      const next = await pptExtensionApi.getPlan(job.id);
-      setPlan(next);
-      setPlanDirty(false);
-      setStep(2);
-    } catch {
-      void handleGenerate();
-    }
+  /** 启动正式草稿渲染（AI 单候选/三候选，或模板生成预览）。 */
+  function startDraftRender(jobId: string, mode: PptDraftGenerationMode) {
+    renderPurposeRef.current = "formal";
+    renderKindRef.current = "formal";
+    setRunning(true);
+    setPaused(false);
+    // 新一轮生成/续跑开始后，在完成前不再视为可导出的正式草稿。
+    setFormalized(false);
+    setLogs([]);
+    setEngineProgress(0);
+    setDraftSvgs({});
+    setSelectedDraftFile(null);
+    setPageCandidates(null);
+    setPageSelection(null);
+    draftDonePages.current = new Set();
+    setDraftDoneCount(0);
+    setDraftProgress(null);
+    setDraftLoading(true);
+    // 正式生成直接进入「正式草稿预览」步骤，边渲染边预览
+    setStep(3);
+    const effectiveCount = mode === "bestOf" ? 3 : 1;
+    void pptExtensionApi
+      .renderAiDraft(jobId, effectiveCount, mode)
+      .catch((error) => {
+        renderPurposeRef.current = null;
+        setRunning(false);
+        setDraftLoading(false);
+        message.error(`正式 PPT 生成失败：${String(error)}`);
+      });
+  }
+
+  /** 启动步骤三的模板预览（引擎确定性填充，写入 svg_preview）。 */
+  function startTemplatePreview(jobId: string) {
+    renderKindRef.current = "preview";
+    setPreviewLoading(true);
+    setRunning(true);
+    setLogs([]);
+    setEngineProgress(0);
+    setPreviewPages([]);
+    setPreviewSvgs({});
+    setPreviewSelectedFile(null);
+    void pptExtensionApi
+      .renderDraft(jobId, { kind: "preview" })
+      .catch((error) => {
+        setRunning(false);
+        setPreviewLoading(false);
+        message.error(`模板预览生成失败：${String(error)}`);
+      });
   }
 
   async function handleRegenerateOutline() {
@@ -869,7 +1442,14 @@ export default function PptPage() {
     setPlanningId(requestId);
     setRegenerating(true);
     setLogs([]);
+    setPlanLogs([]);
+    setMaterialLogs([]);
+    setPlanningSlides([]);
+    setPlanningPaused(false);
+    setPlanProgress(null);
     setEngineProgress(0);
+    // 无论从步骤 0 还是步骤 1 触发，都切到快速预览页展示日志与实时大纲
+    setStep(1);
     try {
       const next = await pptExtensionApi.regeneratePlan(
         job.id,
@@ -877,11 +1457,9 @@ export default function PptPage() {
         modelId ?? null,
         requestId,
       );
-      setPlan(next);
+      applySavedPlan(next);
+      setPlanningSlides([]);
       setPlanDirty(false);
-      setDraftPages([]);
-      setDraftSvgs({});
-      setSelectedDraftFile(null);
       setJob((prev) =>
         prev
           ? {
@@ -896,11 +1474,15 @@ export default function PptPage() {
           : prev,
       );
       message.success(`大纲已重新生成（${next.slides.length} 页）`);
+      setStep(1);
     } catch (e) {
+      setPlanningSlides([]);
       message.error(`重新生成大纲失败：${String(e)}`);
     } finally {
       setRegenerating(false);
       setPlanningId(null);
+      setPlanningPaused(false);
+      setPlanProgress(null);
     }
   }
 
@@ -908,120 +1490,122 @@ export default function PptPage() {
     if (!planningId) return;
     try {
       await pptExtensionApi.cancelPlanning(planningId);
+      setPlanningPaused(false);
       message.info("已请求取消大纲生成");
     } catch (e) {
       message.error(String(e));
     }
   }
 
-  async function handleRenderDraft() {
-    if (!job) return;
+  /** 暂停 / 继续大纲生成（后端在当前阶段/分块结束后停止推进） */
+  async function handleTogglePlanningPause() {
+    if (!planningId) return;
+    try {
+      if (planningPaused) {
+        await pptExtensionApi.resumePlanning(planningId);
+        setPlanningPaused(false);
+        message.success("已继续生成大纲");
+      } else {
+        await pptExtensionApi.pausePlanning(planningId);
+        setPlanningPaused(true);
+        message.info("已暂停：当前阶段完成后停止推进");
+      }
+    } catch (e) {
+      message.error(`操作失败：${String(e)}`);
+    }
+  }
+
+  /** 读取当前大纲并保存，返回可用于渲染的 plan。 */
+  async function saveCurrentPlan(): Promise<PptPlan | null> {
+    if (!job) return null;
     let currentPlan = plan;
     try {
       if (!currentPlan) {
         currentPlan = await pptExtensionApi.getPlan(job.id);
-        setPlan(currentPlan);
+        applySavedPlan(currentPlan);
       }
     } catch (e) {
       message.error(`读取大纲失败：${String(e)}`);
-      return;
+      return null;
     }
     if (!currentPlan?.slides.length) {
       message.warning("大纲至少需要 1 页");
-      return;
+      return null;
     }
-    setRunning(true);
-    setLogs([]);
-    setEngineProgress(0);
-    setDraftPages([]);
-    setDraftSvgs({});
-    setSelectedDraftFile(null);
+    try {
+      const normalized = await pptExtensionApi.updatePlan(job.id, currentPlan);
+      applySavedPlan(normalized);
+      setPlanDirty(false);
+      return normalized;
+    } catch (e) {
+      message.error(`保存大纲失败：${String(e)}`);
+      return null;
+    }
+  }
+
+  /** 模板预览：保存文案与模板选项后，用引擎确定性填充写入 svg_preview。 */
+  async function handleTemplatePreview() {
+    if (!job) return;
+    if (planDirty) {
+      const saved = await saveCurrentPlan();
+      if (!saved) return;
+      // 大纲变化后后端会清空正式草稿，同步重置前端正式状态。
+      setFormalized(false);
+      setDraftSvgs({});
+      setSelectedDraftFile(null);
+      setPageSelection(null);
+    }
+    if (styleDirty) {
+      try {
+        const updated = await pptExtensionApi.updateJobOptions(job.id, {
+          // 空字符串表示显式清空模板，null 会被后端视为“保持原值”
+          layoutId: layoutId ?? "",
+          chartIds,
+          nativeCharts,
+        });
+        setJob(updated);
+        setStyleDirty(false);
+        setFormalized(false);
+        setDraftSvgs({});
+        setSelectedDraftFile(null);
+        setPageSelection(null);
+      } catch (e) {
+        message.error(`保存模板设置失败：${String(e)}`);
+        return;
+      }
+    }
+    startTemplatePreview(job.id);
+  }
+
+  /** 正式生成/继续：应用模板、生成方式与模型，按所选效果渲染（暂停后复用已完成页）。 */
+  async function handleRenderFormal() {
+    if (!job) return;
+    // 仅文案有改动才保存；否则保存会清空已完成草稿，破坏暂停续跑。
+    if (planDirty) {
+      const saved = await saveCurrentPlan();
+      if (!saved) return;
+    }
     try {
       const updatedJob = await pptExtensionApi.updateJobOptions(job.id, {
-        layoutId: layoutId ?? null,
+        // 空字符串表示显式清空模板，null 会被后端视为“保持原值”
+        layoutId: layoutId ?? "",
         chartIds,
         nativeCharts,
+        modelId: modelId ?? null,
       });
       setJob(updatedJob);
-      const normalized = await pptExtensionApi.updatePlan(updatedJob.id, currentPlan);
-      setPlan(normalized);
-      setPlanDirty(false);
       setStyleDirty(false);
-      draftDonePages.current = new Set();
-      setDraftDoneCount(0);
-      setDraftProgress(null);
-      setDraftLoading(true);
-      setStep(3);
-      const effectiveCount = draftMode === "bestOf" ? 3 : 1;
-      void pptExtensionApi
-        .renderAiDraft(updatedJob.id, effectiveCount, draftMode)
-        .catch((error) => {
-        setRunning(false);
-        setDraftLoading(false);
-        message.error(`草稿生成失败：${String(error)}`);
-      });
+      // 模板变化时后端会清空 svg_preview，前端同步重置，避免回到步骤三看到旧图。
+      setPreviewPages([]);
+      setPreviewSvgs({});
+      setPreviewSelectedFile(null);
+      setPreviewStale(true);
+      // 草稿预览只走 AI 单候选/三候选，避免误用程序模板渲染。
+      const mode: PptDraftGenerationMode =
+        formalMode === "bestOf" ? "bestOf" : "oneShot";
+      startDraftRender(updatedJob.id, mode);
     } catch (e) {
-      setRunning(false);
-      message.error(`启动草稿渲染失败：${String(e)}`);
-    }
-  }
-
-  function goToDraft() {
-    if (reuseDraft) {
-      setStep(3);
-      if (job && draftPages.length === 0) void loadDraft(job.id);
-      return;
-    }
-    void handleRenderDraft();
-  }
-
-  function goToExport() {
-    if (reuseExport) {
-      setStep(4);
-      return;
-    }
-    if (planDirty || styleDirty) {
-      message.warning("内容或风格已修改，请先点击「重新生成草稿」");
-      return;
-    }
-    void handleExport();
-  }
-
-  async function handleRerenderDraft() {
-    if (!job || !plan) return;
-    setRunning(true);
-    setLogs([]);
-    setEngineProgress(0);
-    setDraftPages([]);
-    setDraftSvgs({});
-    setSelectedDraftFile(null);
-    try {
-      const updatedJob = await pptExtensionApi.updateJobOptions(job.id, {
-        layoutId: layoutId ?? null,
-        chartIds,
-        nativeCharts,
-      });
-      setJob(updatedJob);
-      const normalized = await pptExtensionApi.updatePlan(job.id, plan);
-      setPlan(normalized);
-      setPlanDirty(false);
-      setStyleDirty(false);
-      draftDonePages.current = new Set();
-      setDraftDoneCount(0);
-      setDraftProgress(null);
-      setDraftLoading(true);
-      setStep(3);
-      const effectiveCount = draftMode === "bestOf" ? 3 : 1;
-      void pptExtensionApi
-        .renderAiDraft(job.id, effectiveCount, draftMode)
-        .catch((error) => {
-        setRunning(false);
-        setDraftLoading(false);
-        message.error(`草稿生成失败：${String(error)}`);
-      });
-    } catch (e) {
-      setRunning(false);
-      message.error(`重新生成草稿失败：${String(e)}`);
+      message.error(`启动正式生成失败：${String(e)}`);
     }
   }
 
@@ -1057,13 +1641,6 @@ export default function PptPage() {
     window.addEventListener("mouseup", onUp);
   }
 
-  function openRegenPrompt(page: number) {
-    setRegenInstruction("");
-    setRegenProgress(null);
-    setRegenPromptPage(page);
-    requestAnimationFrame(resetRegenModalPosition);
-  }
-
   async function handleConfirmRegenPrompt() {
     if (regenPromptPage == null) return;
     const page = regenPromptPage;
@@ -1094,6 +1671,7 @@ export default function PptPage() {
         // 评分读取失败不影响预览刷新
       }
       setSelectedDraftFile(file);
+      void refreshDraftStatus(job.id);
       message.success(`P${page} 已重新生成`);
       return true;
     } catch (e) {
@@ -1102,6 +1680,25 @@ export default function PptPage() {
     } finally {
       setRegenPage(null);
     }
+  }
+
+  /** 草稿预览页内联提示词重新生成本页。 */
+  async function handleInlineRegen(slide: PptSlide) {
+    if (!job) return;
+    if (isSlideDirty(slide)) {
+      try {
+        // 先仅同步该页文案（不清空其他页草稿），再重生成，避免整页预览消失。
+        await pptExtensionApi.patchPlanSlide(job.id, slide);
+        const baseline = planBaselineRef.current;
+        if (baseline) baseline.set(slide.page, slideSignature(slide));
+        recomputePlanDirty(plan);
+      } catch (e) {
+        message.error(`保存本页文案失败：${String(e)}`);
+        return;
+      }
+    }
+    const ok = await handleRegeneratePage(slide.page, inlineRegenText);
+    if (ok) setInlineRegenText("");
   }
 
   async function handleSelectCandidate(index: number) {
@@ -1123,6 +1720,7 @@ export default function PptPage() {
       } catch {
         // 评分刷新失败不影响页面切换
       }
+      void refreshDraftStatus(job.id);
       message.success("已切换结构候选");
     } catch (e) {
       message.error(`切换候选失败：${String(e)}`);
@@ -1131,6 +1729,39 @@ export default function PptPage() {
 
   async function handleExport() {
     if (!job) return;
+    if (job.status === "paused") {
+      message.warning("生成已暂停，请先继续生成并完成后再导出");
+      return;
+    }
+    if (!formalized) {
+      message.warning("请先在「草稿预览」生成正式草稿再导出");
+      return;
+    }
+    // 以后端页级指纹状态为准：加页后又删页（内容未变）仍视为可导出。
+    let status = draftStatus;
+    try {
+      status = await pptExtensionApi.draftStatus(job.id);
+      setDraftStatus(status);
+    } catch {
+      // 状态读取失败时退回 formalized 检查，由后端导出前再次把关。
+      status = draftStatus;
+    }
+    if (
+      status &&
+      status.status !== "fresh" &&
+      status.status !== "order_stale"
+    ) {
+      const detail = status.pages
+        .filter((page) => page.status !== "ready")
+        .slice(0, 4)
+        .map(
+          (page) =>
+            `P${String(page.page).padStart(2, "0")} ${page.message}`,
+        )
+        .join("；");
+      message.warning(detail ? `草稿未就绪：${detail}` : "请先生成草稿后再导出");
+      return;
+    }
     setRunning(true);
     setLogs([]);
     setEngineProgress(0);
@@ -1143,48 +1774,179 @@ export default function PptPage() {
     }
   }
 
-  async function openSourceFile(jobId: string) {
+  /** 从历史作业素材中移除一项（同步 source.md 与清单）。 */
+  async function handleRemoveRestoredSource(source: PptSourceMeta) {
+    if (!job || running) return;
     try {
-      const path = await pptExtensionApi.getSourceFile(jobId);
-      await openPath(path);
+      const next = await pptExtensionApi.removeJobSource(
+        job.id,
+        source.id,
+        source.path ?? null,
+      );
+      setRestoredSources(next);
+      const refreshed = await pptExtensionApi.getJob(job.id);
+      if (refreshed) setJob(refreshed);
+      // 素材变化后旧草稿与预览全部失效。
+      setFormalized(false);
+      setDraftSvgs({});
+      setSelectedDraftFile(null);
+      setPageSelection(null);
+      setPreviewPages([]);
+      setPreviewSvgs({});
+      setPreviewSelectedFile(null);
+      setPreviewStale(false);
+      setUnderstanding("");
+      message.success("已移除素材，重新生成大纲时将不再包含该文档");
+      void loadHistory();
     } catch (e) {
-      message.error(`打开素材失败：${String(e)}`);
+      message.error(`移除素材失败：${String(e)}`);
     }
   }
 
-  async function editOutline() {
-    if (!job) return;
-    if (plan) {
-      setStep(2);
+  /** 生成 / 重新生成素材理解。 */
+  async function handleUnderstand(force: boolean) {
+    if (!job) {
+      message.warning("请先在「制定大纲」生成作业，再分析素材");
       return;
     }
+    setUnderstandingLoading(true);
+    setMaterialLogs([]);
     try {
-      const next = await pptExtensionApi.getPlan(job.id);
-      setPlan(next);
-      setPlanDirty(false);
-      setStep(2);
+      const text = await pptExtensionApi.buildUnderstanding(
+        job.id,
+        modelId,
+        force,
+      );
+      setUnderstanding(text);
+      message.success(force ? "素材理解已重新生成" : "素材理解已就绪");
+      Modal.confirm({
+        title: "素材理解完成",
+        content: "已理解素材，是否进入下一步「制定大纲」？",
+        okText: "进入制定大纲",
+        cancelText: "留在此页",
+        onOk: () => setStep(1),
+      });
     } catch (e) {
-      message.error(`读取大纲失败：${String(e)}`);
+      message.error(`素材理解失败：${String(e)}`);
+    } finally {
+      setUnderstandingLoading(false);
+    }
+  }
+
+  /** 把补充素材追加到当前历史作业。 */
+  async function handleAppendManual() {
+    if (!job || !manualText.trim()) return;
+    try {
+      await pptExtensionApi.appendJobSources(job.id, [], [], manualText.trim());
+      // 保持输入框内容回显，仅刷新 manual.md 链接状态
+      setManualPath(
+        await pptExtensionApi.manualSourceFile(job.id).catch(() => null),
+      );
+      await refreshJobSources(job.id);
+      message.success("补充素材已加入作业");
+    } catch (e) {
+      message.error(`追加素材失败：${String(e)}`);
+    }
+  }
+
+  /** 打开素材理解文件。 */
+  async function openUnderstandingFile(jobId: string) {
+    try {
+      const path = await pptExtensionApi.understandingFile(jobId);
+      await openPath(path);
+    } catch (e) {
+      message.error(`打开素材理解失败：${String(e)}`);
+    }
+  }
+
+  /** 打开补充素材文件 manual.md。 */
+  async function openManualFile() {
+    if (!job) return;
+    try {
+      const path = manualPath ?? (await pptExtensionApi.manualSourceFile(job.id));
+      if (!path) {
+        message.info("尚未追加过补充素材");
+        return;
+      }
+      await openPath(path);
+    } catch (e) {
+      message.error(`打开补充素材失败：${String(e)}`);
+    }
+  }
+
+  /** 查看某条历史素材的源文件。 */
+  async function openSourceItem(source: PptSourceMeta) {
+    if (!job) return;
+    try {
+      const path = await pptExtensionApi.sourceItemFile(
+        job.id,
+        source.id,
+        source.path ?? null,
+      );
+      await openPath(path);
+    } catch (e) {
+      message.error(`查看素材失败：${String(e)}`);
+    }
+  }
+
+  /** 删除补充素材 manual.md。 */
+  async function handleDeleteManual() {
+    if (!job) return;
+    try {
+      await pptExtensionApi.deleteManualSource(job.id);
+      setManualPath(null);
+      await refreshJobSources(job.id);
+      message.success("已删除补充素材");
+    } catch (e) {
+      message.error(`删除补充素材失败：${String(e)}`);
+    }
+  }
+
+  /** 历史作业追加素材后刷新清单与理解。 */
+  async function refreshJobSources(jobId: string) {
+    try {
+      setRestoredSources(await pptExtensionApi.jobSources(jobId));
+      setUnderstanding("");
+      // 素材变化 → 理解/草稿/预览全部失效
+      const refreshed = await pptExtensionApi.getJob(jobId);
+      if (refreshed) setJob(refreshed);
+      setFormalized(false);
+      setDraftSvgs({});
+      setSelectedDraftFile(null);
+      setPageSelection(null);
+      setPreviewPages([]);
+      setPreviewSvgs({});
+      setPreviewSelectedFile(null);
+      setPreviewStale(false);
+    } catch {
+      // ignore
     }
   }
 
   async function resumeJob(record: PptJob) {
     try {
-      const [nextPlan, options] = await Promise.all([
+      const [nextPlan, options, sources] = await Promise.all([
         pptExtensionApi.getPlan(record.id),
         pptExtensionApi.getJobOptions(record.id).catch(() => null),
+        pptExtensionApi
+          .jobSources(record.id)
+          .catch(() => [] as PptSourceMeta[]),
       ]);
       setJob(record);
-      setPlan(nextPlan);
+      applySavedPlan(nextPlan);
+      // 恢复历史作业的素材来源（只读展示），并清掉当前未提交的临时选择
+      setSelectedNotes([]);
+      setLocalSources([]);
+      setRestoredSources(sources ?? []);
       setPlanDirty(false);
       setStyleDirty(false);
-      setStep(stepForStage(record.stage));
       setHistoryOpen(false);
       if (record.status === "running") setRunning(true);
+      let generationMode: string | undefined;
       if (options) {
         const mode = options.generationMode;
         if (mode === "bestOf" || mode === "oneShot" || mode === "programmatic") {
-          setDraftMode(mode);
+          generationMode = mode;
         }
         if (typeof options.nativeCharts === "boolean") {
           setNativeCharts(options.nativeCharts);
@@ -1201,9 +1963,11 @@ export default function PptPage() {
           setAudience(options.audience);
           audienceTouched.current = true;
         }
-        setLayoutId(
-          typeof options.layoutId === "string" ? options.layoutId : undefined,
-        );
+        const nextLayoutId =
+          typeof options.layoutId === "string" && options.layoutId
+            ? options.layoutId
+            : undefined;
+        setLayoutId(nextLayoutId);
         setChartIds(
           Array.isArray(options.chartIds)
             ? options.chartIds.filter(
@@ -1217,21 +1981,46 @@ export default function PptPage() {
         if (typeof options.extraRequirements === "string") {
           setExtraRequirements(options.extraRequirements);
         }
+        // 旧作业没有保存 manualText 时清空，避免沿用上一个作业的补充材料
+        setManualText(
+          typeof options.manualText === "string" ? options.manualText : "",
+        );
         setModelId(
           typeof options.modelId === "number" ? options.modelId : undefined,
         );
       }
-      if (["draft_ready", "exporting", "done"].includes(record.stage)) {
-        void loadDraft(record.id);
+      // 草稿预览页只允许 AI 单/三候选；历史作业里的 programmatic 归一为单候选。
+      const nextFormalMode: PptDraftGenerationMode =
+        generationMode === "bestOf" ? "bestOf" : "oneShot";
+      setFormalMode(nextFormalMode);
+      const nextStep =
+        record.stage === "done" || record.stage === "exporting"
+          ? 4
+          : record.stage === "draft_ready" || record.stage === "rendering_draft"
+            ? 3
+            : 1;
+      setFormalized(
+        record.stage === "done" ||
+          record.stage === "exporting" ||
+          record.stage === "draft_ready",
+      );
+      setStep(nextStep);
+      setPaused(record.status === "paused");
+      if (record.status === "running" && record.stage === "rendering_draft") {
+        renderPurposeRef.current = "formal";
+        renderKindRef.current = "formal";
+      }
+      void loadPreview(record.id);
+      if (
+        ["rendering_draft", "draft_ready", "exporting", "done"].includes(
+          record.stage,
+        )
+      ) {
+        void loadDraft(record.id, "formal");
       }
     } catch (e) {
       message.error(`打开作业失败：${String(e)}`);
     }
-  }
-
-  function backToSettings() {
-    if (running) return;
-    setStep(0);
   }
 
   function handleStepChange(next: number) {
@@ -1239,6 +2028,19 @@ export default function PptPage() {
     if (busy) {
       message.info("正在生成中，暂不能切换步骤");
       return;
+    }
+    // 向后导航：前置条件满足就真正推进流程，否则只读预览。
+    if (next > step) {
+      const reachable =
+        next <= 1
+          ? true
+          : next <= 3
+            ? !!plan
+            : formalized && !planDirty && !styleDirty;
+      if (reachable) {
+        setStep(next);
+        return;
+      }
     }
     setViewStep(next);
   }
@@ -1248,19 +2050,65 @@ export default function PptPage() {
     setPlanDirty(true);
   }
 
-  function addSlide() {
+  /** 载入/保存后的大纲作为基线，后续按内容差异判断是否改动。 */
+  function applySavedPlan(next: PptPlan | null) {
+    planBaselineRef.current = planBaselineOf(next);
+    setPlan(next);
+    setPlanDirty(false);
+  }
+
+  /** 某页内容是否与基线不同（新增页也视为有改动）。 */
+  function isSlideDirty(slide: PptSlide): boolean {
+    const baseline = planBaselineRef.current;
+    if (!baseline) return false;
+    return baseline.get(slide.page) !== slideSignature(slide);
+  }
+
+  function recomputePlanDirty(current: PptPlan | null) {
+    const baseline = planBaselineRef.current;
+    if (!current || !baseline) {
+      setPlanDirty(false);
+      return;
+    }
+    const dirty =
+      baseline.size !== current.slides.length ||
+      current.slides.some(
+        (slide) => baseline.get(slide.page) !== slideSignature(slide),
+      );
+    setPlanDirty(dirty);
+  }
+
+  function addSlide(afterIndex?: number) {
     if (!plan) return;
-    setPlan(addPlanSlide(plan));
+    const insertAt =
+      afterIndex == null || afterIndex < 0
+        ? plan.slides.length
+        : Math.min(afterIndex + 1, plan.slides.length);
+    setPlan(addPlanSlide(plan, afterIndex));
     setPlanDirty(true);
+    setSelectedDraftFile(
+      `P${String(insertAt + 1).padStart(2, "0")}.svg`,
+    );
+    // 后端草稿未变；刷新状态用于提示「新增页未生成」。
+    if (job) void refreshDraftStatus(job.id);
     message.info(
-      `已添加第 ${plan.slides.length + 1} 页；左侧草稿仍是旧版本，点击「重新生成草稿」后同步`,
+      `已在第 ${insertAt} 页后新增一页；左侧草稿仍是旧版本，点击「生成预览」后同步`,
     );
   }
 
   function removeSlide(index: number) {
     if (!plan) return;
-    setPlan(removePlanSlide(plan, index));
+    const nextPlan = removePlanSlide(plan, index);
+    setPlan(nextPlan);
     setPlanDirty(true);
+    // 删除后把选中项移到相邻有效页，避免停留在已不存在的 Pxx.svg。
+    const fallback =
+      nextPlan.slides[Math.min(index, nextPlan.slides.length - 1)];
+    setSelectedDraftFile(
+      fallback ? `P${String(fallback.page).padStart(2, "0")}.svg` : null,
+    );
+    // 仅改前端大纲时后端仍为 fresh；若此前保存过则会显示 stale。
+    if (job) void refreshDraftStatus(job.id);
     message.info("已删除该页；点击「重新生成草稿」后左侧预览同步");
   }
 
@@ -1268,8 +2116,14 @@ export default function PptPage() {
     if (!plan) return;
     const target = index + delta;
     if (target < 0 || target >= plan.slides.length) return;
-    setPlan(movePlanSlide(plan, index, delta));
+    const nextPlan = movePlanSlide(plan, index, delta);
+    setPlan(nextPlan);
     setPlanDirty(true);
+    const moved = nextPlan.slides[target];
+    if (moved) {
+      setSelectedDraftFile(`P${String(moved.page).padStart(2, "0")}.svg`);
+    }
+    if (job) void refreshDraftStatus(job.id);
     message.info(
       `已将第 ${index + 1} 页${delta < 0 ? "上移" : "下移"}到第 ${target + 1} 页；左侧草稿是旧顺序，点击「重新生成草稿」后同步`,
     );
@@ -1278,16 +2132,19 @@ export default function PptPage() {
   function changeLayout(next?: string) {
     setLayoutId(next);
     setStyleDirty(true);
+    setPreviewStale(true);
   }
 
   function changeChartIds(next: string[]) {
     setChartIds(next);
     setStyleDirty(true);
+    setPreviewStale(true);
   }
 
   function changeNativeCharts(next: boolean) {
     setNativeCharts(next);
     setStyleDirty(true);
+    setPreviewStale(true);
   }
 
   const loadHistory = useCallback(async () => {
@@ -1302,26 +2159,134 @@ export default function PptPage() {
   }, []);
 
   useEffect(() => {
-    if (historyOpen) void loadHistory();
+    if (historyOpen && isTauri()) void loadHistory();
   }, [historyOpen, loadHistory]);
+
+  // 右侧栏「最近 5 个历史 PPT」需要在页面加载时就拿到数据
+  useEffect(() => {
+    if (isTauri()) void loadHistory();
+  }, [loadHistory]);
+
+  // 打开作业时读取素材理解
+  useEffect(() => {
+    if (!job?.id || !isTauri()) {
+      setUnderstanding("");
+      return;
+    }
+    let cancelled = false;
+    pptExtensionApi
+      .readUnderstanding(job.id)
+      .then((text) => {
+        if (!cancelled) setUnderstanding(text);
+      })
+      .catch(() => {
+        if (!cancelled) setUnderstanding("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.id]);
+
+  // 打开作业时回填各步骤已保存的日志
+  useEffect(() => {
+    if (!job?.id || !isTauri()) return;
+    let cancelled = false;
+    pptExtensionApi
+      .readStepLogs(job.id)
+      .then((data) => {
+        if (cancelled) return;
+        setMaterialLogs([...data.material, ...data.understanding]);
+        setPlanLogs(data.planning);
+        setLogs(data.engine);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.id]);
+
+  // 打开作业时探测补充素材文件
+  useEffect(() => {
+    if (!job?.id || !isTauri()) {
+      setManualPath(null);
+      return;
+    }
+    let cancelled = false;
+    pptExtensionApi
+      .manualSourceFile(job.id)
+      .then((path) => {
+        if (!cancelled) setManualPath(path);
+      })
+      .catch(() => {
+        if (!cancelled) setManualPath(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.id]);
 
   async function handleRetryJob(jobId: string) {
     try {
       const created = await pptExtensionApi.retryJob(jobId);
       const nextPlan = await pptExtensionApi.getPlan(created.id);
       setJob(created);
-      setPlan(nextPlan);
+      applySavedPlan(nextPlan);
       setPlanDirty(false);
       setStyleDirty(false);
-      setDraftPages([]);
       setDraftSvgs({});
       setSelectedDraftFile(null);
-      setStep(2);
       setHistoryOpen(false);
       message.success("已基于原素材和大纲创建新作业");
+      setStep(1);
     } catch (e) {
       message.error(`重试失败：${String(e)}`);
     }
+  }
+
+  /** 新建 PPT 作业：清空当前编辑态，回到素材步骤。 */
+  function handleNewJob() {
+    if (running || creating || regenerating) {
+      message.info("正在生成中，暂不能新建作业");
+      return;
+    }
+    setJob(null);
+    setPlan(null);
+    planBaselineRef.current = null;
+    setRestoredSources([]);
+    setUnderstanding("");
+    setSelectedNotes([]);
+    setLocalSources([]);
+    setManualText("");
+    setTitle("");
+    setAudience("");
+    setExtraRequirements("");
+    setSlideCount(undefined);
+    setLayoutId(undefined);
+    setChartIds([]);
+    setNativeCharts(false);
+    setPlanDirty(false);
+    setStyleDirty(false);
+    setFormalized(false);
+    setPaused(false);
+    setStep(0);
+    setPlanLogs([]);
+    setMaterialLogs([]);
+    setPlanningSlides([]);
+    setLogs([]);
+    setDraftSvgs({});
+    setSelectedDraftFile(null);
+    setPageSelection(null);
+    setPageCandidates(null);
+    setPreviewPages([]);
+    setPreviewSvgs({});
+    setPreviewSelectedFile(null);
+    setPreviewStale(false);
+    try {
+      localStorage.removeItem(PPT_ACTIVE_JOB_KEY);
+    } catch {
+      // ignore
+    }
+    void loadHistory();
   }
 
   async function handleDeleteJob(jobId: string) {
@@ -1330,10 +2295,19 @@ export default function PptPage() {
       if (job?.id === jobId) {
         setJob(null);
         setPlan(null);
+        planBaselineRef.current = null;
+        setRestoredSources([]);
         setSlideCount(undefined);
         setPlanDirty(false);
         setStyleDirty(false);
+        setFormalized(false);
+        setPaused(false);
         setStep(0);
+        try {
+          localStorage.removeItem(PPT_ACTIVE_JOB_KEY);
+        } catch {
+          // ignore
+        }
       }
       message.success("作业已删除");
       await loadHistory();
@@ -1374,6 +2348,24 @@ export default function PptPage() {
     }
   }
 
+  /** 暂停 / 继续 AI 草稿生成（后端在页块边界生效，已完成页保留） */
+  async function handleTogglePause() {
+    if (!job) return;
+    try {
+      if (paused) {
+        await pptExtensionApi.resumeJob(job.id);
+        setPaused(false);
+        message.success("已继续生成");
+      } else {
+        await pptExtensionApi.pauseJob(job.id);
+        setPaused(true);
+        message.info("已暂停：当前页块完成后停止推进");
+      }
+    } catch (e) {
+      message.error(`操作失败：${String(e)}`);
+    }
+  }
+
   const layoutOptions = useMemo(
     () =>
       Object.entries(catalog?.layouts ?? {}).map(([id, meta]) => ({
@@ -1396,23 +2388,37 @@ export default function PptPage() {
     return layoutDisplayName(layoutId, catalog?.layouts?.[layoutId]);
   }, [layoutId, catalog]);
 
-  const selectedDraftPage = draftPages.find(
-    (page) => page.file === selectedDraftFile,
-  );
-  const selectedDraftIndex = selectedDraftPage
-    ? (plan?.slides.findIndex((slide) => slide.page === selectedDraftPage.page) ?? -1)
-    : -1;
+  const selectedPageNumber = pageFromDraftFile(selectedDraftFile);
+  const selectedDraftIndex =
+    selectedPageNumber == null
+      ? -1
+      : (plan?.slides.findIndex((slide) => slide.page === selectedPageNumber) ?? -1);
   const selectedDraftSlide =
     selectedDraftIndex >= 0 ? plan?.slides[selectedDraftIndex] : undefined;
+  // 制定大纲页默认选中第一页，便于直接编辑
   useEffect(() => {
-    if (!job?.id || !selectedDraftSlide?.page) {
+    if (viewStep !== 1 || !plan?.slides.length || selectedDraftFile) return;
+    setSelectedDraftFile(
+      `P${String(plan.slides[0].page).padStart(2, "0")}.svg`,
+    );
+  }, [viewStep, plan, selectedDraftFile]);
+
+  const previewCandidatePage = previewSelectedFile
+    ? pageFromDraftFile(previewSelectedFile)
+    : previewPages[0]?.page ?? null;
+  const candidatePage =
+    viewStep === 2 ? previewCandidatePage : selectedDraftSlide?.page;
+
+  useEffect(() => {
+    // 页面候选属于效果与模板页：步骤三按当前模板预览页取候选。
+    if (!job?.id || viewStep !== 2 || !candidatePage) {
       setPageCandidates(null);
       return;
     }
     let cancelled = false;
     setCandidateLoading(true);
     void pptExtensionApi
-      .getPageCandidates(job.id, selectedDraftSlide.page)
+      .getPageCandidates(job.id, candidatePage)
       .then((data) => {
         if (!cancelled) setPageCandidates(data);
       })
@@ -1425,11 +2431,8 @@ export default function PptPage() {
     return () => {
       cancelled = true;
     };
-  }, [job?.id, selectedDraftSlide?.page, draftSvgs]);
-  const reuseDraft = canReuseDraft(job, planDirty, styleDirty);
-  const reuseExport = canReuseExport(job, planDirty, styleDirty);
+  }, [job?.id, viewStep, candidatePage, draftSvgs, previewSelectedFile]);
   const busy = running || creating || regenerating;
-  const previewing = viewStep !== step;
   const previewingFuture = viewStep > step;
   // 预览后续步骤时，隐藏会触发生成/导出的操作，避免误触
   const previewLock = previewingFuture ? { disabled: true } : {};
@@ -1438,6 +2441,21 @@ export default function PptPage() {
   useEffect(() => {
     setViewStep(step);
   }, [step]);
+
+  // 按内容签名判断大纲是否真的改动（增页后删回不再误判为已修改）。
+  useEffect(() => {
+    if (!plan) return;
+    if (planBaselineRef.current == null) return;
+    recomputePlanDirty(plan);
+  }, [plan]);
+
+  // 进入「效果与模板」时按需读取模板预览；每个作业只自动加载一次，避免闪烁。
+  useEffect(() => {
+    if (!job?.id || viewStep !== 2) return;
+    if (previewAutoLoadedJob.current === job.id) return;
+    previewAutoLoadedJob.current = job.id;
+    void loadPreview(job.id);
+  }, [job?.id, viewStep, loadPreview]);
 
   const chartOptions = useMemo(() => {
     // charts_index.json 的结构是 { meta, aliases, charts: { area_chart: {...}, ... } }
@@ -1481,60 +2499,475 @@ export default function PptPage() {
     );
   }
 
-  const stepItems = [
+  /** 草稿工作区：左侧文案页列表，右侧预览与编辑。
+   * showPreview=false 时用于「制定大纲」：只编辑文案，不展示任何 SVG 预览。 */
+  function renderDraftWorkspace({
+    mode,
+    emptyHint,
+    showPreview = true,
+  }: {
+    mode: "preview" | "formal";
+    emptyHint: string;
+    showPreview?: boolean;
+  }) {
+    // 大纲规划中优先展示快照（标题清单/逐页扩展），不必等最终 plan
+    const slides =
+      (creating || regenerating) && planningSlides.length > 0
+        ? planningSlides
+        : plan?.slides ?? [];
+    const stateVerb = mode === "preview" ? "快速排版" : "正式生成";
+    const fileOf = (page: number) => `P${String(page).padStart(2, "0")}.svg`;
+    // 还没选页时默认展示第一页的大纲，生成过程中也能先看到文案内容
+    const activeFile = selectedDraftFile ?? (slides[0] ? fileOf(slides[0].page) : null);
+    const activeSlide = activeFile
+      ? slides.find((slide) => fileOf(slide.page) === activeFile)
+      : undefined;
+    // 只有当前页文案改动/新增页时才隐藏该页预览；其他页继续显示。
+    const activeDirty = activeSlide ? isSlideDirty(activeSlide) : planDirty;
+    const activeSvg =
+      activeFile && !activeDirty ? draftSvgs[activeFile] : undefined;
+    const activeRendering =
+      !!activeSlide && running && draftProgress?.page === activeSlide.page;
+    return (
+      <div className="space-y-3">
+        {running && (
+          <>
+            <Progress
+              percent={
+                draftProgress && draftProgress.total > 0
+                  ? Math.round((draftDoneCount / draftProgress.total) * 100)
+                  : progressPercent
+              }
+              status="active"
+            />
+            {draftProgress && (
+              <Text type="secondary">
+                {`${stateVerb}中：${draftDoneCount}/${draftProgress.total} · 当前 P${draftProgress.page} · 候选 ${draftProgress.candidateCount || "…"} · ${draftProgress.status}`}
+              </Text>
+            )}
+            {mode === "formal" && formalMode !== "programmatic" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="small"
+                  icon={paused ? <Play size={13} /> : <Pause size={13} />}
+                  onClick={() => void handleTogglePause()}
+                >
+                  {paused ? "继续生成" : "暂停"}
+                </Button>
+                <Text type="secondary" className="text-xs">
+                  {paused
+                    ? "已暂停：当前批次完成后停止推进，已完成页面保留"
+                    : "暂停在当前批次（2 页）结束后生效"}
+                </Text>
+              </div>
+            )}
+          </>
+        )}
+        {!running && job && ["failed", "cancelled"].includes(job.status) && (
+          <Alert
+            type="error"
+            showIcon
+            message={`${mode === "preview" ? "预览" : "正式 PPT"}生成${
+              job.status === "cancelled" ? "已取消" : "失败"
+            }`}
+            description={job.errorMessage ?? job.errorCode ?? "未知错误"}
+          />
+        )}
+        {!running && draftLoading ? (
+          <Text type="secondary">正在加载草稿页面…</Text>
+        ) : slides.length === 0 ? (
+          <Empty description="暂无文案大纲" />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="max-h-[640px] overflow-y-auto rounded border border-slate-200">
+              {planDirty && (
+                <div className="sticky top-0 z-[1] border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
+                  文案已修改：预览仍是旧内容，重新生成后更新
+                </div>
+              )}
+              <List
+                size="small"
+                dataSource={slides}
+                renderItem={(slide) => {
+                  const file = `P${String(slide.page).padStart(2, "0")}.svg`;
+                  const rendered =
+                    !isSlideDirty(slide) && Boolean(draftSvgs[file]);
+                  // 评分只属于已渲染且未改动的页面；新增页/改动后不继承旧评分。
+                  const selectionEntry = rendered
+                    ? pageSelection?.pages.find(
+                        (item) => item.page === slide.page,
+                      )
+                    : undefined;
+                  const score = selectionEntry?.score;
+                  const scoreIssues = selectionEntry?.issues ?? [];
+                  const rendering =
+                    !rendered && running && draftProgress?.page === slide.page;
+                  const statusLabel = rendered
+                    ? "已完成"
+                    : rendering
+                      ? "渲染中"
+                      : "未开始";
+                  return (
+                    <List.Item
+                      className={`cursor-pointer !px-3 ${
+                        selectedDraftFile === file ? "bg-blue-50" : ""
+                      }`}
+                      onClick={() => setSelectedDraftFile(file)}
+                    >
+                      <div className="flex w-full items-center gap-2">
+                        {showPreview && (
+                          <Tooltip title={statusLabel}>
+                            {rendered ? (
+                              <CheckCircle2
+                                size={15}
+                                className="shrink-0 text-emerald-500"
+                              />
+                            ) : rendering ? (
+                              <Loader2
+                                size={15}
+                                className="shrink-0 animate-spin text-blue-500"
+                              />
+                            ) : (
+                              <Circle
+                                size={15}
+                                className="shrink-0 text-slate-300"
+                              />
+                            )}
+                          </Tooltip>
+                        )}
+                        <Tag color="blue">P{slide.page}</Tag>
+                        <div className="min-w-0 flex-1">
+                          <Text
+                            ellipsis={{ tooltip: slide.title }}
+                            className="block"
+                          >
+                            {slide.title}
+                          </Text>
+                          <Text
+                            type="secondary"
+                            className="block text-xs"
+                            ellipsis
+                          >
+                            {slide.coreMessage || (showPreview ? (rendered ? file : statusLabel) : "")}
+                          </Text>
+                        </div>
+                        {showPreview && score != null && (
+                          <Tooltip
+                            placement="left"
+                            title={
+                              <div className="max-w-[300px]">
+                                <div>评分：{score}</div>
+                                <div className="mt-1">扣分原因</div>
+                                {scoreIssues.length > 0 ? (
+                                  <ul className="mt-1 list-disc space-y-1 pl-4">
+                                    {scoreIssues.map((issue, issueIndex) => (
+                                      <li key={`${issueIndex}-${issue}`}>
+                                        <div>{issue}</div>
+                                        <div className="text-xs text-slate-300">
+                                          建议：{scoreSuggestion(issue)}
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <div className="mt-1 text-xs">
+                                    暂无扣分原因（旧评分，重新生成此页可获取明细）
+                                  </div>
+                                )}
+                                {(slide.evidence?.length ?? 0) > 0 && (
+                                  <div className="mt-2">
+                                    <div>内容应包含（evidence）</div>
+                                    <ul className="mt-1 list-disc pl-4 text-xs">
+                                      {slide.evidence?.map((item, itemIndex) => (
+                                        <li key={`${itemIndex}-${item}`}>
+                                          {item}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            }
+                          >
+                            <span className="cursor-help">
+                              <Tag
+                                color={
+                                  score >= 70
+                                    ? "green"
+                                    : score >= 55
+                                      ? "gold"
+                                      : "red"
+                                }
+                              >
+                                {score}
+                              </Tag>
+                            </span>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </List.Item>
+                  );
+                }}
+              />
+            </div>
+            <div className="space-y-3">
+              {showPreview && activeSlide ? (
+                <>
+                  {/* 页面预览（未渲染时占位） */}
+                  {activeSvg ? (
+                    <div className="flex min-h-[320px] items-center justify-center rounded border border-slate-200 bg-slate-50 p-2">
+                      <img
+                        src={svgDataUrl(activeSvg)}
+                        alt="页面预览"
+                        className="max-h-[420px] w-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex min-h-[220px] items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 p-4">
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description={
+                          activeRendering
+                            ? "正在渲染本页…"
+                            : running
+                              ? "等待渲染…"
+                              : activeDirty
+                                ? "本页文案已修改，点击「重新生成此页」后更新"
+                                : "页面预览尚未生成"
+                        }
+                      />
+                    </div>
+                  )}
+                  {mode === "formal" && !running && (
+                    <div className="flex items-end gap-2 rounded-md border border-slate-200 px-3 py-2">
+                      <Input.TextArea
+                        className="min-w-0 flex-1"
+                        rows={2}
+                        value={inlineRegenText}
+                        onChange={(e) => setInlineRegenText(e.target.value)}
+                        disabled={previewingFuture}
+                        placeholder="输入本页修改提示词，例如：突出对比数据、减少文字、换用时间轴结构…"
+                      />
+                      <Button
+                        type="primary"
+                        className="shrink-0"
+                        icon={<Sparkles size={14} />}
+                        loading={regenPage === activeSlide.page}
+                        disabled={previewingFuture}
+                        onClick={() => void handleInlineRegen(activeSlide)}
+                      >
+                        重新生成此页
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : showPreview ? (
+                <Empty description={running ? "正在渲染预览…" : emptyHint} />
+              ) : null}
+              {selectedDraftSlide && !running && (
+                <Card
+                  size="small"
+                  title={`编辑 P${selectedDraftSlide.page}`}
+                  extra={
+                    previewingFuture ? (
+                      <Tag color="blue">只读预览</Tag>
+                    ) : (
+                      <Space size={4}>
+                        <Tooltip title="在当前页之后新增一页">
+                          <Button
+                            icon={<Plus size={14} />}
+                            size="small"
+                            type="text"
+                            onClick={() =>
+                              addSlide(selectedDraftIndex)
+                            }
+                          />
+                        </Tooltip>
+                        <Tooltip title="上移">
+                          <Button
+                            size="small"
+                            type="text"
+                            icon={<ArrowUp size={14} />}
+                            disabled={selectedDraftIndex <= 0}
+                            onClick={() => moveSlide(selectedDraftIndex, -1)}
+                          />
+                        </Tooltip>
+                        <Tooltip title="下移">
+                          <Button
+                            size="small"
+                            type="text"
+                            icon={<ArrowDown size={14} />}
+                            disabled={
+                              !plan ||
+                              selectedDraftIndex >= plan.slides.length - 1
+                            }
+                            onClick={() => moveSlide(selectedDraftIndex, 1)}
+                          />
+                        </Tooltip>
+                        <Popconfirm
+                          title="删除这一页？"
+                          onConfirm={() => removeSlide(selectedDraftIndex)}
+                          disabled={!!plan && plan.slides.length <= 1}
+                        >
+                          <Button
+                            size="small"
+                            type="text"
+                            danger
+                            icon={<Trash2 size={14} />}
+                            disabled={!!plan && plan.slides.length <= 1}
+                          />
+                        </Popconfirm>
+                      </Space>
+                    )
+                  }
+                >
+                  <Space direction="vertical" size="small" className="w-full">
+                    <div>
+                      <FieldLabel
+                        label="页面标题"
+                        tip="该页幻灯片的主标题，通常是一句结论或主题词。"
+                      />
+                      <Input
+                        value={selectedDraftSlide.title}
+                        {...previewLock}
+                        onChange={(event) =>
+                          updateSlide(selectedDraftIndex, {
+                            title: event.target.value,
+                          })
+                        }
+                        placeholder="例如：技术演进路线"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel
+                        label="核心信息 / 副标题"
+                        tip="一句话核心结论，用于补充主标题，常作为页面副标题或引语。"
+                      />
+                      <Input.TextArea
+                        rows={2}
+                        value={selectedDraftSlide.coreMessage}
+                        {...previewLock}
+                        onChange={(event) =>
+                          updateSlide(selectedDraftIndex, {
+                            coreMessage: event.target.value,
+                          })
+                        }
+                        placeholder="例如：从规则驱动走向数据驱动"
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel
+                        label="要点（每行一条）"
+                        tip="页面正文要点，建议 3–6 条短句；每行一条，空行会被忽略。"
+                      />
+                      <Input.TextArea
+                        rows={4}
+                        value={selectedDraftSlide.bullets.join("\n")}
+                        {...previewLock}
+                        onChange={(event) =>
+                          updateSlide(selectedDraftIndex, {
+                            bullets: event.target.value
+                              .split("\n")
+                              .map((value) => value.trim())
+                              .filter(Boolean),
+                          })
+                        }
+                        placeholder={"第一行一条要点\n第二条要点\n第三条要点"}
+                      />
+                    </div>
+                    {selectedDraftSlide.chart && (
+                      <Tag color="purple">
+                        图表：{selectedDraftSlide.chart.type} ·{" "}
+                        {selectedDraftSlide.chart.categories.length} 类
+                      </Tag>
+                    )}
+                    <Text type="secondary" className="text-xs">
+                      {showPreview
+                        ? "修改文案后，点击「重新生成此页」刷新；第一版不支持 SVG 元素拖拽。"
+                        : "修改文案或页序后，进入下一步生成时会使用最新内容。"}
+                    </Text>
+                  </Space>
+                </Card>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  type SourceRow =
+    | { key: string; kind: "source"; source: PptSourceMeta }
+    | { key: string; kind: "manual" };
+  const sourceRows: SourceRow[] = [
+    ...restoredSources.map((source) => ({
+      key: `source-${source.path ?? source.id}`,
+      kind: "source" as const,
+      source,
+    })),
+    ...(job && manualPath ? [{ key: "manual", kind: "manual" as const }] : []),
+  ];
+
+  const previewActiveFile =
+    previewSelectedFile ?? previewPages[0]?.file ?? null;
+  const previewActiveSvg = previewActiveFile
+    ? previewSvgs[previewActiveFile]
+    : undefined;
+
+  const stepItems: StepRailItem[] = [
     {
       title: PPT_STEP_TITLES[0],
+      tip: PPT_STEP_META[0].tip,
       description:
-        selectedCount > 0 ? `已选 ${selectedCount} 项素材` : "选择文档 / 填写标题",
+        displaySelectedCount > 0
+          ? `已选 ${displaySelectedCount} 项素材`
+          : "选择文档 / 填写标题",
     },
     {
       title: PPT_STEP_TITLES[1],
-      description: selectedLayoutLabel || "版式、图表与生成选项",
+      tip: PPT_STEP_META[1].tip,
+      description: plan
+        ? `${plan.slides.length} 页大纲`
+        : "生成并确认大纲",
     },
     {
       title: PPT_STEP_TITLES[2],
-      description: plan ? `${plan.slides.length} 页大纲` : "逐页编辑标题与要点",
+      tip: PPT_STEP_META[2].tip,
+      description: previewLoading
+        ? "正在生成模板预览"
+        : previewStale
+          ? "模板已改，需重新预览"
+          : previewPages.length > 0
+            ? `${previewPages.length} 页模板预览`
+            : selectedLayoutLabel
+              ? `版式：${selectedLayoutLabel}`
+              : "选模板并生成预览",
     },
     {
       title: PPT_STEP_TITLES[3],
-      description:
-        draftPages.length > 0
-          ? `${draftPages.length} 页草稿`
-          : "缩略图预览与单页重生成",
+      tip: PPT_STEP_META[3].tip,
+      description: formalized
+        ? "正式草稿已生成，可预览后导出"
+        : running
+          ? "正在渲染正式草稿"
+          : "生成并确认正式草稿",
     },
     {
       title: PPT_STEP_TITLES[4],
+      tip: PPT_STEP_META[4].tip,
       description:
         job?.status === "succeeded" && job.stage === "done"
           ? "已导出"
           : "导出可编辑 PPTX",
     },
-  ].map((item, index) => ({
-    ...item,
-    disabled: busy && index !== step,
-  }));
+  ];
 
   return (
+    // /ppt 走 ModuleViewFrame 的 fullscreen 布局（正文容器 overflow:hidden），
+    // 主区独立滚动，右侧步骤列常驻。
+    <div className="flex h-full w-full">
+    <main className="min-w-0 flex-1 overflow-y-auto">
     <div className="mx-auto max-w-6xl p-6">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <Typography.Title level={3} className="!mb-1">
-            文档生成 PPT
-          </Typography.Title>
-          <Text type="secondary">
-            搜索并选择多个文档，或添加本地 PDF/Word/Markdown 文件，AI 生成大纲后由本地 PPT 扩展渲染为可编辑 PPTX。
-          </Text>
-        </div>
-        <Space>
-          <Button icon={<FileUp size={14} />} onClick={() => navigate("/pptx-spike")}>
-            打开 Office 文档（实验）
-          </Button>
-          <Button icon={<History size={14} />} onClick={() => setHistoryOpen(true)}>
-            历史作业
-          </Button>
-        </Space>
-      </div>
-
       {status?.platformCompatible === false && (
         <Alert
           className="mb-4"
@@ -1569,40 +3002,7 @@ export default function PptPage() {
         />
       )}
 
-      <Steps
-        className="mb-1"
-        current={viewStep}
-        onChange={handleStepChange}
-        items={stepItems}
-      />
-      <Text type="secondary" className="mb-4 block text-xs">
-        点击步骤可回看或预览页面；尚未开始的步骤以只读预览展示，不会推进当前生成流程。
-      </Text>
-
-      {previewing && (
-        <Alert
-          className="mb-4"
-          type={previewingFuture ? "info" : "success"}
-          showIcon
-          message={
-            previewingFuture
-              ? `预览第 ${viewStep + 1} 步 · ${PPT_STEP_TITLES[viewStep]}`
-              : `回看第 ${viewStep + 1} 步 · ${PPT_STEP_TITLES[viewStep]}`
-          }
-          description={
-            previewingFuture
-              ? `当前流程仍停留在第 ${step + 1} 步「${PPT_STEP_TITLES[step]}」。预览页面不显示生成/导出按钮，不会自动推进流程。`
-              : `正在查看已完成的步骤，当前流程仍在第 ${step + 1} 步「${PPT_STEP_TITLES[step]}」。`
-          }
-          action={
-            <Button size="small" onClick={() => setViewStep(step)}>
-              返回当前步骤
-            </Button>
-          }
-        />
-      )}
-
-      {running && step <= 2 && planProgress && (
+      {running && step <= 1 && planProgress && (
         <Alert
           className="mb-4"
           type="info"
@@ -1617,47 +3017,127 @@ export default function PptPage() {
       )}
 
       {viewStep === 0 && (
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="space-y-4">
         <Card
-          title={`素材来源（已选 ${selectedCount} 项）`}
+          title={
+            <StepTitle
+              title="PPT设置"
+              tip="先选择素材后，系统会自动识别并填充 PPT 标题与汇报对象。"
+            />
+          }
+          extra={
+            <ModelPicker
+              models={models}
+              value={modelId}
+              onChange={setModelId}
+              disabled={busy}
+            />
+          }
+        >
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <FieldLabel
+                label="PPT 标题"
+                tip="作为主题参与大纲规划，同时用于导出文件名。"
+              />
+              <Input
+                value={title}
+                onChange={(e) => {
+                  titleTouched.current = true;
+                  setTitle(e.target.value);
+                }}
+                placeholder="例如：技术研究及发展趋势分析"
+              />
+              {suggestingMeta && (
+                <Text type="secondary" className="mt-1 block text-xs">
+                  AI 正在根据素材识别标题与汇报对象…
+                </Text>
+              )}
+            </div>
+            <div>
+              <FieldLabel
+                label="汇报对象"
+                tip="告诉 AI 讲给谁听，会影响内容深度与语气。"
+              />
+              <Input
+                value={audience}
+                onChange={(e) => {
+                  audienceTouched.current = true;
+                  setAudience(e.target.value);
+                }}
+                placeholder="例如：本科教学、企业客户、技术评审"
+              />
+            </div>
+            <div>
+              <Text className="mb-1 block">语言</Text>
+              <Select
+                className="w-full"
+                value={language}
+                onChange={setLanguage}
+                options={[
+                  { value: "zh-CN", label: "简体中文" },
+                  { value: "en-US", label: "English" },
+                ]}
+              />
+            </div>
+            <div className="md:col-span-3">
+              <FieldLabel
+                label="生成要求（结构 / 风格）"
+                tip="仅作为规划指令使用，不参与素材理解：只约束大纲结构与风格，不替代素材内容。"
+              />
+              <div className="flex items-end gap-3">
+                <Input.TextArea
+                  className="min-w-0 flex-1"
+                  rows={2}
+                  value={extraRequirements}
+                  onChange={(e) => setExtraRequirements(e.target.value)}
+                  placeholder="例如：偏重工艺流程图、少用文字；只约束大纲结构与风格，不替代素材内容"
+                />
+                <Tooltip
+                  title={!job ? "生成大纲后可理解素材" : undefined}
+                  placement="topRight"
+                >
+                  <Button
+                    className="shrink-0 font-medium"
+                    type={job ? "primary" : "default"}
+                    size="large"
+                    icon={<Sparkles size={16} />}
+                    loading={understandingLoading}
+                    disabled={running}
+                    onClick={() =>
+                      void handleUnderstand(Boolean(understanding.trim()))
+                    }
+                  >
+                    理解素材
+                  </Button>
+                </Tooltip>
+              </div>
+            </div>
+          </div>
+        </Card>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card
+          title={`素材来源（已选 ${displaySelectedCount} 项）`}
           extra={
             <Text type="secondary">
-              {selectedChars > 0
-                ? `文档约 ${selectedChars.toLocaleString()} 字符`
-                : ""}
-              {localSources.length > 0
-                ? `${selectedChars > 0 ? " · " : ""}本地文件 ${localSources.length} 个（生成时读取）`
-                : ""}
+              {showRestoredSources ? (
+                <span>
+                  历史素材 {restoredSources.length} 项 · 约{" "}
+                  {restoredSourceChars.toLocaleString()} 字（只读）
+                </span>
+              ) : (
+                <>
+                  {selectedChars > 0
+                    ? `文档约 ${selectedChars.toLocaleString()} 字符`
+                    : ""}
+                  {localSources.length > 0
+                    ? `${selectedChars > 0 ? " · " : ""}本地文件 ${localSources.length} 个（生成时读取）`
+                    : ""}
+                </>
+              )}
             </Text>
           }
         >
-          {job &&
-            plan &&
-            selectedNotes.length === 0 &&
-            localSources.length === 0 &&
-            !manualText.trim() && (
-              <Alert
-                type="info"
-                showIcon
-                className="mb-3"
-                message="当前打开的是历史作业"
-                description={
-                  <Space size={4} wrap>
-                    <span>
-                      素材已固化为作业内的 source.md，重新生成大纲会复用这份素材；如需更换素材，请新建作业。
-                    </span>
-                    <Button
-                      type="link"
-                      size="small"
-                      className="!h-auto !p-0"
-                      onClick={() => void openSourceFile(job.id)}
-                    >
-                      查看 source.md
-                    </Button>
-                  </Space>
-                }
-              />
-            )}
           <div className="mb-3 flex items-center gap-2">
             <Input.Search
               allowClear
@@ -1695,7 +3175,9 @@ export default function PptPage() {
             }}
             className="max-h-[260px] overflow-y-auto"
             renderItem={(note) => {
-              const added = selectedNoteIds.has(note.id);
+              const added =
+                selectedNoteIds.has(note.id) ||
+                restoredSources.some((source) => source.id === note.id);
               const encrypted = note.is_encrypted;
               return (
                 <List.Item
@@ -1716,7 +3198,7 @@ export default function PptPage() {
                           size="small"
                           type="text"
                           aria-label="添加到素材源"
-                          icon={<Plus size={16} />}
+                          icon={<ChevronRight size={16} />}
                           disabled={added || encrypted}
                           onClick={() => addNoteSource(note)}
                         />
@@ -1771,222 +3253,334 @@ export default function PptPage() {
             />
           </div>
 
-          <div className="mt-3">
-            <div className="max-h-[120px] overflow-y-auto rounded-md border border-slate-200">
-              {selectedCount === 0 ? (
-                <div className="p-3">
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="从上方分页列表添加文档，或添加本地文件"
-                  />
-                </div>
-              ) : (
-                <List
-                  size="small"
-                  dataSource={[
-                    ...selectedNotes.map((note) => ({
-                      key: `note-${note.id}`,
-                      title: note.title || "无标题",
-                      tag: "文档",
-                      detail: `${note.word_count ?? note.content.length} 字`,
-                      onRemove: () => removeNoteSource(note.id),
-                    })),
-                    ...localSources.map((source) => ({
-                      key: `file-${source.path}`,
-                      title: source.title || baseName(source.path),
-                      tag: sourceTypeLabel(source.sourceType),
-                      detail: "",
-                      onRemove: () => removeLocalSource(source.path),
-                    })),
-                  ]}
-                  renderItem={(item) => (
-                    <List.Item
-                      className="!px-3"
-                      actions={[
-                        <Button
-                          key="remove"
-                          type="text"
-                          danger
-                          size="small"
-                          icon={<Trash2 size={14} />}
-                          onClick={item.onRemove}
-                        />,
-                      ]}
-                    >
-                      <div className="flex min-w-0 flex-1 items-center gap-1">
-                        <FileText size={14} className="shrink-0 text-slate-500" />
-                        <Text
-                          className="min-w-0 flex-1"
-                          style={{ maxWidth: "100%" }}
-                          ellipsis={{ tooltip: item.title }}
-                        >
-                          {item.title}
-                        </Text>
-                        <Tag color="blue" className="shrink-0">
-                          {item.tag}
-                        </Tag>
-                        {item.detail && (
-                          <Text type="secondary" className="shrink-0 text-xs">
-                            {item.detail}
-                          </Text>
-                        )}
-                      </div>
-                    </List.Item>
-                  )}
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="mt-3">
-            <Text type="secondary" className="mb-1 block">
-              补充材料（可选，会追加到素材末尾）
-            </Text>
-            <Input.TextArea
-              rows={4}
-              value={manualText}
-              onChange={(e) => setManualText(e.target.value)}
-              placeholder="例如：本次汇报的重点、必须包含的案例或数据"
-            />
-          </div>
         </Card>
 
-        <Card
-          title="生成设置"
-          extra={
-            <Space wrap>
-              <Button
-                type="primary"
-                icon={<Sparkles size={16} />}
-                onClick={goToStyle}
-              >
-                下一步：选择风格
-              </Button>
-              {job && !running && (
-                <Button
-                  icon={<RotateCcw size={14} />}
-                  onClick={() => void handleRenderDraft()}
-                >
-                  用当前大纲重新生成草稿
-                </Button>
-              )}
-            </Space>
-          }
-        >
+        <Card title="素材源">
           <Space direction="vertical" size="middle" className="w-full">
             <div>
-              <Text className="mb-1 block">PPT 标题</Text>
-              <Input
-                value={title}
-                onChange={(e) => {
-                  titleTouched.current = true;
-                  setTitle(e.target.value);
-                }}
-                placeholder="例如：技术研究及发展趋势分析"
-              />
-              <Text type="secondary" className="mt-1 block text-xs">
-                作为主题参与大纲规划，同时用于导出文件名
-              </Text>
-              {suggestingMeta && (
-                <Text type="secondary" className="mt-1 block text-xs">
-                  AI 正在根据素材识别标题与汇报对象…
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <Text>已选素材（{displaySelectedCount}）</Text>
+                <Text type="secondary" className="text-xs">
+                  {showRestoredSources
+                    ? restoredSourceChars > 0
+                      ? `约 ${restoredSourceChars.toLocaleString()} 字符（只读）`
+                      : ""
+                    : selectedChars > 0
+                      ? `约 ${selectedChars.toLocaleString()} 字符`
+                      : ""}
                 </Text>
+              </div>
+              {displaySelectedCount === 0 ? (
+                <Text type="secondary" className="text-xs">
+                  从「素材来源」添加文档或本地文件
+                </Text>
+              ) : selectedCount === 0 ? null : (
+                <div className="max-h-[160px] overflow-y-auto rounded-md border border-slate-200">
+                  <List
+                    size="small"
+                    dataSource={[
+                      ...selectedNotes.map((note) => ({
+                        key: `note-${note.id}`,
+                        title: note.title || "无标题",
+                        tag: "文档",
+                        detail: `${note.word_count ?? note.content.length} 字`,
+                        onRemove: () => removeNoteSource(note.id),
+                      })),
+                      ...localSources.map((source) => ({
+                        key: `file-${source.path}`,
+                        title: source.title || baseName(source.path),
+                        tag: sourceTypeLabel(source.sourceType),
+                        detail: "",
+                        onRemove: () => removeLocalSource(source.path),
+                      })),
+                    ]}
+                    renderItem={(item) => (
+                      <List.Item
+                        className="!px-3"
+                        actions={[
+                          <Button
+                            key="remove"
+                            type="text"
+                            danger
+                            size="small"
+                            icon={<Trash2 size={14} />}
+                            onClick={item.onRemove}
+                          />,
+                        ]}
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-1">
+                          <FileText size={14} className="shrink-0 text-slate-500" />
+                          <Text
+                            className="min-w-0 flex-1"
+                            style={{ maxWidth: "100%" }}
+                            ellipsis={{ tooltip: item.title }}
+                          >
+                            {item.title}
+                          </Text>
+                          <Tag color="blue" className="shrink-0">
+                            {item.tag}
+                          </Tag>
+                          {item.detail && (
+                            <Text type="secondary" className="shrink-0 text-xs">
+                              {item.detail}
+                            </Text>
+                          )}
+                        </div>
+                      </List.Item>
+                    )}
+                  />
+                </div>
               )}
             </div>
             <div>
-              <Text className="mb-1 block">汇报对象</Text>
-              <Input
-                value={audience}
-                onChange={(e) => {
-                  audienceTouched.current = true;
-                  setAudience(e.target.value);
-                }}
-                placeholder="例如：本科教学、企业客户、技术评审"
-              />
-              <Text type="secondary" className="mt-1 block text-xs">
-                告诉 AI 讲给谁听，会影响内容深度与语气
-              </Text>
-            </div>
-            <div>
-              <Text className="mb-1 block">导出目录</Text>
-              <Space.Compact className="w-full">
-                <Input
-                  value={exportDir ?? ""}
-                  readOnly
-                  placeholder="默认保存在作业目录的 output/ 下"
-                />
-                <Button
-                  icon={<FolderOpen size={14} />}
-                  onClick={() => void pickExportDir()}
-                >
-                  选择
-                </Button>
-              </Space.Compact>
-              <Text type="secondary" className="mt-1 block text-xs">
-                最近一次选择的目录会自动记住
-              </Text>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Text className="mb-1 block">语言</Text>
-                <Select
-                  className="w-full"
-                  value={language}
-                  onChange={setLanguage}
-                  options={[
-                    { value: "zh-CN", label: "简体中文" },
-                    { value: "en-US", label: "English" },
-                  ]}
-                />
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <Text type="secondary">
+                  补充素材（可选，作为正文素材参与大纲）
+                </Text>
+                {job && (
+                  <Button
+                    size="small"
+                    disabled={!manualText.trim() || running || previewingFuture}
+                    onClick={() => void handleAppendManual()}
+                  >
+                    追加到作业
+                  </Button>
+                )}
               </div>
-              <div>
-                <Text className="mb-1 block">AI 模型</Text>
-                <Select
-                  className="w-full"
-                  allowClear
-                  placeholder="默认模型"
-                  value={modelId}
-                  onChange={setModelId}
-                  options={models.map((m) => ({ value: m.id, label: m.name }))}
-                />
-              </div>
-            </div>
-            <div>
-              <Text className="mb-1 block">额外要求</Text>
               <Input.TextArea
-                rows={2}
-                value={extraRequirements}
-                onChange={(e) => setExtraRequirements(e.target.value)}
-                placeholder="例如：偏重工艺流程图、少用文字"
+                rows={3}
+                value={manualText}
+                onChange={(e) => setManualText(e.target.value)}
+                placeholder="粘贴需要纳入的正文/资料；会作为素材写入作业，与所选文档同等参与理解与规划"
               />
             </div>
+            {job &&
+              selectedNotes.length === 0 &&
+              localSources.length === 0 &&
+              (showRestoredSources || manualPath) && (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                <Text type="secondary" className="mb-1 block text-xs">
+                  历史作业素材（只读）
+                </Text>
+                <List
+                  size="small"
+                  rowKey={(row) => row.key}
+                  dataSource={sourceRows}
+                  renderItem={(row) =>
+                    row.kind === "manual" ? (
+                      <List.Item
+                        className="!px-2 !py-1"
+                        actions={[
+                          <Tooltip key="view" title="查看补充素材">
+                            <Button
+                              size="small"
+                              type="text"
+                              aria-label="查看补充素材"
+                              icon={<Eye size={14} />}
+                              onClick={() => void openManualFile()}
+                            />
+                          </Tooltip>,
+                          <Popconfirm
+                            key="remove"
+                            title="删除补充素材？"
+                            description="将删除 manual.md，并让素材理解与草稿失效。"
+                            onConfirm={() => void handleDeleteManual()}
+                            disabled={running || previewingFuture}
+                          >
+                            <Button
+                              size="small"
+                              type="text"
+                              danger
+                              aria-label="删除补充素材"
+                              icon={<Minus size={14} />}
+                              disabled={running || previewingFuture}
+                            />
+                          </Popconfirm>,
+                        ]}
+                      >
+                        <div className="flex w-full min-w-0 items-center gap-2">
+                          <Tag color="purple">补充</Tag>
+                          <Text ellipsis className="min-w-0 flex-1">
+                            追加素材 manual.md
+                          </Text>
+                        </div>
+                      </List.Item>
+                    ) : (
+                      <List.Item
+                        className="!px-2 !py-1"
+                        actions={[
+                          <Tooltip key="view" title="查看素材文件">
+                            <Button
+                              size="small"
+                              type="text"
+                              aria-label="查看素材"
+                              icon={<Eye size={14} />}
+                              onClick={() => void openSourceItem(row.source)}
+                            />
+                          </Tooltip>,
+                          <Tooltip key="remove" title="从作业素材中移除">
+                            <Button
+                              size="small"
+                              type="text"
+                              danger
+                              disabled={running || previewingFuture}
+                              aria-label="移除素材"
+                              icon={<Minus size={14} />}
+                              onClick={() =>
+                                void handleRemoveRestoredSource(row.source)
+                              }
+                            />
+                          </Tooltip>,
+                        ]}
+                      >
+                        <div className="flex w-full min-w-0 items-center gap-2">
+                          <Tag
+                            color={row.source.id > 0 ? "blue" : "geekblue"}
+                          >
+                            {row.source.id > 0 ? "文档" : "本地文件"}
+                          </Tag>
+                          <Text ellipsis className="min-w-0 flex-1">
+                            {row.source.title || "未命名素材"}
+                          </Text>
+                          <Text type="secondary" className="shrink-0 text-xs">
+                            {(row.source.wordCount ?? 0).toLocaleString()} 字
+                          </Text>
+                        </div>
+                      </List.Item>
+                    )
+                  }
+                />
+              </div>
+            )}
+            {job &&
+              plan &&
+              selectedNotes.length === 0 &&
+              localSources.length === 0 &&
+              !manualText.trim() && (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="当前打开的是历史作业"
+                  description={
+                    understanding.trim() ? (
+                      <span>
+                        当前作业素材已提炼为{" "}
+                        <Button
+                          type="link"
+                          size="small"
+                          className="!h-auto !p-0 align-baseline"
+                          onClick={() => void openUnderstandingFile(job.id)}
+                        >
+                          understanding.md
+                        </Button>
+                        ，生成大纲时会复用；素材变化后需再次理解。
+                      </span>
+                    ) : (
+                      "当前作业尚未生成素材理解。"
+                    )
+                  }
+                />
+              )}
           </Space>
         </Card>
+        </div>
+        {(materialLogs.length > 0 ||
+          creating ||
+          regenerating ||
+          understandingLoading) && (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Space size={6}>
+                <Text strong>素材处理日志</Text>
+                <Tag
+                  color={
+                    creating || regenerating || understandingLoading
+                      ? "processing"
+                      : "default"
+                  }
+                >
+                  {creating || regenerating || understandingLoading
+                    ? "进行中"
+                    : "已结束"}
+                </Tag>
+              </Space>
+            </div>
+            <div className="mt-2 max-h-[180px] overflow-y-auto rounded border border-slate-200 bg-white p-2 font-mono text-xs">
+              {materialLogs.length === 0 ? (
+                <Text type="secondary">等待素材处理日志…</Text>
+              ) : (
+                materialLogs.map((line, index) => (
+                  <div
+                    key={`${index}-${line.slice(0, 12)}`}
+                    className="whitespace-pre-wrap break-all"
+                  >
+                    {line}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </div>
       )}
 
       {viewStep === 1 && (
         <Card
+          className="mt-4"
           title={
-            selectedLayoutLabel
-              ? `风格确认 · ${selectedLayoutLabel}`
-              : "风格确认（未选择版式）"
+            <StepTitle
+              title={
+                creating || regenerating
+                  ? "大纲生成 · AI 逐页扩展"
+                  : `制定大纲${plan ? `（${plan.slides.length} 页）` : ""}`
+              }
+              short={
+                creating || regenerating
+                  ? "AI 正在分块理解素材并逐页扩展，可随时暂停/继续"
+                  : PPT_STEP_META[1].short
+              }
+              tip={PPT_STEP_META[1].tip}
+            />
           }
           extra={
-            previewingFuture ? (
-              <Tag color="blue">只读预览</Tag>
-            ) : (
-              <Space wrap>
-                <Button onClick={backToSettings}>返回设置</Button>
-                <Button
-                  type="primary"
-                  icon={<Sparkles size={16} />}
-                  loading={creating}
-                  onClick={() => void goToOutline()}
-                >
-                  {job && plan ? "继续到大纲确认" : "生成大纲"}
-                </Button>
-                {creating && (
+            <Space size={8} wrap>
+              {previewingFuture && <Tag color="blue">只读预览</Tag>}
+              <ModelPicker
+                models={models}
+                value={modelId}
+                onChange={setModelId}
+                disabled={busy}
+              />
+            </Space>
+          }
+        >
+          <Space direction="vertical" size="middle" className="w-full">
+            <div className="flex flex-wrap items-center gap-3 rounded-md border border-slate-200 px-3 py-2">
+              <Text>目标页数</Text>
+              <InputNumber
+                min={1}
+                max={40}
+                value={slideCount}
+                placeholder="自动"
+                disabled={running || creating || regenerating}
+                {...previewLock}
+                onChange={(value) =>
+                  setSlideCount(typeof value === "number" ? value : undefined)
+                }
+              />
+              <Text type="secondary" className="text-xs">
+                留空由 AI 决定；修改页数后重新生成
+              </Text>
+              <span className="flex-1" />
+              {(creating || regenerating) && (
+                <>
+                  <Button
+                    icon={planningPaused ? <Play size={14} /> : <Pause size={14} />}
+                    disabled={!planningId}
+                    onClick={() => void handleTogglePlanningPause()}
+                  >
+                    {planningPaused ? "继续大纲" : "暂停大纲"}
+                  </Button>
                   <Button
                     danger
                     icon={<Square size={14} />}
@@ -1994,411 +3588,83 @@ export default function PptPage() {
                   >
                     取消规划
                   </Button>
-                )}
-              </Space>
-            )
-          }
-        >
-          <Space direction="vertical" size="middle" className="w-full">
-            <Alert
-              type="info"
-              showIcon
-              message="选择版式与图表风格"
-              description="封面预览来自版式包首张封面 SVG。确认后将根据素材生成大纲，再生成草稿供预览修改。"
-            />
-            {styleDirty && job && (
-              <Alert
-                type="warning"
-                showIcon
-                message="风格已修改"
-                description="进入草稿阶段时会重新渲染一次以应用新的版式或图表设置；大纲不会重新生成。"
-              />
-            )}
-            {layoutOptions.length === 0 ? (
-              <Alert
-                type="warning"
-                showIcon
-                message="扩展包未提供版式索引"
-                description="将使用内置渲染器生成页面，可直接继续。"
-              />
-            ) : (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {layoutOptions.map((option) => {
-                  const selected = layoutId === option.value;
-                  const preview = layoutPreviews[option.value];
-                  const support = option.support;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      disabled={previewingFuture}
-                      onClick={() =>
-                        changeLayout(selected ? undefined : option.value)
-                      }
-                      className={`overflow-hidden rounded-lg border text-left transition disabled:cursor-not-allowed disabled:opacity-70 ${
-                        selected
-                          ? "border-blue-500 ring-2 ring-blue-100"
-                          : "border-slate-200 hover:border-blue-300"
-                      }`}
-                    >
-                      <div className="flex h-36 items-center justify-center bg-slate-50">
-                        {preview ? (
-                          <img
-                            src={svgDataUrl(preview)}
-                            alt={option.label}
-                            className="h-full w-full object-contain"
-                          />
-                        ) : (
-                          <Text type="secondary">
-                            {previewFailed[option.value]
-                              ? "无封面预览"
-                              : "预览加载中…"}
-                          </Text>
-                        )}
-                      </div>
-                      <div className="p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <Text strong ellipsis={{ tooltip: option.label }}>
-                            {option.label}
-                          </Text>
-                          {option.source === "user" && (
-                            <Tag color="green">用户</Tag>
-                          )}
-                          {selected && <Tag color="blue">已选</Tag>}
-                        </div>
-                        {option.description && (
-                          <Text type="secondary" className="mt-1 block text-xs">
-                            {option.description}
-                          </Text>
-                        )}
-                        {support && (
-                          <Text type="secondary" className="mt-1 block text-xs">
-                            {support.supportsStructured
-                              ? `结构化占位符 ${support.structured} 页`
-                              : "仅支持 {{}} 占位符"}
-                            {support.supportsLegacy
-                              ? ` · {{}} ${support.legacy} 页`
-                              : ""}
-                          </Text>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            <div>
-              <Text className="mb-1 block">图表模板（可选）</Text>
-              <Select
-                mode="multiple"
-                allowClear
-                className="w-full"
-                placeholder={
-                  chartOptions.length ? "选择图表模板" : "扩展包未提供图表索引"
-                }
-                options={chartOptions}
-                value={chartIds}
-                onChange={changeChartIds}
-                {...previewLock}
-                optionFilterProp="label"
-                optionRender={(option) => {
-                  const data = option.data as {
-                    label: string;
-                    description?: string;
-                  };
-                  return (
-                    <div className="py-0.5">
-                      <div>{data.label}</div>
-                      {data.description && (
-                        <div className="text-xs text-slate-500">
-                          {data.description}
-                        </div>
-                      )}
-                    </div>
-                  );
-                }}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2">
-              <div>
-                <Text className="block">原生 PowerPoint 图表</Text>
-                <Text type="secondary" className="block text-xs">
-                  开启后优先用 python-pptx 生成可编辑图表；图表页可能不沿用版式模板
-                </Text>
-              </div>
-              <Switch
-                checked={nativeCharts}
-                onChange={changeNativeCharts}
-                {...previewLock}
-              />
-            </div>
-          </Space>
-        </Card>
-      )}
-
-      {viewStep === 2 && plan && (
-        <Card
-          title={`大纲确认（${plan.slides.length} 页）`}
-          extra={
-            previewingFuture ? (
-              <Tag color="blue">只读预览</Tag>
-            ) : (
-              <Space wrap>
-                <Button onClick={() => setStep(1)} disabled={running}>
-                  返回风格
-                </Button>
-                <Button icon={<Plus size={14} />} onClick={addSlide}>
-                  添加页
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<Sparkles size={16} />}
-                  loading={running}
-                  onClick={goToDraft}
-                >
-                  {reuseDraft ? "继续到草稿修改" : "确认大纲，生成草稿"}
-                </Button>
-              </Space>
-            )
-          }
-        >
-          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-slate-200 px-3 py-2">
-            <Text>目标页数</Text>
-            <InputNumber
-              min={1}
-              max={40}
-              value={slideCount}
-              placeholder="自动"
-              disabled={running || regenerating}
-              {...previewLock}
-              onChange={(value) =>
-                setSlideCount(typeof value === "number" ? value : undefined)
-              }
-            />
-            <Text type="secondary" className="text-xs">
-              留空由 AI 决定；修改页数后点击「重新生成大纲」
-            </Text>
-            <Button
-              icon={<RotateCcw size={14} />}
-              loading={regenerating}
-              disabled={running || previewingFuture}
-              onClick={() => void handleRegenerateOutline()}
-            >
-              重新生成大纲
-            </Button>
-            {regenerating && (
+                </>
+              )}
               <Button
-                danger
-                icon={<Square size={14} />}
-                onClick={() => void handleCancelPlanning()}
-              >
-                取消规划
-              </Button>
-            )}
-          </div>
-          <Alert
-            className="mb-3"
-            type="info"
-            showIcon
-            message="可调整页序、标题、核心信息与要点；图表数据由 AI 生成，当前不在此处编辑数值。修改后需重新生成草稿。"
-          />
-          <div className="max-h-[560px] overflow-y-auto pr-1">
-            {plan.slides.map((slide, index) => (
-              <Card
-                key={`${index}-${slide.title.slice(0, 12)}`}
-                size="small"
-                className="mb-3"
-                title={
-                  <Space>
-                    <Tag color="blue">P{index + 1}</Tag>
-                    <Text>页面</Text>
-                  </Space>
-                }
-                extra={
-                  <Space size={4}>
-                    <Tooltip title="上移">
-                      <Button
-                        size="small"
-                        type="text"
-                        icon={<ArrowUp size={14} />}
-                        disabled={index === 0 || previewingFuture}
-                        onClick={() => moveSlide(index, -1)}
-                      />
-                    </Tooltip>
-                    <Tooltip title="下移">
-                      <Button
-                        size="small"
-                        type="text"
-                        icon={<ArrowDown size={14} />}
-                        disabled={
-                          index === plan.slides.length - 1 || previewingFuture
-                        }
-                        onClick={() => moveSlide(index, 1)}
-                      />
-                    </Tooltip>
-                    <Popconfirm
-                      title="删除这一页？"
-                      onConfirm={() => removeSlide(index)}
-                      disabled={plan.slides.length <= 1}
-                    >
-                      <Button
-                        size="small"
-                        type="text"
-                        danger
-                        icon={<Trash2 size={14} />}
-                        disabled={plan.slides.length <= 1 || previewingFuture}
-                      />
-                    </Popconfirm>
-                  </Space>
-                }
-              >
-                <Space direction="vertical" size="small" className="w-full">
-                  <Input
-                    value={slide.title}
-                    {...previewLock}
-                    onChange={(event) =>
-                      updateSlide(index, { title: event.target.value })
-                    }
-                    placeholder="页面标题"
-                  />
-                  <Input.TextArea
-                    rows={2}
-                    value={slide.coreMessage}
-                    {...previewLock}
-                    onChange={(event) =>
-                      updateSlide(index, { coreMessage: event.target.value })
-                    }
-                    placeholder="核心信息 / 副标题"
-                  />
-                  <Input.TextArea
-                    rows={4}
-                    value={slide.bullets.join("\n")}
-                    {...previewLock}
-                    onChange={(event) =>
-                      updateSlide(index, {
-                        bullets: event.target.value
-                          .split("\n")
-                          .map((value) => value.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                    placeholder="每行一条要点"
-                  />
-                  {slide.chart && (
-                    <Tag color="purple">
-                      图表：{slide.chart.type} · {slide.chart.categories.length} 类
-                    </Tag>
-                  )}
-                </Space>
-              </Card>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {viewStep === 2 && !plan && (
-        <StepPreviewPlaceholder
-          step={2}
-          description="确认风格后，AI 会根据素材生成大纲。这里可以逐页调整标题、核心信息、要点与图表，再生成草稿。"
-          hints={[
-            "目标页数与重新生成大纲",
-            "逐页编辑标题 / 核心信息 / 要点",
-            "图表页标注图表类型与分类数",
-          ]}
-        />
-      )}
-
-      {viewStep === 3 && (running || job) && (
-        <Card
-          className="mt-4"
-          title={
-            running
-              ? "正在生成草稿"
-              : `草稿修改（${draftPages.length} 页）`
-          }
-          extra={
-            running ? (
-              <Button
-                danger
-                size="small"
-                icon={<Square size={14} />}
-                onClick={() => void handleCancel()}
-              >
-                取消生成
-              </Button>
-            ) : previewingFuture ? (
-              <Tag color="blue">只读预览</Tag>
-            ) : (
-              <Space wrap>
-                <Button size="small" onClick={() => setStep(2)}>
-                  返回大纲
-                </Button>
-                <Button
-                  size="small"
-                  type={planDirty || styleDirty ? "primary" : "default"}
-                  icon={<RotateCcw size={14} />}
-                  onClick={() => void handleRerenderDraft()}
-                >
-                  重新生成草稿
-                </Button>
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<Sparkles size={14} />}
-                  disabled={draftPages.length === 0}
-                  onClick={goToExport}
-                >
-                  {reuseExport ? "继续到最终导出" : "导出 PPTX"}
-                </Button>
-              </Space>
-            )
-          }
-        >
-          <Space direction="vertical" size="middle" className="w-full">
-            <div className="flex flex-wrap items-center gap-3">
-              <Text strong>生成方式</Text>
-              <Segmented
-                value={draftMode}
+                type="primary"
+                size="large"
+                icon={<Sparkles size={16} />}
+                loading={regenerating || creating}
                 disabled={running || previewingFuture}
-                onChange={(value) =>
-                  setDraftMode(value as PptDraftGenerationMode)
-                }
-                options={[
-                  { label: "程序化生成", value: "programmatic" },
-                  { label: "一次性生成", value: "oneShot" },
-                  { label: "多次生成", value: "bestOf" },
-                ]}
-              />
-              <Text type="secondary" className="text-xs">
-                {draftMode === "bestOf"
-                  ? "每页最多 3 个 AI 候选，质量优先、耗时最长"
-                  : draftMode === "oneShot"
-                    ? "每页 1 次 AI 连续生成，接近上游 skill，速度与质量平衡"
-                    : "Rust 程序化排版，3 个结构候选选优，不调用 AI 生成页面，速度最快"}
-              </Text>
+                onClick={() => void handleRegenerateOutline()}
+              >
+                {job ? "重新生成大纲" : "生成大纲"}
+              </Button>
             </div>
-            {running ? (
-              <>
-                <Progress
-                  percent={
-                    draftProgress && draftProgress.total > 0
-                      ? Math.round(
-                          (draftDoneCount / draftProgress.total) * 100,
-                        )
-                      : progressPercent
-                  }
-                  status="active"
-                />
-                {draftProgress && (
-                  <Text type="secondary">
-                    {`草稿生成中：${draftDoneCount}/${draftProgress.total} · 当前 P${draftProgress.page} · 候选 ${draftProgress.candidateCount || "…"} · ${draftProgress.status}`}
+            {planDirty && (
+              <Alert
+                type="warning"
+                showIcon
+                message="文案已修改"
+                description="下一步生成模板预览或正式 PPT 时会使用最新文案。"
+              />
+            )}
+            {renderDraftWorkspace({
+              mode: "preview",
+              emptyHint:
+                creating || regenerating
+                  ? "正在生成大纲，页面会陆续出现在左侧列表…"
+                  : "在左侧选择页面，右侧编辑标题与要点",
+              showPreview: false,
+            })}
+            {(creating || regenerating || planLogs.length > 0) && (
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Space size={6}>
+                    <Text strong>大纲生成日志</Text>
+                    <Tag
+                      color={creating || regenerating ? "processing" : "default"}
+                    >
+                      {creating || regenerating
+                        ? planningPaused
+                          ? "已暂停"
+                          : "进行中"
+                        : "已结束"}
+                    </Tag>
+                  </Space>
+                  <Text type="secondary" className="text-xs">
+                    {planningPaused
+                      ? "已暂停：当前阶段完成后停止推进"
+                      : "暂停在当前阶段/分块结束后生效"}
                   </Text>
+                </div>
+                {(creating || regenerating) && planProgress && (
+                  <div className="mt-2">
+                    <Progress
+                      size="small"
+                      status="active"
+                      percent={
+                        planProgress.total > 0
+                          ? Math.min(
+                              100,
+                              Math.round(
+                                (planProgress.current / planProgress.total) *
+                                  100,
+                              ),
+                            )
+                          : 0
+                      }
+                    />
+                    <Text type="secondary" className="text-xs">
+                      {planProgress.message}
+                    </Text>
+                  </div>
                 )}
-                <div className="max-h-[240px] overflow-y-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-xs">
-                  {logs.length === 0 ? (
-                    <Text type="secondary">等待引擎输出…</Text>
+                <div className="mt-2 max-h-[180px] overflow-y-auto rounded border border-slate-200 bg-white p-2 font-mono text-xs">
+                  {planLogs.length === 0 ? (
+                    <Text type="secondary">等待大纲日志…</Text>
                   ) : (
-                    logs.map((line, index) => (
+                    planLogs.map((line, index) => (
                       <div
                         key={`${index}-${line.slice(0, 12)}`}
                         className="whitespace-pre-wrap break-all"
@@ -2408,340 +3674,392 @@ export default function PptPage() {
                     ))
                   )}
                 </div>
-              </>
-            ) : (
-              <>
-                {job && ["failed", "cancelled"].includes(job.status) && (
-                  <Alert
-                    type="error"
-                    showIcon
-                    message={`草稿生成${
-                      job.status === "cancelled" ? "已取消" : "失败"
-                    }`}
-                    description={job.errorMessage ?? job.errorCode ?? "未知错误"}
-                  />
-                )}
-                {(planDirty || styleDirty) && (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    message="内容、页序或风格已修改"
-                    description="左侧仍是旧草稿，页序调整不会自动刷新预览。重新生成后才会按新顺序渲染并允许导出。"
-                    action={
-                      <Button
-                        size="small"
-                        type="primary"
-                        disabled={running || previewingFuture}
-                        onClick={() => void handleRerenderDraft()}
-                      >
-                        立即重新生成
-                      </Button>
-                    }
-                  />
-                )}
-                {draftLoading ? (
-                  <Text type="secondary">正在加载草稿页面…</Text>
-                ) : draftPages.length === 0 ? (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    message="暂无草稿页面"
-                    description="点击「重新生成草稿」开始渲染。"
-                  />
-                ) : (
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-                    <div className="max-h-[640px] overflow-y-auto rounded border border-slate-200">
-                      {planDirty && (
-                        <div className="sticky top-0 z-[1] border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
-                          页序待同步：左侧仍是旧草稿顺序，重新生成后更新
-                        </div>
-                      )}
-                      <List
-                        size="small"
-                        dataSource={draftPages}
-                        renderItem={(page) => (
-                          <List.Item
-                            className={`cursor-pointer !px-3 ${
-                              selectedDraftFile === page.file ? "bg-blue-50" : ""
-                            }`}
-                            onClick={() => setSelectedDraftFile(page.file)}
-                          >
-                            <div className="flex w-full items-center gap-2">
-                              <Tag color="blue">P{page.page}</Tag>
-                              <div className="min-w-0 flex-1">
-                                <Text
-                                  ellipsis={{ tooltip: page.title }}
-                                  className="block"
-                                >
-                                  {page.title}
-                                </Text>
-                                <Text type="secondary" className="block text-xs">
-                                  {page.file}
-                                </Text>
-                              </div>
-                              {(() => {
-                                const selection = pageSelection?.pages.find(
-                                  (item) => item.page === page.page,
-                                );
-                                if (!selection) return null;
-                                return (
-                                  <Tag
-                                    color={
-                                      selection.score >= 70
-                                        ? "green"
-                                        : selection.score >= 55
-                                          ? "gold"
-                                          : "red"
-                                    }
-                                  >
-                                    {selection.score}
-                                  </Tag>
-                                );
-                              })()}
-                              <Tooltip title="按提示词重新生成此页">
-                                <Button
-                                  size="small"
-                                  type="text"
-                                  loading={regenPage === page.page}
-                                  disabled={previewingFuture}
-                                  icon={<RotateCcw size={13} />}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    openRegenPrompt(page.page);
-                                  }}
-                                />
-                              </Tooltip>
-                            </div>
-                          </List.Item>
-                        )}
-                      />
-                    </div>
-                    <div className="space-y-3">
-                      {selectedDraftFile && draftSvgs[selectedDraftFile] ? (
-                        <div className="flex min-h-[320px] items-center justify-center rounded border border-slate-200 bg-slate-50 p-2">
-                          <img
-                            src={svgDataUrl(draftSvgs[selectedDraftFile])}
-                            alt="草稿预览"
-                            className="max-h-[420px] w-full object-contain"
-                          />
-                        </div>
-                      ) : (
-                        <Empty description="选择左侧页面预览" />
-                      )}
-                      {selectedDraftSlide &&
-                        pageCandidates &&
-                        pageCandidates.candidates.length > 1 && (
-                          <Card
-                            size="small"
-                            loading={candidateLoading}
-                            title="页面候选"
-                          >
-                            <div className="grid grid-cols-3 gap-2">
-                              {pageCandidates.candidates.map((candidate) => (
-                                <button
-                                  key={candidate.index}
-                                  type="button"
-                                  disabled={previewingFuture}
-                                  onClick={() =>
-                                    void handleSelectCandidate(candidate.index)
-                                  }
-                                  className={`rounded border p-1 text-left disabled:cursor-not-allowed disabled:opacity-70 ${
-                                    candidate.index === pageCandidates.selected
-                                      ? "border-blue-500 ring-2 ring-blue-200"
-                                      : "border-slate-200"
-                                  }`}
-                                >
-                                  <img
-                                    src={svgDataUrl(candidate.svg)}
-                                    alt={candidate.motif}
-                                    className="w-full"
-                                  />
-                                  <div className="mt-1 flex items-center justify-between text-xs">
-                                    <Tooltip
-                                      title={candidate.note || undefined}
-                                    >
-                                      <span className="truncate">
-                                        {candidate.label || candidate.motif}
-                                      </span>
-                                    </Tooltip>
-                                    <Tag
-                                      color={
-                                        candidate.score >= 70 ? "green" : "gold"
-                                      }
-                                    >
-                                      {candidate.score}
-                                    </Tag>
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          </Card>
-                        )}
-                      {selectedDraftSlide && (
-                        <Card
-                          size="small"
-                          title={`编辑 P${selectedDraftSlide.page}`}
-                          extra={
-                            previewingFuture ? (
-                              <Tag color="blue">只读预览</Tag>
-                            ) : (
-                            <Space size={4}>
-                              <Button icon={<Plus size={14} />} size="small" type="text" onClick={addSlide} />
-                              <Tooltip title="按提示词重新生成此页">
-                                <Button
-                                  size="small"
-                                  type="text"
-                                  icon={<Sparkles size={14} />}
-                                  loading={regenPage === selectedDraftSlide.page}
-                                  onClick={() => openRegenPrompt(selectedDraftSlide.page)}
-                                />
-                              </Tooltip>
-                              <Tooltip title="上移">
-                                <Button
-                                  size="small"
-                                  type="text"
-                                  icon={<ArrowUp size={14} />}
-                                  disabled={selectedDraftIndex <= 0}
-                                  onClick={() =>
-                                    moveSlide(selectedDraftIndex, -1)
-                                  }
-                                />
-                              </Tooltip>
-                              <Tooltip title="下移">
-                                <Button
-                                  size="small"
-                                  type="text"
-                                  icon={<ArrowDown size={14} />}
-                                  disabled={
-                                    !plan ||
-                                    selectedDraftIndex >= plan.slides.length - 1
-                                  }
-                                  onClick={() => moveSlide(selectedDraftIndex, 1)}
-                                />
-                              </Tooltip>
-                              <Popconfirm
-                                title="删除这一页？"
-                                onConfirm={() => removeSlide(selectedDraftIndex)}
-                                disabled={!!plan && plan.slides.length <= 1}
-                              >
-                                <Button
-                                  size="small"
-                                  type="text"
-                                  danger
-                                  icon={<Trash2 size={14} />}
-                                  disabled={!!plan && plan.slides.length <= 1}
-                                />
-                              </Popconfirm>
-                            </Space>
-                            )
-                          }
-                        >
-                          <Space direction="vertical" size="small" className="w-full">
-                            <Input
-                              value={selectedDraftSlide.title}
-                              {...previewLock}
-                              onChange={(event) =>
-                                updateSlide(selectedDraftIndex, {
-                                  title: event.target.value,
-                                })
-                              }
-                              placeholder="页面标题"
-                            />
-                            <Input.TextArea
-                              rows={2}
-                              value={selectedDraftSlide.coreMessage}
-                              {...previewLock}
-                              onChange={(event) =>
-                                updateSlide(selectedDraftIndex, {
-                                  coreMessage: event.target.value,
-                                })
-                              }
-                              placeholder="核心信息 / 副标题"
-                            />
-                            <Input.TextArea
-                              rows={4}
-                              value={selectedDraftSlide.bullets.join("\n")}
-                              {...previewLock}
-                              onChange={(event) =>
-                                updateSlide(selectedDraftIndex, {
-                                  bullets: event.target.value
-                                    .split("\n")
-                                    .map((value) => value.trim())
-                                    .filter(Boolean),
-                                })
-                              }
-                              placeholder="每行一条要点"
-                            />
-                            {selectedDraftSlide.chart && (
-                              <Tag color="purple">
-                                图表：{selectedDraftSlide.chart.type} ·{" "}
-                                {selectedDraftSlide.chart.categories.length} 类
-                              </Tag>
-                            )}
-                            <Text type="secondary" className="text-xs">
-                              修改内容或页序后，点击「重新生成草稿」刷新预览；第一版不支持 SVG 元素拖拽。
-                            </Text>
-                          </Space>
-                        </Card>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </>
+              </div>
             )}
           </Space>
         </Card>
       )}
 
-      {viewStep === 3 && !(running || job) && (
+      {viewStep === 2 && (
+        <Card
+          className="mt-4"
+          title={
+            <StepTitle
+              title={
+                selectedLayoutLabel
+                  ? `效果与模板 · ${selectedLayoutLabel}`
+                  : "效果与模板 · 中性"
+              }
+              short={PPT_STEP_META[2].short}
+              tip={PPT_STEP_META[2].tip}
+            />
+          }
+          extra={
+            <Space size={8} wrap>
+              {previewingFuture && <Tag color="blue">只读预览</Tag>}
+              <ModelPicker
+                models={models}
+                value={modelId}
+                onChange={setModelId}
+                disabled={busy}
+              />
+            </Space>
+          }
+        >
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+            {/* 左：模板列表 */}
+            <div className="max-h-[560px] overflow-y-auto rounded-md border border-slate-200">
+              <button
+                type="button"
+                disabled={previewingFuture || running}
+                onClick={() => changeLayout(undefined)}
+                className={`flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-70 ${
+                  !layoutId ? "bg-blue-50" : "hover:bg-slate-50"
+                }`}
+              >
+                <span className="flex h-8 w-12 shrink-0 items-center justify-center rounded bg-slate-100 text-xs text-slate-500">
+                  中性
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm">不使用模板</span>
+                  <span className="block truncate text-xs text-slate-500">
+                    内置结构与配色
+                  </span>
+                </span>
+              </button>
+              {layoutOptions.map((option) => {
+                const selected = layoutId === option.value;
+                const preview = layoutPreviews[option.value];
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={previewingFuture || running}
+                    onClick={() =>
+                      changeLayout(selected ? undefined : option.value)
+                    }
+                    className={`flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-70 ${
+                      selected ? "bg-blue-50" : "hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-50">
+                      {preview ? (
+                        <img
+                          src={svgDataUrl(preview)}
+                          alt={option.label}
+                          className="h-full w-full object-contain"
+                        />
+                      ) : (
+                        <span className="text-[10px] text-slate-400">
+                          {previewFailed[option.value] ? "无图" : "…"}
+                        </span>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1">
+                        <span className="truncate text-sm">{option.label}</span>
+                        {option.source === "user" && (
+                          <Tag color="green" className="!mr-0">
+                            用户
+                          </Tag>
+                        )}
+                      </span>
+                      <span className="block truncate text-xs text-slate-500">
+                        {option.description ||
+                          (option.support?.supportsStructured
+                            ? `结构化占位 ${option.support.structured} 页`
+                            : "")}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+              {layoutOptions.length === 0 && (
+                <div className="px-3 py-2 text-xs text-amber-600">
+                  扩展包未提供版式索引，将使用内置渲染器。
+                </div>
+              )}
+            </div>
+
+            {/* 右：模板生成预览 */}
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3 rounded-md border border-slate-200 px-3 py-2">
+                <Text strong className="shrink-0">
+                  {selectedLayoutLabel ?? "中性"}
+                </Text>
+                <Text className="shrink-0 text-sm">图表模板</Text>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  className="min-w-[180px] max-w-[320px] flex-1"
+                  placeholder={
+                    chartOptions.length ? "选择图表模板（可选）" : "无图表索引"
+                  }
+                  options={chartOptions}
+                  value={chartIds}
+                  onChange={changeChartIds}
+                  disabled={running}
+                  optionFilterProp="label"
+                  optionRender={(option) => {
+                    const data = option.data as {
+                      label: string;
+                      description?: string;
+                    };
+                    return (
+                      <div className="py-0.5">
+                        <div>{data.label}</div>
+                        {data.description && (
+                          <div className="text-xs text-slate-500">
+                            {data.description}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
+                <Tooltip title="开启后优先用 python-pptx 生成可编辑图表；图表页可能不沿用版式模板">
+                  <span className="flex shrink-0 items-center gap-1 text-xs text-slate-500">
+                    原生图表
+                    <Switch
+                      size="small"
+                      checked={nativeCharts}
+                      onChange={changeNativeCharts}
+                      disabled={running || previewingFuture}
+                    />
+                  </span>
+                </Tooltip>
+                <Button
+                  className="ml-auto"
+                  type="primary"
+                  size="large"
+                  icon={<Sparkles size={16} />}
+                  loading={previewLoading && running}
+                  disabled={running || previewingFuture || !job}
+                  onClick={() => void handleTemplatePreview()}
+                >
+                  模板生成预览
+                </Button>
+              </div>
+
+              {styleDirty && job && !running && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="模板或效果已修改"
+                  description="点击「模板生成预览」按新模板刷新；正式草稿需在下一步重新生成。"
+                />
+              )}
+
+              <div className="flex min-h-[320px] items-center justify-center rounded-md border border-slate-200 bg-slate-50 p-2">
+                {previewLoading ? (
+                  <Text type="secondary">正在生成模板预览…</Text>
+                ) : previewActiveSvg ? (
+                  <img
+                    src={svgDataUrl(previewActiveSvg)}
+                    alt="模板预览"
+                    className="max-h-[420px] w-full object-contain"
+                  />
+                ) : (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="选择模板后点击「模板生成预览」查看效果"
+                  />
+                )}
+              </div>
+
+              {previewPages.length > 1 && (
+                <div className="flex flex-wrap gap-1">
+                  {previewPages.map((page) => (
+                    <button
+                      key={page.file}
+                      type="button"
+                      onClick={() => setPreviewSelectedFile(page.file)}
+                      className={`rounded border px-2 py-0.5 text-xs ${
+                        previewActiveFile === page.file
+                          ? "border-blue-500 bg-blue-50 text-blue-600"
+                          : "border-slate-200 text-slate-600 hover:border-blue-300"
+                      }`}
+                    >
+                      P{page.page}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <Text type="secondary" className="text-xs">
+                {previewStale
+                  ? "模板已改，预览为旧版本"
+                  : "模板生成预览只写入 svg_preview，不影响正式草稿。"}
+              </Text>
+
+              {pageCandidates && pageCandidates.candidates.length > 1 && (
+                <Card
+                  size="small"
+                  loading={candidateLoading}
+                  title="页面候选"
+                >
+                  <div className="grid grid-cols-3 gap-2">
+                    {pageCandidates.candidates.map((candidate) => (
+                      <button
+                        key={candidate.index}
+                        type="button"
+                        disabled={previewingFuture || running}
+                        onClick={() =>
+                          void handleSelectCandidate(candidate.index)
+                        }
+                        className={`rounded border p-1 text-left disabled:cursor-not-allowed disabled:opacity-70 ${
+                          candidate.index === pageCandidates.selected
+                            ? "border-blue-500 ring-2 ring-blue-200"
+                            : "border-slate-200"
+                        }`}
+                      >
+                        <img
+                          src={svgDataUrl(candidate.svg)}
+                          alt={candidate.motif}
+                          className="w-full"
+                        />
+                        <div className="mt-1 flex items-center justify-between text-xs">
+                          <Tooltip title={candidate.note || undefined}>
+                            <span className="truncate">
+                              {candidate.label || candidate.motif}
+                            </span>
+                          </Tooltip>
+                          <Tag
+                            color={candidate.score >= 70 ? "green" : "gold"}
+                          >
+                            {candidate.score}
+                          </Tag>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </div>
+          </div>
+          {(running || logs.length > 0) && (
+            <div className="mt-4">
+              <Text type="secondary" className="mb-1 block text-xs">
+                引擎日志
+              </Text>
+              <div className="max-h-[200px] overflow-y-auto rounded border border-slate-200 bg-slate-50 p-2 font-mono text-xs">
+                {logs.length === 0 ? (
+                  <Text type="secondary">等待引擎输出…</Text>
+                ) : (
+                  logs.map((line, index) => (
+                    <div
+                      key={`${index}-${line.slice(0, 12)}`}
+                      className="whitespace-pre-wrap break-all"
+                    >
+                      {line}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {viewStep === 3 && (job || running || formalized) && (
+        <Card
+          className="mt-4"
+          title={
+            <StepTitle
+              title="草稿预览"
+              short={PPT_STEP_META[3].short}
+              tip={PPT_STEP_META[3].tip}
+            />
+          }
+          extra={
+            <Space size={8} wrap>
+              {previewingFuture && <Tag color="blue">只读预览</Tag>}
+              <ModelPicker
+                models={models}
+                value={modelId}
+                onChange={setModelId}
+                disabled={busy}
+              />
+            </Space>
+          }
+        >
+          <Space direction="vertical" size="middle" className="w-full">
+            <div className="flex flex-wrap items-center gap-3 rounded-md border border-slate-200 px-3 py-2">
+              <Text strong>生成方式</Text>
+              <Segmented
+                value={formalMode === "programmatic" ? "oneShot" : formalMode}
+                disabled={running || previewingFuture}
+                onChange={(value) =>
+                  setFormalMode(value as PptDraftGenerationMode)
+                }
+                options={[
+                  { label: "单候选页", value: "oneShot" },
+                  { label: "三候选页", value: "bestOf" },
+                ]}
+              />
+              <Text type="secondary" className="text-xs">
+                {formalMode === "bestOf"
+                  ? "每页最多生成 3 个候选，质量优先、耗时最长"
+                  : "每页生成 1 个候选，速度与质量平衡"}
+              </Text>
+              {job?.status === "paused" && <Tag color="gold">已暂停</Tag>}
+              <Button
+                className="ml-auto"
+                type="primary"
+                size="large"
+                icon={<Sparkles size={16} />}
+                loading={running}
+                disabled={previewingFuture}
+                onClick={() => void handleRenderFormal()}
+              >
+                {job?.status === "paused"
+                  ? "继续生成"
+                  : formalized
+                    ? "重新生成预览"
+                    : "生成预览"}
+              </Button>
+            </div>
+            {renderDraftWorkspace({
+              mode: "formal",
+              emptyHint: "选择生成方式后点击「生成预览」开始渲染",
+            })}
+          </Space>
+        </Card>
+      )}
+
+      {viewStep === 3 && !(job || running || formalized) && (
         <StepPreviewPlaceholder
           step={3}
-          description="大纲确认后会按页渲染草稿。这里可以查看每页缩略图、切换结构候选，并按提示词单独重生成某一页。"
-          hints={[
-            "页面缩略图列表与 SVG 预览",
-            "候选评分与结构切换",
-            "单页按提示词重新生成",
-          ]}
+          description="先完成「设置与素材」并生成大纲；进入本步骤后选择生成方式，点击「生成预览」按正式模板逐页渲染草稿，确认后再进入导出。"
+          hints={["选择生成方式", "正式模板逐页预览", "确认后进入导出"]}
         />
       )}
 
       {viewStep === 4 && (running || job) && (
         <Card
           className="mt-4"
-          title={running ? "正在导出 PPTX" : "最终导出"}
+          title={running ? "正在导出 PPTX" : "导出 PPTX"}
           extra={
-            running ? (
-              <Button
-                danger
-                size="small"
-                icon={<Square size={14} />}
-                onClick={() => void handleCancel()}
-              >
-                取消导出
-              </Button>
-            ) : previewingFuture ? (
-              <Tag color="blue">只读预览</Tag>
-            ) : (
-              <Space wrap>
-                <Button size="small" onClick={() => setStep(3)}>
-                  返回草稿
-                </Button>
-                <Button size="small" onClick={backToSettings}>
-                  返回设置
-                </Button>
-                <Button size="small" onClick={() => void editOutline()}>
-                  修改大纲
-                </Button>
+            <Space size={8} wrap>
+              <ModelPicker
+                models={models}
+                value={modelId}
+                onChange={setModelId}
+                disabled={busy}
+              />
+              {running ? (
                 <Button
+                  danger
                   size="small"
-                  type="primary"
-                  icon={<Sparkles size={14} />}
-                  onClick={() => void handleExport()}
+                  icon={<Square size={14} />}
+                  onClick={() => void handleCancel()}
                 >
-                  重新导出
+                  取消导出
                 </Button>
-              </Space>
-            )
+              ) : (
+                previewingFuture && <Tag color="blue">只读预览</Tag>
+              )}
+            </Space>
           }
         >
           <Space direction="vertical" size="middle" className="w-full">
@@ -2755,6 +4073,34 @@ export default function PptPage() {
                     : "normal"
               }
             />
+            {!formalized && !running && (
+              <Alert
+                type="warning"
+                showIcon
+                message="当前是程序化预览草稿"
+                description="建议先在「草稿预览」生成正式草稿再导出；也可以直接导出当前程序化排版的结果。"
+              />
+            )}
+            {!running &&
+              draftStatus &&
+              draftStatus.status !== "fresh" &&
+              draftStatus.status !== "order_stale" && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="草稿未就绪"
+                  description={
+                    draftStatus.pages
+                      .filter((page) => page.status !== "ready")
+                      .slice(0, 6)
+                      .map(
+                        (page) =>
+                          `P${String(page.page).padStart(2, "0")} ${page.message}`,
+                      )
+                      .join("；") || "请先在「草稿预览」生成正式草稿"
+                  }
+                />
+              )}
             <div>
               <Text className="mb-1 block">导出目录</Text>
               <Space.Compact className="w-full">
@@ -2832,6 +4178,17 @@ export default function PptPage() {
                 ))
               )}
             </div>
+            <div className="sticky bottom-0 z-10 mt-2 flex justify-end bg-white/95 py-2">
+              <Button
+                size="large"
+                type="primary"
+                icon={<Download size={16} />}
+                disabled={running || previewingFuture}
+                onClick={() => void handleExport()}
+              >
+                {job?.stage === "done" ? "重新导出" : "导出 PPTX"}
+              </Button>
+            </div>
           </Space>
         </Card>
       )}
@@ -2839,13 +4196,13 @@ export default function PptPage() {
       {viewStep === 4 && !(running || job) && (
         <StepPreviewPlaceholder
           step={4}
-          description="草稿确认后可导出为可编辑 PPTX。这里显示导出进度、输出路径，以及打开 PPT / 工程目录的操作。"
+          description="正式草稿确认后可导出为可编辑 PPTX。这里显示导出进度、输出路径，以及打开 PPT / 工程目录的操作。"
           hints={["导出目录选择", "导出进度与日志", "打开 PPT / 工程目录"]}
         />
       )}
 
       <Drawer
-        title="历史作业"
+        title="历史PPT作业"
         width={820}
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
@@ -3024,6 +4381,22 @@ export default function PptPage() {
           )}
         </Space>
       </Modal>
+    </div>
+    </main>
+    <StepRail
+      items={stepItems}
+      current={step}
+      viewStep={viewStep}
+      onSelect={handleStepChange}
+      onNewJob={handleNewJob}
+      onOpenHistory={() => setHistoryOpen(true)}
+      recentJobs={history.slice(0, 5)}
+      currentJobId={job?.id}
+      onOpenJob={(record) => {
+        setHistoryOpen(false);
+        void resumeJob(record);
+      }}
+    />
     </div>
   );
 }

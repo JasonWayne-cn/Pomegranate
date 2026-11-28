@@ -75,6 +75,7 @@ import { CompareMergeDropdown } from "./CompareMergeDropdown";
 import { AnnotationButton } from "./AnnotationButton";
 import { mergeParagraphs, splitHardBreaks } from "./lineBreakCleanup";
 import { PluginToolbarButtons } from "./PluginToolbarButtons";
+import { FONT_SIZE_OPTIONS } from "./fontSizeStep";
 
 interface ToolbarProps {
   editor: Editor;
@@ -1879,20 +1880,6 @@ function loadSystemFontsOnce(): Promise<string[]> {
   }
   return systemFontsPromise;
 }
-
-const FONT_SIZE_OPTIONS = [
-  { value: "12px", label: "12" },
-  { value: "13px", label: "13" },
-  { value: "14px", label: "14" },
-  { value: "15px", label: "15" },
-  { value: "16px", label: "16" },
-  { value: "18px", label: "18" },
-  { value: "20px", label: "20" },
-  { value: "24px", label: "24" },
-  { value: "30px", label: "30" },
-  { value: "36px", label: "36" },
-  { value: "48px", label: "48" },
-];
 
 const LINE_HEIGHT_OPTIONS = [
   { value: "1", label: "1.0" },

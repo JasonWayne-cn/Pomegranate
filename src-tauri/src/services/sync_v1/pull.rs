@@ -227,6 +227,19 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
     );
     let diff = manifest::diff_manifests(&local, &remote);
 
+    // 修老版本留下的时间失真：内容一致的笔记 diff 会跳过，只能在这里单独对齐
+    for (stable_id, remote_ts) in manifest::stale_synced_note_times(&local, &remote) {
+        let repaired = db
+            .get_note_id_by_stable_uuid(&stable_id)
+            .and_then(|id| match id {
+                Some(id) => db.repair_note_synced_updated_at(id, &remote_ts),
+                None => Ok(false),
+            });
+        if let Err(e) = repaired {
+            log::warn!("[sync_v1] 对齐笔记 {} 修改时间失败: {}", stable_id, e);
+        }
+    }
+
     // v91：文件夹先于笔记落库 —— 下面拉笔记时按 folder_uuid 找文件夹，找不到才按路径补建
     super::folder_sync::apply_pulled_folders(db, &diff.folders_to_pull, &mut result);
 
@@ -495,6 +508,16 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
             ) {
                 Ok(local_id) => {
                     result.downloaded += 1;
+                    // upsert 会把时间写成「现在」，被动接收的版本要用远端时间
+                    if let Err(e) = db.set_note_synced_times(
+                        local_id,
+                        &entry.updated_at,
+                        entry.created_at.as_deref(),
+                    ) {
+                        result
+                            .errors
+                            .push(format!("对齐加密笔记时间失败 {}: {}", entry.title, e));
+                    }
                     if let Err(e) = db.upsert_remote_state(
                         backend_id,
                         local_id,
@@ -649,6 +672,16 @@ pub fn pull<R: Runtime, E: Emitter<R>>(
                                     .errors
                                     .push(format!("新建文档设置类型失败 {}: {}", entry.title, e));
                             }
+                        }
+                        // 放在最后：前面设标签 / 类型的步骤可能再碰 updated_at
+                        if let Err(e) = db.set_note_synced_times(
+                            n.id,
+                            &entry.updated_at,
+                            entry.created_at.as_deref(),
+                        ) {
+                            result
+                                .errors
+                                .push(format!("新建笔记对齐时间失败 {}: {}", entry.title, e));
                         }
                         Some(n.id)
                     }
@@ -1022,7 +1055,7 @@ fn apply_pulled_tasks(
             priority: Some(e.priority),
             important: Some(e.important),
             due_date: e.due_date.clone(),
-            remind_before_minutes: None,
+            remind_before_minutes: e.remind_before_minutes,
             links: None,
             repeat_kind: Some(e.repeat_kind.clone()),
             repeat_interval: Some(e.repeat_interval),
@@ -1113,6 +1146,19 @@ fn apply_pulled_tasks(
             Err(err) => result
                 .errors
                 .push(format!("查任务 UUID 失败 {}: {}", e.title, err)),
+        }
+    }
+    // 提前量 + 已提醒标记：建 / 改都走这里，过期的不补弹
+    let base_time = crate::services::task_reminder::all_day_base_time(db);
+    for e in entries.iter().filter(|e| !e.tombstone) {
+        if let Ok(Some(local_id)) = db.get_task_id_by_stable_uuid(&e.stable_id) {
+            if let Err(err) =
+                db.apply_synced_task_reminder(local_id, e.remind_before_minutes, &base_time)
+            {
+                result
+                    .errors
+                    .push(format!("同步任务 {} 的提醒设置失败: {}", e.title, err));
+            }
         }
     }
     // Pass 2：回填 parent_task_id（拿到所有 task 的 local_id 后再处理）
@@ -1348,6 +1394,7 @@ mod tests {
             repeat_until: None,
             repeat_count: None,
             tombstone,
+            remind_before_minutes: None,
         }
     }
 

@@ -12,16 +12,20 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useEditorState, type Editor } from "@tiptap/react";
 import { Tooltip, theme as antdTheme } from "antd";
 import {
+  AArrowDown,
+  AArrowUp,
   Bold,
   Check,
   Code,
   Copy,
   Highlighter,
   Italic,
+  Layers,
   Scissors,
   Strikethrough,
   Underline as UnderlineIcon,
 } from "lucide-react";
+import { stepFontSize } from "./fontSizeStep";
 
 interface FormatItem {
   key: "bold" | "italic" | "underline" | "strike" | "highlight" | "code";
@@ -69,7 +73,14 @@ const ITEMS: FormatItem[] = [
   },
 ];
 
-export function SelectionFormatButtons({ editor }: { editor: Editor }) {
+export function SelectionFormatButtons({
+  editor,
+  onMakeCard,
+}: {
+  editor: Editor;
+  /** 选中文字转为闪卡（正面 = 选中的纯文本）；不传则不显示按钮 */
+  onMakeCard?: (text: string) => void;
+}) {
   const { token } = antdTheme.useToken();
   // 复制后图标短暂变对勾，不弹 toast（浮条就在手边，弹窗反而挡视线）
   const [copied, setCopied] = useState(false);
@@ -134,6 +145,33 @@ export function SelectionFormatButtons({ editor }: { editor: Editor }) {
           </Tooltip>
         );
       })}
+      {/* 字号：选中就能调大小，不必回顶部工具栏找下拉；阅读模式下不能改 */}
+      {editor.isEditable &&
+        ([
+          { dir: 1, label: "增大字号 Ctrl+Shift+>", icon: <AArrowUp size={14} /> },
+          { dir: -1, label: "减小字号 Ctrl+Shift+<", icon: <AArrowDown size={14} /> },
+        ] as const).map((it) => (
+          <Tooltip key={it.dir} title={it.label} mouseEnterDelay={0.3}>
+            <button
+              type="button"
+              aria-label={it.label}
+              className="flex items-center justify-center rounded hover:bg-black/5 transition-colors"
+              style={{
+                width: 24,
+                height: 24,
+                flexShrink: 0,
+                border: "none",
+                cursor: "pointer",
+                background: "transparent",
+                color: token.colorText,
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => stepFontSize(editor, it.dir)}
+            >
+              {it.icon}
+            </button>
+          </Tooltip>
+        ))}
       <span
         aria-hidden
         style={{ width: 1, height: 16, margin: "0 3px", flexShrink: 0, background: token.colorBorderSecondary }}
@@ -178,6 +216,32 @@ export function SelectionFormatButtons({ editor }: { editor: Editor }) {
             onClick={() => runClipboard("cut")}
           >
             <Scissors size={13} />
+          </button>
+        </Tooltip>
+      )}
+      {onMakeCard && (
+        <Tooltip title="转为闪卡" mouseEnterDelay={0.3}>
+          <button
+            type="button"
+            aria-label="转为闪卡"
+            className="flex items-center justify-center rounded hover:bg-black/5 transition-colors"
+            style={{
+              width: 24,
+              height: 24,
+              flexShrink: 0,
+              border: "none",
+              cursor: "pointer",
+              background: "transparent",
+              color: token.colorText,
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              const { from, to } = editor.state.selection;
+              const text = editor.state.doc.textBetween(from, to, "\n").trim();
+              if (text) onMakeCard(text);
+            }}
+          >
+            <Layers size={13} />
           </button>
         </Tooltip>
       )}

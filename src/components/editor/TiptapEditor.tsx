@@ -1840,7 +1840,9 @@ export function TiptapEditor({
       {/* 「问 AI 这段」与续写/总结/改写等工具按钮共享同一个浮动菜单：
           AiWriteMenu 接 onAskAi prop 后会在按钮行最前面渲染蓝色 CTA，
           整个菜单跟随鼠标位置出现，零重叠，无需独立定位逻辑 */}
-      {!readOnly && <AiWriteMenu editor={editor} onAskAi={onAskAi} />}
+      {!readOnly && (
+        <AiWriteMenu editor={editor} noteId={noteId} onAskAi={onAskAi} />
+      )}
       {/* 右键双链 →「修改链接」的目标选择器 */}
       <WikiLinkEditModal
         open={!!editingWikiLink}

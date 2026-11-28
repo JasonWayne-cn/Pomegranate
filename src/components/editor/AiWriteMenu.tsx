@@ -47,9 +47,12 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { aiWriteApi, promptApi, promptGroupApi } from "@/lib/api";
 import { splitThinking } from "@/lib/stripThinking";
 import type { PromptGroup, PromptOutputMode, PromptTemplate } from "@/types";
+import { MakeCardDialog } from "./MakeCardDialog";
 
 interface AiWriteMenuProps {
   editor: Editor;
+  /** 当前笔记 id；用于「转为闪卡」时关联 */
+  noteId?: number;
   /**
    * 选中文本时浮起按钮行的「leading 按钮」回调（即「问 AI 这段」）。
    * 不传时不渲染该按钮；按钮跟着同一个浮动菜单出现，不会和右侧续写/总结/改写
@@ -247,10 +250,12 @@ function parseResultWithPlaceholders(
  */
 const FAKE_SELECTION_KEY = new PluginKey<DecorationSet>("ai-write-fake-selection");
 
-export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
+export function AiWriteMenu({ editor, noteId, onAskAi }: AiWriteMenuProps) {
   const { token } = antdTheme.useToken();
   // 设置里关闭"AI 问答"模块时，整个浮动菜单不挂载（不监听选区，零开销）
   const aiEnabled = useFeatureEnabled("ai");
+  const cardsEnabled = useFeatureEnabled("cards");
+  const [cardFront, setCardFront] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
   const [streaming, setStreaming] = useState(false);
   // 模型原始输出（可能含 <think> 思考过程），展示 / 插入前一律经 splitThinking 拆分
@@ -836,21 +841,31 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
   if (!aiEnabled) {
     if (!visible || !triggerPos) return null;
     return (
-      <div
-        ref={menuRef}
-        style={{ position: "fixed", left: triggerPos.x, top: triggerPos.y, zIndex: 999 }}
-        onMouseDown={(e) => e.preventDefault()}
-      >
+      <>
         <div
-          className="kb-ai-floating-toolbar"
-          style={{
-            background: token.colorBgElevated,
-            border: `1px solid ${token.colorBorderSecondary}`,
-          }}
+          ref={menuRef}
+          style={{ position: "fixed", left: triggerPos.x, top: triggerPos.y, zIndex: 999 }}
+          onMouseDown={(e) => e.preventDefault()}
         >
-          <SelectionFormatButtons editor={editor} />
+          <div
+            className="kb-ai-floating-toolbar"
+            style={{
+              background: token.colorBgElevated,
+              border: `1px solid ${token.colorBorderSecondary}`,
+            }}
+          >
+            <SelectionFormatButtons
+              editor={editor}
+              onMakeCard={cardsEnabled ? setCardFront : undefined}
+            />
+          </div>
         </div>
-      </div>
+        <MakeCardDialog
+          front={cardFront}
+          noteId={noteId}
+          onClose={() => setCardFront(null)}
+        />
+      </>
     );
   }
 
@@ -865,7 +880,10 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
         border: `1px solid ${token.colorBorderSecondary}`,
       }}
     >
-      <SelectionFormatButtons editor={editor} />
+      <SelectionFormatButtons
+        editor={editor}
+        onMakeCard={cardsEnabled ? setCardFront : undefined}
+      />
       {divider}
       {/* leading：问 AI 这段（蓝色 CTA） */}
       {onAskAi && (
@@ -1315,6 +1333,11 @@ export function AiWriteMenu({ editor, onAskAi }: AiWriteMenuProps) {
           </div>
         </div>
       )}
+      <MakeCardDialog
+        front={cardFront}
+        noteId={noteId}
+        onClose={() => setCardFront(null)}
+      />
     </>
   );
 }

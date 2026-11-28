@@ -2,16 +2,16 @@ import { create } from "zustand";
 import { Store } from "@tauri-apps/plugin-store";
 
 /**
- * 首页可排序 Widget 标识（6 个独立项）
+ * 首页可排序 Widget 标识（5 个独立项）
  *
  * 旧版（v1）合并 widget：todo-recent / pinned-ai
- * 新版（v2）拆分独立：todo / recent / pinned / ai
+ * v2 拆分独立：todo / recent / pinned / ai
+ * v3（参考知识库新版）：置顶笔记并入「最近编辑 / 置顶」双标签卡，不再单独占位
  */
 export type HomeWidgetId =
   | "quick-note"
   | "todo"
   | "recent"
-  | "pinned"
   | "ai"
   | "writing-stat";
 
@@ -51,19 +51,17 @@ export interface WidgetLayout {
 }
 
 /**
- * 默认布局（用户需求版本）：
- *   ① 快速记一笔  满宽
- *   ② 置顶文档 + 待办速览  各 1/2
- *   ③ 最近文档 + 问 AI      各 1/2
- *   ④ 写作活力              满宽
+ * 默认布局（对齐知识库新版首页）：
+ *   ① 随手记          满宽
+ *   ② 待办 + 笔记     各 1/2
+ *   ③ 写作活力 + 问 AI 2/3 + 1/3
  */
 export const DEFAULT_LAYOUT: WidgetLayout[] = [
   { id: "quick-note", colSpan: "xl", heightLevel: "compact" },
-  { id: "pinned", colSpan: "md", heightLevel: "normal" },
   { id: "todo", colSpan: "md", heightLevel: "normal" },
   { id: "recent", colSpan: "md", heightLevel: "normal" },
-  { id: "ai", colSpan: "md", heightLevel: "normal" },
-  { id: "writing-stat", colSpan: "xl", heightLevel: "compact" },
+  { id: "writing-stat", colSpan: "lg", heightLevel: "normal" },
+  { id: "ai", colSpan: "sm", heightLevel: "normal" },
 ];
 
 const STORE_FILE = "home-layout.json";
@@ -111,13 +109,13 @@ export const useHomeLayoutStore = create<HomeLayoutState>((set, get) => {
       if (id === "todo-recent") {
         expanded.push("todo", "recent");
       } else if (id === "pinned-ai") {
-        expanded.push("pinned", "ai");
+        // 置顶笔记已并入 recent 卡，旧合并项只保留 ai
+        expanded.push("ai");
       } else if (
         id === "quick-note" ||
         id === "writing-stat" ||
         id === "todo" ||
         id === "recent" ||
-        id === "pinned" ||
         id === "ai"
       ) {
         expanded.push(id);
@@ -146,7 +144,6 @@ export const useHomeLayoutStore = create<HomeLayoutState>((set, get) => {
         id !== "quick-note" &&
         id !== "todo" &&
         id !== "recent" &&
-        id !== "pinned" &&
         id !== "ai" &&
         id !== "writing-stat"
       )

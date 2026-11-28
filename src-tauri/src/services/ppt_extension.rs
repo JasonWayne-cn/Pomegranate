@@ -19,8 +19,8 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::models::AiModel;
 use crate::models::extension::{
-    ExtensionInfo, PptDraftPage, PptJob, PptJobInput, PptLocalFileSource, PptMetaSource,
-    PptMetaSuggestion, PptPlan, PptSlide, PptSourceMeta,
+    ExtensionInfo, PptDraftPage, PptJob, PptJobInput, PptLocalFileInput, PptLocalFileSource,
+    PptMetaSource, PptMetaSuggestion, PptPlan, PptSlide, PptSourceMeta,
 };
 use crate::services::ai::AiService;
 use crate::services::doc_extract::DocExtractService;
@@ -30,6 +30,7 @@ use crate::services::extension_runner;
 use crate::services::import::read_text_auto_encoding;
 use crate::services::note::NoteService;
 use crate::services::pdf::PdfService;
+use crate::services::ppt_draft_manifest;
 use crate::services::ppt_programmatic_renderer;
 use crate::services::ppt_plan;
 use crate::services::ppt_template::PptTemplateService;
@@ -74,6 +75,36 @@ impl PptRunStage {
         match self {
             PptRunStage::Render | PptRunStage::Full => STAGE_RENDERING_DRAFT,
             PptRunStage::Export => STAGE_EXPORTING,
+        }
+    }
+}
+
+/// 草稿产物类别：预览写 `svg_preview`，正式草稿写 `svg_output`，两者互不覆盖。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PptDraftKind {
+    Preview,
+    Formal,
+}
+
+impl PptDraftKind {
+    pub fn parse(value: Option<&str>) -> Self {
+        match value.map(|item| item.trim().to_ascii_lowercase()) {
+            Some(kind) if kind == "preview" => PptDraftKind::Preview,
+            _ => PptDraftKind::Formal,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PptDraftKind::Preview => "preview",
+            PptDraftKind::Formal => "formal",
+        }
+    }
+
+    fn dir_name(self) -> &'static str {
+        match self {
+            PptDraftKind::Preview => "svg_preview",
+            PptDraftKind::Formal => "svg_output",
         }
     }
 }
@@ -123,10 +154,108 @@ fn emit_system_log(app: Option<&AppHandle>, message: &str) {
             json!({
                 "jobId": "",
                 "stream": "system",
+                "channel": "system",
                 "line": message,
             }),
         );
     }
+}
+
+/// 素材/大纲阶段的独立日志通道：前端按 phase 分流到「素材处理日志」「大纲生成日志」。
+fn emit_plan_log(app: Option<&AppHandle>, message: &str) {
+    emit_plan_log_with_phase(app, message, "material");
+}
+
+fn emit_plan_log_with_phase(app: Option<&AppHandle>, message: &str, phase: &str) {
+    if let Some(app) = app {
+        let _ = app.emit(
+            "ppt-extension://plan-log",
+            json!({
+                "jobId": "",
+                "stream": "plan",
+                "channel": "plan",
+                "phase": phase,
+                "line": message,
+            }),
+        );
+    }
+}
+
+/// 大纲快照：标题清单完成 / 每扩展完一批页面后推送，前端立即刷新左侧列表。
+fn emit_plan_snapshot(
+    app: Option<&AppHandle>,
+    job_id: &str,
+    title: &str,
+    slides: Vec<Value>,
+) {
+    if let Some(app) = app {
+        let _ = app.emit(
+            "ppt-extension://plan-snapshot",
+            json!({
+                "jobId": job_id,
+                "title": title,
+                "slides": slides,
+            }),
+        );
+    }
+}
+
+/// 由标题清单 + 已扩展页构造轻量快照（只含列表需要的字段）。
+fn plan_snapshot_slides(
+    title_list: &[(String, String)],
+    expanded: &[Option<Value>],
+) -> Vec<Value> {
+    title_list
+        .iter()
+        .enumerate()
+        .map(|(index, (title, theme))| {
+            if let Some(value) = expanded.get(index).and_then(|item| item.as_ref()) {
+                json!({
+                    "page": value.get("page").and_then(Value::as_u64).unwrap_or(index as u64 + 1),
+                    "title": value.get("title").and_then(Value::as_str).unwrap_or(title),
+                    "coreMessage": value.get("coreMessage").and_then(Value::as_str).unwrap_or(""),
+                    "bullets": value.get("bullets").cloned().unwrap_or_else(|| json!([])),
+                })
+            } else {
+                json!({
+                    "page": index + 1,
+                    "title": title,
+                    "coreMessage": theme,
+                    "bullets": [],
+                })
+            }
+        })
+        .collect()
+}
+
+/// 暂停等待（静默版）：返回 true 表示等待期间被取消。
+async fn wait_for_plan_resume(pause: &Arc<AtomicBool>, cancel: &Arc<AtomicBool>) -> bool {
+    if !pause.load(Ordering::SeqCst) {
+        return false;
+    }
+    while pause.load(Ordering::SeqCst) && !cancel.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    cancel.load(Ordering::SeqCst)
+}
+
+/// 暂停等待（带日志版）：在阶段/分块边界调用。
+async fn plan_pause_gate(
+    pause: &Arc<AtomicBool>,
+    cancel: &Arc<AtomicBool>,
+    plan_log: &PlanLog,
+    app: Option<&AppHandle>,
+) -> Result<(), AppError> {
+    if !pause.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    plan_log.emit(app, "已暂停大纲生成：当前阶段完成后停止推进，等待继续…");
+    let cancelled = wait_for_plan_resume(pause, cancel).await;
+    if cancelled {
+        return Err(AppError::Custom("已取消大纲生成".into()));
+    }
+    plan_log.emit(app, "继续生成大纲…");
+    Ok(())
 }
 
 fn emit_plan_progress(
@@ -157,7 +286,12 @@ fn emit_plan_progress(
 /// 无法事后判断"这次重新生成大纲到底卡在哪一步、花了多久"。
 struct PlanLog {
     file: Mutex<Option<fs::File>>,
+    phase: std::sync::atomic::AtomicU8,
 }
+
+const LOG_PHASE_MATERIAL: u8 = 0;
+const LOG_PHASE_UNDERSTANDING: u8 = 1;
+const LOG_PHASE_PLANNING: u8 = 2;
 
 impl PlanLog {
     fn for_job(job_dir: &Path) -> Self {
@@ -166,15 +300,15 @@ impl PlanLog {
         let path = logs_dir.join("plan.log");
         let file = fs::OpenOptions::new()
             .create(true)
-            .write(true)
-            .truncate(true)
+            .append(true)
             .open(&path)
             .ok();
         let log = Self {
             file: Mutex::new(file),
+            phase: std::sync::atomic::AtomicU8::new(LOG_PHASE_MATERIAL),
         };
         log.write(&format!(
-            "=== 大纲生成开始 {} ===",
+            "=== 新一轮处理开始 {} ===",
             chrono::Local::now().to_rfc3339()
         ));
         log
@@ -197,9 +331,26 @@ impl PlanLog {
         let _ = file.flush();
     }
 
+    fn set_phase(&self, phase: &str) {
+        let value = match phase {
+            "understanding" => LOG_PHASE_UNDERSTANDING,
+            "planning" => LOG_PHASE_PLANNING,
+            _ => LOG_PHASE_MATERIAL,
+        };
+        self.phase.store(value, Ordering::SeqCst);
+    }
+
+    fn phase_name(&self) -> &'static str {
+        match self.phase.load(Ordering::SeqCst) {
+            LOG_PHASE_UNDERSTANDING => "understanding",
+            LOG_PHASE_PLANNING => "planning",
+            _ => "material",
+        }
+    }
+
     fn emit(&self, app: Option<&AppHandle>, message: &str) {
-        emit_system_log(app, message);
-        self.write(message);
+        emit_plan_log_with_phase(app, message, self.phase_name());
+        self.write(&format!("[{}] {}", self.phase_name(), message));
     }
 
     fn finish(&self, message: &str) {
@@ -226,6 +377,7 @@ fn latest_activity_time(job_dir: &Path) -> Option<std::time::SystemTime> {
     }
     let dirs = [
         job_dir.join("project").join("svg_output"),
+        job_dir.join("project").join("svg_preview"),
         job_dir.join("logs"),
         job_dir.join("output"),
     ];
@@ -377,10 +529,11 @@ impl PptExtensionService {
         })
     }
 
-    pub fn collect_documents(
+    /// 收集素材，返回逐条 (元数据, 原文块) 与可选的补充素材块。
+    pub fn collect_source_items(
         db: &Database,
         input: &PptJobInput,
-    ) -> Result<(String, Vec<PptSourceMeta>), AppError> {
+    ) -> Result<(Vec<(PptSourceMeta, String)>, Option<String>), AppError> {
         let mut ids: Vec<i64> = Vec::new();
         for id in input.note_ids.iter().chain(input.mount_note_ids.iter()) {
             if !ids.contains(id) {
@@ -519,21 +672,37 @@ impl PptExtensionService {
         }
 
         let manual = input.manual_text.trim();
-        if !manual.is_empty() {
+        let manual_block = if !manual.is_empty() {
             let remaining = MAX_SOURCE_CHARS.saturating_sub(total_chars);
             let text: String = manual.chars().take(remaining).collect();
-            if !text.trim().is_empty() {
-                parts.push(format!("<!-- source: manual -->\n{}", text));
+            if text.trim().is_empty() {
+                None
+            } else {
+                Some(format!("<!-- source: manual -->\n{}", text))
             }
-        }
+        } else {
+            None
+        };
 
-        if parts.is_empty() {
+        let items: Vec<(PptSourceMeta, String)> =
+            sources.into_iter().zip(parts.into_iter()).collect();
+        if items.is_empty() && manual_block.is_none() {
             return Err(AppError::InvalidInput(
                 "没有可用正文：请选择文档/本地文件，或填写补充材料".into(),
             ));
         }
 
-        Ok((parts.join("\n\n---\n\n"), sources))
+        Ok((items, manual_block))
+    }
+
+    /// 兼容旧调用：把逐条素材拼成一份原文，并返回素材清单。
+    pub fn collect_documents(
+        db: &Database,
+        input: &PptJobInput,
+    ) -> Result<(String, Vec<PptSourceMeta>), AppError> {
+        let (items, manual) = Self::collect_source_items(db, input)?;
+        let source_md = join_source_blocks(&items, manual.as_deref());
+        Ok((source_md, items.into_iter().map(|(meta, _)| meta).collect()))
     }
 
     pub async fn create_job(
@@ -542,6 +711,7 @@ impl PptExtensionService {
         input: PptJobInput,
         app: Option<AppHandle>,
         cancel: Arc<AtomicBool>,
+        pause: Arc<AtomicBool>,
         planning_timeout: Duration,
     ) -> Result<PptJob, AppError> {
         let extension = db
@@ -557,9 +727,12 @@ impl PptExtensionService {
             return Err(AppError::InvalidInput("PPT 标题不能为空".into()));
         }
 
-        emit_system_log(app.as_ref(), "正在收集素材...");
-        let (source_md, sources) = Self::collect_documents(db, &input)?;
-        emit_system_log(
+        emit_plan_log(app.as_ref(), "正在收集素材...");
+        let (items, manual_block) = Self::collect_source_items(db, &input)?;
+        let source_md = join_source_blocks(&items, manual_block.as_deref());
+        let sources: Vec<PptSourceMeta> =
+            items.iter().map(|(meta, _)| meta.clone()).collect();
+        emit_plan_log(
             app.as_ref(),
             &format!(
                 "已收集 {} 个素材，共 {} 字符",
@@ -569,7 +742,7 @@ impl PptExtensionService {
         );
         let truncated_count = sources.iter().filter(|source| source.truncated).count();
         if truncated_count > 0 {
-            emit_system_log(
+            emit_plan_log(
                 app.as_ref(),
                 &format!(
                     "有 {} 个素材超过单源/总素材上限，已截断；完整原文仍保留在本地",
@@ -577,7 +750,7 @@ impl PptExtensionService {
                 ),
             );
         }
-        emit_system_log(app.as_ref(), "正在创建作业目录...");
+        emit_plan_log(app.as_ref(), "正在创建作业目录...");
         let job_id = Uuid::new_v4().to_string();
         let workspace = Self::workspace_root(data_dir).join(&job_id);
         let input_dir = workspace.join("input");
@@ -599,13 +772,16 @@ impl PptExtensionService {
             ),
         );
 
-        fs::write(input_dir.join("source.md"), &source_md)?;
+        // 按源文件存储素材；source.md 不再生成。
+        write_source_items(&workspace, &items, manual_block.as_deref())?;
         fs::write(
             input_dir.join("source_manifest.json"),
             serde_json::to_vec_pretty(&sources)?,
         )?;
 
+        plan_log.set_phase("understanding");
         plan_log.emit(app.as_ref(), "AI 正在分块理解素材...");
+        plan_pause_gate(&pause, &cancel, &plan_log, app.as_ref()).await?;
         let understanding = build_understanding_with_ai(
             db,
             &input,
@@ -613,6 +789,7 @@ impl PptExtensionService {
             &job_id,
             app.as_ref(),
             &cancel,
+            &pause,
             &plan_log,
         )
         .await?;
@@ -625,7 +802,9 @@ impl PptExtensionService {
             ),
         );
 
+        plan_log.set_phase("planning");
         plan_log.emit(app.as_ref(), "AI 正在规划大纲...");
+        plan_pause_gate(&pause, &cancel, &plan_log, app.as_ref()).await?;
         let plan = build_plan_with_ai(
             db,
             &input,
@@ -635,6 +814,7 @@ impl PptExtensionService {
             &workspace,
             app.as_ref(),
             &cancel,
+            &pause,
             planning_timeout,
             &plan_log,
         )
@@ -648,7 +828,8 @@ impl PptExtensionService {
             "jobId": job_id,
             "extensionId": extension.id,
             "source": {
-                "markdownPath": "input/source.md",
+                // 引擎只把 markdownPath 当兜底素材；理解文件更具信息密度。
+                "markdownPath": "input/understanding.md",
                 "manifestPath": "input/source_manifest.json",
                 "title": input.title,
             },
@@ -662,6 +843,8 @@ impl PptExtensionService {
                 "language": input.language.unwrap_or_else(|| "zh-CN".into()),
                 "audience": input.audience,
                 "extraRequirements": input.extra_requirements,
+                // 补充材料写入 input/sources/manual.md，这里再留一份原文便于回填编辑框
+                "manualText": input.manual_text,
                 "timeoutSecs": input.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(30, 7200),
                 "nativeCharts": input.native_charts.unwrap_or(false),
                 "modelId": input.model_id,
@@ -695,7 +878,7 @@ impl PptExtensionService {
         };
         db.insert_ppt_job(&job)?;
         plan_log.finish(&format!("作业已就绪：{} 页", slide_count));
-        emit_system_log(app.as_ref(), "作业已就绪，准备启动引擎");
+        emit_plan_log(app.as_ref(), "作业已就绪，准备启动引擎");
         Ok(job)
     }
 
@@ -712,6 +895,7 @@ impl PptExtensionService {
             cancels,
             job_id,
             PptRunStage::Full,
+            PptDraftKind::Formal,
             export_dir,
         )
     }
@@ -723,6 +907,7 @@ impl PptExtensionService {
         cancels: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
         job_id: String,
         stage: PptRunStage,
+        draft_kind: PptDraftKind,
         export_dir: Option<String>,
     ) -> Result<(), AppError> {
         let mut job = db
@@ -742,16 +927,23 @@ impl PptExtensionService {
                 "作业缺少 plan.json，请重新创建或从历史作业重试".into(),
             ));
         }
-        if stage == PptRunStage::Export && count_draft_pages(&job_dir)? == 0 {
-            return Err(AppError::InvalidInput(
-                "草稿尚未生成，请先生成草稿再导出".into(),
-            ));
+        if stage == PptRunStage::Export {
+            // 以页级指纹判定草稿是否就绪：fresh / order_stale 放行，
+            // 其余状态返回具体失效页号，避免导出旧草稿或缺页产物。
+            let plan = ppt_plan::read_plan(&job_dir, &job.title)?;
+            let spec = load_job_spec(&job_dir);
+            let status = ppt_draft_manifest::compare(&job_dir, &plan, &spec);
+            ppt_draft_manifest::export_guard(&status)?;
         }
         if stage != PptRunStage::Render {
             clear_output_pptx(&job_dir)?;
         }
         update_job_json_stage(&job_dir, stage.as_str())?;
+        if stage != PptRunStage::Export {
+            set_render_target(&job_dir, draft_kind)?;
+        }
 
+        let previous_stage = job.stage.clone();
         job.status = "running".into();
         job.stage = stage.running_stage().into();
         job.started_at = Some(chrono::Local::now().to_rfc3339());
@@ -780,6 +972,7 @@ impl PptExtensionService {
         let db_clone = db.clone();
         let export = export_dir;
         let cancels_clone = cancels.clone();
+        let previous_stage = previous_stage.clone();
 
         let log_app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
@@ -821,14 +1014,31 @@ impl PptExtensionService {
                                 .unwrap_or_else(|| "unknown".into())
                         ));
                     } else if stage == PptRunStage::Render {
-                        match count_draft_pages(&job_dir) {
+                        match count_draft_pages(&job_dir, draft_kind) {
                             Ok(count) if count > 0 => {
-                                job.stage = STAGE_DRAFT_READY.into();
-                                job.status = "succeeded".into();
-                                job.pptx_path = None;
-                                job.final_pptx_path = None;
-                                job.project_path =
-                                    Some(job_dir.join("project").to_string_lossy().to_string());
+                                if draft_kind == PptDraftKind::Preview {
+                                    // 预览不改变正式流程状态，也不触碰正式草稿字段。
+                                    job.status = "succeeded".into();
+                                    job.stage = previous_stage;
+                                } else {
+                                    // 引擎渲染完成：按当前 plan + spec 写入页级指纹。
+                                    if let Ok(plan) =
+                                        ppt_plan::read_plan(&job_dir, &job.title)
+                                    {
+                                        let _ = ppt_draft_manifest::rebuild(
+                                            &job_dir,
+                                            &plan,
+                                            &load_job_spec(&job_dir),
+                                        );
+                                    }
+                                    job.stage = STAGE_DRAFT_READY.into();
+                                    job.status = "succeeded".into();
+                                    job.pptx_path = None;
+                                    job.final_pptx_path = None;
+                                    job.project_path = Some(
+                                        job_dir.join("project").to_string_lossy().to_string(),
+                                    );
+                                }
                                 result_ok = true;
                             }
                             Ok(_) => {
@@ -849,6 +1059,10 @@ impl PptExtensionService {
                                 job.project_path = Some(
                                     job_dir.join("project").to_string_lossy().to_string(),
                                 );
+                                // 记录本次导出的整册指纹，便于区分「需要重新导出」。
+                                if let Ok(plan) = ppt_plan::read_plan(&job_dir, &job.title) {
+                                    let _ = ppt_draft_manifest::mark_exported(&job_dir, &plan);
+                                }
                                 if let Some(dir) = export.as_deref().filter(|d| !d.trim().is_empty()) {
                                     match copy_to_export(&pptx, dir, &job.title) {
                                         Ok(final_path) => {
@@ -891,6 +1105,7 @@ impl PptExtensionService {
                 "jobId": job.id,
                 "status": job.status,
                 "stage": job.stage,
+                "kind": draft_kind.as_str(),
                 "job": job,
             });
             let _ = if result_ok {
@@ -904,6 +1119,7 @@ impl PptExtensionService {
     }
 
     /// 生成草稿：可同时写入最新大纲与版式/图表选项。
+    #[allow(clippy::too_many_arguments)]
     pub fn render_draft(
         app: AppHandle,
         db: Arc<Database>,
@@ -913,6 +1129,7 @@ impl PptExtensionService {
         layout_id: Option<String>,
         chart_ids: Option<Vec<String>>,
         native_charts: Option<bool>,
+        kind: PptDraftKind,
     ) -> Result<(), AppError> {
         if let Some(plan) = plan {
             Self::update_plan(&db, &job_id, plan)?;
@@ -920,7 +1137,15 @@ impl PptExtensionService {
         if layout_id.is_some() || chart_ids.is_some() || native_charts.is_some() {
             Self::apply_render_options(&db, &job_id, layout_id, chart_ids, native_charts)?;
         }
-        Self::start_job_stage(app, db, cancels, job_id, PptRunStage::Render, None)
+        Self::start_job_stage(
+            app,
+            db,
+            cancels,
+            job_id,
+            PptRunStage::Render,
+            kind,
+            None,
+        )
     }
 
     pub fn export_draft(
@@ -931,9 +1156,22 @@ impl PptExtensionService {
         export_dir: Option<String>,
     ) -> Result<(), AppError> {
         if let Some(job) = db.get_ppt_job(&job_id)? {
-            Self::sanitize_selected_ai_pages(&PathBuf::from(&job.workspace_path))?;
+            let job_dir = PathBuf::from(&job.workspace_path);
+            Self::sanitize_selected_ai_pages(&job_dir)?;
+            // 清洗会改写 SVG 内容，同步哈希避免导出后误判为「文件被修改」。
+            if let Ok(plan) = ppt_plan::read_plan(&job_dir, &job.title) {
+                let _ = ppt_draft_manifest::refresh_svg_hashes(&job_dir, &plan);
+            }
         }
-        Self::start_job_stage(app, db, cancels, job_id, PptRunStage::Export, export_dir)
+        Self::start_job_stage(
+            app,
+            db,
+            cancels,
+            job_id,
+            PptRunStage::Export,
+            PptDraftKind::Formal,
+            export_dir,
+        )
     }
 
     /// 导出前清理 AI 页面残留的模板结构元数据，兼容旧作业和旧扩展包。
@@ -1026,12 +1264,16 @@ impl PptExtensionService {
     }
 
     /// 列出草稿页，标题来自 plan.json。
-    pub fn list_draft_pages(db: &Database, job_id: &str) -> Result<Vec<PptDraftPage>, AppError> {
+    pub fn list_draft_pages(
+        db: &Database,
+        job_id: &str,
+        kind: PptDraftKind,
+    ) -> Result<Vec<PptDraftPage>, AppError> {
         let job = db
             .get_ppt_job(job_id)?
             .ok_or_else(|| AppError::NotFound(format!("作业 {} 不存在", job_id)))?;
         let job_dir = PathBuf::from(&job.workspace_path);
-        let svg_dir = job_dir.join("project").join("svg_output");
+        let svg_dir = job_dir.join("project").join(kind.dir_name());
         if !svg_dir.is_dir() {
             return Ok(Vec::new());
         }
@@ -1081,8 +1323,13 @@ impl PptExtensionService {
             .collect())
     }
 
-    /// 读取单页草稿 SVG；只允许 svg_output 下的 .svg 文件名。
-    pub fn read_draft_page(db: &Database, job_id: &str, file: &str) -> Result<String, AppError> {
+    /// 读取单页草稿 SVG；只允许对应 kind 目录下的 .svg 文件名。
+    pub fn read_draft_page(
+        db: &Database,
+        job_id: &str,
+        file: &str,
+        kind: PptDraftKind,
+    ) -> Result<String, AppError> {
         let job = db
             .get_ppt_job(job_id)?
             .ok_or_else(|| AppError::NotFound(format!("作业 {} 不存在", job_id)))?;
@@ -1097,7 +1344,7 @@ impl PptExtensionService {
             return Err(AppError::InvalidInput("只允许读取 .svg 草稿页".into()));
         }
         let job_dir = fs::canonicalize(&job.workspace_path)?;
-        let svg_dir = fs::canonicalize(job_dir.join("project").join("svg_output"))?;
+        let svg_dir = fs::canonicalize(job_dir.join("project").join(kind.dir_name()))?;
         if !svg_dir.starts_with(&job_dir) {
             return Err(AppError::InvalidInput("草稿目录越界".into()));
         }
@@ -1113,6 +1360,422 @@ impl PptExtensionService {
     }
 
     /// 读取作业大纲。
+    /// 读取历史作业的素材清单（用于打开历史作业时恢复“素材来源”列表）。
+    pub fn job_sources(db: &Database, job_id: &str) -> Result<Vec<PptSourceMeta>, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let path = PathBuf::from(&job.workspace_path)
+            .join("input")
+            .join("source_manifest.json");
+        if !path.is_file() {
+            return Ok(Vec::new());
+        }
+        let text = fs::read_to_string(&path)?;
+        Ok(serde_json::from_str::<Vec<PptSourceMeta>>(&text).unwrap_or_default())
+    }
+
+    /// 从历史作业素材中移除一项：删除对应源文件并更新 manifest，作用同理解缓存失效。
+    pub fn remove_job_source(
+        db: &Database,
+        job_id: &str,
+        source_id: i64,
+        path: Option<String>,
+    ) -> Result<Vec<PptSourceMeta>, AppError> {
+        let mut job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        if job.status == "running" {
+            return Err(AppError::InvalidInput("作业正在运行，不能修改素材".into()));
+        }
+        let job_dir = PathBuf::from(&job.workspace_path);
+        migrate_legacy_sources(&job_dir)?;
+        let input_dir = job_dir.join("input");
+        let manifest_path = input_dir.join("source_manifest.json");
+        let manifest_text = fs::read_to_string(&manifest_path).unwrap_or_else(|_| "[]".into());
+        let mut sources: Vec<PptSourceMeta> =
+            serde_json::from_str(&manifest_text).unwrap_or_default();
+        if sources.is_empty() {
+            return Err(AppError::NotFound("该作业没有可移除的素材".into()));
+        }
+
+        let path = path.filter(|value| !value.trim().is_empty());
+        let target = sources
+            .iter()
+            .find(|source| {
+                if source_id >= 0 {
+                    source.id == source_id
+                } else {
+                    source.path.as_deref() == path.as_deref()
+                }
+            })
+            .cloned()
+            .ok_or_else(|| AppError::NotFound("未找到对应素材".into()))?;
+        let file_path = source_dir(&job_dir).join(source_file_name(&target));
+        if file_path.is_file() {
+            fs::remove_file(&file_path)?;
+        }
+
+        if source_id >= 0 {
+            sources.retain(|source| source.id != source_id);
+        } else {
+            sources.retain(|source| source.path.as_deref() != path.as_deref());
+        }
+        let manual_exists = source_dir(&job_dir).join("manual.md").is_file();
+        if sources.is_empty() && !manual_exists {
+            return Err(AppError::InvalidInput("至少需要保留一项素材".into()));
+        }
+        write_json_atomic(&manifest_path, &serde_json::to_value(&sources)?)?;
+
+        // 素材变化后，旧的素材理解与草稿都不再可信。
+        let understanding = input_dir.join("understanding.md");
+        if understanding.is_file() {
+            let _ = fs::remove_file(&understanding);
+        }
+        clear_all_draft_pages(&job_dir)?;
+        job.stage = STAGE_OUTLINE_READY.into();
+        job.status = "ready".into();
+        job.pptx_path = None;
+        job.final_pptx_path = None;
+        job.error_code = None;
+        job.error_message = None;
+        job.log_tail = None;
+        db.update_ppt_job(&job)?;
+        Ok(sources)
+    }
+
+    /// 读取素材理解文件（不存在时返回空串）。
+    pub fn read_understanding(db: &Database, job_id: &str) -> Result<String, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let path = PathBuf::from(&job.workspace_path)
+            .join("input")
+            .join("understanding.md");
+        if !path.is_file() {
+            return Ok(String::new());
+        }
+        Ok(fs::read_to_string(path)?)
+    }
+
+    /// 读取各步骤已落盘的日志（素材处理/理解/大纲/引擎），用于切换或重开作业时回填。
+    pub fn read_step_logs(db: &Database, job_id: &str) -> Result<Value, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let logs_dir = PathBuf::from(&job.workspace_path).join("logs");
+        let mut material: Vec<String> = Vec::new();
+        let mut understanding: Vec<String> = Vec::new();
+        let mut planning: Vec<String> = Vec::new();
+        if let Ok(text) = fs::read_to_string(logs_dir.join("plan.log")) {
+            for line in text.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with("===") {
+                    continue;
+                }
+                let Some((_, rest)) = trimmed.split_once("] [") else {
+                    continue;
+                };
+                let (phase, message) = rest
+                    .split_once("] ")
+                    .unwrap_or(("material", rest));
+                let target = match phase {
+                    "understanding" => &mut understanding,
+                    "planning" => &mut planning,
+                    _ => &mut material,
+                };
+                target.push(message.to_string());
+            }
+        }
+        let engine: Vec<String> = fs::read_to_string(logs_dir.join("engine.log"))
+            .map(|text| text.lines().map(str::to_string).collect())
+            .unwrap_or_default();
+        let cap = |mut items: Vec<String>| {
+            if items.len() > 300 {
+                items = items.split_off(items.len() - 300);
+            }
+            items
+        };
+        Ok(json!({
+            "material": cap(material),
+            "understanding": cap(understanding),
+            "planning": cap(planning),
+            "engine": cap(engine),
+        }))
+    }
+
+    /// 返回素材理解文件的绝对路径。
+    pub fn understanding_file(db: &Database, job_id: &str) -> Result<String, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let path = PathBuf::from(&job.workspace_path)
+            .join("input")
+            .join("understanding.md");
+        if !path.is_file() {
+            return Err(AppError::NotFound("作业尚未生成素材理解".into()));
+        }
+        Ok(path.to_string_lossy().to_string())
+    }
+
+    /// 返回补充素材文件（input/sources/manual.md）路径，不存在时返回 None。
+    pub fn manual_source_file(
+        db: &Database,
+        job_id: &str,
+    ) -> Result<Option<String>, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let path = source_dir(&PathBuf::from(&job.workspace_path)).join("manual.md");
+        if !path.is_file() {
+            return Ok(None);
+        }
+        Ok(Some(path.to_string_lossy().to_string()))
+    }
+
+    /// 返回某条素材对应的源文件路径（用于查看）。
+    pub fn source_item_file(
+        db: &Database,
+        job_id: &str,
+        source_id: i64,
+        path: Option<String>,
+    ) -> Result<String, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let job_dir = PathBuf::from(&job.workspace_path);
+        migrate_legacy_sources(&job_dir)?;
+        let manifest_path = job_dir.join("input").join("source_manifest.json");
+        let sources: Vec<PptSourceMeta> = fs::read_to_string(&manifest_path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+        let path = path.filter(|value| !value.trim().is_empty());
+        let target = sources
+            .iter()
+            .find(|source| {
+                if source_id >= 0 {
+                    source.id == source_id
+                } else {
+                    source.path.as_deref() == path.as_deref()
+                }
+            })
+            .ok_or_else(|| AppError::NotFound("未找到对应素材".into()))?;
+        let file = source_dir(&job_dir).join(source_file_name(target));
+        if !file.is_file() {
+            return Err(AppError::NotFound("素材文件不存在".into()));
+        }
+        Ok(file.to_string_lossy().to_string())
+    }
+
+    /// 删除补充素材 manual.md，并让素材理解与草稿失效。
+    pub fn delete_manual_source(db: &Database, job_id: &str) -> Result<(), AppError> {
+        let mut job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        if job.status == "running" {
+            return Err(AppError::InvalidInput("作业正在运行，不能修改素材".into()));
+        }
+        let job_dir = PathBuf::from(&job.workspace_path);
+        let path = source_dir(&job_dir).join("manual.md");
+        if !path.is_file() {
+            return Err(AppError::NotFound("作业没有补充素材".into()));
+        }
+        fs::remove_file(&path)?;
+
+        let understanding = job_dir.join("input").join("understanding.md");
+        if understanding.is_file() {
+            let _ = fs::remove_file(&understanding);
+        }
+        clear_all_draft_pages(&job_dir)?;
+        job.stage = STAGE_OUTLINE_READY.into();
+        job.status = "ready".into();
+        job.pptx_path = None;
+        job.final_pptx_path = None;
+        job.error_code = None;
+        job.error_message = None;
+        job.log_tail = None;
+        db.update_ppt_job(&job)?;
+        Ok(())
+    }
+
+    /// 生成或重新生成素材理解（understanding.md）。
+    pub async fn build_understanding(
+        db: &Database,
+        job_id: &str,
+        model_id: Option<i64>,
+        force: bool,
+        app: Option<AppHandle>,
+    ) -> Result<String, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        if job.status == "running" {
+            return Err(AppError::InvalidInput("作业正在运行，不能分析素材".into()));
+        }
+        let job_dir = PathBuf::from(&job.workspace_path);
+        let understanding_path = job_dir.join("input").join("understanding.md");
+        if !force && understanding_path.is_file() {
+            let existing = fs::read_to_string(&understanding_path)?;
+            if !existing.trim().is_empty() {
+                return Ok(existing);
+            }
+        }
+        migrate_legacy_sources(&job_dir)?;
+        let source = read_sources_text(&job_dir)?;
+        if source.trim().is_empty() {
+            return Err(AppError::InvalidInput("素材正文为空，无法分析".into()));
+        }
+        let spec_path = job_dir.join("job.json");
+        let spec = if spec_path.is_file() {
+            serde_json::from_str::<Value>(&fs::read_to_string(&spec_path)?)?
+        } else {
+            json!({})
+        };
+        let options = spec.get("options").cloned().unwrap_or_else(|| json!({}));
+        let input = PptJobInput {
+            note_ids: Vec::new(),
+            mount_note_ids: Vec::new(),
+            local_files: Vec::new(),
+            manual_text: String::new(),
+            title: job.title.clone(),
+            audience: options
+                .get("audience")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            slide_count: None,
+            layout_id: job.template_id.clone(),
+            chart_ids: Vec::new(),
+            language: options
+                .get("language")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            extra_requirements: options
+                .get("extraRequirements")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            export_dir: None,
+            model_id: model_id.or_else(|| {
+                options.get("modelId").and_then(Value::as_i64)
+            }),
+            planning_id: None,
+            timeout_secs: None,
+            native_charts: None,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let pause = Arc::new(AtomicBool::new(false));
+        let plan_log = PlanLog::for_job(&job_dir);
+        plan_log.set_phase("understanding");
+        plan_log.emit(
+            app.as_ref(),
+            if force { "正在重新理解素材..." } else { "正在理解素材..." },
+        );
+        let text = build_understanding_with_ai(
+            db,
+            &input,
+            &source,
+            &job.id,
+            app.as_ref(),
+            &cancel,
+            &pause,
+            &plan_log,
+        )
+        .await?;
+        if text.trim().is_empty() {
+            return Err(AppError::InvalidInput("素材理解结果为空".into()));
+        }
+        fs::write(&understanding_path, &text)?;
+        plan_log.emit(app.as_ref(), "素材理解已更新");
+        Ok(text)
+    }
+
+    /// 向历史作业追加素材：写入新的源文件与清单，并让旧理解与草稿失效。
+    pub fn append_job_sources(
+        db: &Database,
+        job_id: &str,
+        note_ids: Vec<i64>,
+        local_files: Vec<PptLocalFileInput>,
+        manual_text: String,
+    ) -> Result<Vec<PptSourceMeta>, AppError> {
+        let mut job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        if job.status == "running" {
+            return Err(AppError::InvalidInput("作业正在运行，不能修改素材".into()));
+        }
+        let job_dir = PathBuf::from(&job.workspace_path);
+        migrate_legacy_sources(&job_dir)?;
+        let input_dir = job_dir.join("input");
+        let manifest_path = input_dir.join("source_manifest.json");
+        let manifest_text = fs::read_to_string(&manifest_path).unwrap_or_else(|_| "[]".into());
+        let mut sources: Vec<PptSourceMeta> =
+            serde_json::from_str(&manifest_text).unwrap_or_default();
+        let existing_ids: std::collections::HashSet<i64> = sources
+            .iter()
+            .filter(|source| source.id >= 0)
+            .map(|source| source.id)
+            .collect();
+        let existing_paths: std::collections::HashSet<String> = sources
+            .iter()
+            .filter_map(|source| source.path.clone())
+            .collect();
+        let note_ids: Vec<i64> = note_ids
+            .into_iter()
+            .filter(|id| !existing_ids.contains(id))
+            .collect();
+        let local_files: Vec<PptLocalFileInput> = local_files
+            .into_iter()
+            .filter(|file| !existing_paths.contains(&file.path))
+            .collect();
+        let manual_text = manual_text.trim().to_string();
+        if note_ids.is_empty() && local_files.is_empty() && manual_text.is_empty() {
+            return Err(AppError::InvalidInput("没有可添加的新素材".into()));
+        }
+        let input = PptJobInput {
+            note_ids,
+            mount_note_ids: Vec::new(),
+            local_files,
+            manual_text,
+            title: job.title.clone(),
+            audience: String::new(),
+            slide_count: None,
+            layout_id: job.template_id.clone(),
+            chart_ids: Vec::new(),
+            language: None,
+            extra_requirements: None,
+            export_dir: None,
+            model_id: None,
+            planning_id: None,
+            timeout_secs: None,
+            native_charts: None,
+        };
+        let (new_items, manual_block) = Self::collect_source_items(db, &input)?;
+        write_source_items(&job_dir, &new_items, manual_block.as_deref())?;
+        sources.extend(new_items.into_iter().map(|(meta, _)| meta));
+        for (index, source) in sources.iter_mut().enumerate() {
+            if source.path.is_some() {
+                source.id = -(index as i64 + 1);
+            }
+        }
+        write_json_atomic(&manifest_path, &serde_json::to_value(&sources)?)?;
+
+        let understanding = input_dir.join("understanding.md");
+        if understanding.is_file() {
+            let _ = fs::remove_file(&understanding);
+        }
+        clear_all_draft_pages(&job_dir)?;
+        job.stage = STAGE_OUTLINE_READY.into();
+        job.status = "ready".into();
+        job.pptx_path = None;
+        job.final_pptx_path = None;
+        job.error_code = None;
+        job.error_message = None;
+        job.log_tail = None;
+        db.update_ppt_job(&job)?;
+        Ok(sources)
+    }
+
     pub fn get_plan(db: &Database, job_id: &str) -> Result<PptPlan, AppError> {
         let job = db
             .get_ppt_job(job_id)?
@@ -1137,15 +1800,39 @@ impl PptExtensionService {
             return Err(AppError::InvalidInput("大纲至少需要保留 1 页".into()));
         }
         let job_dir = PathBuf::from(&job.workspace_path);
-        let source_path = job_dir.join("input").join("source.md");
-        let source = fs::read_to_string(&source_path).unwrap_or_default();
+        let _ = migrate_legacy_sources(&job_dir);
+        let source = read_sources_text(&job_dir).unwrap_or_default();
+        let previous_plan = if job_dir.join("plan.json").is_file() {
+            ppt_plan::read_plan(&job_dir, &job.title).unwrap_or_else(|_| PptPlan {
+                title: String::new(),
+                slides: Vec::new(),
+            })
+        } else {
+            PptPlan {
+                title: String::new(),
+                slides: Vec::new(),
+            }
+        };
         let normalized = ppt_plan::normalize_plan(plan, &job.title, &source, None);
+        // 逐页 diff：只清理内容变化/被删除页面的草稿，保留未变页。
+        // 「加页后又删回」的最终 plan 与旧 plan 指纹一致，因此草稿仍然有效。
+        // 注意：page_selection.json 只按页清理条目，不能整份删除——导出前需要靠它
+        // 识别 AI 页面并清理模板结构元数据。
+        let outcome = ppt_draft_manifest::prune_after_plan_change(
+            &job_dir,
+            &previous_plan,
+            &normalized,
+        )?;
         ppt_plan::write_plan(&job_dir, &normalized)?;
         update_job_json_plan(&job_dir, &normalized)?;
-        // 大纲变化会让现有草稿失效，清空旧页避免误导出。
-        clear_draft_pages(&job_dir)?;
-        job.stage = STAGE_OUTLINE_READY.into();
-        job.status = "ready".into();
+        if outcome.all_ready {
+            // 内容最终没有变化：保留已完成草稿，避免误伤“加页又删页”。
+            job.stage = STAGE_DRAFT_READY.into();
+            job.status = "succeeded".into();
+        } else {
+            job.stage = STAGE_OUTLINE_READY.into();
+            job.status = "ready".into();
+        }
         job.pptx_path = None;
         job.final_pptx_path = None;
         job.error_code = None;
@@ -1155,6 +1842,36 @@ impl PptExtensionService {
         job.finished_at = None;
         db.update_ppt_job(&job)?;
         Ok(normalized)
+    }
+
+    /// 仅更新单页大纲（不清理已渲染草稿），供「重新生成此页」前同步最新文案。
+    pub fn patch_plan_slide(
+        db: &Database,
+        job_id: &str,
+        slide: Value,
+    ) -> Result<(), AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        if job.status == "running" {
+            return Err(AppError::InvalidInput("作业正在运行，不能修改大纲".into()));
+        }
+        let page = slide
+            .get("page")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| AppError::InvalidInput("缺少页码".into()))? as u32;
+        let parsed: PptSlide = serde_json::from_value(slide)?;
+        let job_dir = PathBuf::from(&job.workspace_path);
+        let mut plan = ppt_plan::read_plan(&job_dir, &job.title)?;
+        let target = plan
+            .slides
+            .iter_mut()
+            .find(|item| item.page == page)
+            .ok_or_else(|| AppError::NotFound(format!("第 {page} 页不存在")))?;
+        *target = parsed;
+        ppt_plan::write_plan(&job_dir, &plan)?;
+        update_job_json_plan(&job_dir, &plan)?;
+        Ok(())
     }
 
     /// 校验并规范化一份前端传来的大纲，不落盘。
@@ -1169,6 +1886,7 @@ impl PptExtensionService {
         slide_count: Option<usize>,
         model_id: Option<i64>,
         cancel: Arc<AtomicBool>,
+        pause: Arc<AtomicBool>,
         app: Option<AppHandle>,
     ) -> Result<PptPlan, AppError> {
         let mut job = db
@@ -1205,6 +1923,7 @@ impl PptExtensionService {
             slide_count,
             model_id,
             &cancel,
+            &pause,
             app.as_ref(),
             &plan_log,
         )
@@ -1251,13 +1970,12 @@ impl PptExtensionService {
         slide_count: Option<usize>,
         model_id: Option<i64>,
         cancel: &Arc<AtomicBool>,
+        pause: &Arc<AtomicBool>,
         app: Option<&AppHandle>,
         plan_log: &PlanLog,
     ) -> Result<PptPlan, AppError> {
-        let source_path = job_dir.join("input").join("source.md");
-        let source = fs::read_to_string(&source_path).map_err(|_| {
-            AppError::NotFound("作业缺少 input/source.md，无法重新生成大纲".into())
-        })?;
+        migrate_legacy_sources(job_dir)?;
+        let source = read_sources_text(job_dir)?;
         if source.trim().is_empty() {
             return Err(AppError::InvalidInput(
                 "素材正文为空，无法重新生成大纲".into(),
@@ -1315,6 +2033,8 @@ impl PptExtensionService {
         };
 
         let understanding_path = job_dir.join("input").join("understanding.md");
+        plan_log.set_phase("understanding");
+        plan_pause_gate(pause, cancel, plan_log, app).await?;
         let understanding = if understanding_path.is_file() {
             plan_log.emit(app, "复用已有素材理解（不重复分析素材）");
             fs::read_to_string(&understanding_path).unwrap_or_default()
@@ -1327,6 +2047,7 @@ impl PptExtensionService {
                 &job.id,
                 app,
                 cancel,
+                pause,
                 plan_log,
             )
             .await
@@ -1345,7 +2066,9 @@ impl PptExtensionService {
             }
         };
 
+        plan_log.set_phase("planning");
         plan_log.emit(app, "正在重新生成大纲...");
+        plan_pause_gate(pause, cancel, plan_log, app).await?;
         let plan = build_plan_with_ai(
             db,
             &input,
@@ -1355,6 +2078,7 @@ impl PptExtensionService {
             job_dir,
             app,
             cancel,
+            pause,
             Duration::from_secs(DEFAULT_PLANNING_TIMEOUT_SECS),
             plan_log,
         )
@@ -1363,7 +2087,7 @@ impl PptExtensionService {
         ppt_plan::write_plan(job_dir, &plan)?;
         update_job_json_plan(job_dir, &plan)?;
         update_job_json_plan_options(job_dir, slide_count, model_id)?;
-        clear_draft_pages(job_dir)?;
+        clear_all_draft_pages(job_dir)?;
         clear_output_pptx(job_dir)?;
         Ok(plan)
     }
@@ -1437,6 +2161,7 @@ impl PptExtensionService {
     }
 
     /// 更新作业的版式/图表/导出选项，供“用当前大纲重新渲染”使用。
+    #[allow(clippy::too_many_arguments)]
     pub fn update_job_options(
         db: &Database,
         job_id: &str,
@@ -1444,6 +2169,7 @@ impl PptExtensionService {
         chart_ids: Vec<String>,
         native_charts: bool,
         timeout_secs: Option<u64>,
+        model_id: Option<i64>,
     ) -> Result<PptJob, AppError> {
         let mut job = db
             .get_ppt_job(job_id)?
@@ -1461,6 +2187,33 @@ impl PptExtensionService {
         if !spec.is_object() {
             spec = json!({});
         }
+        // 只有视觉选项真的变了才清掉已渲染页；否则续跑/重新生成时保留已完成页，
+        // 由 render_ai_draft 按页复用，从未渲染的页接着生成。
+        let prev_layout = spec
+            .pointer("/templates/layoutId")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string());
+        let mut prev_charts: Vec<String> = spec
+            .pointer("/templates/chartIds")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|value| value.to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        prev_charts.sort();
+        let prev_native = spec
+            .pointer("/options/nativeCharts")
+            .and_then(Value::as_bool);
+        let mut next_charts = chart_ids.clone();
+        next_charts.sort();
+        let style_changed = prev_layout != layout_id
+            || prev_charts != next_charts
+            || prev_native != Some(native_charts);
+
         spec["templates"] = json!({
             "layoutId": layout_id,
             "chartIds": chart_ids,
@@ -1472,8 +2225,14 @@ impl PptExtensionService {
         if let Some(timeout) = timeout_secs {
             spec["options"]["timeoutSecs"] = json!(timeout.clamp(30, 7200));
         }
+        if let Some(model_id) = model_id {
+            spec["options"]["modelId"] = json!(model_id);
+        }
         write_json_atomic(&spec_path, &spec)?;
-        let _ = clear_draft_pages(&job_dir);
+        if style_changed {
+            // 模板/图表变化后预览与正式草稿都不再匹配当前设置。
+            let _ = clear_all_draft_pages(&job_dir);
+        }
 
         job.template_id = layout_id;
         job.status = "ready".into();
@@ -1498,9 +2257,9 @@ impl PptExtensionService {
             return Err(AppError::InvalidInput("作业正在运行，不能重试".into()));
         }
         let old_dir = PathBuf::from(&old.workspace_path);
-        let source_path = old_dir.join("input").join("source.md");
-        if !source_path.is_file() {
-            return Err(AppError::NotFound("原作业缺少 input/source.md，无法重试".into()));
+        migrate_legacy_sources(&old_dir)?;
+        if read_sources_text(&old_dir)?.trim().is_empty() {
+            return Err(AppError::NotFound("原作业缺少素材，无法重试".into()));
         }
         let plan = ppt_plan::read_plan(&old_dir, &old.title)?;
         let old_spec_path = old_dir.join("job.json");
@@ -1520,10 +2279,17 @@ impl PptExtensionService {
             fs::create_dir_all(dir)?;
         }
 
-        fs::copy(&source_path, input_dir.join("source.md"))?;
+        let old_sources = source_dir(&old_dir);
+        if old_sources.is_dir() {
+            copy_dir_all(&old_sources, &source_dir(&workspace))?;
+        }
         let manifest_path = old_dir.join("input").join("source_manifest.json");
         if manifest_path.is_file() {
             fs::copy(&manifest_path, input_dir.join("source_manifest.json"))?;
+        }
+        let old_understanding = old_dir.join("input").join("understanding.md");
+        if old_understanding.is_file() {
+            fs::copy(&old_understanding, input_dir.join("understanding.md"))?;
         }
         ppt_plan::write_plan(&workspace, &plan)?;
 
@@ -1534,7 +2300,7 @@ impl PptExtensionService {
         spec["extensionId"] = json!(old.extension_id);
         spec["plan"] = serde_json::to_value(&plan)?;
         spec["source"] = json!({
-            "markdownPath": "input/source.md",
+            "markdownPath": "input/understanding.md",
             "manifestPath": "input/source_manifest.json",
             "title": old.title,
         });
@@ -1580,7 +2346,7 @@ impl PptExtensionService {
         db.delete_ppt_job(job_id)
     }
 
-    /// 把 job.json / plan.json / manifest / 日志打包为诊断 zip（不含 source.md 正文）。
+    /// 把 job.json / plan.json / manifest / 日志打包为诊断 zip（不含素材正文）。
     pub fn export_diagnostics(
         db: &Database,
         job_id: &str,
@@ -1637,7 +2403,7 @@ impl PptExtensionService {
              作业：{} ({})\n\
              状态：{}\n\
              生成时间：{}\n\
-             说明：出于隐私考虑，不包含 input/source.md 正文。\n",
+             说明：出于隐私考虑，不包含素材正文（input/sources）。\n",
             job.title,
             job.id,
             job.status,
@@ -1712,6 +2478,38 @@ impl PptExtensionService {
             recovered += 1;
         }
         Ok(recovered)
+    }
+
+    /// 重新进入页面时恢复作业：若 DB 状态仍是 running，但当前进程里已经没有对应的
+    /// 取消/暂停标志（应用重启、崩溃或被强杀），说明生成循环已不存在，标记为失败，
+    /// 避免前端进度条永远卡住、日志也不再输出。
+    pub fn recover_inactive_job(
+        db: &Database,
+        cancels: &Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
+        app: &AppHandle,
+        job_id: &str,
+    ) -> Result<Option<PptJob>, AppError> {
+        let active = cancels
+            .lock()
+            .map(|map| map.contains_key(job_id))
+            .unwrap_or(false);
+        let Some(mut job) = db.get_ppt_job(job_id)? else {
+            return Ok(None);
+        };
+        if job.status == "running" && !active {
+            job.status = "failed".into();
+            job.error_code = Some("interrupted".into());
+            job.error_message = Some(
+                "生成进程已中断（应用可能重启或异常退出），可点击重试或重新生成".into(),
+            );
+            job.finished_at = Some(chrono::Local::now().to_rfc3339());
+            db.update_ppt_job(&job)?;
+            let _ = app.emit(
+                "ppt-extension://job",
+                json!({ "jobId": job.id, "status": job.status, "stage": job.stage, "job": job }),
+            );
+        }
+        Ok(Some(job))
     }
 
     pub fn cleanup_jobs(db: &Database, keep_latest: usize) -> Result<usize, AppError> {
@@ -1929,6 +2727,7 @@ async fn build_understanding_with_ai(
     job_id: &str,
     app: Option<&AppHandle>,
     cancel: &Arc<AtomicBool>,
+    pause: &Arc<AtomicBool>,
     plan_log: &PlanLog,
 ) -> Result<String, AppError> {
     let chunks = split_source_chunks(source, UNDERSTANDING_CHUNK_CHARS, UNDERSTANDING_MAX_CHUNKS);
@@ -1965,11 +2764,16 @@ async fn build_understanding_with_ai(
             .map(move |(index, chunk)| {
                 let prompt = understanding_chunk_prompt(&input.title, &chunk, index + 1, total);
                 let cancel = cancel.clone();
+                let pause = pause.clone();
                 let completed = completed.clone();
                 let app = app.cloned();
                 let job_id = job_id.to_string();
                 async move {
                     if cancel.load(Ordering::SeqCst) {
+                        return (index, Err(PlanRunError::Cancelled));
+                    }
+                    // 暂停在分块边界生效：已发出的单块 AI 请求会先跑完
+                    if wait_for_plan_resume(&pause, &cancel).await {
                         return (index, Err(PlanRunError::Cancelled));
                     }
                     let future = AiService::complete_once(db, &prompt, model_id);
@@ -2034,6 +2838,9 @@ async fn build_understanding_with_ai(
         return Ok(drafts.remove(0));
     }
 
+    if wait_for_plan_resume(pause, cancel).await {
+        return Err(AppError::Custom("已取消大纲生成".into()));
+    }
     plan_log.emit(app, "AI 正在合并分块理解...");
     let combined = join_with_limit(&drafts, PLANNING_CONTEXT_CHARS);
     let prompt = merge_understanding_prompt(&input.title, &input.audience, &combined);
@@ -2251,6 +3058,7 @@ async fn build_plan_with_ai(
     job_dir: &Path,
     app: Option<&AppHandle>,
     cancel: &Arc<AtomicBool>,
+    pause: &Arc<AtomicBool>,
     planning_timeout: Duration,
     plan_log: &PlanLog,
 ) -> Result<PptPlan, AppError> {
@@ -2266,6 +3074,7 @@ async fn build_plan_with_ai(
             job_dir,
             app,
             cancel,
+            pause,
             planning_timeout,
             plan_log,
         )
@@ -2327,6 +3136,7 @@ async fn build_plan_with_ai(
          每页必须输出结构化字段：pageTheme、mainClaim、contentScope、contentBlocks、evidence、relation、chartType、density、visualIntent、speakerNote。\n\
          contentBlocks 每页 3–6 个，每个含 label（不超过 12 字）、text（20–60 字）、detail（可选的补充说明）。\n\
          evidence 必须来自素材或素材理解，不得编造数字、年份、排名、奖项。\n\
+         evidence 中的关键短句或数字应直接出现在页面可见文字中（bullets/contentBlocks），便于覆盖校验。\n\
          相邻页 pageTheme 不得重复；内容不足时合并主题，不要为凑页数重复或拆分。\n\
          relation 取 timeline/category/compare/cause/process/none；chartType 取 cards/timeline/process/matrix/compare/highlight/summary；density 取 anchor/dense/breathing/balanced。\n\
          bullets 作为展示摘要，使用“短标题：具体说明”的格式，不要与 contentBlocks 逐字重复。\n\
@@ -2351,6 +3161,10 @@ async fn build_plan_with_ai(
     let mut last_reason = String::new();
     for attempt in 0..MAX_PLANNING_ATTEMPTS {
         if cancel.load(Ordering::SeqCst) {
+            return Err(AppError::Custom("已取消大纲生成".into()));
+        }
+        // 每次 AI 尝试之间检查暂停（进行中的请求会先跑完）
+        if wait_for_plan_resume(pause, cancel).await {
             return Err(AppError::Custom("已取消大纲生成".into()));
         }
         plan_log.emit(
@@ -2564,6 +3378,7 @@ async fn build_plan_two_stage(
     job_dir: &Path,
     app: Option<&AppHandle>,
     cancel: &Arc<AtomicBool>,
+    pause: &Arc<AtomicBool>,
     planning_timeout: Duration,
     plan_log: &PlanLog,
 ) -> Result<PptPlan, AppError> {
@@ -2605,6 +3420,7 @@ async fn build_plan_two_stage(
         page_count,
         &format!("正在规划 {page_count} 页标题"),
     );
+    plan_pause_gate(pause, cancel, plan_log, app).await?;
     let first_stage_timeout = planning_timeout.min(Duration::from_secs(180));
     let titles_text = await_cancellable(
         AiService::complete_once(db, &titles_prompt, input.model_id),
@@ -2646,6 +3462,24 @@ async fn build_plan_two_stage(
         let index = title_list.len() + 1;
         title_list.push((format!("第 {index} 部分"), String::new()));
     }
+    // 标题清单一出来就推给前端：左侧列表先显示所有页面标题
+    emit_plan_snapshot(
+        app,
+        job_id,
+        &input.title,
+        title_list
+            .iter()
+            .enumerate()
+            .map(|(index, (title, theme))| {
+                json!({
+                    "page": index + 1,
+                    "title": title,
+                    "coreMessage": theme,
+                    "bullets": [],
+                })
+            })
+            .collect(),
+    );
     emit_plan_progress(
         app,
         job_id,
@@ -2689,6 +3523,7 @@ async fn build_plan_two_stage(
              必须输出：pageTheme、mainClaim、contentScope、contentBlocks、evidence、relation、chartType、density、visualIntent、speakerNote、bullets。\n\
              contentBlocks 3–6 个，每个含 label（不超过 12 字）、text（20–60 字）、detail（可选）。\n\
              evidence 必须来自素材或素材理解，不得编造数字、年份、排名、奖项。\n\
+             evidence 中的关键短句或数字应直接出现在页面可见文字中（bullets/contentBlocks），便于覆盖校验。\n\
              relation 取 timeline/category/compare/cause/process/none；chartType 取 cards/timeline/process/matrix/compare/highlight/summary；density 取 anchor/dense/breathing/balanced。\n\
              如果适合图表，增加 chart：{{\"type\":\"line|column|bar|pie|donut|area|gantt|radar|scatter\",\"categories\":[\"...\"],\"series\":[{{\"name\":\"...\",\"values\":[数字]}}]}}，否则 chart 为 null。\n\
              只输出一个 JSON 对象，不要 markdown 代码块：\n\
@@ -2737,6 +3572,11 @@ async fn build_plan_two_stage(
             save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
             return Err(AppError::Custom("已取消大纲生成".into()));
         }
+        // 暂停在每 2 页一个扩展批次之间生效
+        if wait_for_plan_resume(pause, cancel).await {
+            save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
+            return Err(AppError::Custom("已取消大纲生成".into()));
+        }
         let chunk_end = (chunk_start + 2).min(title_list.len());
         let indexes: Vec<usize> = (chunk_start..chunk_end)
             .filter(|index| expanded[*index].is_none())
@@ -2781,6 +3621,12 @@ async fn build_plan_two_stage(
             }
         }
         save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
+        emit_plan_snapshot(
+            app,
+            job_id,
+            &input.title,
+            plan_snapshot_slides(&title_list, &expanded),
+        );
     }
 
     // 缺失页再重试一轮，避免单次网络抖动导致整份大纲回退。
@@ -2801,6 +3647,10 @@ async fn build_plan_two_stage(
         );
         for chunk in missing.chunks(2) {
             if cancel.load(Ordering::SeqCst) {
+                save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
+                return Err(AppError::Custom("已取消大纲生成".into()));
+            }
+            if wait_for_plan_resume(pause, cancel).await {
                 save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
                 return Err(AppError::Custom("已取消大纲生成".into()));
             }
@@ -2841,6 +3691,12 @@ async fn build_plan_two_stage(
                 }
             }
             save_plan_stage_cache(job_dir, &signature, &title_list, &expanded, understanding);
+            emit_plan_snapshot(
+                app,
+                job_id,
+                &input.title,
+                plan_snapshot_slides(&title_list, &expanded),
+            );
         }
         missing = expanded
             .iter()
@@ -3194,6 +4050,167 @@ fn job_timeout_secs(job_dir: &Path) -> u64 {
         .clamp(30, 7200)
 }
 
+const SOURCE_SEPARATOR: &str = "\n\n---\n\n";
+
+/// 稳定短哈希，用于本地文件素材的文件名。
+fn fnv1a(value: &str) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in value.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), AppError> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_all(&path, &target)?;
+        } else {
+            fs::copy(&path, &target)?;
+        }
+    }
+    Ok(())
+}
+
+fn source_dir(job_dir: &Path) -> PathBuf {
+    job_dir.join("input").join("sources")
+}
+
+fn source_file_name(meta: &PptSourceMeta) -> String {
+    if let Some(path) = meta.path.as_deref() {
+        format!("file-{:016x}.md", fnv1a(path))
+    } else if meta.id >= 0 {
+        format!("note-{}.md", meta.id)
+    } else {
+        format!("misc-{:016x}.md", fnv1a(&meta.title))
+    }
+}
+
+fn join_source_blocks(items: &[(PptSourceMeta, String)], manual: Option<&str>) -> String {
+    let mut parts: Vec<&str> = items
+        .iter()
+        .map(|(_, block)| block.as_str())
+        .filter(|block| !block.trim().is_empty())
+        .collect();
+    if let Some(manual) = manual {
+        if !manual.trim().is_empty() {
+            parts.push(manual);
+        }
+    }
+    parts.join(SOURCE_SEPARATOR)
+}
+
+fn write_source_items(
+    job_dir: &Path,
+    items: &[(PptSourceMeta, String)],
+    manual: Option<&str>,
+) -> Result<(), AppError> {
+    let dir = source_dir(job_dir);
+    fs::create_dir_all(&dir)?;
+    for (meta, block) in items {
+        fs::write(dir.join(source_file_name(meta)), block)?;
+    }
+    if let Some(manual) = manual {
+        if !manual.trim().is_empty() {
+            let path = dir.join("manual.md");
+            let mut existing = fs::read_to_string(&path).unwrap_or_default();
+            if !existing.trim().is_empty() {
+                existing.push_str(SOURCE_SEPARATOR);
+            }
+            existing.push_str(manual);
+            fs::write(path, existing)?;
+        }
+    }
+    Ok(())
+}
+
+/// 读取作业素材原文：优先逐条源文件，兼容旧作业的 source.md。
+fn read_sources_text(job_dir: &Path) -> Result<String, AppError> {
+    let input = job_dir.join("input");
+    let dir = source_dir(job_dir);
+    if dir.is_dir() {
+        let manifest_path = input.join("source_manifest.json");
+        let sources: Vec<PptSourceMeta> = fs::read_to_string(&manifest_path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+        let mut parts: Vec<String> = Vec::new();
+        for meta in &sources {
+            if let Ok(text) = fs::read_to_string(dir.join(source_file_name(meta))) {
+                if !text.trim().is_empty() {
+                    parts.push(text);
+                }
+            }
+        }
+        if let Ok(manual) = fs::read_to_string(dir.join("manual.md")) {
+            if !manual.trim().is_empty() {
+                parts.push(manual);
+            }
+        }
+        if !parts.is_empty() {
+            return Ok(parts.join(SOURCE_SEPARATOR));
+        }
+    }
+    let legacy = input.join("source.md");
+    if legacy.is_file() {
+        return Ok(fs::read_to_string(legacy)?);
+    }
+    Ok(String::new())
+}
+
+/// 旧作业迁移：把 source.md 拆成 input/sources/*.md（幂等）。
+fn migrate_legacy_sources(job_dir: &Path) -> Result<(), AppError> {
+    let dir = source_dir(job_dir);
+    if dir.is_dir() {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            if entries.flatten().any(|entry| entry.path().is_file()) {
+                return Ok(());
+            }
+        }
+    }
+    let legacy = job_dir.join("input").join("source.md");
+    if !legacy.is_file() {
+        return Ok(());
+    }
+    let text = fs::read_to_string(&legacy)?;
+    fs::create_dir_all(&dir)?;
+    let mut manual = String::new();
+    for (index, block) in text.split(SOURCE_SEPARATOR).enumerate() {
+        if block.trim().is_empty() {
+            continue;
+        }
+        let first = block.lines().next().unwrap_or("").trim();
+        let name = if let Some(rest) = first.strip_prefix("<!-- source: note:") {
+            let id = rest
+                .split(|ch: char| ch == ' ' || ch == '|')
+                .next()
+                .unwrap_or("0");
+            format!("note-{id}.md")
+        } else if let Some(rest) = first.strip_prefix("<!-- source: file:") {
+            let path = rest.split(" | ").next().unwrap_or("");
+            format!("file-{:016x}.md", fnv1a(path))
+        } else if first.starts_with("<!-- source: manual") {
+            if !manual.is_empty() {
+                manual.push_str(SOURCE_SEPARATOR);
+            }
+            manual.push_str(block);
+            continue;
+        } else {
+            format!("legacy-{index}.md")
+        };
+        fs::write(dir.join(name), block)?;
+    }
+    if !manual.is_empty() {
+        fs::write(dir.join("manual.md"), manual)?;
+    }
+    Ok(())
+}
+
 fn write_json_atomic(path: &Path, value: &Value) -> Result<(), AppError> {
     let parent = path
         .parent()
@@ -3228,8 +4245,26 @@ fn update_job_json_stage(job_dir: &Path, stage: &str) -> Result<(), AppError> {
     write_json_atomic(&path, &spec)
 }
 
-fn count_draft_pages(job_dir: &Path) -> Result<usize, AppError> {
-    let svg_dir = job_dir.join("project").join("svg_output");
+/// 告诉引擎本次渲染写 `svg_preview` 还是 `svg_output`。
+fn set_render_target(job_dir: &Path, kind: PptDraftKind) -> Result<(), AppError> {
+    let path = job_dir.join("job.json");
+    let mut spec = if path.is_file() {
+        serde_json::from_str::<Value>(&fs::read_to_string(&path)?)?
+    } else {
+        json!({})
+    };
+    if !spec.is_object() {
+        spec = json!({});
+    }
+    if !spec.get("options").map(Value::is_object).unwrap_or(false) {
+        spec["options"] = json!({});
+    }
+    spec["options"]["renderTarget"] = json!(kind.as_str());
+    write_json_atomic(&path, &spec)
+}
+
+fn count_draft_pages(job_dir: &Path, kind: PptDraftKind) -> Result<usize, AppError> {
+    let svg_dir = job_dir.join("project").join(kind.dir_name());
     if !svg_dir.is_dir() {
         return Ok(0);
     }
@@ -3251,8 +4286,8 @@ fn count_draft_pages(job_dir: &Path) -> Result<usize, AppError> {
 }
 
 /// 清空草稿页；大纲或版式变化后旧页面不再有效。
-fn clear_draft_pages(job_dir: &Path) -> Result<(), AppError> {
-    let svg_dir = job_dir.join("project").join("svg_output");
+fn clear_draft_pages(job_dir: &Path, kind: PptDraftKind) -> Result<(), AppError> {
+    let svg_dir = job_dir.join("project").join(kind.dir_name());
     if !svg_dir.is_dir() {
         return Ok(());
     }
@@ -3270,6 +4305,12 @@ fn clear_draft_pages(job_dir: &Path) -> Result<(), AppError> {
         }
     }
     Ok(())
+}
+
+/// 大纲变化时预览与正式草稿都失效。
+fn clear_all_draft_pages(job_dir: &Path) -> Result<(), AppError> {
+    clear_draft_pages(job_dir, PptDraftKind::Preview)?;
+    clear_draft_pages(job_dir, PptDraftKind::Formal)
 }
 
 fn clear_output_pptx(job_dir: &Path) -> Result<(), AppError> {
@@ -3558,6 +4599,44 @@ fn svg_visible_text(svg: &str) -> String {
         out.push(' ');
     }
     out
+}
+
+/// 去空白与常见标点，便于跨行/分词后的文字匹配。
+fn normalize_match_text(value: &str) -> String {
+    const DROP: &str = "，。、；：,.;:!?！？（）()【】[]{}<>\"'“”‘’·-—…／/\\| \t\r\n\u{00a0}";
+    value.chars().filter(|ch| !DROP.contains(*ch)).collect()
+}
+
+/// 判断一条 evidence 是否被页面可见文字覆盖：支持跨行/标点差异与数字事实。
+fn evidence_matches_visible(item: &str, visible_norm: &str) -> bool {
+    let key = normalize_match_text(item);
+    if key.is_empty() {
+        return true;
+    }
+    let chars: Vec<char> = key.chars().collect();
+    if chars.len() < 5 {
+        if visible_norm.contains(&key) {
+            return true;
+        }
+    } else {
+        // 任意连续 5 字片段命中即视为覆盖，避免只比较前缀。
+        for window in chars.windows(5) {
+            let piece: String = window.iter().collect();
+            if visible_norm.contains(&piece) {
+                return true;
+            }
+        }
+    }
+    // 数字/百分比事实单独兜底匹配。
+    if let Ok(re) = regex::Regex::new(r"\d+(?:\.\d+)?%?") {
+        for matched in re.find_iter(item) {
+            let number = normalize_match_text(matched.as_str());
+            if !number.is_empty() && visible_norm.contains(&number) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// 解析作业版式目录：优先用户模板，其次扩展包；同时快照到作业目录。
@@ -4373,17 +5452,24 @@ fn score_svg_candidate(
         }
     }
     let visible = svg_visible_text(svg);
+    let visible_norm = normalize_match_text(&visible);
+    let evidence_total = slide.evidence.len();
     let evidence_hits = slide
         .evidence
         .iter()
-        .filter(|item| {
-            let key: String = item.chars().take(8).collect();
-            !key.trim().is_empty() && visible.contains(key.trim())
-        })
+        .filter(|item| evidence_matches_visible(item, &visible_norm))
         .count();
-    if !slide.evidence.is_empty() && evidence_hits == 0 {
-        score -= 15;
-        issues.push("未覆盖 evidence".to_string());
+    if evidence_total > 0 {
+        let ratio = evidence_hits as f32 / evidence_total as f32;
+        if evidence_hits == 0 {
+            score -= 10;
+            issues.push(format!("未覆盖 evidence（0/{evidence_total}）"));
+        } else if ratio < 0.5 {
+            score -= 4;
+            issues.push(format!(
+                "evidence 覆盖不足（{evidence_hits}/{evidence_total}）"
+            ));
+        }
     }
     let current_lead = visual_signature(svg);
     if !current_lead.trim().is_empty()
@@ -5110,6 +6196,8 @@ impl PptExtensionService {
         if let Ok(mut map) = cancels.lock() {
             map.remove(&job.id);
         }
+        // 渲染结束统一重建页级指纹清单。
+        let _ = ppt_draft_manifest::rebuild(&job_dir, &plan, &spec);
         job.status = "succeeded".into();
         job.stage = STAGE_DRAFT_READY.into();
         job.pptx_path = None;
@@ -5133,6 +6221,7 @@ impl PptExtensionService {
         app: AppHandle,
         db: Arc<Database>,
         cancels: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
+        pauses: Arc<Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>>,
         job_id: String,
         candidate_count: usize,
         mode: DraftGenerationMode,
@@ -5164,6 +6253,31 @@ impl PptExtensionService {
             .unwrap_or_default();
         let extension = ExtensionService::get(&db, &job.extension_id)?;
         let layout_id = job.template_id.clone().unwrap_or_default();
+        // 复用签名：生成方式 + 模板 + 图表 + 原生图表。只有完全一致，才认为
+        // 磁盘上的页面与本次渲染等价，可以按页复用、从没渲染的页接着生成。
+        let mut chart_ids_for_sig: Vec<String> = spec
+            .pointer("/templates/chartIds")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(|value| value.to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        chart_ids_for_sig.sort();
+        let native_for_sig = spec
+            .pointer("/options/nativeCharts")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        // 复用签名不包含生成方式/模型：暂停后切换模式或模型，仍保留已完成页面，仅续跑剩余页。
+        let reuse_signature = format!(
+            "ai:{}:{}:{}",
+            layout_id,
+            chart_ids_for_sig.join(","),
+            native_for_sig
+        );
         let template_dir = resolve_job_template_dir(&db, &extension, &job_dir, &layout_id);
         let template_reference = build_template_reference(template_dir.as_deref(), &layout_id);
         if template_reference.is_empty() {
@@ -5206,33 +6320,83 @@ impl PptExtensionService {
         if let Ok(mut map) = cancels.lock() {
             map.insert(job.id.clone(), cancel.clone());
         }
+        // 暂停标志：命令侧可能已提前创建（用户点得快），复用同一条 Arc，
+        // 保证后续 pause/resume 都作用在渲染循环持有的那条上。
+        let pause = if let Ok(mut map) = pauses.lock() {
+            map.get(&job.id).cloned().unwrap_or_else(|| {
+                let flag = Arc::new(AtomicBool::new(false));
+                map.insert(job.id.clone(), flag.clone());
+                flag
+            })
+        } else {
+            Arc::new(AtomicBool::new(false))
+        };
+        // 新一轮渲染开始：清掉上一次遗留的暂停状态，避免用户「暂停后直接重新生成」被卡住
+        pause.store(false, Ordering::SeqCst);
 
         let mut signatures: Vec<String> = Vec::new();
         let mut failures: Vec<u32> = Vec::new();
         let mut selected_pages = 0usize;
-        // 断点续跑：已有且达标的页面直接复用。
+        // 断点续跑：只有签名完全一致（同一模板/图表/生成方式）才复用已有页；
+        // 签名不同说明旧页不等价，清掉 SVG 从头渲染。
+        let selection_path = project.join("page_selection.json");
+        let mut selection_value = fs::read_to_string(&selection_path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .unwrap_or_else(|| json!({ "pages": [] }));
+        if !selection_value
+            .get("pages")
+            .map(Value::is_array)
+            .unwrap_or(false)
+        {
+            selection_value["pages"] = json!([]);
+        }
+        let same_signature = selection_value
+            .get("signature")
+            .and_then(Value::as_str)
+            .map(|value| value == reuse_signature.as_str())
+            .unwrap_or(false);
+        if !same_signature {
+            clear_draft_pages(&job_dir, PptDraftKind::Formal)?;
+            selection_value = json!({ "pages": [], "signature": reuse_signature });
+            write_json_file(&selection_path, &selection_value)?;
+        }
         let mut reused_pages: std::collections::HashMap<u32, i32> =
             std::collections::HashMap::new();
-        if let Ok(text) = fs::read_to_string(project.join("page_selection.json")) {
-            if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                if let Some(items) = value.get("pages").and_then(Value::as_array) {
-                    for item in items {
-                        let page = item
-                            .get("page")
-                            .and_then(Value::as_u64)
-                            .map(|value| value as u32);
-                        let score = item
-                            .get("score")
-                            .and_then(Value::as_i64)
-                            .map(|value| value as i32);
-                        if let (Some(page), Some(score)) = (page, score) {
-                            if score >= 80 && page_svg_path(&project, page).is_file() {
-                                reused_pages.insert(page, score);
-                            }
+        if same_signature {
+            if let Some(items) = selection_value.get("pages").and_then(Value::as_array) {
+                for item in items {
+                    let page = item
+                        .get("page")
+                        .and_then(Value::as_u64)
+                        .map(|value| value as u32);
+                    let score = item
+                        .get("score")
+                        .and_then(Value::as_i64)
+                        .map(|value| value as i32);
+                    let is_ai = item.get("mode").and_then(Value::as_str) == Some("ai");
+                    if let (Some(page), Some(score)) = (page, score) {
+                        // 接受过的页（score ≥ 最低门槛）且有落盘 SVG 才复用，
+                        // 不再要求 ≥80：55~79 的已渲染页也保留，只补没渲染的页。
+                        if is_ai
+                            && score >= AI_PAGE_MIN_SCORE
+                            && page_svg_path(&project, page).is_file()
+                        {
+                            reused_pages.insert(page, score);
                         }
                     }
                 }
             }
+        }
+        if !reused_pages.is_empty() {
+            emit_system_log(
+                Some(&app),
+                &format!(
+                    "断点续跑：复用 {} 页已渲染草稿，仅生成剩余 {} 页",
+                    reused_pages.len(),
+                    plan.slides.len().saturating_sub(reused_pages.len())
+                ),
+            );
         }
 
         // 页级并发 2：视觉签名以集合形式传递，避免并发页互相覆盖去重状态。
@@ -5240,6 +6404,9 @@ impl PptExtensionService {
         while chunk_start < plan.slides.len() {
             if cancel.load(Ordering::SeqCst) {
                 if let Ok(mut map) = cancels.lock() {
+                    map.remove(&job.id);
+                }
+                if let Ok(mut map) = pauses.lock() {
                     map.remove(&job.id);
                 }
                 job.status = "cancelled".into();
@@ -5253,34 +6420,65 @@ impl PptExtensionService {
                 );
                 return Ok(());
             }
+            // 暂停：在页块边界停下并持久化为 paused；已完成页保留，之后可按新条件继续。
+            if pause.load(Ordering::SeqCst) {
+                emit_system_log(
+                    Some(&app),
+                    "已暂停：已生成页面已保存，可修改生成方式/模型后继续。",
+                );
+                job.status = "paused".into();
+                job.finished_at = None;
+                db.update_ppt_job(&job)?;
+                let _ = app.emit(
+                    "ppt-extension://done",
+                    json!({
+                        "jobId": job.id,
+                        "status": "paused",
+                        "stage": job.stage,
+                        "kind": "formal",
+                        "job": job,
+                    }),
+                );
+                return Ok(());
+            }
+            if cancel.load(Ordering::SeqCst) {
+                continue;
+            }
             let chunk_end = (chunk_start + 2).min(plan.slides.len());
             let mut pending: Vec<(usize, &PptSlide)> = Vec::new();
             for index in chunk_start..chunk_end {
                 let slide = &plan.slides[index];
                 if let Some(score) = reused_pages.get(&slide.page).copied() {
                     let path = page_svg_path(&project, slide.page);
-                    if let Ok(existing) = fs::read_to_string(&path) {
-                        let cleaned = sanitize_ai_svg(&existing);
-                        if cleaned != existing {
-                            let _ = fs::write(&path, &cleaned);
+                    match fs::read_to_string(&path) {
+                        Ok(existing) => {
+                            let cleaned = sanitize_ai_svg(&existing);
+                            if cleaned != existing {
+                                let _ = fs::write(&path, &cleaned);
+                            }
+                            signatures.push(cleaned);
+                            selected_pages += 1;
+                            emit_draft_page(
+                                &app,
+                                &job.id,
+                                slide.page,
+                                plan.slides.len(),
+                                "reused",
+                                score,
+                                0,
+                                &[],
+                            );
+                            emit_system_log(
+                                Some(&app),
+                                &format!(
+                                    "P{:02} 复用已有草稿（score={score}）",
+                                    slide.page
+                                ),
+                            );
                         }
-                        signatures.push(cleaned);
+                        // 选择记录存在但文件已被清理（改过大纲/页序）：必须重新生成，不能当作已复用。
+                        Err(_) => pending.push((index, slide)),
                     }
-                    selected_pages += 1;
-                    emit_draft_page(
-                        &app,
-                        &job.id,
-                        slide.page,
-                        plan.slides.len(),
-                        "reused",
-                        score,
-                        0,
-                        &[],
-                    );
-                    emit_system_log(
-                        Some(&app),
-                        &format!("P{:02} 复用已有草稿（score={score}）", slide.page),
-                    );
                 } else {
                     pending.push((index, slide));
                 }
@@ -5345,6 +6543,9 @@ impl PptExtensionService {
                 };
                 if cancel.load(Ordering::SeqCst) {
                     if let Ok(mut map) = cancels.lock() {
+                        map.remove(&job.id);
+                    }
+                    if let Ok(mut map) = pauses.lock() {
                         map.remove(&job.id);
                     }
                     job.status = "cancelled".into();
@@ -5450,8 +6651,13 @@ impl PptExtensionService {
         if let Ok(mut map) = cancels.lock() {
             map.remove(&job.id);
         }
+        if let Ok(mut map) = pauses.lock() {
+            map.remove(&job.id);
+        }
 
         if failures.is_empty() {
+            // AI 逐页生成完成：按当前 plan + spec 写入页级指纹。
+            let _ = ppt_draft_manifest::rebuild(&job_dir, &plan, &spec);
             job.status = "succeeded".into();
             job.stage = STAGE_DRAFT_READY.into();
             job.pptx_path = None;
@@ -5471,6 +6677,8 @@ impl PptExtensionService {
         }
 
         // 失败页交给扩展模板渲染；扩展只处理 fallbackPages，保留已生成的 AI 页。
+        // 先把已完成页面记入清单，模板兜底结束后再由阶段收尾统一重建。
+        let _ = ppt_draft_manifest::rebuild(&job_dir, &plan, &spec);
         let mut spec = spec;
         if !spec.get("options").map(Value::is_object).unwrap_or(false) {
             spec["options"] = json!({});
@@ -5494,6 +6702,7 @@ impl PptExtensionService {
             cancels,
             job_id,
             PptRunStage::Render,
+            PptDraftKind::Formal,
             None,
         )
     }
@@ -5700,6 +6909,15 @@ impl PptExtensionService {
             sanitize_ai_svg(&best.svg),
         )?;
         update_ai_selection(&project, page, &best.svg, &candidates)?;
+        // 单页重生成只更新该页指纹，其他页保持 ready。
+        if let Ok(latest_plan) = ppt_plan::read_plan(&job_dir, &job.title) {
+            let _ = ppt_draft_manifest::upsert_page(
+                &job_dir,
+                &latest_plan,
+                &load_job_spec(&job_dir),
+                page,
+            );
+        }
         emit_system_log(
             Some(&app),
             &format!("第 {page} 页已重新生成：score={}", best.score),
@@ -5753,18 +6971,35 @@ impl PptExtensionService {
         Ok(options)
     }
 
-    /// 返回作业固化素材 `input/source.md` 的绝对路径，供前端打开查看。
+    /// 返回作业素材目录（旧作业回退到 input/source.md），供前端打开查看。
     pub fn source_file(db: &Database, job_id: &str) -> Result<String, AppError> {
         let job = db
             .get_ppt_job(job_id)?
             .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
-        let path = PathBuf::from(&job.workspace_path)
-            .join("input")
-            .join("source.md");
-        if !path.is_file() {
-            return Err(AppError::NotFound("作业缺少 input/source.md".into()));
+        let job_dir = PathBuf::from(&job.workspace_path);
+        let dir = source_dir(&job_dir);
+        if dir.is_dir() {
+            return Ok(dir.to_string_lossy().to_string());
         }
-        Ok(path.to_string_lossy().to_string())
+        let legacy = job_dir.join("input").join("source.md");
+        if legacy.is_file() {
+            return Ok(legacy.to_string_lossy().to_string());
+        }
+        Err(AppError::NotFound("作业缺少素材文件".into()))
+    }
+
+    /// 草稿页级指纹与整册一致性判定，供前端决定导出按钮与提示。
+    pub fn draft_status(
+        db: &Database,
+        job_id: &str,
+    ) -> Result<ppt_draft_manifest::DraftStatus, AppError> {
+        let job = db
+            .get_ppt_job(job_id)?
+            .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
+        let job_dir = PathBuf::from(&job.workspace_path);
+        let plan = ppt_plan::read_plan(&job_dir, &job.title)?;
+        let spec = load_job_spec(&job_dir);
+        Ok(ppt_draft_manifest::compare(&job_dir, &plan, &spec))
     }
 
     /// 读取逐页候选评分，供草稿页展示。
@@ -5863,7 +7098,8 @@ impl PptExtensionService {
         let job = db
             .get_ppt_job(job_id)?
             .ok_or_else(|| AppError::NotFound(format!("作业 {job_id} 不存在")))?;
-        let project = PathBuf::from(&job.workspace_path).join("project");
+        let job_dir = PathBuf::from(&job.workspace_path);
+        let project = job_dir.join("project");
         let selection_path = project.join("page_selection.json");
         let mut selection = fs::read_to_string(&selection_path)
             .ok()
@@ -5902,6 +7138,15 @@ impl PptExtensionService {
         entry["score"] = score;
         entry["issues"] = issues;
         write_json_file(&selection_path, &selection)?;
+        // 切换候选只改变该页产物，保留大纲/渲染输入指纹。
+        if let Ok(plan) = ppt_plan::read_plan(&job_dir, &job.title) {
+            let _ = ppt_draft_manifest::refresh_page_svg(
+                &job_dir,
+                &plan,
+                &load_job_spec(&job_dir),
+                page,
+            );
+        }
         Ok(())
     }
 }
@@ -5919,6 +7164,14 @@ fn safe_candidate_path(project: &Path, file: &str) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn evidence_matching_tolerates_line_breaks_and_numbers() {
+        let visible = normalize_match_text("2024 年市场\n增长 35%");
+        assert!(evidence_matches_visible("2024年市场增长35%", &visible));
+        assert!(evidence_matches_visible("同比增长 35%", &visible));
+        assert!(!evidence_matches_visible("完全无关的结论", &visible));
+    }
 
     #[test]
     fn extracts_local_markdown() {
@@ -6011,9 +7264,9 @@ mod tests {
         fs::write(svg_dir.join("P02.svg"), "<svg/>").unwrap();
         fs::write(svg_dir.join("note.txt"), "keep").unwrap();
 
-        assert_eq!(count_draft_pages(&dir).unwrap(), 2);
-        clear_draft_pages(&dir).unwrap();
-        assert_eq!(count_draft_pages(&dir).unwrap(), 0);
+        assert_eq!(count_draft_pages(&dir, PptDraftKind::Formal).unwrap(), 2);
+        clear_draft_pages(&dir, PptDraftKind::Formal).unwrap();
+        assert_eq!(count_draft_pages(&dir, PptDraftKind::Formal).unwrap(), 0);
         assert!(svg_dir.join("note.txt").is_file());
 
         let _ = fs::remove_dir_all(dir);
@@ -6349,18 +7602,19 @@ mod tests {
     }
 
     #[test]
-    fn source_file_returns_fixed_source_path() {
+    fn source_file_returns_sources_dir() {
         let (db, root, job) = setup_ppt_job("ppt-source");
-        let source = PathBuf::from(&job.workspace_path)
+        let dir = PathBuf::from(&job.workspace_path)
             .join("input")
-            .join("source.md");
-        fs::write(&source, "# 素材\n\n正文").unwrap();
+            .join("sources");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("note-1.md"), "# 素材\n\n正文").unwrap();
 
         let path = PptExtensionService::source_file(&db, &job.id).unwrap();
-        assert_eq!(PathBuf::from(&path), source);
-        assert!(Path::new(&path).is_file());
+        assert_eq!(PathBuf::from(&path), dir);
+        assert!(Path::new(&path).is_dir());
 
-        fs::remove_file(&source).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
         assert!(PptExtensionService::source_file(&db, &job.id).is_err());
         let _ = fs::remove_dir_all(root);
     }

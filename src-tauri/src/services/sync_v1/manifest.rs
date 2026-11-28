@@ -97,6 +97,10 @@ pub fn task_content_hash(t: &TaskManifestEntry) -> String {
     );
     h.update(b"\n");
     h.update(if t.tombstone { b"1" } else { b"0" });
+    // 只在有值时拼：没设提醒的任务 hash 与旧版完全一致，升级后不会整批重传
+    if let Some(m) = t.remind_before_minutes {
+        h.update(format!("\nremind:{}", m).as_bytes());
+    }
     format!("{:x}", h.finalize())
 }
 
@@ -177,7 +181,7 @@ pub fn compute_local_manifest(
     let mut stmt = conn.prepare(
         "SELECT id, stable_uuid, title, content_hash, updated_at, folder_id, is_deleted, deleted_at,
                 is_encrypted, encrypted_blob, is_daily, daily_date, is_hidden, note_type,
-                folder_moved_at
+                folder_moved_at, created_at
          FROM notes
          WHERE stable_uuid IS NOT NULL
            AND storage_kind = 'db'
@@ -200,6 +204,7 @@ pub fn compute_local_manifest(
         i64,            // is_hidden
         String,         // note_type
         Option<String>, // folder_moved_at
+        Option<String>, // created_at
     )> = stmt
         .query_map(rusqlite::params![tombstone_cutoff], |row| {
             // 所有 TEXT 列走降级读（`get_text_lossy`）而非 `row.get::<_, String>`：
@@ -226,6 +231,7 @@ pub fn compute_local_manifest(
                 row.get::<_, i64>(12)?,
                 get_text_lossy(row, 13, "notes.note_type")?,
                 get_opt_text_lossy(row, 14, "notes.folder_moved_at")?,
+                get_opt_text_lossy(row, 15, "notes.created_at")?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -276,6 +282,7 @@ pub fn compute_local_manifest(
         is_hidden_int,
         note_type_col,
         folder_moved_at,
+        created_at,
     ) in rows
     {
         let path = folder_path_for(&folders_by_id, folder_id);
@@ -332,6 +339,7 @@ pub fn compute_local_manifest(
             } else {
                 Some(note_type_col)
             },
+            created_at,
         });
     }
 
@@ -552,6 +560,7 @@ fn build_task_entries(db: &Database) -> Result<Vec<TaskManifestEntry>, AppError>
             repeat_until: t.repeat_until,
             repeat_count: t.repeat_count,
             tombstone: t.is_deleted,
+            remind_before_minutes: t.remind_before_minutes,
         };
         entry.content_hash = task_content_hash(&entry);
         entries.push(entry);
@@ -858,6 +867,34 @@ pub fn drop_dangling_entries(manifest: &mut SyncManifestV1, missing: &[(String, 
     before - manifest.entries.len()
 }
 
+/// 找出「修改时间被老版本写成同步时刻」的本地笔记：返回 (stable_id, 远端 updated_at)。
+///
+/// 条件全满足才算：两边都没删、内容指纹相同、标签相同、本地时间比远端新。
+/// 标签必须相同 —— 加删标签会冒泡 updated_at，标签 diff 靠它判谁新。
+pub fn stale_synced_note_times(
+    local: &SyncManifestV1,
+    remote: &SyncManifestV1,
+) -> Vec<(String, String)> {
+    let remote_by_id: HashMap<&str, &ManifestEntry> = remote
+        .entries
+        .iter()
+        .map(|e| (e.stable_id.as_str(), e))
+        .collect();
+    local
+        .entries
+        .iter()
+        .filter_map(|le| {
+            let re = remote_by_id.get(le.stable_id.as_str())?;
+            let stale = !le.tombstone
+                && !re.tombstone
+                && le.content_hash == re.content_hash
+                && le.tags == re.tags
+                && le.updated_at > re.updated_at;
+            stale.then(|| (le.stable_id.clone(), re.updated_at.clone()))
+        })
+        .collect()
+}
+
 /// 比对本地 vs 远端 manifest
 ///
 /// 算法：以 stable_id 为键 outer-join 两边
@@ -1046,7 +1083,14 @@ fn diff_tasks(
                 if le.content_hash == re.content_hash {
                     continue;
                 }
-                if le.updated_at >= re.updated_at {
+                // 升级过渡：提前量以前不同步，接收端本地是 None、时间相同。
+                // 平手且远端带提醒、本地没有 → 拉；否则维持「平手本地赢」。
+                let upgrade_pull = le.updated_at == re.updated_at
+                    && le.remind_before_minutes.is_none()
+                    && re.remind_before_minutes.is_some();
+                if upgrade_pull {
+                    diff.tasks_to_pull.push((*re).clone());
+                } else if le.updated_at >= re.updated_at {
                     diff.tasks_to_push.push(le.clone());
                 } else {
                     diff.tasks_to_pull.push((*re).clone());
@@ -1111,6 +1155,7 @@ mod tests {
             is_hidden: false,
             tags: None,
             note_type: None,
+            created_at: None,
         }
     }
 
@@ -1140,6 +1185,63 @@ mod tests {
         let mut e = entry(id, title, hash, ts, false);
         e.is_hidden = true;
         e
+    }
+
+    #[test]
+    fn stale_synced_note_times_only_flags_identical_notes_with_inflated_time() {
+        let remote_ts = "2025-06-01 10:00:00";
+        let synced_ts = "2026-11-23 12:00:00";
+        let local = manifest(vec![
+            entry_with_tags("same", "a", "h1", synced_ts, vec!["工作"]),
+            entry("edited", "b", "h2-local", synced_ts, false),
+            entry_with_tags("tag-changed", "c", "h3", synced_ts, vec!["新标签"]),
+            entry("older", "d", "h4", "2025-01-01 00:00:00", false),
+            entry("deleted", "e", "h5", synced_ts, true),
+        ]);
+        let remote = manifest(vec![
+            entry_with_tags("same", "a", "h1", remote_ts, vec!["工作"]),
+            entry("edited", "b", "h2-remote", remote_ts, false),
+            entry_with_tags("tag-changed", "c", "h3", remote_ts, vec!["旧标签"]),
+            entry("older", "d", "h4", remote_ts, false),
+            entry("deleted", "e", "h5", remote_ts, false),
+        ]);
+        assert_eq!(
+            stale_synced_note_times(&local, &remote),
+            vec![("same".to_string(), remote_ts.to_string())]
+        );
+    }
+
+    #[test]
+    fn task_hash_includes_reminder_only_when_set() {
+        let plain = task("t", "", "2026-02-01", false);
+        let mut a = plain.clone();
+        a.remind_before_minutes = Some(30);
+        let mut b = plain.clone();
+        b.remind_before_minutes = Some(60);
+        let h = task_content_hash(&plain);
+        assert_ne!(h, task_content_hash(&a));
+        assert_ne!(task_content_hash(&a), task_content_hash(&b));
+    }
+
+    #[test]
+    fn diff_tasks_tie_pulls_remote_reminder_on_upgrade() {
+        let mut with_remind = task("t", "h_r", "2026-02-01", false);
+        with_remind.remind_before_minutes = Some(30);
+        let mut local = manifest(vec![]);
+        local.tasks = vec![task("t", "h_l", "2026-02-01", false)];
+        let mut remote = manifest(vec![]);
+        remote.tasks = vec![with_remind.clone()];
+        let d = diff_manifests(&local, &remote);
+        assert_eq!(d.tasks_to_pull.len(), 1);
+        assert!(d.tasks_to_push.is_empty());
+
+        let mut local = manifest(vec![]);
+        local.tasks = vec![with_remind];
+        let mut remote = manifest(vec![]);
+        remote.tasks = vec![task("t", "h_l", "2026-02-01", false)];
+        let d = diff_manifests(&local, &remote);
+        assert_eq!(d.tasks_to_push.len(), 1);
+        assert!(d.tasks_to_pull.is_empty());
     }
 
     fn manifest(entries: Vec<ManifestEntry>) -> SyncManifestV1 {
@@ -2260,6 +2362,7 @@ mod tests {
             repeat_until: None,
             repeat_count: None,
             tombstone,
+            remind_before_minutes: None,
         }
     }
 

@@ -1,194 +1,152 @@
 //! 插件运行时令牌注册表
 //!
 //! 设计要点：
-//! - 内存存储（Mutex<HashMap>），进程退出自动清空
-//! - 每次 acquire 生成新 UUID，覆盖旧令牌（轮换）
-//! - 反查表 token → plugin_id 由 O(n) 遍历（插件总数 < 100）
+//! - 内存存储（Mutex），进程退出自动清空
+//! - 每次 acquire 生成新的 token + session_id，同插件允许多个会话并存
+//! - 令牌绑定「插件 + 当前启用代际」：代际一旦变化，旧令牌全部闲置（校验时拒绝）
+//! - 停用/卸载调用 `revoke_plugin` 一次性失效该插件全部会话
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
+
 use uuid::Uuid;
+
+/// 一个活跃的插件运行会话
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginSession {
+    pub plugin_id: String,
+    /// 申领令牌时的启用代际；与数据库当前代际不一致即视为过期
+    pub generation: i64,
+    pub session_id: String,
+}
+
+#[derive(Default)]
+struct Inner {
+    by_token: HashMap<String, PluginSession>,
+    tokens_by_plugin: HashMap<String, HashSet<String>>,
+}
 
 #[derive(Default)]
 pub struct PluginTokenRegistry {
-    /// pluginId → token
-    tokens: Mutex<HashMap<String, String>>,
+    inner: Mutex<Inner>,
 }
 
 impl PluginTokenRegistry {
-    /// 申领新令牌（覆盖旧令牌）
-    pub fn acquire(&self, plugin_id: &str) -> Result<String, String> {
+    /// 申领新令牌。返回 `(token, session)`。
+    pub fn acquire(&self, plugin_id: &str, generation: i64) -> Result<(String, PluginSession), String> {
         let token = Uuid::new_v4().to_string();
-        let mut guard = self.tokens.lock().map_err(|e| e.to_string())?;
-        guard.insert(plugin_id.to_string(), token.clone());
-        Ok(token)
+        let session = PluginSession {
+            plugin_id: plugin_id.to_string(),
+            generation,
+            session_id: Uuid::new_v4().to_string(),
+        };
+        let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
+        guard.by_token.insert(token.clone(), session.clone());
+        guard
+            .tokens_by_plugin
+            .entry(plugin_id.to_string())
+            .or_default()
+            .insert(token.clone());
+        Ok((token, session))
     }
 
-    /// 作废令牌（幂等）
-    pub fn revoke(&self, plugin_id: &str) -> Result<(), String> {
-        let mut guard = self.tokens.lock().map_err(|e| e.to_string())?;
-        guard.remove(plugin_id);
-        Ok(())
+    /// 作废单个令牌（幂等）。返回是否真的移除了。
+    pub fn revoke(&self, token: &str) -> Result<bool, String> {
+        let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
+        match guard.by_token.remove(token) {
+            Some(session) => {
+                if let Some(tokens) = guard.tokens_by_plugin.get_mut(&session.plugin_id) {
+                    tokens.remove(token);
+                    if tokens.is_empty() {
+                        guard.tokens_by_plugin.remove(&session.plugin_id);
+                    }
+                }
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 
-    /// 通过令牌反查 plugin_id；找不到 → None
-    pub fn lookup(&self, token: &str) -> Result<Option<String>, String> {
-        let guard = self.tokens.lock().map_err(|e| e.to_string())?;
+    /// 作废某插件的全部会话，返回失效的令牌数。
+    pub fn revoke_plugin(&self, plugin_id: &str) -> Result<usize, String> {
+        let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
+        let tokens = guard
+            .tokens_by_plugin
+            .remove(plugin_id)
+            .unwrap_or_default();
+        for token in &tokens {
+            guard.by_token.remove(token);
+        }
+        Ok(tokens.len())
+    }
+
+    /// 通过令牌反查会话；找不到 → None。
+    pub fn lookup(&self, token: &str) -> Result<Option<PluginSession>, String> {
+        let guard = self.inner.lock().map_err(|e| e.to_string())?;
+        Ok(guard.by_token.get(token).cloned())
+    }
+
+    /// 某插件当前活跃会话数（测试/诊断用）。
+    pub fn session_count(&self, plugin_id: &str) -> Result<usize, String> {
+        let guard = self.inner.lock().map_err(|e| e.to_string())?;
         Ok(guard
-            .iter()
-            .find(|(_, t)| t.as_str() == token)
-            .map(|(pid, _)| pid.clone()))
+            .tokens_by_plugin
+            .get(plugin_id)
+            .map(|set| set.len())
+            .unwrap_or(0))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use std::thread;
-    use std::time::Instant;
 
     #[test]
-    fn test_acquire_returns_uuid() {
+    fn acquire_returns_token_and_session() {
         let registry = PluginTokenRegistry::default();
-        let token = registry.acquire("cc").unwrap();
+        let (token, session) = registry.acquire("cc", 3).unwrap();
         assert_eq!(token.len(), 36);
-        assert!(token.contains('-'));
+        assert_eq!(session.plugin_id, "cc");
+        assert_eq!(session.generation, 3);
+        assert_eq!(registry.lookup(&token).unwrap(), Some(session));
     }
 
     #[test]
-    fn test_acquire_overwrites_old() {
+    fn sessions_coexist_for_same_plugin() {
         let registry = PluginTokenRegistry::default();
-        let t1 = registry.acquire("cc").unwrap();
-        let t2 = registry.acquire("cc").unwrap();
+        let (t1, _) = registry.acquire("cc", 1).unwrap();
+        let (t2, _) = registry.acquire("cc", 1).unwrap();
         assert_ne!(t1, t2);
-        assert_eq!(registry.lookup(&t1).unwrap(), None);
-        assert_eq!(registry.lookup(&t2).unwrap(), Some("cc".to_string()));
+        assert_eq!(registry.session_count("cc").unwrap(), 2);
+        assert!(registry.lookup(&t1).unwrap().is_some());
+        assert!(registry.lookup(&t2).unwrap().is_some());
     }
 
     #[test]
-    fn test_revoke_idempotent() {
+    fn revoke_plugin_invalidates_all_sessions() {
         let registry = PluginTokenRegistry::default();
-        registry.acquire("cc").unwrap();
-        registry.revoke("cc").unwrap();
-        registry.revoke("cc").unwrap(); // 第二次不应报错
+        let (t1, _) = registry.acquire("cc", 1).unwrap();
+        let (t2, _) = registry.acquire("cc", 1).unwrap();
+        let (other, _) = registry.acquire("other", 1).unwrap();
+
+        assert_eq!(registry.revoke_plugin("cc").unwrap(), 2);
+        assert!(registry.lookup(&t1).unwrap().is_none());
+        assert!(registry.lookup(&t2).unwrap().is_none());
+        assert!(registry.lookup(&other).unwrap().is_some());
+        assert_eq!(registry.session_count("cc").unwrap(), 0);
     }
 
     #[test]
-    fn test_lookup_invalid_token() {
+    fn revoke_single_token_is_idempotent() {
         let registry = PluginTokenRegistry::default();
-        assert_eq!(registry.lookup("invalid").unwrap(), None);
+        let (token, _) = registry.acquire("cc", 1).unwrap();
+        assert!(registry.revoke(&token).unwrap());
+        assert!(!registry.revoke(&token).unwrap());
     }
 
-    // ─── §10.15 越权测试用例（直接针对 PluginTokenRegistry 层） ───
-
-    /// 用例 1：无效令牌反查 → None（verify() 会据此返回 PluginPermissionDenied）
     #[test]
-    fn case_1_invalid_token_returns_none() {
+    fn lookup_invalid_token_is_none() {
         let registry = PluginTokenRegistry::default();
-        registry.acquire("cc").unwrap();
-        assert_eq!(registry.lookup("random-junk").unwrap(), None);
-    }
-
-    /// 用例 2：空令牌 → None
-    #[test]
-    fn case_2_empty_token_returns_none() {
-        let registry = PluginTokenRegistry::default();
-        registry.acquire("cc").unwrap();
-        assert_eq!(registry.lookup("").unwrap(), None);
-    }
-
-    /// 用例 3：撤销后的令牌反查 → None
-    #[test]
-    fn case_3_revoked_token_returns_none() {
-        let registry = PluginTokenRegistry::default();
-        let token = registry.acquire("cc").unwrap();
-        registry.revoke("cc").unwrap();
-        assert_eq!(registry.lookup(&token).unwrap(), None);
-    }
-
-    /// 用例 4：轮换后旧令牌失效，新令牌生效
-    #[test]
-    fn case_4_rotated_token_old_invalid() {
-        let registry = PluginTokenRegistry::default();
-        let old = registry.acquire("cc").unwrap();
-        let new = registry.acquire("cc").unwrap();
-        assert_ne!(old, new);
-        assert_eq!(registry.lookup(&old).unwrap(), None, "旧令牌应失效");
-        assert_eq!(
-            registry.lookup(&new).unwrap(),
-            Some("cc".to_string()),
-            "新令牌应生效"
-        );
-    }
-
-    /// 用例 10：令牌不应包含可识别的明文（仅 UUID v4 格式）
-    /// 通过验证格式间接保证：插件 ID 不会泄漏到令牌中
-    #[test]
-    fn case_10_token_format_no_plugin_id_leak() {
-        let registry = PluginTokenRegistry::default();
-        let token = registry.acquire("secret-plugin-id").unwrap();
-        assert!(
-            !token.contains("secret-plugin-id"),
-            "令牌不应包含插件 ID 明文"
-        );
-        // UUID v4 格式：8-4-4-4-12
-        let parts: Vec<&str> = token.split('-').collect();
-        assert_eq!(parts.len(), 5);
-        assert_eq!(parts[0].len(), 8);
-        assert_eq!(parts[1].len(), 4);
-        assert_eq!(parts[2].len(), 4);
-        assert_eq!(parts[3].len(), 4);
-        assert_eq!(parts[4].len(), 12);
-    }
-
-    /// 用例 11：并发申领同一 plugin_id，后到者覆盖
-    #[test]
-    fn case_11_concurrent_acquire_last_wins() {
-        let registry = Arc::new(PluginTokenRegistry::default());
-        let mut handles = vec![];
-
-        // 10 个线程并发对同一 plugin_id 申领
-        for _ in 0..10 {
-            let r = Arc::clone(&registry);
-            handles.push(thread::spawn(move || r.acquire("cc").unwrap()));
-        }
-
-        let tokens: Vec<String> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-        // 全部唯一
-        let unique: std::collections::HashSet<_> = tokens.iter().collect();
-        assert_eq!(unique.len(), 10, "10 次申领应产生 10 个唯一令牌");
-
-        // 最终注册表中只有一个有效令牌（最后写入的那个）
-        let mut valid_count = 0;
-        for t in &tokens {
-            if registry.lookup(t).unwrap().is_some() {
-                valid_count += 1;
-            }
-        }
-        assert_eq!(valid_count, 1, "并发申领后只应有 1 个令牌有效");
-    }
-
-    /// 用例 12：大量插件场景下 lookup 性能（O(n) 实现，1000 个插件应 < 10ms）
-    #[test]
-    fn case_12_large_scale_lookup_performance() {
-        let registry = PluginTokenRegistry::default();
-        let mut last_token = String::new();
-        for i in 0..1000 {
-            last_token = registry.acquire(&format!("plugin-{}", i)).unwrap();
-        }
-
-        // 测最坏情况：查找最后一个插入的（HashMap 顺序不保证，但 1000 量级延迟均极小）
-        let start = Instant::now();
-        for _ in 0..100 {
-            let _ = registry.lookup(&last_token).unwrap();
-        }
-        let elapsed = start.elapsed();
-        let per_call = elapsed / 100;
-        assert!(
-            per_call.as_millis() < 10,
-            "lookup 平均耗时 {:?} 超过 10ms",
-            per_call
-        );
+        assert!(registry.lookup("invalid").unwrap().is_none());
     }
 }

@@ -1,38 +1,40 @@
-import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Input,
   Typography,
   Button,
-  Tag,
   Modal,
+  Popover,
+  Segmented,
   App as AntdApp,
   theme as antdTheme,
 } from "antd";
 import {
   NotebookText,
   CalendarDays,
-  ArrowRight,
   Pin,
   Bot,
-  Search,
   CheckSquare,
-  AlertTriangle,
   PencilLine,
   Send,
-  Clock,
-  TrendingUp,
-  Sparkles,
+  Flame,
   MessageCircle,
   Check,
   Star,
-  Type,
   Copy,
   Edit3,
   Trash2,
   ExternalLink,
   ChevronRight,
-  ChevronDown,
+  CornerDownRight,
+  PenTool,
+  Eye,
+  EyeOff,
+  FilePlus2,
+  Plus,
+  X,
+  RotateCcw,
 } from "lucide-react";
 import { Tooltip as AntTooltip } from "antd";
 import {
@@ -42,19 +44,21 @@ import {
   taskApi,
   trashApi,
   aiChatApi,
+  imageApi,
 } from "@/lib/api";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import {
   ContextMenuOverlay,
   type ContextMenuEntry,
 } from "@/components/ui/ContextMenuOverlay";
-import { relativeTime } from "@/lib/utils";
+import { relativeTime, localYmd, todayYmd } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { NewNoteButton } from "@/components/NewNoteButton";
 import { NewTodoButton } from "@/components/NewTodoButton";
 import { MicButton } from "@/components/MicButton";
 import { HomeSearchInput } from "@/components/HomeSearchInput";
 import { useAppStore } from "@/store";
+import { useHomeWidgetsStore } from "@/store/homeWidgets";
 import {
   useHomeLayoutStore,
   type HomeWidgetId,
@@ -75,9 +79,9 @@ import {
   rectSortingStrategy,
   arrayMove,
 } from "@dnd-kit/sortable";
-import { RotateCcw } from "lucide-react";
 import { SortableWidget } from "@/components/home/SortableWidget";
 import { HomeWidget } from "@/components/home/HomeWidget";
+import { WritingHeatmap } from "@/components/home/WritingHeatmap";
 import { useFeatureEnabled } from "@/hooks/useFeatureEnabled";
 import type {
   Note,
@@ -85,34 +89,89 @@ import type {
   DailyWritingStat,
   Task,
   AiConversation,
+  NotesOnDay,
 } from "@/types";
 import { SubtaskList } from "@/components/tasks/SubtaskList";
 import { TaskDetailModal } from "@/components/tasks/TaskDetailModal";
 import { CreateTaskModal } from "@/components/tasks/CreateTaskModal";
-import { SearchModal } from "@/components/search/SearchModal";
+import {
+  escapeHtml,
+  fileToBase64,
+  imageFilesFrom,
+  quickImagesHtml,
+  quickTextToNote,
+} from "@/lib/quickNote";
 
 const { Text } = Typography;
 
+/** 待办速览的四个分组 */
+type TodoTab = "overdue" | "today" | "upcoming" | "noDue";
+
+/** 首页「问 AI」推荐问题：通用、不依赖具体笔记内容 */
+const ASK_AI_SUGGESTIONS = ["总结我这周写的内容", "最近有哪些没写完的笔记", "找出没有链接的孤立笔记"];
+
+/** 按小时给问候语 */
+function greetingFor(hour: number): string {
+  if (hour < 5) return "夜深了";
+  if (hour < 9) return "早上好";
+  if (hour < 12) return "上午好";
+  if (hour < 14) return "中午好";
+  if (hour < 18) return "下午好";
+  return "晚上好";
+}
+
+/** 「11 月 3 日 · 星期二」 */
+function homeDateLabel(d: Date): string {
+  const wk = ["日", "一", "二", "三", "四", "五", "六"][d.getDay()];
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 · 星期${wk}`;
+}
+
+/** 笔记类型图标块：日记橙、白板蓝、普通笔记主色 */
+function NoteTypeIcon({ isDaily, noteType }: { isDaily: boolean; noteType: string }) {
+  const { token } = antdTheme.useToken();
+  const whiteboard = noteType === "whiteboard";
+  return (
+    <span
+      className="kb-cico sm"
+      title={isDaily ? "日记" : whiteboard ? "白板" : "笔记"}
+      style={{ color: isDaily ? token.colorWarning : whiteboard ? token.colorInfo : token.colorPrimary }}
+    >
+      {isDaily ? <CalendarDays size={14} /> : whiteboard ? <PenTool size={14} /> : <NotebookText size={14} />}
+    </span>
+  );
+}
+
+/** 观测元素高度：返回 [高度, 回调 ref]。折叠/展开导致挂载变化时自动重连。 */
+function useMeasuredHeight(fallback: number): [number, (node: HTMLDivElement | null) => void] {
+  const [height, setHeight] = useState(fallback);
+  const roRef = useRef<ResizeObserver | null>(null);
+  const observe = useCallback((node: HTMLDivElement | null) => {
+    roRef.current?.disconnect();
+    if (!node) return;
+    const ro = new ResizeObserver(() => setHeight(node.clientHeight));
+    ro.observe(node);
+    setHeight(node.clientHeight);
+    roRef.current = ro;
+  }, []);
+  useEffect(() => () => roRef.current?.disconnect(), []);
+  return [height, observe];
+}
+
 /**
- * 首页 v2(工作台模式)
+ * 桌面端首页（对齐知识库新版）：
+ *   ① 页头：日期 + 问候 + 搜索 + 新建笔记 + 重置布局 + 隐私模式
+ *   ② 随手记：一个输入框两个去处（存为新笔记 / 记到今天的日记），支持粘贴图片
+ *   ③ 待办（快速添加 + 分组胶囊）｜ 笔记（最近编辑 / 置顶）
+ *   ④ 写作活力（5 指标 + 年度热力图）｜ 问 AI
  *
- * 结构(从上到下):
- *   ① 搜索 + 新建文档拆分按钮(全局入口)
- *   ② 4 个紧凑快速操作按钮(添加待办/当天日记/AI/搜索记录)
- *   ③ 快速记一笔(textarea, ⌘↩ 追加到今日 daily)
- *   ④ 今日待办速览(左) + 最近文档(右),都带 inline 创建按钮
- *   ⑤ 写作活力(文档/连续天数/距上次/本周字数 + 14 天迷你图)
- *   ⑥ 置顶文档(左) + 问 AI 输入(右,直接输入新建对话)
- */
-/**
- * 桌面端原版主页（保留所有原有 hook + 1300+ 行实现）。
- * 移动端走文件末尾的 HomePage wrapper → MobileHome（按设计稿小屏布局）。
+ * 保留原工作台的拖拽排序、列宽/行高调整、折叠、「重置布局」。
  */
 function DesktopHomePage() {
   const navigate = useNavigate();
   const { token } = antdTheme.useToken();
   const { message } = AntdApp.useApp();
   const refreshTaskStats = useAppStore((s) => s.refreshTaskStats);
+  const privacyMode = useHomeWidgetsStore((s) => s.privacyMode);
 
   // 功能模块开关：用户在设置里关闭某模块时，首页相关的卡片/按钮也要联动隐藏
   const tasksEnabled = useFeatureEnabled("tasks");
@@ -122,14 +181,20 @@ function DesktopHomePage() {
   // ─── 数据状态 ─────────────────────────────────────
   const [recentNotes, setRecentNotes] = useState<Note[]>([]);
   const [pinnedNotes, setPinnedNotes] = useState<Note[]>([]);
+  /** 笔记总数（笔记列表口径：不含日记 / 隐藏） */
+  const [notesTotal, setNotesTotal] = useState(0);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [trend, setTrend] = useState<DailyWritingStat[]>([]);
   /** 今日待办速览(今天 + 逾期,前端筛 / 切片) */
   const [todayTasks, setTodayTasks] = useState<Task[]>([]);
-  /** 即将到期速览(明天到 7 天内,前端筛 / 切片) */
+  /** 即将到期速览(今天之后,按 due 升序) */
   const [upcomingTasks, setUpcomingTasks] = useState<Task[]>([]);
+  /** 无截止日期速览 */
+  const [noDueTasks, setNoDueTasks] = useState<Task[]>([]);
   /** 最近 AI 会话(用于"问 AI"卡 fallback 列表) */
   const [recentChats, setRecentChats] = useState<AiConversation[]>([]);
+  /** 今日日记字数；null = 今天还没有日记（用只读 get，不能凭空建日记） */
+  const [todayDailyWords, setTodayDailyWords] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   // ─── 首页布局（可拖拽排序 + 折叠 + 宽高） ────────────
@@ -152,16 +217,13 @@ function DesktopHomePage() {
   const visibleWidgets = useMemo(() => {
     return widgets.filter((w) => {
       switch (w.id) {
+        // 随手记不随日记模块开关消失：关掉日记仍可「存为新笔记」
         case "quick-note":
-          return dailyEnabled;
+          return true;
         case "todo":
           return tasksEnabled;
         case "ai":
           return aiEnabled;
-        case "recent":
-        case "pinned":
-        case "writing-stat":
-          return true;
         default:
           return true;
       }
@@ -172,59 +234,87 @@ function DesktopHomePage() {
     () => visibleWidgets.map((w) => w.id),
     [visibleWidgets],
   );
+
+  // ─── 输入态 ───────────────────────────────────────
   const [searchKeyword, setSearchKeyword] = useState("");
-  /** 搜索模态窗：回车 / 点「搜索记录」在首页就地展开，不再跳搜索页 */
-  const [searchOpen, setSearchOpen] = useState(false);
   const [quickNote, setQuickNote] = useState("");
   const [quickNoteSaving, setQuickNoteSaving] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("");
+  /** 随手记里粘贴的图片（保存时才存进对应笔记的素材目录）；url 是预览用的 blob 地址 */
+  const [quickImages, setQuickImages] = useState<{ file: File; url: string }[]>([]);
+  /** 待办卡顶部的快速添加 */
+  const [quickTodo, setQuickTodo] = useState("");
+  /** 往快速添加框里粘了截图：打开完整新建弹窗，带上已打的字和截图 */
+  const [todoPasteDraft, setTodoPasteDraft] = useState<{ title: string; files: File[] } | null>(null);
+  const [quickTodoSaving, setQuickTodoSaving] = useState(false);
+  /** 笔记卡当前看哪个标签 */
+  const [noteTab, setNoteTab] = useState<"recent" | "pinned">("recent");
+  /** 待办卡当前看哪个分组；null = 还没手动选过 */
+  const [todoTab, setTodoTab] = useState<TodoTab | null>(null);
+  /** 热力图点开的那天 */
+  const [dayPick, setDayPick] = useState<{ date: string; rect: DOMRect } | null>(null);
+  const [dayNotes, setDayNotes] = useState<NotesOnDay | null>(null);
   /** 待办详情弹窗 */
   const [taskDetail, setTaskDetail] = useState<Task | null>(null);
   /** 编辑弹窗（详情 Modal 点「编辑」时打开）*/
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  /** 行内展开子任务的任务 id 集合（仅 widget 内存态，不持久化） */
-  const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(
-    () => new Set(),
+  const [expandedTodoIds, setExpandedTodoIds] = useState<Set<number>>(new Set());
+
+  // 待办 / 笔记卡片内容区高度 → 能放几行（随高度档位 / 窗口自适应）
+  const [todoBodyHeight, todoBodyRef] = useMeasuredHeight(240);
+  const [notesBodyHeight, notesBodyRef] = useMeasuredHeight(240);
+  const todoRows = useMemo(
+    () => Math.max(1, Math.floor((todoBodyHeight - 24) / 40) - 2),
+    [todoBodyHeight],
+  );
+  const noteRows = useMemo(
+    () => Math.max(2, Math.floor((notesBodyHeight - 24) / 40)),
+    [notesBodyHeight],
   );
 
-  // ─── 加载 ─────────────────────────────────────────
+  // ─── 数据加载 ─────────────────────────────────────
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     try {
-      const [notesResult, dashStats, trendData, allTodos, chats] =
+      const [notesResult, dashStats, trendData, allTodos, chats, todayDaily] =
         await Promise.all([
-          noteApi.list({ page: 1, page_size: 8 }),
+          // 拉 24 条：要拆成「最近」和「置顶」两组，窗口高时每组最多能放十几条
+          noteApi.list({ page: 1, page_size: 24 }),
           systemApi.getDashboardStats(),
-          systemApi.getWritingTrend(14),
+          // 371 天 = 53 周：写作活力的年度热力图要一整年
+          systemApi.getWritingTrend(371),
           taskApi.list({ status: 0 }).catch(() => [] as Task[]),
           aiChatApi.listConversations().catch(() => [] as AiConversation[]),
+          dailyApi.get(todayYmd()).catch(() => null),
         ]);
       setRecentNotes(notesResult.items.filter((n) => !n.is_pinned));
+      setNotesTotal(notesResult.total);
       setPinnedNotes(notesResult.items.filter((n) => n.is_pinned));
       setStats(dashStats);
       setTrend(trendData);
-      // 三段筛：逾期+今日 给 todayTasks；明天到 7 天后 给 upcomingTasks
+      // 四段筛：逾期+今日 / 今天之后（不卡 7 天）/ 无截止日期
       const todayEnd = new Date();
       todayEnd.setHours(23, 59, 59, 999);
-      const next7End = new Date(todayEnd);
-      next7End.setDate(next7End.getDate() + 7);
-      const allWithDue = allTodos.filter((t) => t.status === 0 && t.due_date);
+      const open = allTodos.filter((t) => t.status === 0);
+      const allWithDue = open.filter((t) => t.due_date);
+      const noDue = open.filter((t) => !t.due_date);
       const sortByDue = (a: Task, b: Task) =>
         new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime();
-      // 逾期 + 今日（≤ 今天结束）
       const todayOrOverdue = allWithDue
         .filter((t) => new Date(t.due_date!).getTime() <= todayEnd.getTime())
         .sort(sortByDue);
-      // 即将到期（今天结束 < due ≤ 7 天后结束）
       const upcoming = allWithDue
-        .filter((t) => {
-          const d = new Date(t.due_date!).getTime();
-          return d > todayEnd.getTime() && d <= next7End.getTime();
-        })
+        .filter((t) => new Date(t.due_date!).getTime() > todayEnd.getTime())
         .sort(sortByDue);
+      const noDueSorted = [...noDue].sort((a, b) => {
+        if (a.important !== b.important) return a.important ? -1 : 1;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
       setTodayTasks(todayOrOverdue);
       setUpcomingTasks(upcoming);
+      setNoDueTasks(noDueSorted);
       setRecentChats(chats.slice(0, 3));
+      setTodayDailyWords(todayDaily ? todayDaily.word_count : null);
     } catch (e) {
       console.error("加载首页数据失败:", e);
     } finally {
@@ -265,48 +355,142 @@ function DesktopHomePage() {
 
   // ─── 搜索 ─────────────────────────────────────────
   const handleSearch = useCallback(() => {
-    if (searchKeyword.trim()) setSearchOpen(true);
-  }, [searchKeyword]);
+    if (searchKeyword.trim()) {
+      navigate(`/search?q=${encodeURIComponent(searchKeyword.trim())}`);
+    }
+  }, [searchKeyword, navigate]);
 
-  // ─── 当天日记跳转 ──────────────────────────────────
+  // ─── 今天的日记跳转 ────────────────────────────────
   const handleTodayNote = useCallback(async () => {
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayYmd();
       await dailyApi.getOrCreate(today);
       navigate(`/daily?date=${today}`);
     } catch (e) {
-      message.error(`打开当天日记失败: ${e}`);
+      message.error(`打开今天的日记失败: ${e}`);
     }
   }, [navigate, message]);
 
-  // ─── 快速记一笔:追加到今日 daily ───────────────────
+  // ─── 随手记的图片：粘贴进来先只做预览，保存时才存进目标笔记 ───────────
+  const addQuickImages = useCallback((files: File[]) => {
+    setQuickImages((prev) => [...prev, ...files.map((file) => ({ file, url: URL.createObjectURL(file) }))]);
+  }, []);
+  const removeQuickImage = useCallback((url: string) => {
+    URL.revokeObjectURL(url);
+    setQuickImages((prev) => prev.filter((i) => i.url !== url));
+  }, []);
+  const clearQuickImages = useCallback(() => {
+    setQuickImages((prev) => {
+      prev.forEach((i) => URL.revokeObjectURL(i.url));
+      return [];
+    });
+  }, []);
+  /** 把随手记里的图片存进这篇笔记的素材目录，返回正文里要追加的片段 */
+  const saveQuickImagesTo = useCallback(
+    async (noteId: number) => {
+      const rels: string[] = [];
+      for (const { file } of quickImages) {
+        const ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg");
+        rels.push(await imageApi.save(noteId, file.name || `image.${ext}`, await fileToBase64(file)));
+      }
+      return quickImagesHtml(rels);
+    },
+    [quickImages],
+  );
+  const quickHasContent = quickNote.trim() !== "" || quickImages.length > 0;
+
+  // ─── 随手记：记到今天的日记 ────────────────────────
   const handleQuickSaveNote = useCallback(async () => {
     const text = quickNote.trim();
-    if (!text) return;
+    if (!text && quickImages.length === 0) return;
     setQuickNoteSaving(true);
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayYmd();
       const daily = await dailyApi.getOrCreate(today);
       const now = new Date();
       const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
       // 用时间戳前缀分隔多条快速记录,内容追加到 content 末尾(content 是 HTML)
-      const appendBlock = `<p><strong>[${hhmm}]</strong> ${text.replace(/\n/g, "<br>")}</p>`;
+      const appendBlock =
+        `<p><strong>[${hhmm}]</strong>${text ? " " + escapeHtml(text).replace(/\n/g, "<br>") : ""}</p>` +
+        (await saveQuickImagesTo(daily.id));
       const newContent = (daily.content || "") + appendBlock;
       await noteApi.update(daily.id, {
         title: daily.title,
         content: newContent,
         folder_id: daily.folder_id,
       });
-      message.success("已写入当天日记");
+      message.success("已记到今天的日记");
       setQuickNote("");
-      // 也刷新最近文档列表(daily 会出现在最近)
+      clearQuickImages();
       loadDashboard();
+      useAppStore.getState().bumpNotesRefresh();
     } catch (e) {
       message.error(`保存失败: ${e}`);
     } finally {
       setQuickNoteSaving(false);
     }
-  }, [quickNote, message, loadDashboard]);
+  }, [quickNote, quickImages.length, message, loadDashboard, saveQuickImagesTo, clearQuickImages]);
+
+  // ─── 随手记：存为新笔记（第一行当标题） ─────────────
+  const handleQuickSaveAsNote = useCallback(async () => {
+    const text = quickNote.trim();
+    if (!text && quickImages.length === 0) return;
+    setQuickNoteSaving(true);
+    try {
+      const { title, content } = text
+        ? quickTextToNote(text)
+        : { title: `随手记 ${todayYmd()}`, content: "" };
+      const note = await noteApi.create({ title, content, folder_id: null });
+      // 图片要存在这篇笔记的目录下，所以先建笔记、再存图、再补进正文
+      if (quickImages.length > 0) {
+        const imagesHtml = await saveQuickImagesTo(note.id);
+        await noteApi.update(note.id, { title, content: content + imagesHtml, folder_id: null });
+      }
+      message.success(`已存为新笔记「${title}」`);
+      setQuickNote("");
+      clearQuickImages();
+      loadDashboard();
+      useAppStore.getState().bumpNotesRefresh();
+    } catch (e) {
+      message.error(`保存失败: ${e}`);
+    } finally {
+      setQuickNoteSaving(false);
+    }
+  }, [quickNote, quickImages.length, message, loadDashboard, saveQuickImagesTo, clearQuickImages]);
+
+  // ─── 待办卡顶部快速添加：默认今天到期 ───────────────
+  const handleQuickAddTodo = useCallback(async () => {
+    const title = quickTodo.trim();
+    if (!title) return;
+    setQuickTodoSaving(true);
+    try {
+      await taskApi.create({ title, due_date: `${todayYmd()} 00:00:00` });
+      setQuickTodo("");
+      setTodoTab("today");
+      refreshTaskStats();
+      loadDashboard();
+    } catch (e) {
+      message.error(`添加待办失败: ${e}`);
+    } finally {
+      setQuickTodoSaving(false);
+    }
+  }, [quickTodo, message, refreshTaskStats, loadDashboard]);
+
+  // ─── 热力图：点某天列出当天写过的笔记 ─────────────────
+  const handleSelectDay = useCallback(
+    (date: string, el: HTMLElement) => {
+      setDayPick({ date, rect: el.getBoundingClientRect() });
+      setDayNotes(null);
+      systemApi
+        .listNotesWrittenOn(date)
+        .then(setDayNotes)
+        .catch((e) => {
+          setDayPick(null);
+          message.error(`读取 ${date} 的笔记失败: ${e}`);
+        });
+    },
+    [message],
+  );
 
   // ─── 完成 / 切换待办状态 ──────────────────────────
   const handleToggleTask = useCallback(
@@ -322,7 +506,7 @@ function DesktopHomePage() {
     [message, refreshTaskStats, loadDashboard],
   );
 
-  /** 同时 patch todayTasks 和 upcomingTasks（一个任务可能在任一段里） */
+  /** 同时 patch todayTasks / upcomingTasks / noDueTasks */
   const patchTask = useCallback((id: number, patch: Partial<Task>) => {
     setTodayTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
@@ -330,9 +514,12 @@ function DesktopHomePage() {
     setUpcomingTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
     );
+    setNoDueTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+    );
   }, []);
 
-  // ─── 右键菜单（最近文档 + 今日待办两个 widget） ─────
+  // ─── 右键菜单（笔记 + 待办两个 widget） ─────────────
   const noteCtx = useContextMenu<Note>();
   const taskCtx = useContextMenu<Task>();
 
@@ -342,7 +529,7 @@ function DesktopHomePage() {
     return [
       {
         key: "open",
-        label: "打开文档",
+        label: "打开笔记",
         icon: <ExternalLink size={13} />,
         onClick: () => {
           noteCtx.close();
@@ -445,8 +632,6 @@ function DesktopHomePage() {
   }, [taskCtx.state.payload]);
 
   // ─── 问 AI 直接发送 ───────────────────────────────
-  // 新建会话后通过 location.state 把 pendingPrompt 传给 AI 页,
-  // AI 页的 effect 会自动 setActiveConvId + 发送
   const handleAskAi = useCallback(async () => {
     const q = aiQuestion.trim();
     if (!q) return;
@@ -463,15 +648,15 @@ function DesktopHomePage() {
 
   // ─── 派生指标(纯前端从 trend 计算) ────────────────
   const vitalityMetrics = useMemo(() => {
-    // trend 是按日期升序,只含有文档的日期
-    const todayStr = new Date().toISOString().slice(0, 10);
+    // trend 是按日期升序,只含有笔记的日期（后端已含日记、排除外部索引）
+    const todayStr = localYmd(new Date());
     const trendByDate = new Map(trend.map((d) => [d.date, d]));
 
     // 连续写作天数:从今天往前数,直到某天没写作
     let streak = 0;
     const cursor = new Date();
     for (let i = 0; i < 365; i++) {
-      const ymd = cursor.toISOString().slice(0, 10);
+      const ymd = localYmd(cursor);
       const d = trendByDate.get(ymd);
       if (d && d.word_count > 0) {
         streak++;
@@ -486,8 +671,8 @@ function DesktopHomePage() {
       }
     }
 
-    // 距上次写作:用最近文档 updated_at
-    const lastWritingAt = recentNotes[0]?.updated_at ?? pinnedNotes[0]?.updated_at;
+    // 距上次写作:用后端 last_written_at（含日记、排除导入）
+    const lastWritingAt = stats?.last_written_at ?? undefined;
     const lastSinceLabel = lastWritingAt ? relativeTime(lastWritingAt) : "—";
 
     // 本周字数(最近 7 天) + 上周字数(8-14 天)对比
@@ -497,7 +682,7 @@ function DesktopHomePage() {
     for (let i = 0; i < 14; i++) {
       const d = new Date(now);
       d.setDate(now.getDate() - i);
-      const ymd = d.toISOString().slice(0, 10);
+      const ymd = localYmd(d);
       const stat = trendByDate.get(ymd);
       if (!stat) continue;
       if (i < 7) thisWeek += stat.word_count;
@@ -517,24 +702,9 @@ function DesktopHomePage() {
       todayStr,
       trendByDate,
     };
-  }, [trend, stats, recentNotes, pinnedNotes]);
+  }, [trend, stats]);
 
-  // 14 天柱状图的 normalize
-  const trendBars = useMemo(() => {
-    const now = new Date();
-    const items: { date: string; words: number }[] = [];
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(now.getDate() - i);
-      const ymd = d.toISOString().slice(0, 10);
-      const stat = vitalityMetrics.trendByDate.get(ymd);
-      items.push({ date: ymd, words: stat?.word_count ?? 0 });
-    }
-    const maxW = Math.max(...items.map((i) => i.words), 1);
-    return items.map((it) => ({ ...it, ratio: it.words / maxW }));
-  }, [vitalityMetrics]);
-
-  // 待办速览三段：逾期（昨天及更早）/ 今日 / 即将到期。每段最多 5 条
+  // 待办速览四段：逾期（昨天及更早）/ 今日 / 即将到期 / 无截止日期
   const todoGroups = useMemo(() => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -547,838 +717,778 @@ function DesktopHomePage() {
       else today.push(t);
     }
     return {
-      overdue: overdue.slice(0, 5),
+      overdue: overdue.slice(0, todoRows),
       overdueTotal: overdue.length,
-      today: today.slice(0, 5),
+      today: today.slice(0, todoRows),
       todayTotal: today.length,
-      upcoming: upcomingTasks.slice(0, 5),
+      upcoming: upcomingTasks.slice(0, todoRows),
       upcomingTotal: upcomingTasks.length,
+      noDue: noDueTasks.slice(0, todoRows),
+      noDueTotal: noDueTasks.length,
     };
-  }, [todayTasks, upcomingTasks]);
-  const totalTodoCount = todoGroups.overdueTotal + todoGroups.todayTotal + todoGroups.upcomingTotal;
-  const displayedRecent = useMemo(() => recentNotes.slice(0, 5), [recentNotes]);
+  }, [todayTasks, upcomingTasks, noDueTasks, todoRows]);
+  const totalTodoCount =
+    todoGroups.overdueTotal +
+    todoGroups.todayTotal +
+    todoGroups.upcomingTotal +
+    todoGroups.noDueTotal;
+  const displayedRecent = useMemo(() => recentNotes.slice(0, noteRows), [recentNotes, noteRows]);
 
-  // ─── 渲染 ─────────────────────────────────────────
+  // 全局隐私模式快捷键（Ctrl/⌘+Shift+H）
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "h"
+      ) {
+        e.preventDefault();
+        useHomeWidgetsStore.getState().togglePrivacyMode();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const todayWords =
+    vitalityMetrics.trendByDate.get(vitalityMetrics.todayStr)?.word_count ?? 0;
+
+  // ─── 各 widget 的内容 ──────────────────────────────
+  const renderQuickNote = () => (
+    // flex 纵向布局：输入区在上，底栏按钮用 margin-top:auto 始终贴内容框右下角
+    <div style={{ height: "100%", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+      <Input.TextArea
+        variant="borderless"
+        className="kb-quick-input"
+        rows={2}
+        placeholder="想到什么先记下来…"
+        value={quickNote}
+        onChange={(e) => setQuickNote(e.target.value)}
+        // 粘贴截图 / 图片：进下面的缩略图条，保存时存进目标笔记；图文混合时文字照常粘进来
+        onPaste={(e) => {
+          const files = imageFilesFrom(e.clipboardData);
+          if (files.length === 0) return;
+          if (!e.clipboardData.getData("text/plain").trim()) e.preventDefault();
+          addQuickImages(files);
+        }}
+        onKeyDown={(e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+            e.preventDefault();
+            if (dailyEnabled) handleQuickSaveNote();
+            else handleQuickSaveAsNote();
+          }
+        }}
+        autoSize={{ minRows: 2, maxRows: 5 }}
+      />
+      {quickImages.length > 0 && (
+        <div className="kb-quick-imgs">
+          {quickImages.map((img) => (
+            <span key={img.url} className="kb-quick-img">
+              <img src={img.url} alt="" />
+              <button type="button" title="移除" onClick={() => removeQuickImage(img.url)}>
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="kb-quick-foot" style={{ marginTop: "auto", flexShrink: 0 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          Ctrl / ⌘ + Enter {dailyEnabled ? "记到今天的日记" : "保存"} · 可粘贴图片
+        </Text>
+        <span className="flex-1" />
+        {quickNote.trim() && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {quickNote.trim().length} 字
+          </Text>
+        )}
+        <MicButton
+          onTranscribed={(text) =>
+            setQuickNote((prev) => (prev ? `${prev}\n${text}` : text))
+          }
+        />
+        <Button
+          type={dailyEnabled ? "default" : "primary"}
+          icon={<FilePlus2 size={14} />}
+          loading={quickNoteSaving}
+          disabled={!quickHasContent}
+          onClick={handleQuickSaveAsNote}
+          title="单独建一篇笔记，第一行作标题"
+        >
+          存为新笔记
+        </Button>
+        {dailyEnabled && (
+          <Button
+            type="primary"
+            icon={<CalendarDays size={14} />}
+            loading={quickNoteSaving}
+            disabled={!quickHasContent}
+            onClick={handleQuickSaveNote}
+            title="带上时间追加到今天的日记末尾"
+          >
+            记到今天的日记
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderTodo = () => {
+    const sections: Array<{ key: TodoTab; items: Task[]; total: number; label: string }> = [
+      { key: "overdue", items: todoGroups.overdue, total: todoGroups.overdueTotal, label: "逾期" },
+      { key: "today", items: todoGroups.today, total: todoGroups.todayTotal, label: "今日" },
+      { key: "upcoming", items: todoGroups.upcoming, total: todoGroups.upcomingTotal, label: "即将到期" },
+      { key: "noDue", items: todoGroups.noDue, total: todoGroups.noDueTotal, label: "无截止日期" },
+    ];
+    const activeKey: TodoTab =
+      todoTab ??
+      (todoGroups.todayTotal > 0
+        ? "today"
+        : (sections.find((s) => s.total > 0)?.key ?? "today"));
+    const active = sections.find((s) => s.key === activeKey)!;
+
+    const renderTaskRow = (task: Task, sectionKey: TodoTab) => {
+      const due = new Date(task.due_date ?? Date.now());
+      const dueMs = due.getTime();
+      const desc = task.description?.trim();
+      const ctxActive = taskCtx.state.payload?.id === task.id;
+      const hasSubtasks = task.subtask_total > 0;
+      const expanded = expandedTodoIds.has(task.id);
+
+      let dueText: string;
+      let dueBad = false;
+      if (sectionKey === "overdue") {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const days = Math.max(1, Math.round((todayStart.getTime() - dueMs) / 86400000));
+        dueText = days === 1 ? "昨天" : `${days} 天前`;
+        dueBad = true;
+      } else if (sectionKey === "today") {
+        const hh = String(due.getHours()).padStart(2, "0");
+        const mm = String(due.getMinutes()).padStart(2, "0");
+        const allDay = hh === "00" && mm === "00";
+        dueText = allDay ? "今天" : `${hh}:${mm}`;
+        dueBad = !allDay && dueMs < Date.now();
+      } else if (sectionKey === "upcoming") {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        dueText = `+${Math.max(1, Math.ceil((dueMs - todayStart.getTime()) / 86400000))} 天`;
+      } else {
+        dueText = "无期限";
+      }
+
+      return (
+        <Fragment key={task.id}>
+          <li
+            className={"kb-hm-td" + (ctxActive ? " is-ctx" : "")}
+            title={desc || undefined}
+            onClick={() => setTaskDetail(task)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              taskCtx.open(e.nativeEvent, task);
+            }}
+          >
+            <button
+              type="button"
+              className="kb-task-ck"
+              aria-label="标记完成"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleTask(task.id);
+              }}
+            />
+            <span className="kb-hm-td-tx">{task.title}</span>
+            {task.important && (
+              <Star size={12} style={{ color: token.colorPrimary, flexShrink: 0 }} fill={token.colorPrimary} />
+            )}
+            {hasSubtasks && (
+              <button
+                type="button"
+                className="kb-hm-badge is-btn"
+                title={expanded ? "折叠子任务" : "展开子任务"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpandedTodoIds((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(task.id)) next.delete(task.id);
+                    else next.add(task.id);
+                    return next;
+                  });
+                }}
+              >
+                <CornerDownRight size={11} />
+                {task.subtask_done}/{task.subtask_total}
+              </button>
+            )}
+            {task.priority === 0 && <span className="kb-hm-badge is-r">紧急</span>}
+            {task.priority === 2 && <span className="kb-hm-badge">低</span>}
+            <span className={"kb-hm-due" + (dueBad ? " is-bad" : "")}>{dueText}</span>
+          </li>
+          {expanded && hasSubtasks && (
+            <li className="kb-hm-sub" onClick={(e) => e.stopPropagation()}>
+              <SubtaskList
+                parentTaskId={task.id}
+                compact
+                onChanged={(done, total) =>
+                  patchTask(task.id, { subtask_done: done, subtask_total: total })
+                }
+              />
+            </li>
+          )}
+        </Fragment>
+      );
+    };
+
+    return (
+      <div ref={todoBodyRef} style={{ height: "100%", overflowY: "auto" }}>
+        <div className="kb-hm-add">
+          <Input
+            variant="borderless"
+            size="small"
+            prefix={<Plus size={14} />}
+            placeholder="添加今天的待办，回车保存"
+            value={quickTodo}
+            disabled={quickTodoSaving}
+            onChange={(e) => setQuickTodo(e.target.value)}
+            onPressEnter={handleQuickAddTodo}
+            onPaste={(e) => {
+              const files = imageFilesFrom(e.clipboardData);
+              if (files.length === 0) return;
+              e.preventDefault();
+              const text = e.clipboardData.getData("text/plain").trim();
+              setTodoPasteDraft({ title: [quickTodo.trim(), text].filter(Boolean).join(" "), files });
+            }}
+          />
+          <NewTodoButton
+            variant="inline"
+            onSaved={() => {
+              loadDashboard();
+              refreshTaskStats();
+            }}
+          />
+        </div>
+        <div className="kb-hm-pills">
+          {sections.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              className={s.key === activeKey ? "is-on" : undefined}
+              onClick={() => setTodoTab(s.key)}
+            >
+              {s.label}
+              <b className={s.key === "overdue" && s.total > 0 ? "is-bad" : undefined}>{s.total}</b>
+            </button>
+          ))}
+        </div>
+        {active.items.length === 0 ? (
+          <div className="kb-hm-empty">
+            {loading ? "加载中…" : totalTodoCount === 0 ? "暂无待办，享受当下 ✨" : `「${active.label}」里没有待办`}
+          </div>
+        ) : (
+          <ul className="kb-hm-list">
+            {active.items.map((t) => renderTaskRow(t, active.key))}
+            {active.total > active.items.length && (
+              <li className="kb-hm-more">
+                <button type="button" onClick={() => navigate("/tasks")}>
+                  + 还有 {active.total - active.items.length} 条…
+                </button>
+              </li>
+            )}
+          </ul>
+        )}
+      </div>
+    );
+  };
+
+  const renderNotes = () => {
+    const list = noteTab === "recent" ? displayedRecent : pinnedNotes.slice(0, noteRows);
+    const tabTotal =
+      noteTab === "recent" ? Math.max(0, notesTotal - pinnedNotes.length) : pinnedNotes.length;
+    const remaining = tabTotal - list.length;
+    if (list.length === 0) {
+      return noteTab === "recent" ? (
+        <EmptyState description={loading ? "加载中…" : "还没有笔记"} />
+      ) : (
+        <div className="kb-hm-empty">在笔记编辑器右上角可置顶</div>
+      );
+    }
+    return (
+      <div ref={notesBodyRef} className="kb-hm-list" role="list" style={{ height: "100%", overflowY: "auto" }}>
+        {list.map((note) => {
+          const ctxActive = noteCtx.state.payload?.id === note.id;
+          return (
+            <div
+              key={note.id}
+              role="listitem"
+              className={"kb-hm-nr" + (ctxActive ? " is-ctx" : "")}
+              title={`${note.title} · ${note.word_count} 字`}
+              onClick={() => navigate(`/notes/${note.id}`)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                noteCtx.open(e.nativeEvent, note);
+              }}
+            >
+              <div className="kb-nr">
+                {noteTab === "pinned" ? (
+                  <Pin size={14} style={{ color: token.colorPrimary, flexShrink: 0 }} />
+                ) : (
+                  <NoteTypeIcon isDaily={note.is_daily} noteType={note.note_type} />
+                )}
+                <Text ellipsis style={{ fontSize: 13.5, flex: 1, minWidth: 0 }}>
+                  {note.title}
+                </Text>
+                <time className="kb-hm-time">{relativeTime(note.updated_at)}</time>
+              </div>
+            </div>
+          );
+        })}
+        {remaining > 0 && (
+          <div className="kb-hm-more">
+            <button type="button" onClick={() => navigate("/notes")}>
+              + 还有 {remaining} 篇…
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderWriting = () => (
+    <div style={{ height: "100%", overflowY: "auto" }}>
+      {/* 统计指标已移到卡片标题栏，正文只留年度热力图 */}
+      <WritingHeatmap trend={trend} onSelectDay={handleSelectDay} />
+      <Popover
+        open={!!dayPick}
+        onOpenChange={(o) => {
+          if (!o) setDayPick(null);
+        }}
+        trigger="click"
+        placement="top"
+        title={dayPick ? `${dayPick.date} 写过的笔记` : ""}
+        content={
+          <div className="kb-day-notes">
+            {!dayNotes ? (
+              <div className="kb-hm-empty">加载中…</div>
+            ) : dayNotes.notes.length === 0 ? (
+              <div className="kb-hm-empty">
+                {dayNotes.hidden_count > 0 ? "这天只编辑过隐藏笔记" : "这天的笔记后来又改过，已算到更晚的日期"}
+              </div>
+            ) : (
+              <ul className="kb-hm-list">
+                {dayNotes.notes.map((n) => (
+                  <li
+                    key={n.id}
+                    className="kb-hm-nr"
+                    onClick={() => {
+                      setDayPick(null);
+                      navigate(`/notes/${n.id}`);
+                    }}
+                  >
+                    <NoteTypeIcon isDaily={n.is_daily} noteType={n.note_type} />
+                    <Text ellipsis style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
+                      {n.title || "无标题"}
+                    </Text>
+                    <time className="kb-hm-time">{n.word_count.toLocaleString()} 字</time>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {dayNotes && dayNotes.hidden_count > 0 && dayNotes.notes.length > 0 && (
+              <div className="kb-day-notes-foot">另有 {dayNotes.hidden_count} 篇隐藏笔记</div>
+            )}
+          </div>
+        }
+      >
+        <span
+          aria-hidden
+          style={{
+            position: "fixed",
+            left: dayPick?.rect.left ?? 0,
+            top: dayPick?.rect.top ?? 0,
+            width: dayPick?.rect.width ?? 0,
+            height: dayPick?.rect.height ?? 0,
+            pointerEvents: "none",
+          }}
+        />
+      </Popover>
+    </div>
+  );
+
+  const renderAi = () => (
+    <div>
+      <Input
+        className="kb-ask-in"
+        placeholder="基于你的笔记回答，回答附出处…"
+        value={aiQuestion}
+        onChange={(e) => setAiQuestion(e.target.value)}
+        onPressEnter={handleAskAi}
+        suffix={
+          <Button
+            type="primary"
+            size="small"
+            className="kb-ask-send"
+            icon={<Send size={13} />}
+            disabled={!aiQuestion.trim()}
+            onClick={handleAskAi}
+          />
+        }
+      />
+      <div className="kb-ask-sugs">
+        {ASK_AI_SUGGESTIONS.map((q) => (
+          <button key={q} type="button" onClick={() => setAiQuestion(q)}>
+            {q}
+          </button>
+        ))}
+      </div>
+      {recentChats.length > 0 ? (
+        <ul className="kb-hm-list kb-ask-chats">
+          {recentChats.map((chat) => (
+            <li key={chat.id} className="kb-hm-nr is-sm" onClick={() => navigate(`/ai?cid=${chat.id}`)}>
+              <MessageCircle size={13} style={{ flexShrink: 0, color: "var(--kb-text-tertiary)" }} />
+              <span className="kb-hm-td-tx">{chat.title || "未命名会话"}</span>
+              <time className="kb-hm-time">{relativeTime(chat.updated_at)}</time>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <Text type="secondary" style={{ fontSize: 11 }}>
+          输入问题回车直接发送,自动新建对话
+        </Text>
+      )}
+    </div>
+  );
+
+  const renderWidgetContent = (id: HomeWidgetId) => {
+    switch (id) {
+      case "quick-note":
+        return renderQuickNote();
+      case "todo":
+        return renderTodo();
+      case "recent":
+        return renderNotes();
+      case "writing-stat":
+        return renderWriting();
+      case "ai":
+        return renderAi();
+      default:
+        return null;
+    }
+  };
+
+  const widgetChrome = (id: HomeWidgetId) => {
+    const w = widgets.find((x) => x.id === id)!;
+    return {
+      collapsed: collapsed[id] ?? false,
+      onToggle: () => toggleCollapse(id),
+      colSpan: w.colSpan,
+      heightLevel: w.heightLevel,
+      onColSpanChange: (s: typeof w.colSpan) => setColSpan(id, s),
+      onHeightChange: (h: typeof w.heightLevel) => setHeight(id, h),
+    };
+  };
+
+  const widgetBodyStyle = (id: HomeWidgetId) => {
+    switch (id) {
+      case "quick-note":
+        return { padding: "8px 16px 10px" };
+      case "todo":
+      case "recent":
+        return { padding: "0 8px 8px" };
+      case "writing-stat":
+        // 指标已进标题栏，正文只剩热力图，上下收紧
+        return { padding: "8px 14px 10px" };
+      case "ai":
+        return { padding: "12px 14px" };
+      default:
+        return undefined;
+    }
+  };
+
+  const renderWidgetHeader = (id: HomeWidgetId) => {
+    switch (id) {
+      case "quick-note":
+        return {
+          title: (
+            <span className="flex items-center gap-2">
+              <span className="kb-cico sm" style={{ color: token.colorPrimary }}>
+                <PencilLine size={14} />
+              </span>
+              <b style={{ fontSize: 14 }}>随手记</b>
+              <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+                {dailyEnabled ? "先记下来，再决定放哪儿" : "第一行作标题，存成一篇新笔记"}
+              </Text>
+            </span>
+          ),
+          extra: dailyEnabled ? (
+            <button type="button" className="kb-lnk kb-quick-daily" onClick={handleTodayNote}>
+              <CalendarDays size={12} />
+              今天的日记 · {todayDailyWords == null ? "未开始" : `${todayDailyWords.toLocaleString()} 字`}
+              <ChevronRight size={12} />
+            </button>
+          ) : undefined,
+        };
+      case "todo":
+        return {
+          title: (
+            <span className="flex items-center gap-2">
+              <CheckSquare size={14} style={{ color: token.colorSuccess }} />
+              待办
+              {totalTodoCount > 0 && <span className="kb-card-n">共 {totalTodoCount} 条</span>}
+            </span>
+          ),
+          extra: (
+            <button type="button" className="kb-lnk" onClick={() => navigate("/tasks")}>
+              全部待办
+              <ChevronRight size={12} />
+            </button>
+          ),
+        };
+      case "recent":
+        return {
+          title: (
+            <span className="flex items-center gap-2">
+              <NotebookText size={14} style={{ color: token.colorPrimary }} />
+              <Segmented
+                size="small"
+                value={noteTab}
+                onChange={(v) => setNoteTab(v as "recent" | "pinned")}
+                options={[
+                  { label: "最近编辑", value: "recent" },
+                  {
+                    label: (
+                      <span className="inline-flex items-center gap-1">
+                        <Pin size={12} />
+                        置顶{pinnedNotes.length > 0 ? ` ${pinnedNotes.length}` : ""}
+                      </span>
+                    ),
+                    value: "pinned",
+                  },
+                ]}
+              />
+              {notesTotal > 0 && <span className="kb-card-n">共 {notesTotal} 篇</span>}
+            </span>
+          ),
+          extra: (
+            <button type="button" className="kb-lnk" onClick={() => navigate("/notes")}>
+              全部笔记
+              <ChevronRight size={12} />
+            </button>
+          ),
+        };
+      case "writing-stat": {
+        const wordsShort =
+          vitalityMetrics.totalWords >= 10000
+            ? (vitalityMetrics.totalWords / 10000).toFixed(1)
+            : vitalityMetrics.totalWords.toLocaleString();
+        const wordsSuffix = vitalityMetrics.totalWords >= 10000 ? "万字" : "字";
+        return {
+          // 指标移到标题栏：正文只留热力图，减少内容框高度占用
+          title: (
+            <span className="kb-write-head">
+              <span className="kb-write-title">
+                <span className="kb-cico sm is-warn">
+                  <Flame size={14} />
+                </span>
+                <b style={{ fontSize: 14 }}>写作活力</b>
+              </span>
+              <span className="kb-write-stats">
+                <HeaderStat value={vitalityMetrics.totalNotes} label="笔记总数" />
+                <HeaderStat
+                  value={wordsShort}
+                  suffix={wordsSuffix}
+                  label="总字数"
+                  title={`${vitalityMetrics.totalWords.toLocaleString()} 字`}
+                />
+                <HeaderStat value={vitalityMetrics.streak} suffix="天" label="连续写作" />
+                <HeaderStat value={vitalityMetrics.lastSinceLabel} label="距上次写作" />
+                <HeaderStat
+                  value={vitalityMetrics.thisWeekWords.toLocaleString()}
+                  suffix="字"
+                  label="本周字数"
+                  extra={
+                    vitalityMetrics.weekDelta != null && (
+                      <span
+                        className="text-[10px]"
+                        style={{
+                          color:
+                            vitalityMetrics.weekDelta >= 0
+                              ? token.colorSuccess
+                              : token.colorError,
+                        }}
+                      >
+                        {vitalityMetrics.weekDelta >= 0 ? "▲" : "▼"}
+                        {Math.abs(vitalityMetrics.weekDelta)}%
+                      </span>
+                    )
+                  }
+                />
+              </span>
+            </span>
+          ),
+          extra: (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              近一年
+            </Text>
+          ),
+        };
+      }
+      case "ai":
+        return {
+          title: (
+            <span className="flex items-center gap-2">
+              <Bot size={14} style={{ color: token.colorPrimary }} />
+              问 AI
+            </span>
+          ),
+          extra: (
+            <button type="button" className="kb-lnk" onClick={() => navigate("/ai")}>
+              所有会话
+              <ChevronRight size={12} />
+            </button>
+          ),
+        };
+      default:
+        return { title: null, extra: undefined };
+    }
+  };
+
   return (
     <div
-      // 外层 wrapper 撑满 Content 区域 —— max-w-5xl 居中后两侧空白属于 Content
-      // 不属于内层 div，事件不会冒泡。把 onContextMenu 放在撑满的 wrapper 上
-      // 才能拦到这部分空白的右键
-      style={{ width: "100%", minHeight: "100%" }}
+      className="kb-home"
+      style={{ width: "100%", minHeight: "100%", display: "flex", flexDirection: "column" }}
       onContextMenu={(e) => {
         const t = e.target as HTMLElement;
         if (t.closest("input, textarea, [contenteditable='true']")) return;
         e.preventDefault();
       }}
     >
-    <div
-      className="max-w-5xl mx-auto"
-      style={{ display: "flex", flexDirection: "column", gap: 12 }}
-    >
-
-      {/* ① 顶部搜索 + 搜索记录
-          搜索：输入即下拉建议（文档 + 待办，点击跳详情），回车在模态窗里看全量结果 */}
-      <div className="flex gap-3" data-tour="home-search">
-        <HomeSearchInput
-          value={searchKeyword}
-          onChange={setSearchKeyword}
-          onPressEnter={handleSearch}
-        />
-        <Button
-          size="large"
-          icon={<Search size={14} style={{ color: "var(--kb-primary)" }} />}
-          onClick={() => setSearchOpen(true)}
-          style={{ borderRadius: 8 }}
-        >
-          搜索记录
-        </Button>
-      </div>
-
-      {/* ② 快速操作工具条 — 按启用模块动态分列
-          新建文档在最前，添加待办用 NewTodoButton 分段按钮(主按钮弹 Modal + ▼ 下拉 AI 规划)
-          某模块在设置里关闭时，对应按钮自动消失，剩余按钮等宽分布 */}
-      {(() => {
-        const quickActions: { key: string; show: boolean; node: React.ReactNode }[] = [
-          {
-            key: "new-note",
-            show: true,
-            node: <NewNoteButton block />,
-          },
-          {
-            key: "todo",
-            show: tasksEnabled,
-            node: (
-              <NewTodoButton
-                block
-                onSaved={() => {
-                  loadDashboard();
-                  refreshTaskStats();
-                }}
-              />
-            ),
-          },
-          {
-            key: "today",
-            show: dailyEnabled,
-            node: (
-              <Button
-                icon={<CalendarDays size={14} style={{ color: token.colorPrimary }} />}
-                onClick={handleTodayNote}
-                block
-                style={{ borderRadius: 8 }}
-              >
-                当天日记
-              </Button>
-            ),
-          },
-          {
-            key: "ai",
-            show: aiEnabled,
-            node: (
-              <Button
-                icon={<Bot size={14} style={{ color: "var(--kb-primary)" }} />}
-                onClick={() => navigate("/ai")}
-                block
-                style={{ borderRadius: 8 }}
-              >
-                AI 问答
-              </Button>
-            ),
-          },
-        ];
-        const visible = quickActions.filter((a) => a.show);
-        if (visible.length === 0) return null;
-        return (
-          <div
-            data-tour="home-quick-actions"
-            style={{
-              display: "grid",
-              gridTemplateColumns: `repeat(${visible.length}, 1fr)`,
-              gap: 12,
-            }}
-          >
-            {visible.map((a) => (
-              <div key={a.key}>{a.node}</div>
-            ))}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+        {/* ① 页头：日期 + 问候 ｜ 搜索 + 新建笔记 + 重置布局 + 隐私模式 */}
+        <div className="kb-home-head">
+          <div className="kb-home-greet">
+            <div className="kb-home-date">{homeDateLabel(new Date())}</div>
+            <h1>
+              {greetingFor(new Date().getHours())}，今天写了{" "}
+              <span className="kb-home-num">{todayWords.toLocaleString()}</span> 字
+            </h1>
           </div>
-        );
-      })()}
+          <div className="kb-home-tools" data-tour="home-search">
+            <div className="kb-home-search">
+              <HomeSearchInput
+                value={searchKeyword}
+                onChange={setSearchKeyword}
+                onPressEnter={handleSearch}
+              />
+            </div>
+            <NewNoteButton size="large" />
+            <AntTooltip title="重置为默认布局" mouseEnterDelay={0.4}>
+              <Button
+                size="large"
+                type="text"
+                className="kb-home-privacy"
+                icon={<RotateCcw size={17} />}
+                onClick={handleResetLayout}
+              />
+            </AntTooltip>
+            <AntTooltip
+              title={privacyMode ? "退出隐私模式 (Ctrl+Shift+H)" : "隐私模式：遮住首页卡片 (Ctrl+Shift+H)"}
+            >
+              <Button
+                size="large"
+                type="text"
+                className={privacyMode ? "kb-home-privacy is-on" : "kb-home-privacy"}
+                icon={privacyMode ? <EyeOff size={17} /> : <Eye size={17} />}
+                onClick={() => useHomeWidgetsStore.getState().togglePrivacyMode()}
+              />
+            </AntTooltip>
+          </div>
+        </div>
 
-      {/* ③-⑧ 可拖拽排序 + 可调宽高的 Widget 区（CSS Grid 12 列） */}
-      <div className="flex items-center justify-end gap-2 -mb-1">
-        <AntTooltip title="重置为默认布局" mouseEnterDelay={0.4}>
-          <Button
-            type="text"
-            size="small"
-            icon={<RotateCcw size={13} />}
-            onClick={handleResetLayout}
-          >
-            <span style={{ fontSize: 12 }}>重置布局</span>
-          </Button>
-        </AntTooltip>
-      </div>
-      <DndContext
-        sensors={dndSensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext
-          items={visibleWidgetIds}
-          strategy={rectSortingStrategy}
+        {/* ②-⑤ 可拖拽排序 + 可调宽高 + 可折叠的 Widget 区 */}
+        <DndContext
+          sensors={dndSensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
         >
-          <div
-            className="grid grid-cols-12 gap-3"
-            style={{ gridAutoRows: `${WIDGET_ROW_HEIGHT}px` }}
-          >
-            {visibleWidgets.map((w) => {
-              const isCollapsed = collapsed[w.id] ?? false;
-              // Tailwind 4 不能扫描动态拼接的类名，必须用静态映射
-              const COL_CLASS: Record<number, string> = {
-                4: "col-span-4",
-                6: "col-span-6",
-                8: "col-span-8",
-                12: "col-span-12",
-              };
-              const colSpanClass = COL_CLASS[COL_SPAN_MAP[w.colSpan]] ?? "col-span-12";
-              // 折叠时只占一行；展开时按高度档位跨行，右侧矮卡片才能上下叠放
-              const rowSpan = isCollapsed ? 1 : ROW_SPAN_MAP[w.heightLevel];
+          <SortableContext items={visibleWidgetIds} strategy={rectSortingStrategy}>
+            <div
+              className="grid grid-cols-12 gap-3"
+              style={{ gridAutoRows: `${WIDGET_ROW_HEIGHT}px` }}
+            >
+              {visibleWidgets.map((w) => {
+                const isCollapsed = collapsed[w.id] ?? false;
+                // Tailwind 4 不能扫描动态拼接的类名，必须用静态映射
+                const COL_CLASS: Record<number, string> = {
+                  4: "col-span-4",
+                  6: "col-span-6",
+                  8: "col-span-8",
+                  12: "col-span-12",
+                };
+                const colSpanClass = COL_CLASS[COL_SPAN_MAP[w.colSpan]] ?? "col-span-12";
+                // 折叠时只占一行；展开时按高度档位跨行
+                const rowSpan = isCollapsed ? 1 : ROW_SPAN_MAP[w.heightLevel];
+                const header = renderWidgetHeader(w.id);
+                const chrome = widgetChrome(w.id);
 
-              const renderContent = (): React.ReactNode => {
-                switch (w.id) {
-                  case "quick-note":
-                    return (
-                      <>
-                        <div className="flex items-center justify-end gap-2 mb-2">
-                          {quickNote.trim() && (
-                            <Text type="secondary" style={{ fontSize: 11 }}>
-                              {quickNote.trim().length} 字
-                            </Text>
-                          )}
-                          <Text type="secondary" style={{ fontSize: 11 }}>
-                            Ctrl/⌘ + ↩
-                          </Text>
-                          <MicButton
-                            onTranscribed={(text) =>
-                              setQuickNote((prev) => (prev ? `${prev}\n${text}` : text))
-                            }
-                          />
-                          <Button
-                            size="small"
-                            type="primary"
-                            ghost
-                            icon={<Check size={13} />}
-                            loading={quickNoteSaving}
-                            disabled={!quickNote.trim()}
-                            onClick={handleQuickSaveNote}
-                          >
-                            保存
-                          </Button>
-                        </div>
-                        <Input.TextArea
-                          rows={2}
-                          placeholder="想到什么先记下来…"
-                          value={quickNote}
-                          onChange={(e) => setQuickNote(e.target.value)}
-                          onKeyDown={(e) => {
-                            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                              e.preventDefault();
-                              handleQuickSaveNote();
-                            }
-                          }}
-                          style={{ borderRadius: 6, fontSize: 13 }}
-                          autoSize={{ minRows: 2, maxRows: 8 }}
-                        />
-                      </>
-                    );
-
-                  case "todo": {
-                    if (totalTodoCount === 0) {
-                      return (
-                        <div className="text-center py-4">
-                          <Text type="secondary" style={{ fontSize: 12 }}>
-                            {loading ? "加载中…" : "暂无待办，享受当下 ✨"}
-                          </Text>
-                        </div>
-                      );
-                    }
-                    const renderTaskRow = (
-                      task: Task,
-                      sectionKey: "overdue" | "today" | "upcoming",
-                    ) => {
-                      const due = new Date(task.due_date!);
-                      const dueMs = due.getTime();
-                      const dotColor =
-                        task.priority === 0
-                          ? token.colorError
-                          : task.priority === 1
-                            ? token.colorPrimary
-                            : token.colorTextTertiary;
-                      const desc = task.description?.trim();
-                      const ctxActive = taskCtx.state.payload?.id === task.id;
-                      const hasSubtasks = task.subtask_total > 0;
-                      const expanded = expandedTodoIds.has(task.id);
-
-                      let dateLabel: React.ReactNode;
-                      if (sectionKey === "overdue") {
-                        const todayStart = new Date();
-                        todayStart.setHours(0, 0, 0, 0);
-                        const days = Math.max(
-                          1,
-                          Math.round((todayStart.getTime() - dueMs) / 86400000),
-                        );
-                        dateLabel = (
-                          <span
-                            className="text-[11px] px-1.5 py-0.5 rounded shrink-0"
-                            style={{
-                              background: `${token.colorError}1a`,
-                              color: token.colorError,
-                            }}
-                          >
-                            {days === 1 ? "昨天" : `${days} 天前`}
-                          </span>
-                        );
-                      } else if (sectionKey === "today") {
-                        const hh = String(due.getHours()).padStart(2, "0");
-                        const mm = String(due.getMinutes()).padStart(2, "0");
-                        const noTime = hh === "00" && mm === "00";
-                        const overdueNow = dueMs < Date.now();
-                        dateLabel = (
-                          <Text
-                            type={overdueNow ? "danger" : "secondary"}
-                            style={{ fontSize: 11, flexShrink: 0 }}
-                          >
-                            {noTime ? "今天" : `${hh}:${mm}`}
-                          </Text>
-                        );
-                      } else {
-                        const todayStart = new Date();
-                        todayStart.setHours(0, 0, 0, 0);
-                        const days = Math.max(
-                          1,
-                          Math.ceil((dueMs - todayStart.getTime()) / 86400000),
-                        );
-                        dateLabel = (
-                          <Text
-                            type="secondary"
-                            style={{ fontSize: 11, flexShrink: 0 }}
-                          >
-                            +{days} 天
-                          </Text>
-                        );
-                      }
-
-                      return (
-                        <Fragment key={task.id}>
-                          <li
-                            className="flex items-start gap-2.5"
-                            style={{
-                              padding: "4px 6px",
-                              borderRadius: 4,
-                              background: ctxActive ? token.colorPrimaryBg : "transparent",
-                              transition: "background .12s",
-                            }}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              taskCtx.open(e.nativeEvent, task);
-                            }}
-                          >
-                            {hasSubtasks ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpandedTodoIds((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.has(task.id)) next.delete(task.id);
-                                    else next.add(task.id);
-                                    return next;
-                                  });
-                                }}
-                                className="flex items-center justify-center hover:bg-black/5 rounded transition cursor-pointer"
-                                style={{
-                                  width: 16,
-                                  height: 16,
-                                  marginTop: 3,
-                                  flexShrink: 0,
-                                  color: token.colorTextTertiary,
-                                }}
-                                title={expanded ? "折叠子任务" : "展开子任务"}
-                              >
-                                {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                              </button>
-                            ) : (
-                              <span style={{ width: 16, flexShrink: 0 }} />
-                            )}
-                            <input
-                              type="checkbox"
-                              onChange={() => handleToggleTask(task.id)}
-                              onClick={(e) => e.stopPropagation()}
-                              style={{ cursor: "pointer", flexShrink: 0, marginTop: 4 }}
-                            />
-                            <span
-                              style={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: "50%",
-                                background: dotColor,
-                                flexShrink: 0,
-                                marginTop: 7,
-                              }}
-                            />
-                            <div
-                              className="flex-1 min-w-0 cursor-pointer"
-                              onClick={() => setTaskDetail(task)}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <Text
-                                  ellipsis
-                                  style={{ fontSize: 13, flex: 1, minWidth: 0 }}
-                                >
-                                  {task.title}
-                                </Text>
-                                {task.important && (
-                                  <Star
-                                    size={11}
-                                    style={{ color: token.colorWarning, flexShrink: 0 }}
-                                    fill={token.colorWarning}
-                                  />
-                                )}
-                                {dateLabel}
-                              </div>
-                              <Text
-                                type="secondary"
-                                ellipsis
-                                style={{ fontSize: 11, display: "block", minHeight: 16 }}
-                              >
-                                {desc || "\u00A0"}
-                              </Text>
-                            </div>
-                          </li>
-                          {expanded && hasSubtasks && (
-                            <li
-                              className="list-none"
-                              style={{
-                                padding: "6px 10px 8px 38px",
-                                background: token.colorFillQuaternary,
-                                borderRadius: 4,
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <SubtaskList
-                                parentTaskId={task.id}
-                                compact
-                                onChanged={(done, total) =>
-                                  patchTask(task.id, {
-                                    subtask_done: done,
-                                    subtask_total: total,
-                                  })
-                                }
-                              />
-                            </li>
-                          )}
-                        </Fragment>
-                      );
-                    };
-
-                    const sections: Array<{
-                      key: "overdue" | "today" | "upcoming";
-                      items: Task[];
-                      total: number;
-                      label: string;
-                      icon: React.ReactNode;
-                      color: string;
-                    }> = [
-                      {
-                        key: "overdue",
-                        items: todoGroups.overdue,
-                        total: todoGroups.overdueTotal,
-                        label: "逾期",
-                        icon: <AlertTriangle size={11} />,
-                        color: token.colorError,
-                      },
-                      {
-                        key: "today",
-                        items: todoGroups.today,
-                        total: todoGroups.todayTotal,
-                        label: "今日",
-                        icon: <CalendarDays size={11} />,
-                        color: token.colorPrimary,
-                      },
-                      {
-                        key: "upcoming",
-                        items: todoGroups.upcoming,
-                        total: todoGroups.upcomingTotal,
-                        label: "即将到期(7 天内)",
-                        icon: <Clock size={11} />,
-                        color: token.colorTextSecondary,
-                      },
-                    ];
-
-                    return (
-                      <div className="flex flex-col gap-3" style={{ overflowY: "auto" }}>
-                        {sections
-                          .filter((s) => s.items.length > 0)
-                          .map((s) => (
-                            <div key={s.key} className="flex flex-col gap-1">
-                              <div
-                                className="flex items-center gap-1.5"
-                                style={{
-                                  fontSize: 11,
-                                  color: s.color,
-                                  fontWeight: 600,
-                                }}
-                              >
-                                {s.icon}
-                                <span>{s.label}</span>
-                                <Text
-                                  type="secondary"
-                                  style={{ fontSize: 11, fontWeight: 400 }}
-                                >
-                                  · {s.total}
-                                </Text>
-                              </div>
-                              <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
-                                {s.items.map((t) => renderTaskRow(t, s.key))}
-                              </ul>
-                              {s.total > s.items.length && (
-                                <Button
-                                  type="link"
-                                  size="small"
-                                  onClick={() => navigate("/tasks")}
-                                  style={{
-                                    padding: 0,
-                                    fontSize: 11,
-                                    alignSelf: "flex-start",
-                                    marginLeft: 24,
-                                  }}
-                                >
-                                  + 还有 {s.total - s.items.length} 条…
-                                </Button>
-                              )}
-                            </div>
-                          ))}
-                      </div>
-                    );
-                  }
-
-                  case "recent": {
-                    if (displayedRecent.length === 0) {
-                      return (
-                        <EmptyState description={loading ? "加载中…" : "还没有文档"} />
-                      );
-                    }
-                    return (
-                      <ul className="flex flex-col gap-2 m-0 p-0 list-none" style={{ overflowY: "auto" }}>
-                        {displayedRecent.map((note) => {
-                          const ctxActive = noteCtx.state.payload?.id === note.id;
-                          return (
-                            <li
-                              key={note.id}
-                              className="cursor-pointer"
-                              style={{
-                                padding: "4px 6px",
-                                borderRadius: 4,
-                                background: ctxActive ? token.colorPrimaryBg : "transparent",
-                                transition: "background .12s",
-                              }}
-                              onClick={() => navigate(`/notes/${note.id}`)}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                noteCtx.open(e.nativeEvent, note);
-                              }}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                {note.is_daily && (
-                                  <Tag
-                                    color="blue"
-                                    style={{ fontSize: 10, lineHeight: "14px", padding: "0 4px", margin: 0 }}
-                                  >
-                                    日记
-                                  </Tag>
-                                )}
-                                <Text ellipsis style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
-                                  {note.title}
-                                </Text>
-                              </div>
-                              <Text
-                                type="secondary"
-                                style={{ fontSize: 11, display: "block", minHeight: 16 }}
-                              >
-                                {relativeTime(note.updated_at)} · {note.word_count} 字
-                              </Text>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    );
-                  }
-
-                  case "pinned":
-                    if (pinnedNotes.length === 0) {
-                      return (
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          在文档编辑器右上角可置顶
-                        </Text>
-                      );
-                    }
-                    return (
-                      <ul className="flex flex-col gap-1.5 m-0 p-0 list-none" style={{ overflowY: "auto" }}>
-                        {pinnedNotes.map((note) => (
-                          <li
-                            key={note.id}
-                            className="flex items-center gap-2 cursor-pointer"
-                            onClick={() => navigate(`/notes/${note.id}`)}
-                            style={{ padding: "2px 0" }}
-                          >
-                            <Pin size={11} style={{ color: token.colorWarning, flexShrink: 0 }} />
-                            <Text ellipsis style={{ fontSize: 13, flex: 1, minWidth: 0 }}>
-                              {note.title}
-                            </Text>
-                            <Text type="secondary" style={{ fontSize: 10, flexShrink: 0 }}>
-                              {relativeTime(note.updated_at)}
-                            </Text>
-                          </li>
-                        ))}
-                      </ul>
-                    );
-
-                  case "ai":
-                    return (
-                      <>
-                        <Input
-                          placeholder="例如:总结我本周写的内容…"
-                          value={aiQuestion}
-                          onChange={(e) => setAiQuestion(e.target.value)}
-                          onPressEnter={handleAskAi}
-                          suffix={
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<Send size={12} />}
-                              disabled={!aiQuestion.trim()}
-                              onClick={handleAskAi}
-                              style={{ color: aiQuestion.trim() ? "var(--kb-primary)" : undefined }}
-                            />
-                          }
-                          style={{ borderRadius: 6, marginBottom: 8 }}
-                        />
-                        {recentChats.length > 0 ? (
-                          <>
-                            <Text type="secondary" style={{ fontSize: 11 }}>
-                              最近会话
-                            </Text>
-                            <ul className="flex flex-col gap-1 mt-1 m-0 p-0 list-none" style={{ overflowY: "auto" }}>
-                              {recentChats.map((chat) => (
-                                <li
-                                  key={chat.id}
-                                  className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition"
-                                  onClick={() => navigate(`/ai?cid=${chat.id}`)}
-                                  style={{ fontSize: 12 }}
-                                >
-                                  <MessageCircle size={11} style={{ flexShrink: 0, opacity: 0.6 }} />
-                                  <Text ellipsis style={{ fontSize: 12, flex: 1, minWidth: 0 }}>
-                                    {chat.title || "未命名会话"}
-                                  </Text>
-                                </li>
-                              ))}
-                            </ul>
-                          </>
-                        ) : (
-                          <Text type="secondary" style={{ fontSize: 11 }}>
-                            输入问题回车直接发送,自动新建对话
-                          </Text>
-                        )}
-                      </>
-                    );
-
-                  case "writing-stat":
-                    return (
-                      <div className="flex flex-col gap-4 h-full">
-                        {/* 上排：指标 4 项，文档总数+总字数 | 距上次+本周字数 */}
-                        <div className="flex items-center gap-6 flex-wrap">
-                          <MetricItem
-                            icon={<NotebookText size={16} style={{ color: token.colorPrimary }} />}
-                            iconBg={`${token.colorPrimary}15`}
-                            value={vitalityMetrics.totalNotes}
-                            label="文档总数"
-                            compact
-                          />
-                          <MetricItem
-                            icon={<Type size={16} style={{ color: "var(--kb-primary)" }} />}
-                            iconBg="var(--kb-primary-light)"
-                            value={vitalityMetrics.totalWords.toLocaleString()}
-                            label="总字数"
-                            isText
-                            compact
-                          />
-                          <MetricItem
-                            icon={<Clock size={16} style={{ color: "var(--kb-primary)" }} />}
-                            iconBg="var(--kb-primary-light)"
-                            value={vitalityMetrics.lastSinceLabel}
-                            label="距上次写作"
-                            isText
-                            compact
-                          />
-                          <MetricItem
-                            icon={<TrendingUp size={16} style={{ color: token.colorSuccess }} />}
-                            iconBg={`${token.colorSuccess}1a`}
-                            value={vitalityMetrics.thisWeekWords.toLocaleString()}
-                            label="本周字数"
-                            compact
-                            extra={
-                              vitalityMetrics.weekDelta != null && (
-                                <span
-                                  className="text-[11px]"
-                                  style={{
-                                    color:
-                                      vitalityMetrics.weekDelta >= 0
-                                        ? token.colorSuccess
-                                        : token.colorError,
-                                  }}
-                                >
-                                  {vitalityMetrics.weekDelta >= 0 ? "▲" : "▼"} {Math.abs(vitalityMetrics.weekDelta)}%
-                                </span>
-                              )
-                            }
-                          />
-                        </div>
-                        {/* 底部：统计图 */}
-                        <div
-                          className="pt-3"
-                          style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }}
-                        >
-                          <div className="flex items-end gap-0.5" style={{ height: 48 }}>
-                            {trendBars.map((bar) => (
-                              <AntTooltip key={bar.date} title={`${bar.date} · ${bar.words} 字`}>
-                                <div
-                                  className="flex-1 rounded-sm transition-colors"
-                                  style={{
-                                    height: `${Math.max(bar.ratio * 100, 4)}%`,
-                                    background: bar.words > 0
-                                      ? `linear-gradient(to top, ${token.colorPrimary}, ${token.colorPrimary}cc)`
-                                      : token.colorBorderSecondary,
-                                    opacity: bar.words > 0 ? 0.6 + bar.ratio * 0.4 : 0.4,
-                                    cursor: "pointer",
-                                  }}
-                                />
-                              </AntTooltip>
-                            ))}
-                          </div>
-                          <div
-                            className="flex justify-between mt-1"
-                            style={{ fontSize: 10, color: token.colorTextQuaternary }}
-                          >
-                            <span>{trendBars[0]?.date.slice(5) ?? ""}</span>
-                            <span>{trendBars[7]?.date.slice(5) ?? "7 天前"}</span>
-                            <span>今天</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-
-                  default:
-                    return null;
-                }
-              };
-
-              const widgetMeta: Record<
-                HomeWidgetId,
-                { title: string; icon: React.ReactNode; extra?: React.ReactNode }
-              > = {
-                "quick-note": {
-                  title: "快速记一笔",
-                  icon: <PencilLine size={14} style={{ color: token.colorPrimary }} />,
-                  extra: (
-                    <Button
-                      type="link"
-                      size="small"
-                      onClick={() => void handleTodayNote()}
-                      title="打开今天的日记"
-                      style={{ padding: 0, fontSize: 11 }}
-                    >
-                      追加到「日记」
-                    </Button>
-                  ),
-                },
-                todo: {
-                  title: "待办速览",
-                  icon: <CheckSquare size={14} style={{ color: token.colorSuccess }} />,
-                  extra: (
-                    <Button
-                      type="link"
-                      size="small"
-                      onClick={() => navigate("/tasks")}
-                      style={{ padding: 0, fontSize: 12 }}
-                    >
-                      全部 <ArrowRight size={11} />
-                    </Button>
-                  ),
-                },
-                recent: {
-                  title: "最近文档",
-                  icon: <NotebookText size={14} style={{ color: token.colorPrimary }} />,
-                  extra: (
-                    <Button
-                      type="link"
-                      size="small"
-                      onClick={() => navigate("/notes")}
-                      style={{ padding: 0, fontSize: 12 }}
-                    >
-                      更多 <ArrowRight size={11} />
-                    </Button>
-                  ),
-                },
-                pinned: {
-                  title: "置顶文档",
-                  icon: <Pin size={14} style={{ color: token.colorWarning }} />,
-                },
-                ai: {
-                  title: "问 AI",
-                  icon: <Bot size={14} style={{ color: "var(--kb-primary)" }} />,
-                  extra: (
-                    <Button
-                      type="link"
-                      size="small"
-                      onClick={() => navigate("/ai")}
-                      style={{ padding: 0, fontSize: 12 }}
-                    >
-                      所有会话 <ArrowRight size={11} />
-                    </Button>
-                  ),
-                },
-                "writing-stat": {
-                  title: "写作活力",
-                  icon: <Sparkles size={14} style={{ color: "var(--kb-accent)" }} />,
-                  extra: (
-                    <Text type="secondary" style={{ fontSize: 11 }}>
-                      近 14 天
-                    </Text>
-                  ),
-                },
-              };
-
-              const meta = widgetMeta[w.id];
-
-              return (
-                <div
-                  key={w.id}
-                  className={colSpanClass}
-                  data-tour={`home-widget-${w.id}`}
-                  style={{ gridRow: `span ${rowSpan}` }}
-                >
-                  <SortableWidget id={w.id}>
-                    {({ dragHandleProps }) => (
-                      <div
-                        style={{
-                          height: isCollapsed ? undefined : "100%",
-                          display: "flex",
-                          flexDirection: "column",
-                        }}
-                      >
+                return (
+                  <div
+                    key={w.id}
+                    className={colSpanClass}
+                    data-tour={`home-widget-${w.id}`}
+                    style={{ gridRow: `span ${rowSpan}` }}
+                  >
+                    <SortableWidget id={w.id}>
+                      {({ dragHandleProps }) => (
                         <HomeWidget
                           id={w.id}
-                          title={meta.title}
-                          icon={meta.icon}
-                          collapsed={isCollapsed}
-                          onToggle={() => toggleCollapse(w.id)}
+                          title={header.title}
+                          extra={header.extra}
+                          bodyStyle={widgetBodyStyle(w.id)}
                           dragHandleProps={dragHandleProps}
-                          extra={meta.extra}
-                          colSpan={w.colSpan}
-                          heightLevel={w.heightLevel}
-                          onColSpanChange={(s) => setColSpan(w.id, s)}
-                          onHeightChange={(h) => setHeight(w.id, h)}
+                          collapsed={chrome.collapsed}
+                          onToggle={chrome.onToggle}
+                          colSpan={chrome.colSpan}
+                          heightLevel={chrome.heightLevel}
+                          onColSpanChange={chrome.onColSpanChange}
+                          onHeightChange={chrome.onHeightChange}
                         >
-                          <div style={{ height: "100%", overflowY: "auto" }}>
-                            {renderContent()}
-                          </div>
+                          {renderWidgetContent(w.id)}
                         </HomeWidget>
-                      </div>
-                    )}
-                  </SortableWidget>
-                </div>
-              );
-            })}
-          </div>
-        </SortableContext>
-      </DndContext>
+                      )}
+                    </SortableWidget>
+                  </div>
+                );
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
+      </div>
 
-
-      {/* 搜索模态窗：所有首页搜索入口都落到这里 */}
-      <SearchModal
-        open={searchOpen}
-        initialQuery={searchKeyword}
-        onClose={() => setSearchOpen(false)}
-      />
-
-      {/* 待办详情弹窗 — 点击今日待办列表项触发；只读视图 + 标记完成 + 子任务 + 编辑入口 */}
+      {/* 待办详情弹窗 — 只读视图 + 标记完成 + 子任务 + 编辑入口 */}
       <TaskDetailModal
         task={taskDetail}
         onClose={() => setTaskDetail(null)}
         onToggleStatus={(id) => void handleToggleTask(id)}
         onSubtaskChanged={(id, done, total) => {
-          // 局部 patch（同时覆盖 today / upcoming），避免重拉造成闪烁
           patchTask(id, { subtask_done: done, subtask_total: total });
         }}
         onEdit={(t) => setEditingTask(t)}
+      />
+      {/* 待办快速添加里粘了截图 → 完整新建弹窗（截图已在附件条里） */}
+      <CreateTaskModal
+        open={!!todoPasteDraft}
+        presetTitle={todoPasteDraft?.title}
+        presetFiles={todoPasteDraft?.files}
+        presetDueDate={todayYmd()}
+        onClose={() => setTodoPasteDraft(null)}
+        onSaved={() => {
+          setTodoPasteDraft(null);
+          setQuickTodo("");
+          setTodoTab("today");
+          refreshTaskStats();
+          void loadDashboard();
+        }}
       />
       {/* 详情 Modal 点「编辑」→ CreateTaskModal 编辑态；保存后重拉首页数据 */}
       <CreateTaskModal
@@ -1398,7 +1508,7 @@ function DesktopHomePage() {
         }}
       />
 
-      {/* 最近文档右键菜单 */}
+      {/* 最近笔记右键菜单 */}
       <ContextMenuOverlay
         open={!!noteCtx.state.payload}
         x={noteCtx.state.x}
@@ -1416,75 +1526,33 @@ function DesktopHomePage() {
         onClose={taskCtx.close}
       />
     </div>
-    </div>
   );
 }
 
-/** 写作活力卡内的单指标小项 */
-function MetricItem({
-  icon,
-  iconBg,
+/** 写作活力：标题栏里的紧凑指标（数字 + 小字说明） */
+function HeaderStat({
   value,
-  valueSuffix,
+  suffix,
   label,
   extra,
-  isText,
-  compact,
+  title,
 }: {
-  icon: React.ReactNode;
-  iconBg: string;
-  value: number | string;
-  valueSuffix?: string;
+  value: React.ReactNode;
+  suffix?: string;
   label: string;
   extra?: React.ReactNode;
-  isText?: boolean;
-  compact?: boolean;
+  /** 悬停提示：数字被换算（如「万字」）时放原值 */
+  title?: string;
 }) {
-  if (compact) {
-    return (
-      <div className="flex flex-col gap-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <div
-            className="flex items-center justify-center rounded-md shrink-0"
-            style={{ width: 22, height: 22, background: iconBg }}
-          >
-            {icon}
-          </div>
-          <span
-            className="font-semibold leading-tight"
-            style={{ fontSize: isText ? 13 : 16 }}
-          >
-            {value}
-            {valueSuffix && (
-              <span className="text-[11px] opacity-50 font-normal ml-0.5">{valueSuffix}</span>
-            )}
-            {extra && <span className="ml-1">{extra}</span>}
-          </span>
-        </div>
-        <div className="text-[11px] opacity-60 pl-[30px]">{label}</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex items-center gap-2.5">
-      <div
-        className="flex items-center justify-center rounded-lg shrink-0"
-        style={{ width: 36, height: 36, background: iconBg }}
-      >
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <div className="text-base font-semibold leading-tight" style={{ fontSize: isText ? 14 : 18 }}>
-          {value}
-          {valueSuffix && (
-            <span className="text-xs text-slate-400 font-normal ml-0.5">{valueSuffix}</span>
-          )}
-          {extra && <span className="ml-1.5">{extra}</span>}
-        </div>
-        <div className="text-[11px] text-slate-500">{label}</div>
-      </div>
-    </div>
+    <span className="kb-write-stat" title={title}>
+      <span className="kb-write-stat-v">
+        {value}
+        {suffix && <small>{suffix}</small>}
+        {extra && <span className="ml-1">{extra}</span>}
+      </span>
+      <span className="kb-write-stat-l">{label}</span>
+    </span>
   );
 }
 
